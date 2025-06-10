@@ -22,6 +22,7 @@ import AlumniProfile from './components/Directory/AlumniProfile';
 import Events from './components/Events/Events';
 import EventDetails from './components/Events/EventDetails';
 import CreateEvent from './components/Events/CreateEvent';
+import EventCalendar from './components/Events/EventCalendar';
 import Jobs from './components/Jobs/Jobs';
 import JobDetails from './components/Jobs/JobDetails';
 import PostJob from './components/Jobs/PostJob';
