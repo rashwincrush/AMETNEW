@@ -91,6 +91,7 @@ function App() {
                   <Route path="/events/:id" element={<EventDetails />} />
                   <Route path="/events/create" element={<CreateEvent />} />
                   <Route path="/jobs" element={<Jobs />} />
+                  <Route path="/jobs/alerts" element={<JobAlerts />} />
                   <Route path="/jobs/:id" element={<JobDetails />} />
                   <Route path="/jobs/post" element={<PostJob />} />
                   <Route path="/mentorship" element={<Mentorship />} />
