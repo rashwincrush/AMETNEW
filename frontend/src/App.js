@@ -86,6 +86,7 @@ function App() {
                   <Route path="/directory" element={<AlumniDirectory />} />
                   <Route path="/directory/:id" element={<AlumniProfile />} />
                   <Route path="/events" element={<Events />} />
+                  <Route path="/events/calendar" element={<EventCalendar />} />
                   <Route path="/events/:id" element={<EventDetails />} />
                   <Route path="/events/create" element={<CreateEvent />} />
                   <Route path="/jobs" element={<Jobs />} />
