@@ -26,6 +26,7 @@ import EventCalendar from './components/Events/EventCalendar';
 import Jobs from './components/Jobs/Jobs';
 import JobDetails from './components/Jobs/JobDetails';
 import PostJob from './components/Jobs/PostJob';
+import JobAlerts from './components/Jobs/JobAlerts';
 import Mentorship from './components/Mentorship/Mentorship';
 import NetworkingGroups from './components/Networking/NetworkingGroups';
 import Messages from './components/Messages/Messages';
