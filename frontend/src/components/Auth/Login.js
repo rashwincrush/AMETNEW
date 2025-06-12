@@ -91,7 +91,7 @@ const Login = () => {
 
         {/* Form */}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="glass-card rounded-lg p-8 space-y-6">
+          <div className="bg-white rounded-lg shadow-md p-8 space-y-6">
             {/* Error Message */}
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -110,7 +110,7 @@ const Login = () => {
                 required
                 value={formData.email}
                 onChange={handleChange}
-                className="form-input w-full px-3 py-2 rounded-lg focus:outline-none"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Enter your email"
               />
             </div>
@@ -127,7 +127,7 @@ const Login = () => {
                   required
                   value={formData.password}
                   onChange={handleChange}
-                  className="form-input w-full px-3 py-2 pr-10 rounded-lg focus:outline-none"
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Enter your password"
                 />
                 <button
@@ -152,7 +152,7 @@ const Login = () => {
                   type="checkbox"
                   checked={formData.rememberMe}
                   onChange={handleChange}
-                  className="h-4 w-4 text-ocean-600 focus:ring-ocean-500 border-gray-300 rounded"
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                 />
                 <label htmlFor="rememberMe" className="ml-2 block text-sm text-gray-700">
                   Remember me
@@ -161,7 +161,7 @@ const Login = () => {
 
               <Link
                 to="/forgot-password"
-                className="text-sm text-ocean-600 hover:text-ocean-700"
+                className="text-sm text-blue-600 hover:text-blue-700"
               >
                 Forgot password?
               </Link>
@@ -170,14 +170,12 @@ const Login = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="btn-ocean w-full py-3 px-4 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isLoading ? (
                 <div className="flex items-center justify-center">
-                  <div className="loading-wave"></div>
-                  <div className="loading-wave"></div>
-                  <div className="loading-wave"></div>
-                  <span className="ml-2">Signing in...</span>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                  <span>Signing in...</span>
                 </div>
               ) : (
                 'Sign In'
@@ -222,7 +220,7 @@ const Login = () => {
             </div>
 
             {/* Demo Users Info - Remove in production */}
-            <div className="mt-6 p-4 bg-ocean-50 rounded-lg">
+            <div className="mt-6 p-4 bg-blue-50 rounded-lg">
               <h3 className="text-sm font-medium text-gray-700 mb-2">For Testing:</h3>
               <div className="text-xs text-gray-600 space-y-1">
                 <p>You can also create a new account or sign in with Google/LinkedIn</p>
