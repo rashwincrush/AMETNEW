@@ -168,10 +168,10 @@ async def register_user(request: dict):
                 "full_name": user_metadata.get('full_name', ''),
                 "first_name": user_metadata.get('first_name', ''),
                 "last_name": user_metadata.get('last_name', ''),
-                "primary_role": user_metadata.get('primary_role', 'alumni'),
                 "graduation_year": user_metadata.get('graduation_year'),
                 "degree": user_metadata.get('degree', ''),
                 "phone": user_metadata.get('phone', ''),
+                "account_type": user_metadata.get('primary_role', 'alumni'),
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
             }
