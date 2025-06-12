@@ -289,16 +289,42 @@ const AlumniDirectory = () => {
       </div>
 
       {/* Alumni Grid/List */}
-      <div className={viewMode === 'grid' 
-        ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
-        : 'space-y-4'
-      }>
-        {alumni.map((alumnus) => 
-          viewMode === 'grid' 
-            ? <AlumniCard key={alumnus.id} alumnus={alumnus} />
-            : <AlumniListItem key={alumnus.id} alumnus={alumnus} />
-        )}
-      </div>
+      {loading ? (
+        <div className="text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <p className="mt-4 text-gray-600">Loading alumni directory...</p>
+        </div>
+      ) : error ? (
+        <div className="text-center py-12">
+          <ExclamationTriangleIcon className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <p className="text-red-600 mb-4">{error}</p>
+          <button 
+            onClick={fetchAlumniData}
+            className="btn-ocean px-4 py-2 rounded-lg"
+          >
+            Try Again
+          </button>
+        </div>
+      ) : alumni.length === 0 ? (
+        <div className="text-center py-12">
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AcademicCapIcon className="w-8 h-8 text-gray-400" />
+          </div>
+          <p className="text-gray-600 mb-4">No alumni found</p>
+          <p className="text-gray-500 text-sm">Be the first to join the AMET Alumni network!</p>
+        </div>
+      ) : (
+        <div className={viewMode === 'grid' 
+          ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
+          : 'space-y-4'
+        }>
+          {filteredAlumni.map((alumnus) => 
+            viewMode === 'grid' 
+              ? <AlumniCard key={alumnus.id} alumnus={alumnus} />
+              : <AlumniListItem key={alumnus.id} alumnus={alumnus} />
+          )}
+        </div>
+      )}
 
       {/* Pagination */}
       <div className="flex items-center justify-center space-x-2">
