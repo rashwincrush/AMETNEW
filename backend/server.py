@@ -161,9 +161,9 @@ async def register_user(request: dict):
         })
         
         if auth_response.user:
-            # Create profile in profiles table
+            # Create profile in profiles table (using id instead of user_id)
             profile_data = {
-                "user_id": auth_response.user.id,
+                "id": auth_response.user.id,  # Using id directly as primary key
                 "email": email,
                 "full_name": user_metadata.get('full_name', ''),
                 "first_name": user_metadata.get('first_name', ''),
@@ -173,7 +173,13 @@ async def register_user(request: dict):
                 "phone": user_metadata.get('phone', ''),
                 "account_type": user_metadata.get('primary_role', 'alumni'),
                 "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat()
+                "updated_at": datetime.now().isoformat(),
+                "is_verified": False,
+                "is_mentor": False,
+                "is_employer": False,
+                "alumni_verification_status": "pending",
+                "mentor_status": "pending",
+                "mentee_status": "pending"
             }
             
             # Insert into profiles table
