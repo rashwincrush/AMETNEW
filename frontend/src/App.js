@@ -6,6 +6,9 @@ import './App.css';
 // Context
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
+// Landing Page
+import LandingPage from './components/Landing/LandingPage';
+
 // Layout Components
 import Navigation from './components/Layout/Navigation';
 import Header from './components/Layout/Header';
@@ -81,13 +84,14 @@ function AppContent() {
     <div className="App">
       <Router>
         {user ? (
+          // Authenticated user routes
           <div className="flex h-screen bg-ocean-50">
             <Navigation user={profile || user} />
             <div className="flex-1 flex flex-col overflow-hidden">
               <Header user={profile || user} />
               <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gradient-to-br from-ocean-50 to-blue-50 p-6">
                 <Routes>
-                  <Route path="/" element={getDashboardComponent()} />
+                  <Route path="/" element={<Navigate to="/dashboard" />} />
                   <Route path="/dashboard" element={getDashboardComponent()} />
                   <Route path="/profile" element={<Profile user={profile || user} />} />
                   <Route path="/directory" element={<AlumniDirectory />} />
@@ -115,13 +119,14 @@ function AppContent() {
             </div>
           </div>
         ) : (
-          <div className="min-h-screen bg-gradient-to-br from-ocean-500 to-blue-800">
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="*" element={<Navigate to="/login" />} />
-            </Routes>
-          </div>
+          // Public routes for non-authenticated users
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/home" element={<LandingPage />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
         )}
       </Router>
     </div>
