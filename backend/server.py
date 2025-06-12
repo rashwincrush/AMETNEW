@@ -136,6 +136,29 @@ async def health_check():
         return {"status": "unhealthy", "error": str(e)}
 
 # Authentication routes
+@api_router.post("/auth/test-login")
+async def test_login(email: str, password: str):
+    """Test login endpoint for debugging"""
+    try:
+        # Use admin client to check if user exists
+        auth_response = supabase_admin.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+        
+        return {
+            "success": True,
+            "user_exists": auth_response.user is not None,
+            "user_id": auth_response.user.id if auth_response.user else None,
+            "email": auth_response.user.email if auth_response.user else None
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "user_exists": False
+        }
+
 @api_router.get("/user", response_model=Dict[str, Any])
 async def get_user(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Get current authenticated user"""
