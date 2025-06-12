@@ -53,14 +53,28 @@ const queryClient = new QueryClient({
 function AppContent() {
   const { user, profile, loading, getUserRole } = useAuth();
 
+  // Debug logging
+  useEffect(() => {
+    console.log('App state:', { 
+      loading, 
+      hasUser: !!user, 
+      hasProfile: !!profile,
+      userRole: getUserRole()
+    });
+  }, [loading, user, profile]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg mb-4 mx-auto">
+          <div className="w-16 h-16 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg mb-4 mx-auto animate-pulse">
             <span className="text-white font-bold text-xl">A</span>
           </div>
-          <div className="text-gray-600 text-lg">Loading AMET Alumni Portal...</div>
+          <div className="text-gray-600 text-lg mb-2">Loading AMET Alumni Portal...</div>
+          <div className="text-gray-400 text-sm">Initializing authentication system</div>
+          <div className="mt-4">
+            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          </div>
         </div>
       </div>
     );
