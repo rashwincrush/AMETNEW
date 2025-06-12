@@ -17,64 +17,108 @@ export const AuthProvider = ({ children }) => {
   const [session, setSession] = useState(null);
 
   useEffect(() => {
-    // Simple initialization with timeout
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1000); // 1 second timeout
-
+    // Initialize authentication
     const initializeAuth = async () => {
       try {
         // Check environment variables
         const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
         const supabaseKey = process.env.REACT_APP_SUPABASE_KEY;
         
-        console.log('Environment check:', {
+        console.log('Initializing auth with:', {
           hasUrl: !!supabaseUrl,
           hasKey: !!supabaseKey,
-          url: supabaseUrl?.substring(0, 20) + '...',
+          url: supabaseUrl
         });
         
         if (supabaseUrl && supabaseKey) {
-          // Only try to import Supabase if env vars exist
-          try {
-            const { supabase, getSession } = await import('../utils/supabase');
-            
-            // Get initial session
-            const { session: initialSession } = await getSession();
-            setSession(initialSession);
-            setUser(initialSession?.user || null);
-            
-            console.log('Supabase initialized successfully');
-          } catch (supabaseError) {
-            console.warn('Supabase initialization failed, continuing without auth:', supabaseError);
+          // Import Supabase utilities
+          const { supabase, getSession } = await import('../utils/supabase');
+          
+          // Get initial session
+          const { session: initialSession } = await getSession();
+          console.log('Initial session:', initialSession);
+          
+          setSession(initialSession);
+          setUser(initialSession?.user || null);
+          
+          if (initialSession?.user) {
+            await fetchUserProfile(initialSession.user.id);
           }
+          
+          // Listen for auth changes
+          const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            console.log('Auth state change:', event, session);
+            
+            setSession(session);
+            setUser(session?.user || null);
+            
+            if (session?.user) {
+              await fetchUserProfile(session.user.id);
+            } else {
+              setProfile(null);
+            }
+            
+            setLoading(false);
+          });
+
+          // Cleanup subscription
+          return () => subscription.unsubscribe();
         } else {
-          console.log('Running without Supabase (missing environment variables)');
+          console.log('Missing Supabase credentials, running in demo mode');
         }
         
       } catch (error) {
-        console.error('Auth initialization error:', error);
+        console.error('Error initializing auth:', error);
       } finally {
-        clearTimeout(timer);
         setLoading(false);
       }
     };
 
     initializeAuth();
-
-    return () => clearTimeout(timer);
   }, []);
+
+  const fetchUserProfile = async (userId) => {
+    try {
+      const { supabase } = await import('../utils/supabase');
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      console.log('Profile fetch result:', { data, error });
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
+        console.error('Error fetching profile:', error);
+        return;
+      }
+
+      if (data) {
+        setProfile(data);
+      } else {
+        console.log('No profile found, user might be new');
+      }
+    } catch (error) {
+      console.error('Error in fetchUserProfile:', error);
+    }
+  };
 
   const signOut = async () => {
     try {
       const { supabase } = await import('../utils/supabase');
-      await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        console.error('Error signing out:', error);
+      }
+      
+      // Force logout even if there's an error
       setUser(null);
       setProfile(null);
       setSession(null);
     } catch (error) {
       console.error('Sign out error:', error);
-      // Force logout even if Supabase fails
+      // Force logout
       setUser(null);
       setProfile(null);
       setSession(null);
@@ -82,8 +126,28 @@ export const AuthProvider = ({ children }) => {
   };
 
   const updateProfile = async (updates) => {
-    // Placeholder for profile updates
-    return updates;
+    if (!user || !profile) return;
+
+    try {
+      const { supabase } = await import('../utils/supabase');
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('user_id', user.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error updating profile:', error);
+        throw error;
+      }
+
+      setProfile(data);
+      return data;
+    } catch (error) {
+      console.error('Error in updateProfile:', error);
+      throw error;
+    }
   };
 
   const value = {
@@ -93,22 +157,25 @@ export const AuthProvider = ({ children }) => {
     loading,
     signOut,
     updateProfile,
+    fetchUserProfile,
     isAuthenticated: !!user,
     getUserRole: () => {
       if (!profile && !user) return 'alumni';
       
       // Check user metadata or profile for role
-      const userRole = profile?.user_type || user?.user_metadata?.user_type || 'alumni';
+      const userRole = profile?.primary_role || profile?.user_type || user?.user_metadata?.primary_role || 'alumni';
       
+      // Check if admin
       if (profile?.email?.includes('@amet.ac.in') && profile?.is_admin) {
         return 'admin';
       }
       
+      // Check if employer
       if (userRole === 'employer' || profile?.is_employer) {
         return 'employer';
       }
       
-      return 'alumni';
+      return userRole || 'alumni';
     }
   };
 
