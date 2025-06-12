@@ -36,61 +36,83 @@ const AlumniDirectory = () => {
       setLoading(true);
       setError(null);
       
-      // Import Supabase client
-      const { supabase } = await import('../../utils/supabase');
-      
-      // Fetch profiles from Supabase
-      const { data, error: supabaseError } = await supabase
-        .from('profiles')
-        .select(`
-          id,
-          user_id,
-          full_name,
-          email,
-          phone,
-          graduation_year,
-          expected_graduation_year,
-          degree,
-          department,
-          current_position,
-          company_name,
-          current_location,
-          bio,
-          avatar_url,
-          primary_role,
-          skills,
-          interests,
-          created_at,
-          updated_at
-        `)
-        .order('created_at', { ascending: false });
+      // Try fetching from backend API first
+      try {
+        const backendUrl = process.env.REACT_APP_BACKEND_URL;
+        const response = await fetch(`${backendUrl}/api/profiles?limit=200`);
+        const data = await response.json();
+        
+        console.log('Fetched alumni from backend:', data);
+        
+        // Transform data to match component structure
+        const transformedAlumni = data.map(profile => ({
+          id: profile.id,
+          name: profile.full_name || `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'Unknown',
+          email: profile.email || '',
+          graduationYear: profile.graduation_year,
+          degree: profile.degree || 'Not specified',
+          currentPosition: profile.current_position || 'Not specified',
+          company: profile.current_company || profile.company_name || 'Not specified',
+          location: profile.location || 'Not specified',
+          avatar: profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.full_name || profile.email || 'User')}&background=3B82F6&color=fff`,
+          skills: profile.skills || [],
+          bio: profile.bio || '',
+          verified: profile.is_verified || false,
+          role: 'alumni',
+          phone: profile.phone || profile.phone_number || '',
+          linkedin: profile.linkedin_url || '',
+          studentId: profile.student_id || '',
+          department: profile.department || '',
+          isMentor: profile.is_mentor || false,
+          isEmployer: profile.is_employer || false
+        })).filter(alumni => alumni.name !== 'Unknown' || alumni.email); // Filter out completely empty profiles
 
-      if (supabaseError) {
-        console.error('Error fetching alumni:', supabaseError);
-        setError('Failed to load alumni data');
-        return;
+        setAlumni(transformedAlumni);
+        
+      } catch (apiError) {
+        console.error('Backend API failed, trying direct Supabase:', apiError);
+        
+        // Fallback to direct Supabase if backend fails
+        const { supabase } = await import('../../utils/supabase');
+        
+        const { data, error: supabaseError } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (supabaseError) {
+          console.error('Error fetching alumni:', supabaseError);
+          setError('Failed to load alumni data');
+          return;
+        }
+
+        console.log('Fetched alumni from Supabase:', data);
+        
+        // Transform data to match component structure  
+        const transformedAlumni = data.map(profile => ({
+          id: profile.id,
+          name: profile.full_name || `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'Unknown',
+          email: profile.email || '',
+          graduationYear: profile.graduation_year,
+          degree: profile.degree || 'Not specified',
+          currentPosition: profile.current_position || 'Not specified', 
+          company: profile.current_company || profile.company_name || 'Not specified',
+          location: profile.location || 'Not specified',
+          avatar: profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.full_name || profile.email || 'User')}&background=3B82F6&color=fff`,
+          skills: profile.skills || [],
+          bio: profile.bio || '',
+          verified: profile.is_verified || false,
+          role: 'alumni',
+          phone: profile.phone || profile.phone_number || '',
+          linkedin: profile.linkedin_url || '',
+          studentId: profile.student_id || '',
+          department: profile.department || '',
+          isMentor: profile.is_mentor || false,
+          isEmployer: profile.is_employer || false
+        })).filter(alumni => alumni.name !== 'Unknown' || alumni.email);
+
+        setAlumni(transformedAlumni);
       }
-
-      console.log('Fetched alumni data:', data);
-      
-      // Transform data to match component structure
-      const transformedAlumni = data.map(profile => ({
-        id: profile.user_id || profile.id,
-        name: profile.full_name || 'Unknown',
-        email: profile.email || '',
-        graduationYear: profile.graduation_year || profile.expected_graduation_year,
-        degree: profile.degree || 'Not specified',
-        currentPosition: profile.current_position || profile.primary_role,
-        company: profile.company_name || 'Not specified',
-        location: profile.current_location || 'Not specified',
-        avatar: profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.full_name || 'User')}&background=3B82F6&color=fff`,
-        skills: profile.skills || [],
-        bio: profile.bio || '',
-        verified: true,
-        role: profile.primary_role || 'alumni'
-      }));
-
-      setAlumni(transformedAlumni);
       
     } catch (error) {
       console.error('Error in fetchAlumniData:', error);
