@@ -207,6 +207,19 @@ const AlumniDirectory = () => {
     </div>
   );
 
+  // Filter alumni based on search query
+  const filteredAlumni = alumni.filter(alumnus => {
+    if (!searchQuery) return true;
+    const searchLower = searchQuery.toLowerCase();
+    return (
+      alumnus.name.toLowerCase().includes(searchLower) ||
+      alumnus.company.toLowerCase().includes(searchLower) ||
+      alumnus.location.toLowerCase().includes(searchLower) ||
+      alumnus.currentPosition.toLowerCase().includes(searchLower) ||
+      alumnus.skills.some(skill => skill.toLowerCase().includes(searchLower))
+    );
+  });
+
   return (
     <div className="space-y-6">
       {/* Header */}
