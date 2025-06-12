@@ -17,145 +17,73 @@ export const AuthProvider = ({ children }) => {
   const [session, setSession] = useState(null);
 
   useEffect(() => {
-    // Initialize auth context
+    // Simple initialization with timeout
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 1000); // 1 second timeout
+
     const initializeAuth = async () => {
       try {
-        // Check if Supabase environment variables are available
+        // Check environment variables
         const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
         const supabaseKey = process.env.REACT_APP_SUPABASE_KEY;
         
-        if (!supabaseUrl || !supabaseKey) {
-          console.warn('Supabase environment variables not found. Running in demo mode.');
-          setLoading(false);
-          return;
-        }
-
-        // Dynamically import Supabase utilities only if env vars are available
-        const { supabase, getCurrentUser, getSession } = await import('../utils/supabase');
-        
-        // Get initial session
-        const { session: initialSession } = await getSession();
-        setSession(initialSession);
-        setUser(initialSession?.user || null);
-        
-        if (initialSession?.user) {
-          await fetchUserProfile(initialSession.user.id, supabase);
-        }
-
-        // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-          console.log('Auth state change:', event, session);
-          
-          setSession(session);
-          setUser(session?.user || null);
-          
-          if (session?.user) {
-            await fetchUserProfile(session.user.id, supabase);
-          } else {
-            setProfile(null);
-          }
-          
-          setLoading(false);
+        console.log('Environment check:', {
+          hasUrl: !!supabaseUrl,
+          hasKey: !!supabaseKey,
+          url: supabaseUrl?.substring(0, 20) + '...',
         });
-
-        // Cleanup subscription on unmount
-        return () => subscription.unsubscribe();
+        
+        if (supabaseUrl && supabaseKey) {
+          // Only try to import Supabase if env vars exist
+          try {
+            const { supabase, getSession } = await import('../utils/supabase');
+            
+            // Get initial session
+            const { session: initialSession } = await getSession();
+            setSession(initialSession);
+            setUser(initialSession?.user || null);
+            
+            console.log('Supabase initialized successfully');
+          } catch (supabaseError) {
+            console.warn('Supabase initialization failed, continuing without auth:', supabaseError);
+          }
+        } else {
+          console.log('Running without Supabase (missing environment variables)');
+        }
         
       } catch (error) {
-        console.error('Error initializing auth:', error);
-        setLoading(false);
+        console.error('Auth initialization error:', error);
       } finally {
-        // Ensure loading is set to false after a timeout
-        setTimeout(() => setLoading(false), 3000);
+        clearTimeout(timer);
+        setLoading(false);
       }
     };
 
     initializeAuth();
+
+    return () => clearTimeout(timer);
   }, []);
 
-  const fetchUserProfile = async (userId, supabaseClient) => {
-    try {
-      const { data, error } = await supabaseClient
-        .from('profiles')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
-
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
-        console.error('Error fetching profile:', error);
-        return;
-      }
-
-      if (data) {
-        setProfile(data);
-      } else {
-        // Create a basic profile if none exists
-        const newProfile = {
-          user_id: userId,
-          email: user?.email || '',
-          full_name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || '',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
-        const { data: createdProfile, error: createError } = await supabaseClient
-          .from('profiles')
-          .insert([newProfile])
-          .select()
-          .single();
-
-        if (createError) {
-          console.error('Error creating profile:', createError);
-        } else {
-          setProfile(createdProfile);
-        }
-      }
-    } catch (error) {
-      console.error('Error in fetchUserProfile:', error);
-    }
-  };
-
   const signOut = async () => {
-    setLoading(true);
     try {
-      // Dynamically import supabase
       const { supabase } = await import('../utils/supabase');
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error('Error signing out:', error);
-        throw error;
-      }
+      await supabase.auth.signOut();
+      setUser(null);
+      setProfile(null);
+      setSession(null);
     } catch (error) {
-      console.error('Error during sign out:', error);
-      throw error;
-    } finally {
-      setLoading(false);
+      console.error('Sign out error:', error);
+      // Force logout even if Supabase fails
+      setUser(null);
+      setProfile(null);
+      setSession(null);
     }
   };
 
   const updateProfile = async (updates) => {
-    if (!user || !profile) return;
-
-    try {
-      const { supabase } = await import('../utils/supabase');
-      const { data, error } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('user_id', user.id)
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error updating profile:', error);
-        throw error;
-      }
-
-      setProfile(data);
-      return data;
-    } catch (error) {
-      console.error('Error in updateProfile:', error);
-      throw error;
-    }
+    // Placeholder for profile updates
+    return updates;
   };
 
   const value = {
@@ -165,23 +93,21 @@ export const AuthProvider = ({ children }) => {
     loading,
     signOut,
     updateProfile,
-    fetchUserProfile,
     isAuthenticated: !!user,
-    // Helper function to determine user role
     getUserRole: () => {
-      if (!profile) return 'alumni'; // default role
+      if (!profile && !user) return 'alumni';
       
-      // Check if user is admin
-      if (profile.email && profile.email.includes('@amet.ac.in') && profile.is_admin) {
+      // Check user metadata or profile for role
+      const userRole = profile?.user_type || user?.user_metadata?.user_type || 'alumni';
+      
+      if (profile?.email?.includes('@amet.ac.in') && profile?.is_admin) {
         return 'admin';
       }
       
-      // Check if user is employer
-      if (profile.user_type === 'employer' || profile.is_employer) {
+      if (userRole === 'employer' || profile?.is_employer) {
         return 'employer';
       }
       
-      // Default to alumni
       return 'alumni';
     }
   };
