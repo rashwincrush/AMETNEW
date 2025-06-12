@@ -137,7 +137,7 @@ function AppContent() {
             <Route path="/" element={<HomePage />} />
             <Route path="/home" element={<HomePage />} />
             <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            <Route path="/register" element={<EnhancedRegister />} />
             <Route path="/directory" element={<HomePage />} />
             <Route path="/events" element={<HomePage />} />
             <Route path="/jobs" element={<HomePage />} />
