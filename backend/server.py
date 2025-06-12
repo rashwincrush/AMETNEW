@@ -142,6 +142,64 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
+# Registration endpoint
+@api_router.post("/auth/register")
+async def register_user(request: dict):
+    """Register a new user"""
+    try:
+        email = request.get('email')
+        password = request.get('password')
+        user_metadata = request.get('user_metadata', {})
+        
+        # Sign up user with Supabase
+        auth_response = supabase.auth.sign_up({
+            "email": email,
+            "password": password,
+            "options": {
+                "data": user_metadata
+            }
+        })
+        
+        if auth_response.user:
+            # Create profile in profiles table
+            profile_data = {
+                "user_id": auth_response.user.id,
+                "email": email,
+                "full_name": user_metadata.get('full_name', ''),
+                "first_name": user_metadata.get('first_name', ''),
+                "last_name": user_metadata.get('last_name', ''),
+                "primary_role": user_metadata.get('primary_role', 'alumni'),
+                "graduation_year": user_metadata.get('graduation_year'),
+                "degree": user_metadata.get('degree', ''),
+                "phone": user_metadata.get('phone', ''),
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat()
+            }
+            
+            # Insert into profiles table
+            profile_response = supabase.table("profiles").insert(profile_data).execute()
+            
+            return {
+                "success": True,
+                "user": {
+                    "id": auth_response.user.id,
+                    "email": auth_response.user.email,
+                    "created_at": auth_response.user.created_at
+                },
+                "profile": profile_response.data[0] if profile_response.data else None
+            }
+        else:
+            return {
+                "success": False,
+                "error": "Failed to create user"
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 # Authentication routes
 @api_router.post("/auth/test-login")
 async def test_login(request: LoginRequest):
