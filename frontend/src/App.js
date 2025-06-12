@@ -15,7 +15,7 @@ import Header from './components/Layout/Header';
 
 // Auth Components
 import Login from './components/Auth/Login';
-import Register from './components/Auth/Register';
+import EnhancedRegister from './components/Auth/EnhancedRegister';
 import Profile from './components/Auth/Profile';
 
 // Dashboard Components
