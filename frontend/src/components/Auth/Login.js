@@ -230,11 +230,11 @@ const Login = () => {
           </div>
 
           <div className="text-center">
-            <p className="text-ocean-100">
+            <p className="text-gray-600">
               Don't have an account?{' '}
               <Link
                 to="/register"
-                className="font-medium text-white hover:text-ocean-200 underline"
+                className="font-medium text-blue-600 hover:text-blue-700"
               >
                 Sign up here
               </Link>
