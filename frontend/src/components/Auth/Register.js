@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
+import { signUpWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
 
-const Register = ({ onLogin }) => {
+const Register = () => {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -17,6 +19,7 @@ const Register = ({ onLogin }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
+  const [error, setError] = useState('');
 
   const validateForm = () => {
     const newErrors = {};
@@ -25,6 +28,7 @@ const Register = ({ onLogin }) => {
     if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
     if (!formData.email.trim()) newErrors.email = 'Email is required';
     if (!formData.password) newErrors.password = 'Password is required';
+    if (formData.password.length < 6) newErrors.password = 'Password must be at least 6 characters';
     if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match';
     }
@@ -40,20 +44,69 @@ const Register = ({ onLogin }) => {
     if (!validateForm()) return;
 
     setIsLoading(true);
+    setError('');
 
-    // Mock registration - in real app, this would be an API call
-    setTimeout(() => {
-      const newUser = {
-        id: Date.now().toString(),
-        name: `${formData.firstName} ${formData.lastName}`,
-        email: formData.email,
-        role: formData.role,
-        avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face'
-      };
-      
-      onLogin(newUser);
+    try {
+      // Sign up with Supabase
+      const { data, error } = await signUpWithEmail(
+        formData.email, 
+        formData.password,
+        {
+          full_name: `${formData.firstName} ${formData.lastName}`,
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          graduation_year: formData.graduationYear,
+          degree: formData.degree,
+          user_type: formData.role
+        }
+      );
+
+      if (error) {
+        setError(error.message);
+        return;
+      }
+
+      if (data.user) {
+        // Check if email confirmation is required
+        if (!data.session) {
+          setError('Please check your email to confirm your account before signing in.');
+        } else {
+          // User is automatically signed in
+          navigate('/dashboard');
+        }
+      }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.');
+      console.error('Registration error:', err);
+    } finally {
       setIsLoading(false);
-    }, 1500);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setError('');
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) {
+        setError(error.message);
+      }
+    } catch (err) {
+      setError('Failed to sign up with Google');
+      console.error('Google signup error:', err);
+    }
+  };
+
+  const handleLinkedInLogin = async () => {
+    setError('');
+    try {
+      const { error } = await signInWithLinkedIn();
+      if (error) {
+        setError(error.message);
+      }
+    } catch (err) {
+      setError('Failed to sign up with LinkedIn');
+      console.error('LinkedIn signup error:', err);
+    }
   };
 
   const handleChange = (e) => {
