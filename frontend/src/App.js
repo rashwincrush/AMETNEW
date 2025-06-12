@@ -6,8 +6,8 @@ import './App.css';
 // Context
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
-// Landing Page
-import LandingPage from './components/Landing/LandingPage';
+// Home Page
+import HomePage from './components/Landing/HomePage';
 
 // Layout Components
 import Navigation from './components/Layout/Navigation';
@@ -55,14 +55,12 @@ function AppContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-ocean-500 to-blue-800 flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-lg mb-4 mx-auto">
-            <div className="w-10 h-10 bg-ocean-gradient rounded-lg flex items-center justify-center ocean-wave">
-              <span className="text-white font-bold text-lg">A</span>
-            </div>
+          <div className="w-16 h-16 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg mb-4 mx-auto">
+            <span className="text-white font-bold text-xl">A</span>
           </div>
-          <div className="text-white text-lg">Loading AMET Alumni Portal...</div>
+          <div className="text-gray-600 text-lg">Loading AMET Alumni Portal...</div>
         </div>
       </div>
     );
@@ -121,10 +119,15 @@ function AppContent() {
         ) : (
           // Public routes for non-authenticated users
           <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/home" element={<LandingPage />} />
+            <Route path="/" element={<HomePage />} />
+            <Route path="/home" element={<HomePage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/directory" element={<HomePage />} />
+            <Route path="/events" element={<HomePage />} />
+            <Route path="/jobs" element={<HomePage />} />
+            <Route path="/mentorship" element={<HomePage />} />
+            <Route path="/about" element={<HomePage />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         )}
