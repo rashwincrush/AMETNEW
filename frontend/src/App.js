@@ -124,6 +124,7 @@ function AppContent() {
                     <>
                       <Route path="/admin/analytics" element={<Analytics />} />
                       <Route path="/admin/users" element={<UserManagement />} />
+                      <Route path="/admin/approvals" element={<UserApprovalDashboard />} />
                     </>
                   )}
                   <Route path="*" element={<Navigate to="/dashboard" />} />
