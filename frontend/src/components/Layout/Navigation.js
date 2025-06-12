@@ -38,8 +38,9 @@ const Navigation = ({ user }) => {
     { path: '/mentorship', label: 'Mentorship', icon: AcademicCapIcon },
     { path: '/networking', label: 'Networking', icon: UserGroupIcon },
     { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon },
+    { path: '/admin/approvals', label: 'User Approvals', icon: CogIcon },
     { path: '/admin/analytics', label: 'Analytics', icon: ChartBarIcon },
-    { path: '/admin/users', label: 'User Management', icon: CogIcon },
+    { path: '/admin/users', label: 'User Management', icon: BuildingOfficeIcon },
   ];
 
   const employerMenuItems = [
