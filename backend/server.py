@@ -171,11 +171,23 @@ async def update_user_profile(
 # Profiles routes
 @api_router.get("/profiles", response_model=List[Dict[str, Any]])
 async def get_profiles(
+    limit: int = 100,
+    offset: int = 0
+):
+    """Get all alumni profiles - public endpoint for directory"""
+    try:
+        response = supabase.table("profiles").select("*").range(offset, offset + limit - 1).execute()
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/profiles/protected", response_model=List[Dict[str, Any]])
+async def get_profiles_protected(
     limit: int = 50,
     offset: int = 0,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Get all alumni profiles"""
+    """Get all alumni profiles - protected endpoint"""
     try:
         response = supabase.table("profiles").select("*").range(offset, offset + limit - 1).execute()
         return response.data
