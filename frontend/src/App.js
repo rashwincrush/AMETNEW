@@ -39,6 +39,7 @@ import NetworkingGroups from './components/Networking/NetworkingGroups';
 import Messages from './components/Messages/Messages';
 import Analytics from './components/Admin/Analytics';
 import UserManagement from './components/Admin/UserManagement';
+import UserApprovalDashboard from './components/Admin/UserApprovalDashboard';
 
 // Create a client
 const queryClient = new QueryClient({
