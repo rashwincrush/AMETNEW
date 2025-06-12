@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   MagnifyingGlassIcon,
@@ -7,12 +7,18 @@ import {
   ListBulletIcon,
   MapPinIcon,
   BriefcaseIcon,
-  AcademicCapIcon
+  AcademicCapIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
+import { useAuth } from '../../contexts/AuthContext';
 
 const AlumniDirectory = () => {
+  const { isAuthenticated } = useAuth();
   const [viewMode, setViewMode] = useState('grid'); // grid or list
   const [searchQuery, setSearchQuery] = useState('');
+  const [alumni, setAlumni] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [filters, setFilters] = useState({
     graduationYear: '',
     degree: '',
@@ -21,34 +27,78 @@ const AlumniDirectory = () => {
     skills: ''
   });
 
-  // Mock alumni data
-  const alumni = [
-    {
-      id: 1,
-      name: 'Rajesh Kumar',
-      email: 'rajesh@email.com',
-      graduationYear: 2018,
-      degree: 'B.Tech Naval Architecture',
-      currentPosition: 'Senior Marine Engineer',
-      company: 'Ocean Shipping Ltd.',
-      location: 'Mumbai, Maharashtra',
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
-      skills: ['Marine Engineering', 'Ship Design', 'Project Management'],
-      verified: true
-    },
-    {
-      id: 2,
-      name: 'Priya Sharma',
-      email: 'priya@email.com',
-      graduationYear: 2020,
-      degree: 'B.Tech Marine Engineering',
-      currentPosition: 'Naval Architect',
-      company: 'Maritime Solutions',
-      location: 'Chennai, Tamil Nadu',
-      avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b77c?w=100&h=100&fit=crop&crop=face',
-      skills: ['Naval Architecture', 'CAD Design', 'Sustainability'],
-      verified: true
-    },
+  useEffect(() => {
+    fetchAlumniData();
+  }, []);
+
+  const fetchAlumniData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Import Supabase client
+      const { supabase } = await import('../../utils/supabase');
+      
+      // Fetch profiles from Supabase
+      const { data, error: supabaseError } = await supabase
+        .from('profiles')
+        .select(`
+          id,
+          user_id,
+          full_name,
+          email,
+          phone,
+          graduation_year,
+          expected_graduation_year,
+          degree,
+          department,
+          current_position,
+          company_name,
+          current_location,
+          bio,
+          avatar_url,
+          primary_role,
+          skills,
+          interests,
+          created_at,
+          updated_at
+        `)
+        .order('created_at', { ascending: false });
+
+      if (supabaseError) {
+        console.error('Error fetching alumni:', supabaseError);
+        setError('Failed to load alumni data');
+        return;
+      }
+
+      console.log('Fetched alumni data:', data);
+      
+      // Transform data to match component structure
+      const transformedAlumni = data.map(profile => ({
+        id: profile.user_id || profile.id,
+        name: profile.full_name || 'Unknown',
+        email: profile.email || '',
+        graduationYear: profile.graduation_year || profile.expected_graduation_year,
+        degree: profile.degree || 'Not specified',
+        currentPosition: profile.current_position || profile.primary_role,
+        company: profile.company_name || 'Not specified',
+        location: profile.current_location || 'Not specified',
+        avatar: profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.full_name || 'User')}&background=3B82F6&color=fff`,
+        skills: profile.skills || [],
+        bio: profile.bio || '',
+        verified: true,
+        role: profile.primary_role || 'alumni'
+      }));
+
+      setAlumni(transformedAlumni);
+      
+    } catch (error) {
+      console.error('Error in fetchAlumniData:', error);
+      setError('Failed to connect to database');
+    } finally {
+      setLoading(false);
+    }
+  };
     {
       id: 3,
       name: 'Mohammed Ali',
