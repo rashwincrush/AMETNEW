@@ -165,7 +165,6 @@ async def register_user(request: dict):
             profile_data = {
                 "id": auth_response.user.id,  # Using id directly as primary key
                 "email": email,
-                "full_name": user_metadata.get('full_name', ''),
                 "first_name": user_metadata.get('first_name', ''),
                 "last_name": user_metadata.get('last_name', ''),
                 "graduation_year": user_metadata.get('graduation_year'),
