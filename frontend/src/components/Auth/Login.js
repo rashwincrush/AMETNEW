@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
+import { signInWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
 
-const Login = ({ onLogin }) => {
+const Login = () => {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -10,41 +12,57 @@ const Login = ({ onLogin }) => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
 
-    // Mock login - in real app, this would be an API call
-    setTimeout(() => {
-      const mockUsers = [
-        { 
-          id: '1', 
-          email: 'admin@amet.ac.in', 
-          role: 'admin', 
-          name: 'Admin User',
-          avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face'
-        },
-        { 
-          id: '2', 
-          email: 'employer@company.com', 
-          role: 'employer', 
-          name: 'HR Manager',
-          avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b77c?w=100&h=100&fit=crop&crop=face'
-        },
-        { 
-          id: '3', 
-          email: 'alumni@amet.ac.in', 
-          role: 'alumni', 
-          name: 'John Doe',
-          avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face'
-        }
-      ];
+    try {
+      const { data, error } = await signInWithEmail(formData.email, formData.password);
+      
+      if (error) {
+        setError(error.message);
+        return;
+      }
 
-      const user = mockUsers.find(u => u.email === formData.email) || mockUsers[2];
-      onLogin(user);
+      if (data.user) {
+        // Navigation will be handled by AuthContext
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.');
+      console.error('Login error:', err);
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setError('');
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) {
+        setError(error.message);
+      }
+    } catch (err) {
+      setError('Failed to sign in with Google');
+      console.error('Google login error:', err);
+    }
+  };
+
+  const handleLinkedInLogin = async () => {
+    setError('');
+    try {
+      const { error } = await signInWithLinkedIn();
+      if (error) {
+        setError(error.message);
+      }
+    } catch (err) {
+      setError('Failed to sign in with LinkedIn');
+      console.error('LinkedIn login error:', err);
+    }
   };
 
   const handleChange = (e) => {
