@@ -99,59 +99,6 @@ const AlumniDirectory = () => {
       setLoading(false);
     }
   };
-    {
-      id: 3,
-      name: 'Mohammed Ali',
-      email: 'mohammed@email.com',
-      graduationYear: 2015,
-      degree: 'MBA Maritime Management',
-      currentPosition: 'Port Operations Manager',
-      company: 'Indian Ports Authority',
-      location: 'Kochi, Kerala',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face',
-      skills: ['Port Management', 'Logistics', 'Leadership'],
-      verified: true
-    },
-    {
-      id: 4,
-      name: 'Sneha Patel',
-      email: 'sneha@email.com',
-      graduationYear: 2021,
-      degree: 'B.Tech Naval Architecture',
-      currentPosition: 'Junior Marine Engineer',
-      company: 'Coastal Engineering Corp',
-      location: 'Pune, Maharashtra',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face',
-      skills: ['Marine Engineering', 'Technical Analysis', 'Research'],
-      verified: false
-    },
-    {
-      id: 5,
-      name: 'Arjun Nair',
-      email: 'arjun@email.com',
-      graduationYear: 2019,
-      degree: 'M.Tech Marine Technology',
-      currentPosition: 'Research Scientist',
-      company: 'Marine Research Institute',
-      location: 'Goa, India',
-      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face',
-      skills: ['Research', 'Marine Technology', 'Innovation'],
-      verified: true
-    },
-    {
-      id: 6,
-      name: 'Kavitha Menon',
-      email: 'kavitha@email.com',
-      graduationYear: 2017,
-      degree: 'B.Tech Marine Engineering',
-      currentPosition: 'Chief Engineer',
-      company: 'International Shipping',
-      location: 'Visakhapatnam, Andhra Pradesh',
-      avatar: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=100&h=100&fit=crop&crop=face',
-      skills: ['Engineering Management', 'Ship Operations', 'Safety'],
-      verified: true
-    }
-  ];
 
   const AlumniCard = ({ alumnus }) => (
     <div className="glass-card rounded-lg p-6 card-hover">
