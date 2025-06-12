@@ -234,7 +234,7 @@ const Register = () => {
                 required
                 value={formData.email}
                 onChange={handleChange}
-                className={`form-input w-full px-3 py-2 rounded-lg focus:outline-none ${errors.email ? 'border-red-500' : ''}`}
+                className={`w-full px-3 py-2 border ${errors.email ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                 placeholder="john.doe@email.com"
               />
               {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
@@ -250,7 +250,7 @@ const Register = () => {
                 name="role"
                 value={formData.role}
                 onChange={handleChange}
-                className="form-input w-full px-3 py-2 rounded-lg focus:outline-none"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="alumni">Alumni</option>
                 <option value="employer">Employer</option>
@@ -273,7 +273,7 @@ const Register = () => {
                     max="2030"
                     value={formData.graduationYear}
                     onChange={handleChange}
-                    className="form-input w-full px-3 py-2 rounded-lg focus:outline-none"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="2020"
                   />
                 </div>
@@ -286,7 +286,7 @@ const Register = () => {
                     name="degree"
                     value={formData.degree}
                     onChange={handleChange}
-                    className="form-input w-full px-3 py-2 rounded-lg focus:outline-none"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     <option value="">Select Degree</option>
                     <option value="B.Tech Naval Architecture">B.Tech Naval Architecture</option>
@@ -312,7 +312,7 @@ const Register = () => {
                   required
                   value={formData.password}
                   onChange={handleChange}
-                  className={`form-input w-full px-3 py-2 pr-10 rounded-lg focus:outline-none ${errors.password ? 'border-red-500' : ''}`}
+                  className={`w-full px-3 py-2 pr-10 border ${errors.password ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                   placeholder="Create a strong password"
                 />
                 <button
@@ -342,7 +342,7 @@ const Register = () => {
                 required
                 value={formData.confirmPassword}
                 onChange={handleChange}
-                className={`form-input w-full px-3 py-2 rounded-lg focus:outline-none ${errors.confirmPassword ? 'border-red-500' : ''}`}
+                className={`w-full px-3 py-2 border ${errors.confirmPassword ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                 placeholder="Confirm your password"
               />
               {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>}
@@ -356,15 +356,15 @@ const Register = () => {
                 type="checkbox"
                 checked={formData.agreeToTerms}
                 onChange={handleChange}
-                className={`h-4 w-4 text-ocean-600 focus:ring-ocean-500 border-gray-300 rounded mt-1 ${errors.agreeToTerms ? 'border-red-500' : ''}`}
+                className={`h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded mt-1 ${errors.agreeToTerms ? 'border-red-500' : ''}`}
               />
               <label htmlFor="agreeToTerms" className="ml-2 block text-sm text-gray-700">
                 I agree to the{' '}
-                <Link to="/terms" className="text-ocean-600 hover:text-ocean-700">
+                <Link to="/terms" className="text-blue-600 hover:text-blue-700">
                   Terms of Service
                 </Link>{' '}
                 and{' '}
-                <Link to="/privacy" className="text-ocean-600 hover:text-ocean-700">
+                <Link to="/privacy" className="text-blue-600 hover:text-blue-700">
                   Privacy Policy
                 </Link>
               </label>
@@ -374,14 +374,12 @@ const Register = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="btn-ocean w-full py-3 px-4 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isLoading ? (
                 <div className="flex items-center justify-center">
-                  <div className="loading-wave"></div>
-                  <div className="loading-wave"></div>
-                  <div className="loading-wave"></div>
-                  <span className="ml-2">Creating account...</span>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                  <span>Creating account...</span>
                 </div>
               ) : (
                 'Create Account'
@@ -390,11 +388,11 @@ const Register = () => {
           </div>
 
           <div className="text-center">
-            <p className="text-ocean-100">
+            <p className="text-gray-600">
               Already have an account?{' '}
               <Link
                 to="/login"
-                className="font-medium text-white hover:text-ocean-200 underline"
+                className="font-medium text-blue-600 hover:text-blue-700"
               >
                 Sign in here
               </Link>
