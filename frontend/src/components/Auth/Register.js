@@ -140,7 +140,7 @@ const Register = () => {
 
         {/* Form */}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="glass-card rounded-lg p-8 space-y-4">
+          <div className="bg-white rounded-lg shadow-md p-8 space-y-4">
             {/* Error Message */}
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -199,7 +199,7 @@ const Register = () => {
                   required
                   value={formData.firstName}
                   onChange={handleChange}
-                  className={`form-input w-full px-3 py-2 rounded-lg focus:outline-none ${errors.firstName ? 'border-red-500' : ''}`}
+                  className={`w-full px-3 py-2 border ${errors.firstName ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                   placeholder="John"
                 />
                 {errors.firstName && <p className="text-red-500 text-xs mt-1">{errors.firstName}</p>}
@@ -215,7 +215,7 @@ const Register = () => {
                   required
                   value={formData.lastName}
                   onChange={handleChange}
-                  className={`form-input w-full px-3 py-2 rounded-lg focus:outline-none ${errors.lastName ? 'border-red-500' : ''}`}
+                  className={`w-full px-3 py-2 border ${errors.lastName ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                   placeholder="Doe"
                 />
                 {errors.lastName && <p className="text-red-500 text-xs mt-1">{errors.lastName}</p>}
