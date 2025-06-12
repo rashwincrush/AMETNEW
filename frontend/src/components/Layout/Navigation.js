@@ -12,9 +12,11 @@ import {
   UserGroupIcon,
   BuildingOfficeIcon
 } from '@heroicons/react/24/outline';
+import { useAuth } from '../../contexts/AuthContext';
 
-const Navigation = ({ user, onLogout }) => {
+const Navigation = ({ user }) => {
   const location = useLocation();
+  const { signOut, getUserRole } = useAuth();
 
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/');
 
@@ -48,13 +50,22 @@ const Navigation = ({ user, onLogout }) => {
   ];
 
   const getMenuItems = () => {
-    switch (user.role) {
+    const role = getUserRole();
+    switch (role) {
       case 'admin':
         return adminMenuItems;
       case 'employer':
         return employerMenuItems;
       default:
         return alumniMenuItems;
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('Error signing out:', error);
     }
   };
 
@@ -77,13 +88,13 @@ const Navigation = ({ user, onLogout }) => {
       <div className="p-4 border-b border-ocean-200">
         <div className="flex items-center space-x-3">
           <img 
-            src={user.avatar} 
-            alt={user.name}
+            src={user?.avatar_url || user?.avatar || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face'} 
+            alt={user?.full_name || user?.name || 'User'}
             className="w-10 h-10 rounded-full object-cover"
           />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate">{user.name}</p>
-            <p className="text-xs text-ocean-600 capitalize">{user.role}</p>
+            <p className="text-sm font-medium text-gray-900 truncate">{user?.full_name || user?.name || 'User'}</p>
+            <p className="text-xs text-ocean-600 capitalize">{getUserRole()}</p>
           </div>
         </div>
       </div>
@@ -121,7 +132,7 @@ const Navigation = ({ user, onLogout }) => {
           Settings
         </Link>
         <button
-          onClick={onLogout}
+          onClick={handleLogout}
           className="w-full flex items-center px-3 py-2 text-sm font-medium text-red-700 rounded-lg hover:bg-red-50 transition-all duration-200"
         >
           <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
