@@ -135,15 +135,22 @@ async def health_check():
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 
+from pydantic import BaseModel, Field
+
+# Login request model
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
 # Authentication routes
 @api_router.post("/auth/test-login")
-async def test_login(email: str, password: str):
+async def test_login(request: LoginRequest):
     """Test login endpoint for debugging"""
     try:
         # Use admin client to check if user exists
         auth_response = supabase_admin.auth.sign_in_with_password({
-            "email": email,
-            "password": password
+            "email": request.email,
+            "password": request.password
         })
         
         return {
