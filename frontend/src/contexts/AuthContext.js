@@ -83,7 +83,7 @@ export const AuthProvider = ({ children }) => {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('user_id', userId)
+        .eq('id', userId)
         .single();
 
       console.log('Profile fetch result:', { data, error });
@@ -138,20 +138,32 @@ export const AuthProvider = ({ children }) => {
       const { data: existingProfile } = await supabase
         .from('profiles')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('id', user.id)
         .single();
+      
+      // Sanitize updates to only include fields that actually exist in the database
+      // Based on the schema in server.py and registration function
+      const sanitizedUpdates = {};
+      
+      // Only copy fields we know exist in the database schema
+      if (updates.first_name !== undefined) sanitizedUpdates.first_name = updates.first_name;
+      if (updates.last_name !== undefined) sanitizedUpdates.last_name = updates.last_name;
+      if (updates.phone !== undefined) sanitizedUpdates.phone = updates.phone;
+      if (updates.email !== undefined) sanitizedUpdates.email = updates.email;
+      
+      // Always include updated_at
+      sanitizedUpdates.updated_at = new Date().toISOString();
+      
+      console.log('Sanitized updates (only including fields confirmed to exist in DB):', sanitizedUpdates);
       
       let result;
       
       if (existingProfile) {
-        // Update existing profile
+        // Update existing profile with sanitized fields only
         const { data, error } = await supabase
           .from('profiles')
-          .update({ 
-            ...updates, 
-            updated_at: new Date().toISOString() 
-          })
-          .eq('user_id', user.id)
+          .update(sanitizedUpdates)
+          .eq('id', user.id)
           .select()
           .single();
           
@@ -162,17 +174,18 @@ export const AuthProvider = ({ children }) => {
         
         result = data;
       } else {
-        // Create new profile
+        // Create new profile with sanitized fields only
+        const newProfileData = { 
+          id: user.id,
+          ...sanitizedUpdates,
+          created_at: new Date().toISOString(),
+        };
+        
+        console.log('Creating new profile with sanitized data:', newProfileData);
+        
         const { data, error } = await supabase
           .from('profiles')
-          .insert([
-            { 
-              user_id: user.id,
-              ...updates,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            }
-          ])
+          .insert([newProfileData])
           .select()
           .single();
           

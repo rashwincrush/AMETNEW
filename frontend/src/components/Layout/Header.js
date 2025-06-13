@@ -169,12 +169,12 @@ const Header = ({ user }) => {
               <p className="text-xs text-ocean-600">{currentUser.primary_role || currentUser.role || 'Alumni'}</p>
             </div>
             <img 
-              src={currentUser.avatar || 'https://via.placeholder.com/150'} 
+              src={currentUser.avatar || '/default-avatar.svg'} 
               alt={currentUser.full_name || currentUser.name || 'User'}
               className="w-8 h-8 rounded-full object-cover"
               onError={(e) => {
                 e.target.onerror = null;
-                e.target.src = 'https://via.placeholder.com/150';
+                e.target.src = '/default-avatar.svg';
               }}
             />
           </div>

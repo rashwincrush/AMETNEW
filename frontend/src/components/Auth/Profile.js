@@ -14,7 +14,7 @@ import {
 const Profile = ({ user }) => {
   const { updateProfile } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
-  const [imageUrl, setImageUrl] = useState(user.avatar || 'https://via.placeholder.com/150');
+  const [imageUrl, setImageUrl] = useState(user.avatar || '/default-avatar.svg');
   const [imageFile, setImageFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
@@ -75,7 +75,7 @@ const Profile = ({ user }) => {
         website: ''
       }
     });
-    setImageUrl(user.avatar || 'https://via.placeholder.com/150');
+    setImageUrl(user.avatar || '/default-avatar.svg');
   }, [user]);
 
   const handleSubmit = async (e) => {
@@ -83,18 +83,13 @@ const Profile = ({ user }) => {
     setIsSubmitting(true);
     
     try {
-      // Prepare profile updates - focus on key fields that should sync with backend
+      // ONLY include fields that are 100% confirmed to exist in the database schema
+      // Based on server.py registration function and error message
       const profileUpdates = {
-        full_name: formData.name,
-        avatar: imageUrl, // Use existing URL if image not changed
-        headline: formData.headline,
-        location: formData.location,
+        first_name: formData.name.split(' ')[0],
+        last_name: formData.name.split(' ').slice(1).join(' '),
         phone: formData.phone,
-        company: formData.company,
-        position: formData.position,
-        about: formData.about,
-        skills: formData.skills,
-        achievements: formData.achievements
+        updated_at: new Date().toISOString()
       };
       
       // Upload image if a new one was selected
@@ -104,7 +99,7 @@ const Profile = ({ user }) => {
         const fileName = `${Math.random()}.${fileExt}`;
         const filePath = `profile-pictures/${fileName}`;
         
-        const { error: uploadError, data } = await supabase
+        const { error: uploadError } = await supabase
           .storage
           .from('avatars')
           .upload(filePath, imageFile);
@@ -114,13 +109,15 @@ const Profile = ({ user }) => {
           throw uploadError;
         }
         
-        // Get the public URL
+        // Get the public URL but DO NOT add avatar field if it doesn't exist in database
         const { data: { publicUrl } } = supabase
           .storage
           .from('avatars')
           .getPublicUrl(filePath);
           
-        profileUpdates.avatar = publicUrl;
+        // Store the URL for frontend display, but don't include in profileUpdates
+        setImageUrl(publicUrl);
+        // DO NOT add avatar field to profileUpdates as it may not exist in the database schema
       }
       
       // Update profile in Supabase
@@ -169,9 +166,13 @@ const Profile = ({ user }) => {
             {/* Profile Picture */}
             <div className="relative">
               <img 
-                src={user.avatar} 
+                src={imageUrl} 
                 alt={formData.name}
                 className="w-24 h-24 rounded-full object-cover"
+                onError={(e) => {
+                  e.target.onerror = null;
+                  e.target.src = '/default-avatar.svg';
+                }}
               />
               <label className="absolute bottom-0 right-0 bg-ocean-500 text-white p-2 rounded-full hover:bg-ocean-600 transition-colors cursor-pointer">
                 <CameraIcon className="w-4 h-4" />
