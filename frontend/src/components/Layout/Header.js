@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { 
   BellIcon, 
   MagnifyingGlassIcon,
@@ -8,6 +9,11 @@ import {
 } from '@heroicons/react/24/outline';
 
 const Header = ({ user }) => {
+  // Get the latest user profile from auth context
+  const { profile } = useAuth();
+  
+  // Use the most up-to-date user information (profile from context or passed user prop)
+  const currentUser = profile || user;
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
@@ -159,13 +165,17 @@ const Header = ({ user }) => {
           {/* User Menu */}
           <div className="flex items-center space-x-3">
             <div className="text-right">
-              <p className="text-sm font-medium text-gray-900">{user.full_name || user.name}</p>
-              <p className="text-xs text-ocean-600">{user.role || 'Alumni'}</p>
+              <p className="text-sm font-medium text-gray-900">{currentUser.full_name || currentUser.name || 'User'}</p>
+              <p className="text-xs text-ocean-600">{currentUser.primary_role || currentUser.role || 'Alumni'}</p>
             </div>
             <img 
-              src={user.avatar} 
-              alt={user.name}
+              src={currentUser.avatar || 'https://via.placeholder.com/150'} 
+              alt={currentUser.full_name || currentUser.name || 'User'}
               className="w-8 h-8 rounded-full object-cover"
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.src = 'https://via.placeholder.com/150';
+              }}
             />
           </div>
         </div>

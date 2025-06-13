@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 import { 
   UserIcon, 
   EnvelopeIcon, 
@@ -11,7 +12,11 @@ import {
 } from '@heroicons/react/24/outline';
 
 const Profile = ({ user }) => {
+  const { updateProfile } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
+  const [imageUrl, setImageUrl] = useState(user.avatar || 'https://via.placeholder.com/150');
+  const [imageFile, setImageFile] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     name: user.name || 'John Doe',
     email: user.email || 'john.doe@amet.ac.in',
@@ -41,11 +46,94 @@ const Profile = ({ user }) => {
     }
   });
 
-  const handleSubmit = (e) => {
+  // Effect to update form data when user prop changes
+  useEffect(() => {
+    setFormData({
+      name: user.full_name || user.name || 'John Doe',
+      email: user.email || 'john.doe@amet.ac.in',
+      phone: user.phone || '+91 98765 43210',
+      location: user.location || 'Chennai, Tamil Nadu',
+      headline: user.headline || 'Senior Marine Engineer at Ocean Shipping Ltd.',
+      about: user.about || 'Experienced marine engineer with 8+ years in the maritime industry.',
+      company: user.company || 'Ocean Shipping Ltd.',
+      position: user.position || 'Senior Marine Engineer',
+      experience: user.experience || '8 years',
+      graduationYear: user.graduationYear || '2016',
+      degree: user.degree || 'B.Tech Naval Architecture',
+      specialization: user.specialization || 'Marine Engineering',
+      skills: user.skills || ['Marine Engineering', 'Ship Design', 'Project Management', 'Leadership'],
+      achievements: user.achievements || [
+        'Led the design of eco-friendly cargo vessel',
+        'Reduced fuel consumption by 15% through engine optimization'
+      ],
+      interests: user.interests || ['Sustainable Shipping', 'Marine Technology', 'Environmental Conservation'],
+      languages: user.languages || ['English', 'Tamil', 'Hindi'],
+      socialLinks: user.socialLinks || {
+        linkedin: 'https://linkedin.com/in/johndoe',
+        github: '',
+        twitter: '',
+        website: ''
+      }
+    });
+    setImageUrl(user.avatar || 'https://via.placeholder.com/150');
+  }, [user]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsEditing(false);
-    // In real app, this would save to backend
-    console.log('Profile updated:', formData);
+    setIsSubmitting(true);
+    
+    try {
+      // Prepare profile updates - focus on key fields that should sync with backend
+      const profileUpdates = {
+        full_name: formData.name,
+        avatar: imageUrl, // Use existing URL if image not changed
+        headline: formData.headline,
+        location: formData.location,
+        phone: formData.phone,
+        company: formData.company,
+        position: formData.position,
+        about: formData.about,
+        skills: formData.skills,
+        achievements: formData.achievements
+      };
+      
+      // Upload image if a new one was selected
+      if (imageFile) {
+        const { supabase } = await import('../../utils/supabase');
+        const fileExt = imageFile.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `profile-pictures/${fileName}`;
+        
+        const { error: uploadError, data } = await supabase
+          .storage
+          .from('avatars')
+          .upload(filePath, imageFile);
+          
+        if (uploadError) {
+          console.error('Error uploading image:', uploadError);
+          throw uploadError;
+        }
+        
+        // Get the public URL
+        const { data: { publicUrl } } = supabase
+          .storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+          
+        profileUpdates.avatar = publicUrl;
+      }
+      
+      // Update profile in Supabase
+      const updatedProfile = await updateProfile(profileUpdates);
+      console.log('Profile updated successfully:', updatedProfile);
+      
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      alert('Failed to update profile. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleChange = (e) => {
@@ -85,9 +173,21 @@ const Profile = ({ user }) => {
                 alt={formData.name}
                 className="w-24 h-24 rounded-full object-cover"
               />
-              <button className="absolute bottom-0 right-0 bg-ocean-500 text-white p-2 rounded-full hover:bg-ocean-600 transition-colors">
+              <label className="absolute bottom-0 right-0 bg-ocean-500 text-white p-2 rounded-full hover:bg-ocean-600 transition-colors cursor-pointer">
                 <CameraIcon className="w-4 h-4" />
-              </button>
+                <input 
+                  type="file" 
+                  accept="image/*"
+                  className="hidden" 
+                  onChange={(e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                      setImageFile(file);
+                      setImageUrl(URL.createObjectURL(file));
+                    }
+                  }}
+                />
+              </label>
             </div>
             
             {/* Basic Info */}

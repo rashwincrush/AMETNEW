@@ -126,24 +126,73 @@ export const AuthProvider = ({ children }) => {
   };
 
   const updateProfile = async (updates) => {
-    if (!user || !profile) return;
-
+    if (!user) {
+      console.error('Cannot update profile: No authenticated user');
+      return null;
+    }
+    
     try {
       const { supabase } = await import('../utils/supabase');
-      const { data, error } = await supabase
+      
+      // Check if profile exists first
+      const { data: existingProfile } = await supabase
         .from('profiles')
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .select('*')
         .eq('user_id', user.id)
-        .select()
         .single();
-
-      if (error) {
-        console.error('Error updating profile:', error);
-        throw error;
+      
+      let result;
+      
+      if (existingProfile) {
+        // Update existing profile
+        const { data, error } = await supabase
+          .from('profiles')
+          .update({ 
+            ...updates, 
+            updated_at: new Date().toISOString() 
+          })
+          .eq('user_id', user.id)
+          .select()
+          .single();
+          
+        if (error) {
+          console.error('Error updating profile:', error);
+          throw error;
+        }
+        
+        result = data;
+      } else {
+        // Create new profile
+        const { data, error } = await supabase
+          .from('profiles')
+          .insert([
+            { 
+              user_id: user.id,
+              ...updates,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }
+          ])
+          .select()
+          .single();
+          
+        if (error) {
+          console.error('Error creating profile:', error);
+          throw error;
+        }
+        
+        result = data;
       }
-
-      setProfile(data);
-      return data;
+      
+      // Update local state
+      const updatedProfile = {
+        ...profile,
+        ...result
+      };
+      
+      console.log('Profile updated successfully:', updatedProfile);
+      setProfile(updatedProfile);
+      return updatedProfile;
     } catch (error) {
       console.error('Error in updateProfile:', error);
       throw error;
