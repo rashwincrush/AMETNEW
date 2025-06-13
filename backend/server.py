@@ -135,7 +135,100 @@ async def health_check():
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 
+from pydantic import BaseModel, Field
+
+# Login request model
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+# Registration endpoint
+@api_router.post("/auth/register")
+async def register_user(request: dict):
+    """Register a new user"""
+    try:
+        email = request.get('email')
+        password = request.get('password')
+        user_metadata = request.get('user_metadata', {})
+        
+        # Sign up user with Supabase
+        auth_response = supabase.auth.sign_up({
+            "email": email,
+            "password": password,
+            "options": {
+                "data": user_metadata
+            }
+        })
+        
+        if auth_response.user:
+            # Create profile in profiles table (using id instead of user_id)
+            profile_data = {
+                "id": auth_response.user.id,  # Using id directly as primary key
+                "email": email,
+                "first_name": user_metadata.get('first_name', ''),
+                "last_name": user_metadata.get('last_name', ''),
+                "graduation_year": user_metadata.get('graduation_year'),
+                "degree": user_metadata.get('degree', ''),
+                "phone": user_metadata.get('phone', ''),
+                "account_type": user_metadata.get('primary_role', 'alumni'),
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+                "is_verified": False,
+                "is_mentor": False,
+                "is_employer": False,
+                "alumni_verification_status": "pending",
+                "mentor_status": "pending",
+                "mentee_status": "pending"
+            }
+            
+            # Insert into profiles table
+            profile_response = supabase.table("profiles").insert(profile_data).execute()
+            
+            return {
+                "success": True,
+                "user": {
+                    "id": auth_response.user.id,
+                    "email": auth_response.user.email,
+                    "created_at": auth_response.user.created_at
+                },
+                "profile": profile_response.data[0] if profile_response.data else None
+            }
+        else:
+            return {
+                "success": False,
+                "error": "Failed to create user"
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 # Authentication routes
+@api_router.post("/auth/test-login")
+async def test_login(request: LoginRequest):
+    """Test login endpoint for debugging"""
+    try:
+        # Use admin client to check if user exists
+        auth_response = supabase_admin.auth.sign_in_with_password({
+            "email": request.email,
+            "password": request.password
+        })
+        
+        return {
+            "success": True,
+            "user_exists": auth_response.user is not None,
+            "user_id": auth_response.user.id if auth_response.user else None,
+            "email": auth_response.user.email if auth_response.user else None
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "user_exists": False
+        }
+
 @api_router.get("/user", response_model=Dict[str, Any])
 async def get_user(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Get current authenticated user"""
@@ -171,27 +264,50 @@ async def update_user_profile(
 # Profiles routes
 @api_router.get("/profiles", response_model=List[Dict[str, Any]])
 async def get_profiles(
-    limit: int = 50,
-    offset: int = 0,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    limit: int = 1000,
+    offset: int = 0
 ):
-    """Get all alumni profiles"""
+    """Get all alumni profiles - public endpoint for directory"""
     try:
         response = supabase.table("profiles").select("*").range(offset, offset + limit - 1).execute()
         return response.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.get("/profiles/protected", response_model=List[Dict[str, Any]])
+async def get_profiles_protected(
+    limit: int = 50,
+    offset: int = 0,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get all alumni profiles - protected endpoint"""
+    try:
+        response = supabase.table("profiles").select("*").range(offset, offset + limit - 1).execute()
+        return response.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
+
 @api_router.get("/profiles/{profile_id}")
 async def get_profile_by_id(
-    profile_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    profile_id: str
 ):
     """Get specific profile by ID"""
     try:
         response = supabase.table("profiles").select("*").eq("id", profile_id).execute()
         if response.data:
-            return response.data[0]
+            content = jsonable_encoder(response.data[0])
+            return JSONResponse(
+                content=content,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Credentials": "true",
+                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                }
+            )
         else:
             raise HTTPException(status_code=404, detail="Profile not found")
     except Exception as e:
@@ -460,7 +576,7 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -479,4 +595,4 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=8003)

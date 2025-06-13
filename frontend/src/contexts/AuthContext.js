@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase, getCurrentUser, getSession } from '../utils/supabase';
 
 const AuthContext = createContext({});
 
@@ -18,51 +17,76 @@ export const AuthProvider = ({ children }) => {
   const [session, setSession] = useState(null);
 
   useEffect(() => {
-    // Get initial session
-    const getInitialSession = async () => {
+    // Initialize authentication
+    const initializeAuth = async () => {
       try {
-        const { session: initialSession } = await getSession();
-        setSession(initialSession);
-        setUser(initialSession?.user || null);
+        // Check environment variables
+        const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+        const supabaseKey = process.env.REACT_APP_SUPABASE_KEY;
         
-        if (initialSession?.user) {
-          await fetchUserProfile(initialSession.user.id);
+        console.log('Initializing auth with:', {
+          hasUrl: !!supabaseUrl,
+          hasKey: !!supabaseKey,
+          url: supabaseUrl
+        });
+        
+        if (supabaseUrl && supabaseKey) {
+          // Import Supabase utilities
+          const { supabase, getSession } = await import('../utils/supabase');
+          
+          // Get initial session
+          const { session: initialSession } = await getSession();
+          console.log('Initial session:', initialSession);
+          
+          setSession(initialSession);
+          setUser(initialSession?.user || null);
+          
+          if (initialSession?.user) {
+            await fetchUserProfile(initialSession.user.id);
+          }
+          
+          // Listen for auth changes
+          const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            console.log('Auth state change:', event, session);
+            
+            setSession(session);
+            setUser(session?.user || null);
+            
+            if (session?.user) {
+              await fetchUserProfile(session.user.id);
+            } else {
+              setProfile(null);
+            }
+            
+            setLoading(false);
+          });
+
+          // Cleanup subscription
+          return () => subscription.unsubscribe();
+        } else {
+          console.log('Missing Supabase credentials, running in demo mode');
         }
+        
       } catch (error) {
-        console.error('Error getting initial session:', error);
+        console.error('Error initializing auth:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    getInitialSession();
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state change:', event, session);
-      
-      setSession(session);
-      setUser(session?.user || null);
-      
-      if (session?.user) {
-        await fetchUserProfile(session.user.id);
-      } else {
-        setProfile(null);
-      }
-      
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    initializeAuth();
   }, []);
 
   const fetchUserProfile = async (userId) => {
     try {
+      const { supabase } = await import('../utils/supabase');
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('user_id', userId)
         .single();
+
+      console.log('Profile fetch result:', { data, error });
 
       if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
         console.error('Error fetching profile:', error);
@@ -72,26 +96,7 @@ export const AuthProvider = ({ children }) => {
       if (data) {
         setProfile(data);
       } else {
-        // Create a basic profile if none exists
-        const newProfile = {
-          user_id: userId,
-          email: user?.email || '',
-          full_name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || '',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
-        const { data: createdProfile, error: createError } = await supabase
-          .from('profiles')
-          .insert([newProfile])
-          .select()
-          .single();
-
-        if (createError) {
-          console.error('Error creating profile:', createError);
-        } else {
-          setProfile(createdProfile);
-        }
+        console.log('No profile found, user might be new');
       }
     } catch (error) {
       console.error('Error in fetchUserProfile:', error);
@@ -99,18 +104,24 @@ export const AuthProvider = ({ children }) => {
   };
 
   const signOut = async () => {
-    setLoading(true);
     try {
+      const { supabase } = await import('../utils/supabase');
       const { error } = await supabase.auth.signOut();
+      
       if (error) {
         console.error('Error signing out:', error);
-        throw error;
       }
+      
+      // Force logout even if there's an error
+      setUser(null);
+      setProfile(null);
+      setSession(null);
     } catch (error) {
-      console.error('Error during sign out:', error);
-      throw error;
-    } finally {
-      setLoading(false);
+      console.error('Sign out error:', error);
+      // Force logout
+      setUser(null);
+      setProfile(null);
+      setSession(null);
     }
   };
 
@@ -118,9 +129,10 @@ export const AuthProvider = ({ children }) => {
     if (!user || !profile) return;
 
     try {
+      const { supabase } = await import('../utils/supabase');
       const { data, error } = await supabase
         .from('profiles')
-        .update(updates)
+        .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('user_id', user.id)
         .select()
         .single();
@@ -147,22 +159,23 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     fetchUserProfile,
     isAuthenticated: !!user,
-    // Helper function to determine user role
     getUserRole: () => {
-      if (!profile) return 'alumni'; // default role
+      if (!profile && !user) return 'alumni';
       
-      // Check if user is admin
-      if (profile.email && profile.email.includes('@amet.ac.in') && profile.is_admin) {
+      // Check user metadata or profile for role
+      const userRole = profile?.primary_role || profile?.user_type || user?.user_metadata?.primary_role || 'alumni';
+      
+      // Check if admin
+      if (profile?.email?.includes('@amet.ac.in') && profile?.is_admin) {
         return 'admin';
       }
       
-      // Check if user is employer
-      if (profile.user_type === 'employer' || profile.is_employer) {
+      // Check if employer
+      if (userRole === 'employer' || profile?.is_employer) {
         return 'employer';
       }
       
-      // Default to alumni
-      return 'alumni';
+      return userRole || 'alumni';
     }
   };
 

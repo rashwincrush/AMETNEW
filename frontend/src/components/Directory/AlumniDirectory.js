@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   MagnifyingGlassIcon,
@@ -7,12 +7,20 @@ import {
   ListBulletIcon,
   MapPinIcon,
   BriefcaseIcon,
-  AcademicCapIcon
+  AcademicCapIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
+import { useAuth } from '../../contexts/AuthContext';
 
 const AlumniDirectory = () => {
+  const { isAuthenticated } = useAuth();
   const [viewMode, setViewMode] = useState('grid'); // grid or list
   const [searchQuery, setSearchQuery] = useState('');
+  const [alumni, setAlumni] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(20); // Display exactly 20 items per page
   const [filters, setFilters] = useState({
     graduationYear: '',
     degree: '',
@@ -21,87 +29,102 @@ const AlumniDirectory = () => {
     skills: ''
   });
 
-  // Mock alumni data
-  const alumni = [
-    {
-      id: 1,
-      name: 'Rajesh Kumar',
-      email: 'rajesh@email.com',
-      graduationYear: 2018,
-      degree: 'B.Tech Naval Architecture',
-      currentPosition: 'Senior Marine Engineer',
-      company: 'Ocean Shipping Ltd.',
-      location: 'Mumbai, Maharashtra',
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
-      skills: ['Marine Engineering', 'Ship Design', 'Project Management'],
-      verified: true
-    },
-    {
-      id: 2,
-      name: 'Priya Sharma',
-      email: 'priya@email.com',
-      graduationYear: 2020,
-      degree: 'B.Tech Marine Engineering',
-      currentPosition: 'Naval Architect',
-      company: 'Maritime Solutions',
-      location: 'Chennai, Tamil Nadu',
-      avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b77c?w=100&h=100&fit=crop&crop=face',
-      skills: ['Naval Architecture', 'CAD Design', 'Sustainability'],
-      verified: true
-    },
-    {
-      id: 3,
-      name: 'Mohammed Ali',
-      email: 'mohammed@email.com',
-      graduationYear: 2015,
-      degree: 'MBA Maritime Management',
-      currentPosition: 'Port Operations Manager',
-      company: 'Indian Ports Authority',
-      location: 'Kochi, Kerala',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face',
-      skills: ['Port Management', 'Logistics', 'Leadership'],
-      verified: true
-    },
-    {
-      id: 4,
-      name: 'Sneha Patel',
-      email: 'sneha@email.com',
-      graduationYear: 2021,
-      degree: 'B.Tech Naval Architecture',
-      currentPosition: 'Junior Marine Engineer',
-      company: 'Coastal Engineering Corp',
-      location: 'Pune, Maharashtra',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face',
-      skills: ['Marine Engineering', 'Technical Analysis', 'Research'],
-      verified: false
-    },
-    {
-      id: 5,
-      name: 'Arjun Nair',
-      email: 'arjun@email.com',
-      graduationYear: 2019,
-      degree: 'M.Tech Marine Technology',
-      currentPosition: 'Research Scientist',
-      company: 'Marine Research Institute',
-      location: 'Goa, India',
-      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face',
-      skills: ['Research', 'Marine Technology', 'Innovation'],
-      verified: true
-    },
-    {
-      id: 6,
-      name: 'Kavitha Menon',
-      email: 'kavitha@email.com',
-      graduationYear: 2017,
-      degree: 'B.Tech Marine Engineering',
-      currentPosition: 'Chief Engineer',
-      company: 'International Shipping',
-      location: 'Visakhapatnam, Andhra Pradesh',
-      avatar: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=100&h=100&fit=crop&crop=face',
-      skills: ['Engineering Management', 'Ship Operations', 'Safety'],
-      verified: true
+  useEffect(() => {
+    fetchAlumniData();
+  }, []);
+
+  const fetchAlumniData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Try fetching from backend API first
+      try {
+        // Use explicit URL to avoid environment variable caching issues
+        const backendUrl = 'http://localhost:8003';
+        console.log('Using backend URL for directory:', backendUrl);
+        const response = await fetch(`${backendUrl}/api/profiles?limit=1000`);
+        const data = await response.json();
+        
+        console.log('Fetched alumni from backend:', data);
+        
+        // Transform data to match component structure
+        const transformedAlumni = data.map(profile => ({
+          id: profile.id,
+          name: profile.full_name || `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'Unknown',
+          email: profile.email || '',
+          graduationYear: profile.graduation_year,
+          degree: profile.degree || 'Not specified',
+          currentPosition: profile.current_position || 'Not specified',
+          company: profile.current_company || profile.company_name || 'Not specified',
+          location: profile.location || 'Not specified',
+          avatar: profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.full_name || profile.email || 'User')}&background=3B82F6&color=fff`,
+          skills: profile.skills || [],
+          bio: profile.bio || '',
+          verified: profile.is_verified || false,
+          role: 'alumni',
+          phone: profile.phone || profile.phone_number || '',
+          linkedin: profile.linkedin_url || '',
+          studentId: profile.student_id || '',
+          department: profile.department || '',
+          isMentor: profile.is_mentor || false,
+          isEmployer: profile.is_employer || false
+        })).filter(alumni => alumni.name !== 'Unknown' || alumni.email); // Filter out completely empty profiles
+
+        setAlumni(transformedAlumni);
+        
+      } catch (apiError) {
+        console.error('Backend API failed, trying direct Supabase:', apiError);
+        
+        // Fallback to direct Supabase if backend fails
+        const { supabase } = await import('../../utils/supabase');
+        
+        const { data, error: supabaseError } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (supabaseError) {
+          console.error('Error fetching alumni:', supabaseError);
+          setError('Failed to load alumni data');
+          return;
+        }
+
+        console.log('Fetched alumni from Supabase:', data);
+        
+        // Transform data to match component structure  
+        const transformedAlumni = data.map(profile => ({
+          id: profile.id,
+          name: profile.full_name || `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'Unknown',
+          email: profile.email || '',
+          graduationYear: profile.graduation_year,
+          degree: profile.degree || 'Not specified',
+          currentPosition: profile.current_position || 'Not specified', 
+          company: profile.current_company || profile.company_name || 'Not specified',
+          location: profile.location || 'Not specified',
+          avatar: profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.full_name || profile.email || 'User')}&background=3B82F6&color=fff`,
+          skills: profile.skills || [],
+          bio: profile.bio || '',
+          verified: profile.is_verified || false,
+          role: 'alumni',
+          phone: profile.phone || profile.phone_number || '',
+          linkedin: profile.linkedin_url || '',
+          studentId: profile.student_id || '',
+          department: profile.department || '',
+          isMentor: profile.is_mentor || false,
+          isEmployer: profile.is_employer || false
+        })).filter(alumni => alumni.name !== 'Unknown' || alumni.email);
+
+        setAlumni(transformedAlumni);
+      }
+      
+    } catch (error) {
+      console.error('Error in fetchAlumniData:', error);
+      setError('Failed to connect to database');
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
 
   const AlumniCard = ({ alumnus }) => (
     <div className="glass-card rounded-lg p-6 card-hover">
@@ -210,6 +233,30 @@ const AlumniDirectory = () => {
     </div>
   );
 
+  // Filter alumni based on search query
+  const filteredAlumni = alumni.filter(alumnus => {
+    if (!searchQuery) return true;
+    const searchLower = searchQuery.toLowerCase();
+    return (
+      alumnus.name?.toLowerCase().includes(searchLower) ||
+      alumnus.company?.toLowerCase().includes(searchLower) ||
+      alumnus.location?.toLowerCase().includes(searchLower) ||
+      alumnus.currentPosition?.toLowerCase().includes(searchLower) ||
+      (alumnus.skills?.some(skill => typeof skill === 'string' && skill.toLowerCase().includes(searchLower)) || false)
+    );
+  });
+  
+  // Calculate pagination
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentItems = filteredAlumni.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredAlumni.length / itemsPerPage);
+  
+  // Handle page changes
+  const paginate = (pageNumber) => setCurrentPage(pageNumber);
+  const nextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
+  const prevPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -281,46 +328,116 @@ const AlumniDirectory = () => {
       {/* Results Count */}
       <div className="flex items-center justify-between">
         <p className="text-gray-600">
-          Showing <span className="font-medium">{alumni.length}</span> alumni
+          Showing <span className="font-medium">{indexOfFirstItem + 1}-{Math.min(indexOfLastItem, filteredAlumni.length)}</span> of <span className="font-medium">{filteredAlumni.length}</span> alumni
         </p>
-        <select className="form-input px-3 py-1 rounded text-sm">
-          <option>Sort by Name</option>
-          <option>Sort by Graduation Year</option>
-          <option>Sort by Location</option>
-          <option>Sort by Company</option>
-        </select>
+        <div className="flex items-center space-x-4">
+          <select 
+            className="form-input px-3 py-1 rounded text-sm"
+            value={itemsPerPage}
+            onChange={(e) => {
+              setItemsPerPage(Number(e.target.value));
+              setCurrentPage(1); // Reset to first page when changing items per page
+            }}
+          >
+            <option value="10">10 per page</option>
+            <option value="20">20 per page</option>
+            <option value="30">30 per page</option>
+            <option value="50">50 per page</option>
+          </select>
+          <select className="form-input px-3 py-1 rounded text-sm">
+            <option>Sort by Name</option>
+            <option>Sort by Graduation Year</option>
+            <option>Sort by Location</option>
+            <option>Sort by Company</option>
+          </select>
+        </div>
       </div>
 
       {/* Alumni Grid/List */}
-      <div className={viewMode === 'grid' 
-        ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
-        : 'space-y-4'
-      }>
-        {alumni.map((alumnus) => 
-          viewMode === 'grid' 
-            ? <AlumniCard key={alumnus.id} alumnus={alumnus} />
-            : <AlumniListItem key={alumnus.id} alumnus={alumnus} />
-        )}
-      </div>
+      {loading ? (
+        <div className="text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <p className="mt-4 text-gray-600">Loading alumni directory...</p>
+        </div>
+      ) : error ? (
+        <div className="text-center py-12">
+          <ExclamationTriangleIcon className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <p className="text-red-600 mb-4">{error}</p>
+          <button 
+            onClick={fetchAlumniData}
+            className="btn-ocean px-4 py-2 rounded-lg"
+          >
+            Try Again
+          </button>
+        </div>
+      ) : alumni.length === 0 ? (
+        <div className="text-center py-12">
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AcademicCapIcon className="w-8 h-8 text-gray-400" />
+          </div>
+          <p className="text-gray-600 mb-4">No alumni found</p>
+          <p className="text-gray-500 text-sm">Be the first to join the AMET Alumni network!</p>
+        </div>
+      ) : (
+        <div className={viewMode === 'grid' 
+          ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
+          : 'space-y-4'
+        }>
+          {currentItems.map((alumnus) => 
+            viewMode === 'grid' 
+              ? <AlumniCard key={alumnus.id} alumnus={alumnus} />
+              : <AlumniListItem key={alumnus.id} alumnus={alumnus} />
+          )}
+        </div>
+      )}
 
       {/* Pagination */}
-      <div className="flex items-center justify-center space-x-2">
-        <button className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
-          Previous
-        </button>
-        <button className="px-3 py-2 bg-ocean-500 text-white rounded-lg text-sm">
-          1
-        </button>
-        <button className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
-          2
-        </button>
-        <button className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
-          3
-        </button>
-        <button className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
-          Next
-        </button>
-      </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center space-x-2">
+          <button 
+            onClick={prevPage}
+            disabled={currentPage === 1}
+            className={`px-3 py-2 border border-gray-300 rounded-lg text-sm ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+          >
+            Previous
+          </button>
+          
+          {/* Display page numbers */}
+          {Array.from({ length: Math.min(5, totalPages) }).map((_, i) => {
+            // Logic to show pages around current page
+            let pageNum;
+            if (totalPages <= 5) {
+              pageNum = i + 1;
+            } else if (currentPage <= 3) {
+              pageNum = i + 1;
+            } else if (currentPage >= totalPages - 2) {
+              pageNum = totalPages - 4 + i;
+            } else {
+              pageNum = currentPage - 2 + i;
+            }
+            
+            return (
+              <button
+                key={pageNum}
+                onClick={() => paginate(pageNum)}
+                className={`px-3 py-2 ${currentPage === pageNum 
+                  ? 'bg-ocean-500 text-white' 
+                  : 'border border-gray-300 hover:bg-gray-50'} rounded-lg text-sm`}
+              >
+                {pageNum}
+              </button>
+            );
+          })}
+          
+          <button 
+            onClick={nextPage}
+            disabled={currentPage === totalPages}
+            className={`px-3 py-2 border border-gray-300 rounded-lg text-sm ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 };

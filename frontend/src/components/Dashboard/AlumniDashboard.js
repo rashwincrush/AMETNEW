@@ -6,7 +6,6 @@ import {
   BriefcaseIcon,
   AcademicCapIcon,
   ChatBubbleLeftRightIcon,
-  TrophyIcon,
   ArrowTrendingUpIcon
 } from '@heroicons/react/24/outline';
 
@@ -94,7 +93,9 @@ const AlumniDashboard = ({ user }) => {
           </div>
           <div className="hidden md:block">
             <div className="w-16 h-16 bg-ocean-gradient rounded-full flex items-center justify-center ocean-wave">
-              <TrophyIcon className="w-8 h-8 text-white" />
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 3v4.8l-2.787 5.574A1 1 0 003.68 15h7.84a.25.25 0 01.192.41l-.056.084-.808 1.212A3 3 0 0110 18h4a3 3 0 01-.857-1.294l-.808-1.212a.25.25 0 01.192-.494h7.84a1 1 0 00.467-1.626L18 7.8V3h-3v1.5a.5.5 0 01-.5.5h-6a.5.5 0 01-.5-.5V3H6zm.75 11a.75.75 0 100-1.5.75.75 0 000 1.5zm10.5 0a.75.75 0 100-1.5.75.75 0 000 1.5z" />
+              </svg>
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './App.css';
@@ -6,13 +6,19 @@ import './App.css';
 // Context
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
+// Home Page
+import HomePage from './components/Landing/HomePage';
+
+// Notifications Component
+import Notifications from './components/Notifications/Notifications';
+
 // Layout Components
 import Navigation from './components/Layout/Navigation';
 import Header from './components/Layout/Header';
 
 // Auth Components
 import Login from './components/Auth/Login';
-import Register from './components/Auth/Register';
+import EnhancedRegister from './components/Auth/EnhancedRegister';
 import Profile from './components/Auth/Profile';
 
 // Dashboard Components
@@ -36,6 +42,7 @@ import NetworkingGroups from './components/Networking/NetworkingGroups';
 import Messages from './components/Messages/Messages';
 import Analytics from './components/Admin/Analytics';
 import UserManagement from './components/Admin/UserManagement';
+import UserApprovalDashboard from './components/Admin/UserApprovalDashboard';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -50,16 +57,28 @@ const queryClient = new QueryClient({
 function AppContent() {
   const { user, profile, loading, getUserRole } = useAuth();
 
+  // Debug logging
+  useEffect(() => {
+    console.log('App state:', { 
+      loading, 
+      hasUser: !!user, 
+      hasProfile: !!profile,
+      userRole: getUserRole()
+    });
+  }, [loading, user, profile]);
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-ocean-500 to-blue-800 flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-lg mb-4 mx-auto">
-            <div className="w-10 h-10 bg-ocean-gradient rounded-lg flex items-center justify-center ocean-wave">
-              <span className="text-white font-bold text-lg">A</span>
-            </div>
+          <div className="w-16 h-16 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg mb-4 mx-auto animate-pulse">
+            <span className="text-white font-bold text-xl">A</span>
           </div>
-          <div className="text-white text-lg">Loading AMET Alumni Portal...</div>
+          <div className="text-gray-600 text-lg mb-2">Loading AMET Alumni Portal...</div>
+          <div className="text-gray-400 text-sm">Initializing authentication system</div>
+          <div className="mt-4">
+            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          </div>
         </div>
       </div>
     );
@@ -81,13 +100,14 @@ function AppContent() {
     <div className="App">
       <Router>
         {user ? (
+          // Authenticated user routes
           <div className="flex h-screen bg-ocean-50">
             <Navigation user={profile || user} />
             <div className="flex-1 flex flex-col overflow-hidden">
               <Header user={profile || user} />
               <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gradient-to-br from-ocean-50 to-blue-50 p-6">
                 <Routes>
-                  <Route path="/" element={getDashboardComponent()} />
+                  <Route path="/" element={<Navigate to="/dashboard" />} />
                   <Route path="/dashboard" element={getDashboardComponent()} />
                   <Route path="/profile" element={<Profile user={profile || user} />} />
                   <Route path="/directory" element={<AlumniDirectory />} />
@@ -103,10 +123,12 @@ function AppContent() {
                   <Route path="/mentorship" element={<Mentorship />} />
                   <Route path="/networking" element={<NetworkingGroups />} />
                   <Route path="/messages" element={<Messages />} />
+                  <Route path="/notifications" element={<Notifications />} />
                   {getUserRole() === 'admin' && (
                     <>
                       <Route path="/admin/analytics" element={<Analytics />} />
                       <Route path="/admin/users" element={<UserManagement />} />
+                      <Route path="/admin/approvals" element={<UserApprovalDashboard />} />
                     </>
                   )}
                   <Route path="*" element={<Navigate to="/dashboard" />} />
@@ -115,13 +137,19 @@ function AppContent() {
             </div>
           </div>
         ) : (
-          <div className="min-h-screen bg-gradient-to-br from-ocean-500 to-blue-800">
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="*" element={<Navigate to="/login" />} />
-            </Routes>
-          </div>
+          // Public routes for non-authenticated users
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/home" element={<HomePage />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<EnhancedRegister />} />
+            <Route path="/directory" element={<HomePage />} />
+            <Route path="/events" element={<HomePage />} />
+            <Route path="/jobs" element={<HomePage />} />
+            <Route path="/mentorship" element={<HomePage />} />
+            <Route path="/about" element={<HomePage />} />
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
         )}
       </Router>
     </div>
