@@ -44,8 +44,8 @@ logger = logging.getLogger(__name__)
 class Profile(BaseModel):
     id: Optional[str] = None
     email: str
-    first_name: str
-    last_name: str
+    first_name: Optional[str] = None  # Made optional to handle existing data
+    last_name: Optional[str] = None   # Made optional to handle existing data
     full_name: Optional[str] = None
     avatar_url: Optional[str] = None
     graduation_year: Optional[int] = None
