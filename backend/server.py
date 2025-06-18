@@ -38,60 +38,86 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ================================
-# MODELS
+# MODELS - Updated to match existing database schema
 # ================================
 
-class User(BaseModel):
+class Profile(BaseModel):
     id: Optional[str] = None
-    name: str
     email: str
-    role: str  # alumni, admin, employer
-    avatar: Optional[str] = None
-    company: Optional[str] = None
+    first_name: str
+    last_name: str
+    full_name: Optional[str] = None
+    avatar_url: Optional[str] = None
     graduation_year: Optional[int] = None
-    department: Optional[str] = None
+    degree: Optional[str] = None
+    major: Optional[str] = None
+    current_company: Optional[str] = None
+    current_position: Optional[str] = None
+    location: Optional[str] = None
+    bio: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    twitter_url: Optional[str] = None
+    website_url: Optional[str] = None
+    is_verified: bool = False
+    is_mentor: bool = False
+    is_employer: bool = False
+    is_admin: bool = False
+    role: str = "alumni"
+    phone: Optional[str] = None
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
-class UserCreate(BaseModel):
-    name: str
+class ProfileCreate(BaseModel):
     email: str
-    role: str
-    company: Optional[str] = None
+    first_name: str
+    last_name: str
     graduation_year: Optional[int] = None
-    department: Optional[str] = None
+    degree: Optional[str] = None
+    role: str = "alumni"
 
 class Job(BaseModel):
     id: Optional[str] = None
     title: str
-    company: str
+    company_name: str
     location: str
     job_type: str
-    experience: str
-    salary: str
     description: str
-    requirements: List[str]
-    skills: List[str]
+    requirements: Optional[str] = None
+    salary_range: Optional[str] = None
+    application_url: Optional[str] = None
+    contact_email: Optional[str] = None
+    expires_at: Optional[datetime] = None
     posted_by: str
+    is_active: bool = True
     created_at: Optional[datetime] = None
-    status: str = "active"
+    updated_at: Optional[datetime] = None
+    education_required: Optional[str] = None
+    required_skills: Optional[List[str]] = None
+    deadline: Optional[datetime] = None
+    experience_required: Optional[str] = None
 
 class JobCreate(BaseModel):
     title: str
-    company: str
+    company_name: str
     location: str
     job_type: str
-    experience: str
-    salary: str
     description: str
-    requirements: List[str]
-    skills: List[str]
+    requirements: Optional[str] = None
+    salary_range: Optional[str] = None
+    application_url: Optional[str] = None
+    contact_email: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    education_required: Optional[str] = None
+    required_skills: Optional[List[str]] = None
+    deadline: Optional[datetime] = None
+    experience_required: Optional[str] = None
 
 class JobApplication(BaseModel):
     id: Optional[str] = None
     job_id: str
     applicant_id: str
-    cover_letter: str
-    expected_salary: Optional[str] = None
+    cover_letter: Optional[str] = None
+    resume_url: Optional[str] = None
     status: str = "pending"  # pending, approved, rejected
     applied_at: Optional[datetime] = None
     reviewed_at: Optional[datetime] = None
@@ -100,8 +126,8 @@ class JobApplication(BaseModel):
 
 class JobApplicationCreate(BaseModel):
     job_id: str
-    cover_letter: str
-    expected_salary: Optional[str] = None
+    cover_letter: Optional[str] = None
+    resume_url: Optional[str] = None
 
 class JobApplicationReview(BaseModel):
     status: str  # approved, rejected
@@ -110,13 +136,16 @@ class JobApplicationReview(BaseModel):
 class Message(BaseModel):
     id: Optional[str] = None
     sender_id: str
-    receiver_id: str
+    recipient_id: str  # Updated to match existing schema
+    subject: Optional[str] = None
     content: str
-    sent_at: Optional[datetime] = None
-    read_at: Optional[datetime] = None
+    is_read: bool = False
+    parent_message_id: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 class MessageCreate(BaseModel):
-    receiver_id: str
+    recipient_id: str  # Updated to match existing schema
+    subject: Optional[str] = None
     content: str
 
 class DashboardStats(BaseModel):
@@ -131,49 +160,57 @@ class DashboardStats(BaseModel):
 
 def get_current_user_id():
     # In a real app, this would extract user ID from JWT token
-    # For now, returning a mock user ID
-    return "user_123"
+    # For now, getting a sample user ID from existing profiles
+    try:
+        result = supabase.table("profiles").select("id").limit(1).execute()
+        if result.data:
+            return result.data[0]["id"]
+        return "sample_user_id"
+    except:
+        return "sample_user_id"
 
 # ================================
-# USER MANAGEMENT APIs
+# USER/PROFILE MANAGEMENT APIs
 # ================================
 
-@api_router.post("/users", response_model=User)
-async def create_user(user_data: UserCreate):
+@api_router.post("/users", response_model=Profile)
+async def create_profile(profile_data: ProfileCreate):
     try:
-        user_dict = user_data.dict()
-        user_dict["id"] = str(uuid.uuid4())
-        user_dict["created_at"] = datetime.utcnow().isoformat()
+        profile_dict = profile_data.dict()
+        profile_dict["id"] = str(uuid.uuid4())
+        profile_dict["full_name"] = f"{profile_dict['first_name']} {profile_dict['last_name']}"
+        profile_dict["created_at"] = datetime.utcnow().isoformat()
+        profile_dict["updated_at"] = datetime.utcnow().isoformat()
         
-        result = supabase.table("users").insert(user_dict).execute()
+        result = supabase.table("profiles").insert(profile_dict).execute()
         
         if result.data:
-            return User(**result.data[0])
+            return Profile(**result.data[0])
         else:
-            raise HTTPException(status_code=400, detail="Failed to create user")
+            raise HTTPException(status_code=400, detail="Failed to create profile")
     except Exception as e:
-        logger.error(f"Error creating user: {str(e)}")
+        logger.error(f"Error creating profile: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/users", response_model=List[User])
-async def get_users():
+@api_router.get("/users", response_model=List[Profile])
+async def get_profiles():
     try:
-        result = supabase.table("users").select("*").execute()
-        return [User(**user) for user in result.data]
+        result = supabase.table("profiles").select("*").execute()
+        return [Profile(**profile) for profile in result.data]
     except Exception as e:
-        logger.error(f"Error fetching users: {str(e)}")
+        logger.error(f"Error fetching profiles: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/users/{user_id}", response_model=User)
-async def get_user(user_id: str):
+@api_router.get("/users/{user_id}", response_model=Profile)
+async def get_profile(user_id: str):
     try:
-        result = supabase.table("users").select("*").eq("id", user_id).execute()
+        result = supabase.table("profiles").select("*").eq("id", user_id).execute()
         if result.data:
-            return User(**result.data[0])
+            return Profile(**result.data[0])
         else:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="Profile not found")
     except Exception as e:
-        logger.error(f"Error fetching user: {str(e)}")
+        logger.error(f"Error fetching profile: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ================================
@@ -183,19 +220,19 @@ async def get_user(user_id: str):
 @api_router.get("/dashboard/stats", response_model=DashboardStats)
 async def get_dashboard_stats():
     try:
-        # Get total alumni
-        alumni_result = supabase.table("users").select("id", count="exact").eq("role", "alumni").execute()
+        # Get total alumni (profiles with role alumni)
+        alumni_result = supabase.table("profiles").select("id", count="exact").eq("role", "alumni").execute()
         total_alumni = alumni_result.count or 0
         
-        # Get total jobs
-        jobs_result = supabase.table("jobs").select("id", count="exact").eq("status", "active").execute()
+        # Get total active jobs
+        jobs_result = supabase.table("jobs").select("id", count="exact").eq("is_active", True).execute()
         total_jobs = jobs_result.count or 0
         
         # Get total applications
         applications_result = supabase.table("job_applications").select("id", count="exact").execute()
         total_applications = applications_result.count or 0
         
-        # Get recent activities (simplified)
+        # Get recent activities (recent jobs as activities)
         recent_jobs = supabase.table("jobs").select("*").order("created_at", desc=True).limit(5).execute()
         recent_activities = []
         
@@ -229,7 +266,8 @@ async def create_job(job_data: JobCreate):
         job_dict["id"] = str(uuid.uuid4())
         job_dict["posted_by"] = get_current_user_id()
         job_dict["created_at"] = datetime.utcnow().isoformat()
-        job_dict["status"] = "active"
+        job_dict["updated_at"] = datetime.utcnow().isoformat()
+        job_dict["is_active"] = True
         
         result = supabase.table("jobs").insert(job_dict).execute()
         
@@ -244,7 +282,7 @@ async def create_job(job_data: JobCreate):
 @api_router.get("/jobs", response_model=List[Job])
 async def get_jobs():
     try:
-        result = supabase.table("jobs").select("*").eq("status", "active").order("created_at", desc=True).execute()
+        result = supabase.table("jobs").select("*").eq("is_active", True).order("created_at", desc=True).execute()
         return [Job(**job) for job in result.data]
     except Exception as e:
         logger.error(f"Error fetching jobs: {str(e)}")
@@ -333,7 +371,8 @@ async def send_message(message_data: MessageCreate):
         msg_dict = message_data.dict()
         msg_dict["id"] = str(uuid.uuid4())
         msg_dict["sender_id"] = get_current_user_id()
-        msg_dict["sent_at"] = datetime.utcnow().isoformat()
+        msg_dict["created_at"] = datetime.utcnow().isoformat()
+        msg_dict["is_read"] = False
         
         result = supabase.table("messages").insert(msg_dict).execute()
         
@@ -352,9 +391,9 @@ async def get_conversation(user_id: str):
         
         # Get messages between current user and specified user
         result = supabase.table("messages").select("*").or_(
-            f"and(sender_id.eq.{current_user},receiver_id.eq.{user_id}),"
-            f"and(sender_id.eq.{user_id},receiver_id.eq.{current_user})"
-        ).order("sent_at", desc=False).execute()
+            f"and(sender_id.eq.{current_user},recipient_id.eq.{user_id}),"
+            f"and(sender_id.eq.{user_id},recipient_id.eq.{current_user})"
+        ).order("created_at", desc=False).execute()
         
         return [Message(**msg) for msg in result.data]
     except Exception as e:
@@ -368,13 +407,13 @@ async def get_recent_conversations():
         
         # Get recent conversations (simplified - gets recent messages)
         result = supabase.table("messages").select("*").or_(
-            f"sender_id.eq.{current_user},receiver_id.eq.{current_user}"
-        ).order("sent_at", desc=True).limit(50).execute()
+            f"sender_id.eq.{current_user},recipient_id.eq.{current_user}"
+        ).order("created_at", desc=True).limit(50).execute()
         
         # Group by conversation partner
         conversations = {}
         for msg in result.data:
-            partner_id = msg["receiver_id"] if msg["sender_id"] == current_user else msg["sender_id"]
+            partner_id = msg["recipient_id"] if msg["sender_id"] == current_user else msg["sender_id"]
             if partner_id not in conversations:
                 conversations[partner_id] = msg
         
