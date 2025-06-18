@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   UsersIcon, 
@@ -9,75 +9,138 @@ import {
   TrophyIcon,
   ArrowTrendingUpIcon
 } from '@heroicons/react/24/outline';
+import apiService from '../../services/apiService';
 
 const AlumniDashboard = ({ user }) => {
+  const [dashboardData, setDashboardData] = useState({
+    stats: {
+      total_alumni: 0,
+      total_jobs: 0,
+      total_applications: 0,
+      recent_activities: []
+    },
+    jobs: [],
+    loading: true,
+    error: null
+  });
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setDashboardData(prev => ({ ...prev, loading: true }));
+
+        // Fetch dashboard stats and jobs in parallel
+        const [statsResponse, jobsResponse] = await Promise.all([
+          apiService.getDashboardStats(),
+          apiService.getJobs()
+        ]);
+
+        setDashboardData({
+          stats: statsResponse.data,
+          jobs: jobsResponse.data.slice(0, 3), // Get first 3 jobs for recommendations
+          loading: false,
+          error: null
+        });
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+        setDashboardData(prev => ({
+          ...prev,
+          loading: false,
+          error: 'Failed to load dashboard data. Please try again.'
+        }));
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
+
   const quickStats = [
-    { title: 'Alumni Connections', value: '1,247', icon: UsersIcon, color: 'bg-blue-500' },
-    { title: 'Upcoming Events', value: '8', icon: CalendarIcon, color: 'bg-green-500' },
-    { title: 'Job Opportunities', value: '23', icon: BriefcaseIcon, color: 'bg-purple-500' },
-    { title: 'Messages', value: '5', icon: ChatBubbleLeftRightIcon, color: 'bg-orange-500' }
-  ];
-
-  const recentActivities = [
-    { id: 1, type: 'event', title: 'AMET Alumni Meetup 2024', time: '2 hours ago', status: 'registered' },
-    { id: 2, type: 'job', title: 'Marine Engineer Position at Shipping Corp', time: '1 day ago', status: 'applied' },
-    { id: 3, type: 'connection', title: 'Sarah Johnson sent you a connection request', time: '2 days ago', status: 'pending' },
-    { id: 4, type: 'mentorship', title: 'Mentorship session with Dr. Smith', time: '3 days ago', status: 'completed' }
-  ];
-
-  const upcomingEvents = [
-    {
-      id: 1,
-      title: 'AMET Alumni Meetup 2024',
-      date: '2024-04-15',
-      time: '6:00 PM',
-      location: 'AMET Campus',
-      attendees: 45
+    { 
+      title: 'Alumni Connections', 
+      value: dashboardData.stats.total_alumni || '0', 
+      icon: UsersIcon, 
+      color: 'bg-blue-500' 
     },
-    {
-      id: 2,
-      title: 'Career Development Workshop',
-      date: '2024-04-20',
-      time: '2:00 PM',
-      location: 'Online',
-      attendees: 78
+    { 
+      title: 'Job Opportunities', 
+      value: dashboardData.stats.total_jobs || '0', 
+      icon: BriefcaseIcon, 
+      color: 'bg-purple-500' 
     },
-    {
-      id: 3,
-      title: 'Industry Networking Session',
-      date: '2024-04-25',
-      time: '5:30 PM',
-      location: 'Chennai Maritime Center',
-      attendees: 32
+    { 
+      title: 'Applications', 
+      value: dashboardData.stats.total_applications || '0', 
+      icon: ChatBubbleLeftRightIcon, 
+      color: 'bg-orange-500' 
+    },
+    { 
+      title: 'Recent Activities', 
+      value: dashboardData.stats.recent_activities.length || '0', 
+      icon: CalendarIcon, 
+      color: 'bg-green-500' 
     }
   ];
 
-  const jobRecommendations = [
-    {
-      id: 1,
-      title: 'Senior Marine Engineer',
-      company: 'Ocean Shipping Ltd.',
-      location: 'Mumbai',
-      salary: '₹12-15 LPA',
-      posted: '2 days ago'
-    },
-    {
-      id: 2,
-      title: 'Naval Architect',
-      company: 'Maritime Solutions',
-      location: 'Chennai',
-      salary: '₹10-12 LPA',
-      posted: '4 days ago'
-    },
-    {
-      id: 3,
-      title: 'Port Operations Manager',
-      company: 'Indian Ports Authority',
-      location: 'Kochi',
-      salary: '₹15-18 LPA',
-      posted: '1 week ago'
+  const formatTime = (timestamp) => {
+    if (!timestamp) return 'Recently';
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffTime = now - date;
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) {
+      return 'Today';
+    } else if (diffDays === 1) {
+      return 'Yesterday';
+    } else if (diffDays < 7) {
+      return `${diffDays} days ago`;
+    } else {
+      return date.toLocaleDateString();
     }
-  ];
+  };
+
+  if (dashboardData.loading) {
+    return (
+      <div className="space-y-6">
+        <div className="glass-card rounded-lg p-6">
+          <div className="animate-pulse">
+            <div className="h-8 bg-gray-200 rounded w-1/3 mb-2"></div>
+            <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="glass-card rounded-lg p-6">
+              <div className="animate-pulse">
+                <div className="h-12 bg-gray-200 rounded mb-4"></div>
+                <div className="h-4 bg-gray-200 rounded w-2/3 mb-2"></div>
+                <div className="h-6 bg-gray-200 rounded w-1/3"></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (dashboardData.error) {
+    return (
+      <div className="space-y-6">
+        <div className="glass-card rounded-lg p-6">
+          <div className="text-center text-red-600">
+            <p className="text-lg font-semibold mb-2">Error Loading Dashboard</p>
+            <p>{dashboardData.error}</p>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="mt-4 btn-ocean px-4 py-2 rounded-lg"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -130,78 +193,55 @@ const AlumniDashboard = ({ user }) => {
               <ArrowTrendingUpIcon className="w-5 h-5 text-ocean-500" />
             </div>
             <div className="space-y-4">
-              {recentActivities.map((activity) => (
-                <div key={activity.id} className="flex items-center p-4 bg-ocean-50 rounded-lg">
-                  <div className="flex-shrink-0">
-                    <div className="w-10 h-10 bg-ocean-gradient rounded-full flex items-center justify-center">
-                      {activity.type === 'event' && <CalendarIcon className="w-5 h-5 text-white" />}
-                      {activity.type === 'job' && <BriefcaseIcon className="w-5 h-5 text-white" />}
-                      {activity.type === 'connection' && <UsersIcon className="w-5 h-5 text-white" />}
-                      {activity.type === 'mentorship' && <AcademicCapIcon className="w-5 h-5 text-white" />}
+              {dashboardData.stats.recent_activities.length > 0 ? (
+                dashboardData.stats.recent_activities.map((activity, index) => (
+                  <div key={activity.id || index} className="flex items-center p-4 bg-ocean-50 rounded-lg">
+                    <div className="flex-shrink-0">
+                      <div className="w-10 h-10 bg-ocean-gradient rounded-full flex items-center justify-center">
+                        <BriefcaseIcon className="w-5 h-5 text-white" />
+                      </div>
                     </div>
+                    <div className="ml-4 flex-1">
+                      <p className="text-sm font-medium text-gray-900">{activity.title}</p>
+                      <p className="text-xs text-gray-500">{formatTime(activity.time)}</p>
+                    </div>
+                    <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                      {activity.status}
+                    </span>
                   </div>
-                  <div className="ml-4 flex-1">
-                    <p className="text-sm font-medium text-gray-900">{activity.title}</p>
-                    <p className="text-xs text-gray-500">{activity.time}</p>
-                  </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    activity.status === 'completed' ? 'status-active' : 
-                    activity.status === 'pending' ? 'status-pending' : 'bg-blue-100 text-blue-800'
-                  }`}>
-                    {activity.status}
-                  </span>
+                ))
+              ) : (
+                <div className="text-center text-gray-500 py-8">
+                  <BriefcaseIcon className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                  <p>No recent activities to display</p>
                 </div>
-              ))}
-            </div>
-            <div className="mt-4 text-center">
-              <Link 
-                to="/activity" 
-                className="text-ocean-600 hover:text-ocean-700 text-sm font-medium"
-              >
-                View all activities →
-              </Link>
+              )}
             </div>
           </div>
         </div>
 
         {/* Quick Actions */}
         <div className="space-y-6">
-          {/* Upcoming Events */}
-          <div className="glass-card rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Upcoming Events</h3>
-            <div className="space-y-3">
-              {upcomingEvents.slice(0, 3).map((event) => (
-                <div key={event.id} className="p-3 bg-ocean-50 rounded-lg">
-                  <h4 className="font-medium text-gray-900 text-sm">{event.title}</h4>
-                  <p className="text-xs text-gray-600">{event.date} • {event.time}</p>
-                  <p className="text-xs text-ocean-600">{event.attendees} attending</p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4">
-              <Link 
-                to="/events" 
-                className="btn-ocean-outline w-full py-2 px-4 rounded-lg text-center block text-sm"
-              >
-                View All Events
-              </Link>
-            </div>
-          </div>
-
           {/* Job Recommendations */}
           <div className="glass-card rounded-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Recommended Jobs</h3>
             <div className="space-y-3">
-              {jobRecommendations.slice(0, 2).map((job) => (
-                <div key={job.id} className="p-3 bg-green-50 rounded-lg">
-                  <h4 className="font-medium text-gray-900 text-sm">{job.title}</h4>
-                  <p className="text-xs text-gray-600">{job.company}</p>
-                  <div className="flex justify-between items-center mt-1">
-                    <p className="text-xs text-green-600 font-medium">{job.salary}</p>
-                    <p className="text-xs text-gray-500">{job.posted}</p>
+              {dashboardData.jobs.length > 0 ? (
+                dashboardData.jobs.map((job) => (
+                  <div key={job.id} className="p-3 bg-green-50 rounded-lg">
+                    <h4 className="font-medium text-gray-900 text-sm">{job.title}</h4>
+                    <p className="text-xs text-gray-600">{job.company}</p>
+                    <div className="flex justify-between items-center mt-1">
+                      <p className="text-xs text-green-600 font-medium">{job.salary}</p>
+                      <p className="text-xs text-gray-500">{formatTime(job.created_at)}</p>
+                    </div>
                   </div>
+                ))
+              ) : (
+                <div className="text-center text-gray-500 py-4">
+                  <p className="text-sm">No job recommendations available</p>
                 </div>
-              ))}
+              )}
             </div>
             <div className="mt-4">
               <Link 
