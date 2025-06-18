@@ -349,7 +349,35 @@ const Messages = () => {
     conversation.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  return (
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-ocean-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading messages...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <div className="text-center text-red-600">
+          <p className="text-lg font-semibold mb-2">Error Loading Messages</p>
+          <p>{error}</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-4 btn-ocean px-4 py-2 rounded-lg"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const selectedConversationData = conversations.find(c => c.id === selectedConversation);
     <div className="h-screen flex">
       {/* Conversations Sidebar */}
       <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
