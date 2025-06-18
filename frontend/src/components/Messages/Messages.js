@@ -15,12 +15,91 @@ import {
 import apiService from '../../services/apiService';
 
 const Messages = () => {
-  const [selectedConversation, setSelectedConversation] = useState(1);
+  const [selectedConversation, setSelectedConversation] = useState(null);
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [conversations, setConversations] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Mock conversations data
-  const conversations = [
+  // Mock current user - in real app this would come from auth context
+  const currentUserId = "5371e2d5-0697-46c0-bf5b-aab2e4d88b58"; // Using the admin user from your database
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch users and recent conversations
+        const [usersResponse, conversationsResponse] = await Promise.all([
+          apiService.getUsers(),
+          apiService.getRecentConversations()
+        ]);
+
+        setUsers(usersResponse.data);
+        
+        // Transform conversations data to match the expected format
+        const formattedConversations = conversationsResponse.data.map(msg => {
+          const partnerId = msg.recipient_id === currentUserId ? msg.sender_id : msg.recipient_id;
+          const partner = usersResponse.data.find(user => user.id === partnerId);
+          
+          return {
+            id: partnerId,
+            name: partner ? (partner.full_name || `${partner.first_name || ''} ${partner.last_name || ''}`.trim() || partner.email) : 'Unknown User',
+            avatar: partner?.avatar_url || `https://ui-avatars.com/api/?name=${partner?.email || 'Unknown'}&background=0ea5e9&color=fff`,
+            lastMessage: msg.content,
+            timestamp: msg.created_at,
+            unreadCount: 0, // You can implement read status later
+            isOnline: false, // You can implement online status later
+            type: 'individual',
+            role: partner?.role || 'alumni',
+            company: partner?.current_company || 'AMET University'
+          };
+        });
+
+        setConversations(formattedConversations);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching messages data:', error);
+        setError('Failed to load messages. Please try again.');
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [currentUserId]);
+
+  useEffect(() => {
+    const fetchConversationMessages = async () => {
+      if (selectedConversation) {
+        try {
+          const response = await apiService.getConversation(selectedConversation);
+          
+          // Transform messages to match expected format
+          const formattedMessages = response.data.map(msg => {
+            const sender = users.find(user => user.id === msg.sender_id);
+            return {
+              id: msg.id,
+              senderId: msg.sender_id,
+              senderName: sender ? (sender.full_name || `${sender.first_name || ''} ${sender.last_name || ''}`.trim() || sender.email) : 'Unknown',
+              senderAvatar: sender?.avatar_url || `https://ui-avatars.com/api/?name=${sender?.email || 'Unknown'}&background=0ea5e9&color=fff`,
+              message: msg.content,
+              timestamp: msg.created_at,
+              isOwn: msg.sender_id === currentUserId
+            };
+          });
+          
+          setMessages(formattedMessages);
+        } catch (error) {
+          console.error('Error fetching conversation messages:', error);
+        }
+      }
+    };
+
+    fetchConversationMessages();
+  }, [selectedConversation, users, currentUserId]);
     {
       id: 1,
       name: 'Captain Rajesh Kumar',
