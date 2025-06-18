@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { supabase } from '../../utils/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+import toast from 'react-hot-toast';
 import { 
   CheckIcon, 
   XMarkIcon, 
@@ -11,118 +14,143 @@ import {
 } from '@heroicons/react/24/outline';
 
 const UserApprovalDashboard = () => {
+  const { getUserRole } = useAuth();
   const [activeTab, setActiveTab] = useState('pending-employers');
   const [users, setUsers] = useState([]);
   const [mentorshipApplications, setMentorshipApplications] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [fetchLoading, setFetchLoading] = useState(false);
+  const [fetchError, setFetchError] = useState(null);
 
-  // Mock data - replace with actual API calls
-  const mockPendingEmployers = [
-    {
-      id: '1',
-      name: 'John Smith',
-      email: 'john.smith@oceanshipping.com',
-      company: 'Ocean Shipping Ltd.',
-      jobTitle: 'HR Director',
-      industry: 'Shipping & Logistics',
-      companySize: '201-1000',
-      website: 'https://oceanshipping.com',
-      linkedin: 'https://linkedin.com/in/johnsmith',
-      registeredAt: '2024-01-15T10:30:00Z',
-      status: 'pending_approval'
-    },
-    {
-      id: '2',
-      name: 'Sarah Johnson',
-      email: 'sarah.j@maritimeconsult.com',
-      company: 'Maritime Consulting Group',
-      jobTitle: 'Senior Consultant',
-      industry: 'Maritime Consulting',
-      companySize: '51-200',
-      website: 'https://maritimeconsult.com',
-      registeredAt: '2024-01-14T15:45:00Z',
-      status: 'pending_approval'
+  // Function to fetch pending employers from Supabase
+  const fetchPendingEmployers = async () => {
+    setFetchLoading(true);
+    setFetchError(null);
+    
+    try {
+      // Fetch users with pending_approval status and employer role
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('registration_status', 'pending_approval')
+        .eq('primary_role', 'employer');
+      
+      if (error) throw error;
+      
+      // Format the data to match our component's expectations
+      const formattedData = data.map(user => ({
+        ...user,
+        name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Unknown',
+        registeredAt: user.created_at,
+        type: 'employer'
+      }));
+      
+      setUsers(formattedData);
+    } catch (error) {
+      console.error('Error fetching pending employers:', error);
+      setFetchError('Failed to load pending employer approvals');
+      toast.error('Failed to load pending approvals');
+    } finally {
+      setFetchLoading(false);
     }
-  ];
+  };
 
-  const mockMentorshipApplications = [
-    {
-      id: '1',
-      name: 'Rajesh Kumar',
-      email: 'rajesh.kumar@email.com',
-      role: 'mentor',
-      graduationYear: 2018,
-      experienceYears: 6,
-      currentPosition: 'Senior Marine Engineer',
-      company: 'Shipping Corp India',
-      skills: ['Marine Engineering', 'Project Management', 'Leadership'],
-      interests: ['Career Development', 'Technical Skills'],
-      goals: 'Help young engineers develop technical and leadership skills',
-      appliedAt: '2024-01-10T09:00:00Z',
-      status: 'pending_review'
-    },
-    {
-      id: '2',
-      name: 'Priya Sharma',
-      email: 'priya.sharma@student.amet.ac.in',
-      role: 'mentee',
-      graduationYear: 2024,
-      experienceYears: 0,
-      degree: 'B.Tech Naval Architecture',
-      skills: ['Naval Architecture', 'AutoCAD'],
-      interests: ['Career Development', 'International Markets'],
-      goals: 'Guidance for career transition into offshore industry',
-      appliedAt: '2024-01-12T14:20:00Z',
-      status: 'pending_review'
-    },
-    {
-      id: '3',
-      name: 'Michael Chen',
-      email: 'm.chen@email.com',
-      role: 'both',
-      graduationYear: 2020,
-      experienceYears: 4,
-      currentPosition: 'Naval Architect',
-      company: 'Shipyard Technologies',
-      skills: ['Naval Architecture', 'Design Software', 'Project Management'],
-      interests: ['Technical Skills', 'Leadership Training'],
-      goals: 'Mentor students while learning about business development',
-      appliedAt: '2024-01-11T11:15:00Z',
-      status: 'pending_review'
+  // Function to fetch mentorship applications from Supabase
+  const fetchMentorshipApplications = async () => {
+    setFetchLoading(true);
+    setFetchError(null);
+    
+    try {
+      // Fetch mentorship applications with pending_review status
+      const { data, error } = await supabase
+        .from('mentorship_applications')
+        .select('*, profiles(*)')
+        .eq('registration_status', 'pending_review');
+      
+      if (error) throw error;
+      
+      // Format the data to match our component's expectations
+      const formattedData = data.map(app => ({
+        id: app.id,
+        userId: app.user_id,
+        name: app.profiles ? 
+          `${app.profiles.first_name || ''} ${app.profiles.last_name || ''}`.trim() : 
+          'Unknown',
+        email: app.profiles?.email || '',
+        role: app.mentorship_type || 'mentee',
+        graduationYear: app.profiles?.graduation_year,
+        experienceYears: app.experience_years || 0,
+        currentPosition: app.current_position || '',
+        company: app.company || '',
+        skills: app.skills || [],
+        interests: app.interests || [],
+        goals: app.goals || '',
+        appliedAt: app.created_at,
+        status: app.registration_status,
+        type: 'mentorship'
+      }));
+      
+      setMentorshipApplications(formattedData);
+    } catch (error) {
+      console.error('Error fetching mentorship applications:', error);
+      setFetchError('Failed to load mentorship applications');
+      toast.error('Failed to load mentorship applications');
+    } finally {
+      setFetchLoading(false);
     }
-  ];
+  };
 
   useEffect(() => {
+    // Check if user has appropriate permissions
+    if (getUserRole() !== 'super_admin' && getUserRole() !== 'admin') {
+      toast.error('You do not have permission to access this page');
+      return;
+    }
+    
     // Load data based on active tab
     if (activeTab === 'pending-employers') {
-      setUsers(mockPendingEmployers);
+      fetchPendingEmployers();
     } else {
-      setMentorshipApplications(mockMentorshipApplications);
+      fetchMentorshipApplications();
     }
-  }, [activeTab]);
+  }, [activeTab, getUserRole]);
 
   const handleApprove = async (userId, type) => {
     setLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
       if (type === 'employer') {
+        // Update user status in profiles table
+        const { error } = await supabase
+          .from('profiles')
+          .update({ registration_status: 'approved' })
+          .eq('id', userId);
+          
+        if (error) throw error;
+        
+        // Remove from local state
         setUsers(prev => prev.filter(user => user.id !== userId));
-        // Here you would update user status in Supabase
-        console.log(`Approved employer: ${userId}`);
+        toast.success('Employer approved successfully');
       } else {
+        // Update mentorship application status
+        const { error } = await supabase
+          .from('mentorship_applications')
+          .update({ registration_status: 'approved' })
+          .eq('id', userId);
+          
+        if (error) throw error;
+        
+        // Remove from local state
         setMentorshipApplications(prev => prev.filter(app => app.id !== userId));
-        // Here you would update mentorship application status
-        console.log(`Approved mentorship application: ${userId}`);
+        toast.success('Mentorship application approved successfully');
       }
       
       setShowModal(false);
       setSelectedUser(null);
     } catch (error) {
       console.error('Error approving:', error);
+      toast.error('Failed to approve. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -131,21 +159,37 @@ const UserApprovalDashboard = () => {
   const handleReject = async (userId, type) => {
     setLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
       if (type === 'employer') {
+        // Update user status in profiles table
+        const { error } = await supabase
+          .from('profiles')
+          .update({ registration_status: 'rejected' })
+          .eq('id', userId);
+          
+        if (error) throw error;
+        
+        // Remove from local state
         setUsers(prev => prev.filter(user => user.id !== userId));
-        console.log(`Rejected employer: ${userId}`);
+        toast.success('Employer rejected');
       } else {
+        // Update mentorship application status
+        const { error } = await supabase
+          .from('mentorship_applications')
+          .update({ registration_status: 'rejected' })
+          .eq('id', userId);
+          
+        if (error) throw error;
+        
+        // Remove from local state
         setMentorshipApplications(prev => prev.filter(app => app.id !== userId));
-        console.log(`Rejected mentorship application: ${userId}`);
+        toast.success('Mentorship application rejected');
       }
       
       setShowModal(false);
       setSelectedUser(null);
     } catch (error) {
       console.error('Error rejecting:', error);
+      toast.error('Failed to reject. Please try again');
     } finally {
       setLoading(false);
     }
@@ -161,13 +205,13 @@ const UserApprovalDashboard = () => {
       id: 'pending-employers',
       name: 'Pending Employers',
       icon: BriefcaseIcon,
-      count: mockPendingEmployers.length
+      count: users.length
     },
     {
       id: 'mentorship-applications',
       name: 'Mentorship Applications',
       icon: AcademicCapIcon,
-      count: mockMentorshipApplications.length
+      count: mentorshipApplications.length
     }
   ];
 
@@ -188,7 +232,7 @@ const UserApprovalDashboard = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Pending Approvals</p>
-              <p className="text-2xl font-bold text-gray-900">{mockPendingEmployers.length}</p>
+              <p className="text-2xl font-bold text-gray-900">{users.length}</p>
             </div>
           </div>
         </div>
@@ -200,7 +244,7 @@ const UserApprovalDashboard = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Mentorship Applications</p>
-              <p className="text-2xl font-bold text-gray-900">{mockMentorshipApplications.length}</p>
+              <p className="text-2xl font-bold text-gray-900">{mentorshipApplications.length}</p>
             </div>
           </div>
         </div>
