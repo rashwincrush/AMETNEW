@@ -289,6 +289,7 @@ const Messages = () => {
   const messages = getMessages(selectedConversation);
 
   const formatTime = (timestamp) => {
+    if (!timestamp) return 'Recently';
     const date = new Date(timestamp);
     const now = new Date();
     const diffTime = now - date;
@@ -305,11 +306,42 @@ const Messages = () => {
     }
   };
 
-  const handleSendMessage = (e) => {
+  const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (newMessage.trim()) {
-      console.log('Sending message:', newMessage);
-      setNewMessage('');
+    if (newMessage.trim() && selectedConversation) {
+      try {
+        const messageData = {
+          recipient_id: selectedConversation,
+          content: newMessage.trim()
+        };
+
+        await apiService.sendMessage(messageData);
+        
+        // Add the message to local state immediately for better UX
+        const sender = users.find(user => user.id === currentUserId);
+        const newMsg = {
+          id: Date.now().toString(),
+          senderId: currentUserId,
+          senderName: sender ? (sender.full_name || `${sender.first_name || ''} ${sender.last_name || ''}`.trim() || sender.email) : 'You',
+          senderAvatar: sender?.avatar_url || `https://ui-avatars.com/api/?name=${sender?.email || 'You'}&background=0ea5e9&color=fff`,
+          message: newMessage.trim(),
+          timestamp: new Date().toISOString(),
+          isOwn: true
+        };
+        
+        setMessages(prev => [...prev, newMsg]);
+        setNewMessage('');
+        
+        // Update last message in conversations
+        setConversations(prev => prev.map(conv => 
+          conv.id === selectedConversation 
+            ? { ...conv, lastMessage: newMessage.trim(), timestamp: new Date().toISOString() }
+            : conv
+        ));
+      } catch (error) {
+        console.error('Error sending message:', error);
+        alert('Failed to send message. Please try again.');
+      }
     }
   };
 
