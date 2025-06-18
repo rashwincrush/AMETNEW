@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@heroicons/react": "^2.2.0",
+    "@supabase/supabase-js": "^2.39.7",
     "axios": "^1.8.4",
     "cra-template": "1.2.0",
     "date-fns": "^4.1.0",
