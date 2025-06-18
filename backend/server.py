@@ -220,8 +220,8 @@ async def get_profile(user_id: str):
 @api_router.get("/dashboard/stats", response_model=DashboardStats)
 async def get_dashboard_stats():
     try:
-        # Get total alumni (profiles with role alumni)
-        alumni_result = supabase.table("profiles").select("id", count="exact").eq("role", "alumni").execute()
+        # Get total alumni (profiles with role user - these are your alumni)
+        alumni_result = supabase.table("profiles").select("id", count="exact").eq("role", "user").execute()
         total_alumni = alumni_result.count or 0
         
         # Get total active jobs
