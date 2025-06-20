@@ -10,7 +10,8 @@ import {
   ChartBarIcon,
   CogIcon,
   UserGroupIcon,
-  BuildingOfficeIcon
+  BuildingOfficeIcon,
+  ShieldCheckIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -85,20 +86,7 @@ const Navigation = ({ user }) => {
         </div>
       </div>
 
-      {/* User Profile Section */}
-      <div className="p-4 border-b border-ocean-200">
-        <div className="flex items-center space-x-3">
-          <img 
-            src={user?.avatar_url || user?.avatar || 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face'} 
-            alt={user?.full_name || user?.name || 'User'}
-            className="w-10 h-10 rounded-full object-cover"
-          />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate">{user?.full_name || user?.name || 'User'}</p>
-            <p className="text-xs text-ocean-600 capitalize">{getUserRole()}</p>
-          </div>
-        </div>
-      </div>
+
 
       {/* Navigation Menu */}
       <nav className="flex-1 px-4 py-6 space-y-1">
@@ -130,8 +118,20 @@ const Navigation = ({ user }) => {
           className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-ocean-50 hover:text-ocean-700 transition-all duration-200 mb-2"
         >
           <CogIcon className="w-5 h-5 mr-3" />
-          Settings
+          Profile Settings
         </Link>
+        
+        {/* Admin Settings Link - Only visible to admins and super_admins */}
+        {(getUserRole() === 'admin' || getUserRole() === 'super_admin' || getUserRole() === 'moderator') && (
+          <Link
+            to="/admin/settings"
+            className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-ocean-50 hover:text-ocean-700 transition-all duration-200 mb-2"
+          >
+            <ShieldCheckIcon className="w-5 h-5 mr-3" />
+            Admin Settings
+          </Link>
+        )}
+        
         <button
           onClick={handleLogout}
           className="w-full flex items-center px-3 py-2 text-sm font-medium text-red-700 rounded-lg hover:bg-red-50 transition-all duration-200"

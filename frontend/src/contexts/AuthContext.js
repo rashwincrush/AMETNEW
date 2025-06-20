@@ -15,6 +15,7 @@ export const AuthProvider = ({ children }) => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState(null);
+  const [permissionsCache, setPermissionsCache] = useState({});
 
   useEffect(() => {
     // Initialize authentication
@@ -212,6 +213,109 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Permission checking functions
+  const hasPermission = async (permissionName) => {
+    if (!user) return false;
+    
+    // For super_admin, always return true
+    if (getUserRole() === 'super_admin') return true;
+    
+    // Check cache first
+    if (permissionsCache[permissionName] !== undefined) {
+      return permissionsCache[permissionName];
+    }
+    
+    try {
+      const { supabase } = await import('../utils/supabase');
+      const { data, error } = await supabase.rpc(
+        'has_permission',
+        { user_id: user.id, permission_name: permissionName }
+      );
+      
+      if (error) {
+        console.error('Error checking permission:', error);
+        return false;
+      }
+      
+      // Cache the result
+      setPermissionsCache(prev => ({
+        ...prev,
+        [permissionName]: !!data
+      }));
+      
+      return !!data;
+    } catch (error) {
+      console.error('Permission check failed:', error);
+      return false;
+    }
+  };
+  
+  const hasAnyPermission = async (permissions) => {
+    if (!user || !permissions || !permissions.length) return false;
+    
+    // For super_admin, always return true
+    if (getUserRole() === 'super_admin') return true;
+    
+    try {
+      const results = await Promise.all(
+        permissions.map(permission => hasPermission(permission))
+      );
+      
+      return results.some(result => result === true);
+    } catch (error) {
+      console.error('Permission check failed:', error);
+      return false;
+    }
+  };
+  
+  const hasAllPermissions = async (permissions) => {
+    if (!user || !permissions || !permissions.length) return false;
+    
+    // For super_admin, always return true
+    if (getUserRole() === 'super_admin') return true;
+    
+    try {
+      const results = await Promise.all(
+        permissions.map(permission => hasPermission(permission))
+      );
+      
+      return results.every(result => result === true);
+    } catch (error) {
+      console.error('Permission check failed:', error);
+      return false;
+    }
+  };
+  
+  // Helper to get user role
+  const getUserRole = () => {
+    if (!profile && !user) return 'alumni';
+    
+    // Check user metadata or profile for explicit role
+    const userRole = profile?.role || profile?.primary_role || profile?.user_type || user?.user_metadata?.role || user?.user_metadata?.primary_role || 'alumni';
+    
+    // Explicit check for super_admin
+    if (userRole === 'super_admin') {
+      return 'super_admin';
+    }
+    
+    // Check if admin (from AMET domain or flag)
+    if ((profile?.email?.includes('@amet.ac.in') && profile?.is_admin) || userRole === 'admin') {
+      return 'admin';
+    }
+    
+    // Check if moderator
+    if (userRole === 'moderator') {
+      return 'moderator';
+    }
+    
+    // Check if employer
+    if (userRole === 'employer' || profile?.is_employer) {
+      return 'employer';
+    }
+    
+    return userRole || 'alumni';
+  };
+  
   const value = {
     user,
     profile,
@@ -221,24 +325,10 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     fetchUserProfile,
     isAuthenticated: !!user,
-    getUserRole: () => {
-      if (!profile && !user) return 'alumni';
-      
-      // Check user metadata or profile for role
-      const userRole = profile?.primary_role || profile?.user_type || user?.user_metadata?.primary_role || 'alumni';
-      
-      // Check if admin
-      if (profile?.email?.includes('@amet.ac.in') && profile?.is_admin) {
-        return 'admin';
-      }
-      
-      // Check if employer
-      if (userRole === 'employer' || profile?.is_employer) {
-        return 'employer';
-      }
-      
-      return userRole || 'alumni';
-    }
+    hasPermission,
+    hasAnyPermission,
+    hasAllPermissions,
+    getUserRole
   };
 
   return (

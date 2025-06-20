@@ -35,14 +35,24 @@ import CreateEvent from './components/Events/CreateEvent';
 import EventCalendar from './components/Events/EventCalendar';
 import Jobs from './components/Jobs/Jobs';
 import JobDetails from './components/Jobs/JobDetails';
+import MentorRegistrationForm from './components/Mentorship/MentorRegistrationForm';
 import PostJob from './components/Jobs/PostJob';
 import JobAlerts from './components/Jobs/JobAlerts';
+import JobPostingForm from './components/Jobs/JobPostingForm';
+import ResumeUploadForm from './components/Jobs/ResumeUploadForm';
+import JobApplication from './components/Jobs/JobApplication';
+import ApplicationTracking from './components/Jobs/ApplicationTracking';
 import Mentorship from './components/Mentorship/Mentorship';
 import NetworkingGroups from './components/Networking/NetworkingGroups';
+import BecomeMentorForm from './components/Mentorship/BecomeMentorForm';
+import MentorProfile from './components/Mentorship/MentorProfile';
+import MentorSettings from './components/Mentorship/MentorSettings';
+import CreateGroupForm from './components/Networking/CreateGroupForm';
 import Messages from './components/Messages/Messages';
 import Analytics from './components/Admin/Analytics';
 import UserManagement from './components/Admin/UserManagement';
 import UserApprovalDashboard from './components/Admin/UserApprovalDashboard';
+import AdminSettings from './components/Admin/AdminSettings';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -118,10 +128,19 @@ function AppContent() {
                   <Route path="/events/create" element={<CreateEvent />} />
                   <Route path="/jobs" element={<Jobs />} />
                   <Route path="/jobs/alerts" element={<JobAlerts />} />
-                  <Route path="/jobs/:id" element={<JobDetails />} />
                   <Route path="/jobs/post" element={<PostJob />} />
+                  <Route path="/jobs/create" element={<JobPostingForm />} />
+                  <Route path="/jobs/applications" element={<ApplicationTracking />} />
+                  <Route path="/jobs/applications/:id" element={<ApplicationTracking />} />
+                  <Route path="/jobs/:jobId/apply" element={<JobApplication />} />
+                  <Route path="/jobs/:jobId/application-success" element={<Navigate to="/jobs/applications" />} />
+                  <Route path="/jobs/:id" element={<JobDetails />} />
+            <Route path="/mentorship/become-mentor" element={<MentorRegistrationForm />} />
                   <Route path="/mentorship" element={<Mentorship />} />
+                  <Route path="/mentorship/mentor/:id" element={<MentorProfile />} />
+                  <Route path="/mentorship/mentor-settings" element={<MentorRegistrationForm />} />
                   <Route path="/networking" element={<NetworkingGroups />} />
+                  <Route path="/networking/create-group" element={<CreateGroupForm />} />
                   <Route path="/messages" element={<Messages />} />
                   <Route path="/notifications" element={<Notifications />} />
                   {getUserRole() === 'admin' && (
@@ -129,7 +148,12 @@ function AppContent() {
                       <Route path="/admin/analytics" element={<Analytics />} />
                       <Route path="/admin/users" element={<UserManagement />} />
                       <Route path="/admin/approvals" element={<UserApprovalDashboard />} />
+                      <Route path="/admin/settings" element={<AdminSettings />} /> {/* Added Admin Settings Route */}
                     </>
+                  )}
+                  {/* Conditionally render Admin Settings for super_admin as well, if not already covered by 'admin' role */} 
+                  {getUserRole() === 'super_admin' && (
+                     <Route path="/admin/settings" element={<AdminSettings />} />
                   )}
                   <Route path="*" element={<Navigate to="/dashboard" />} />
                 </Routes>

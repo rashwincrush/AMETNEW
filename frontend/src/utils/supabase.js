@@ -174,35 +174,140 @@ export const applyForJob = async (jobId, applicationData) => {
   return { data, error };
 };
 
-export const fetchMessages = async (userId) => {
+// Conversation functions
+export const fetchConversations = async (userId) => {
+  const { data, error } = await supabase
+    .from('conversations')
+    .select(`
+      id, 
+      last_message_at,
+      created_at,
+      participant_1:participant_1(id, full_name, avatar_url),
+      participant_2:participant_2(id, full_name, avatar_url)
+    `)
+    .or(`participant_1.eq.${userId},participant_2.eq.${userId}`)
+    .order('last_message_at', { ascending: false });
+  
+  if (error) {
+    console.error('Error fetching conversations:', error);
+  }
+  
+  return { data, error };
+};
+
+export const createConversation = async (user1Id, user2Id) => {
+  // First check if conversation already exists
+  const { data: existingConv, error: checkError } = await supabase
+    .from('conversations')
+    .select('id')
+    .or(
+      `and(participant_1.eq.${user1Id},participant_2.eq.${user2Id}),` +
+      `and(participant_1.eq.${user2Id},participant_2.eq.${user1Id})`
+    )
+    .maybeSingle();
+    
+  if (checkError) {
+    return { data: null, error: checkError };
+  }
+  
+  if (existingConv) {
+    return { data: existingConv, error: null };
+  }
+  
+  const { data, error } = await supabase
+    .from('conversations')
+    .insert([
+      { 
+        participant_1: user1Id, 
+        participant_2: user2Id,
+        last_message_at: new Date().toISOString()
+      }
+    ])
+    .select()
+    .single();
+  
+  return { data, error };
+};
+
+export const fetchMessages = async (conversationId) => {
   const { data, error } = await supabase
     .from('messages')
-    .select(`
-      *,
-      sender:sender_id(full_name, avatar_url),
-      recipient:recipient_id(full_name, avatar_url)
-    `)
-    .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
-    .order('created_at', { ascending: false });
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true });
+    
   return { data, error };
 };
 
 export const sendMessage = async (messageData) => {
+  // Send the message
   const { data, error } = await supabase
     .from('messages')
     .insert([messageData])
     .select()
     .single();
+  
+  if (!error && messageData.conversation_id) {
+    // Update conversation's last_message_at timestamp
+    await supabase
+      .from('conversations')
+      .update({ last_message_at: new Date().toISOString() })
+      .eq('id', messageData.conversation_id);
+  }
+  
   return { data, error };
 };
 
 export const markMessageAsRead = async (messageId) => {
   const { data, error } = await supabase
     .from('messages')
-    .update({ is_read: true })
+    .update({ read_at: new Date().toISOString() })
     .eq('id', messageId)
     .select();
   return { data, error };
+};
+
+export const markConversationMessagesAsRead = async (conversationId, userId) => {
+  // Mark all messages in a conversation as read by the specified user
+  const { data, error } = await supabase
+    .from('messages')
+    .update({ read_at: new Date().toISOString() })
+    .eq('conversation_id', conversationId)
+    .neq('sender_id', userId) // Only mark messages sent by the other user
+    .is('read_at', null) // Only mark unread messages
+    .select();
+    
+  return { data, error };
+};
+
+export const getUnreadMessageCount = async (userId) => {
+  const { count, error } = await supabase
+    .from('messages')
+    .select('*', { count: 'exact', head: true })
+    .neq('sender_id', userId)
+    .is('read_at', null);
+    
+  return { count: count || 0, error };
+};
+
+// Functions for file uploads in messages
+export const uploadMessageAttachment = async (file, userId) => {
+  const fileName = `${userId}/${Date.now()}-${file.name}`;
+  
+  const { data, error } = await supabase.storage
+    .from('message_attachments')
+    .upload(fileName, file);
+    
+  if (error) {
+    return { data: null, error };
+  }
+  
+  // Get public URL
+  const { data: publicUrlData } = supabase.storage
+    .from('message_attachments')
+    .getPublicUrl(fileName);
+    
+  return { data: { path: fileName, url: publicUrlData.publicUrl }, error: null };
 };
 
 export const fetchMentors = async () => {

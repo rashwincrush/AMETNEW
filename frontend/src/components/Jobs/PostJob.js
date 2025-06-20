@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../utils/supabase';
+import { toast } from 'react-hot-toast';
 import { 
   BriefcaseIcon,
   BuildingOfficeIcon,
@@ -15,6 +18,7 @@ import {
 
 const PostJob = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
@@ -229,22 +233,64 @@ const PostJob = () => {
       return;
     }
 
+    if (!user) {
+      toast.error("You must be logged in to post a job.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      // Mock submission - in real app, this would be an API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log('Starting job submission process...');
       
-      console.log('Job posted:', formData);
+      // Format the deadline date as ISO string if present
+      const deadline = formData.applicationDeadline ? 
+        new Date(formData.applicationDeadline).toISOString() : null;
       
-      // Redirect to jobs list
+      // Prepare job data with correct column names based on database schema
+      const jobData = {
+        title: formData.title,
+        company_name: formData.companyName,
+        location: formData.location,
+        job_type: formData.jobType,
+        description: formData.description,
+        requirements: Array.isArray(formData.requirements) ? 
+          JSON.stringify(formData.requirements.filter(r => r)) : null,
+        salary_range: formData.salaryType === 'range' ? 
+          `${formData.currency} ${formData.salaryMin} - ${formData.salaryMax}` : 
+          (formData.salaryNegotiable ? "Negotiable" : null),
+        application_url: formData.applicationMethod === 'external' ? formData.externalUrl : null,
+        contact_email: formData.contactEmail,
+        expires_at: deadline,
+        posted_by: user.id,
+        is_active: true,
+        education_required: null, // Not in the form, can add if needed
+        required_skills: formData.skills,
+        deadline: deadline,
+        experience_required: `${formData.experienceLevel} (${formData.experienceYears} years)`,
+      };
+      
+      console.log('Submitting job data to Supabase:', jobData);
+      
+      // Insert the job into Supabase
+      const { data: insertedData, error: insertError } = await supabase
+        .from('jobs')
+        .insert([jobData])
+        .select();
+      
+      if (insertError) {
+        console.error('Supabase insert error:', insertError);
+        throw new Error(`Database insert failed: ${insertError.message}`);
+      }
+      
+      console.log('Job posted successfully:', insertedData);
+      
+      // Show success message and redirect
+      toast.success('Job posted successfully! It will be reviewed by our team.');
       navigate('/jobs');
-      
-      // Show success message
-      alert('Job posted successfully! It will be reviewed by our team.');
     } catch (error) {
       console.error('Error posting job:', error);
-      alert('Error posting job. Please try again.');
+      toast.error(`Error posting job: ${error.message}`);
     } finally {
       setIsSubmitting(false);
     }

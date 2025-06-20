@@ -10,6 +10,7 @@ import {
   CameraIcon,
   PencilIcon
 } from '@heroicons/react/24/outline';
+import ProfileResume from './ProfileResume';
 
 const Profile = ({ user }) => {
   const { updateProfile } = useAuth();
@@ -83,21 +84,23 @@ const Profile = ({ user }) => {
     setIsSubmitting(true);
     
     try {
-      // ONLY include fields that are 100% confirmed to exist in the database schema
-      // Based on server.py registration function and error message
+      // Prepare profile updates with fields that match the database schema
       const profileUpdates = {
-        first_name: formData.name.split(' ')[0],
-        last_name: formData.name.split(' ').slice(1).join(' '),
+        full_name: formData.name,
         phone: formData.phone,
+        location: formData.location,
+        job_title: formData.position,
+        about: formData.about,
+        company: formData.company,
         updated_at: new Date().toISOString()
       };
       
-      // Upload image if a new one was selected
+      // Upload avatar image if a new one was selected
       if (imageFile) {
         const { supabase } = await import('../../utils/supabase');
         const fileExt = imageFile.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
-        const filePath = `profile-pictures/${fileName}`;
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+        const filePath = `avatars/${user.id}/${fileName}`;
         
         const { error: uploadError } = await supabase
           .storage
@@ -109,25 +112,29 @@ const Profile = ({ user }) => {
           throw uploadError;
         }
         
-        // Get the public URL but DO NOT add avatar field if it doesn't exist in database
+        // Get the public URL
         const { data: { publicUrl } } = supabase
           .storage
           .from('avatars')
           .getPublicUrl(filePath);
           
-        // Store the URL for frontend display, but don't include in profileUpdates
+        // Add avatar URL to profile updates
+        profileUpdates.avatar_url = publicUrl;
         setImageUrl(publicUrl);
-        // DO NOT add avatar field to profileUpdates as it may not exist in the database schema
       }
       
-      // Update profile in Supabase
-      const updatedProfile = await updateProfile(profileUpdates);
-      console.log('Profile updated successfully:', updatedProfile);
+      // Update profile in Supabase - pass the user ID
+      const { data: updatedProfile, error } = await updateProfile(user.id, profileUpdates);
       
+      if (error) {
+        throw error;
+      }
+      
+      console.log('Profile updated successfully:', updatedProfile);
       setIsEditing(false);
     } catch (error) {
       console.error('Error updating profile:', error);
-      alert('Failed to update profile. Please try again.');
+      alert(`Failed to update profile: ${error.message || 'Unknown error'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -159,6 +166,10 @@ const Profile = ({ user }) => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* Page Title */}
+      <div className="flex items-center justify-between mb-2">
+        <h1 className="text-3xl font-bold text-gray-900">Profile Settings</h1>
+      </div>
       {/* Profile Header */}
       <div className="glass-card rounded-lg p-6">
         <div className="flex items-start justify-between mb-6">
@@ -435,6 +446,9 @@ const Profile = ({ user }) => {
               ))}
             </ul>
           </div>
+          
+          {/* Resume Management */}
+          <ProfileResume />
         </div>
       )}
     </div>

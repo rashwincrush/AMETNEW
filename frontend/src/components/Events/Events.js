@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { 
   CalendarIcon,
   MapPinIcon,
@@ -13,185 +13,85 @@ import {
   VideoCameraIcon,
   BuildingOfficeIcon
 } from '@heroicons/react/24/outline';
+import { supabase } from '../../utils/supabase';
+import { toast } from 'react-hot-toast';
 
 const Events = () => {
+  const location = useLocation();
   const [viewMode, setViewMode] = useState('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Mock events data
-  const events = [
-    {
-      id: 1,
-      title: 'AMET Alumni Meetup 2024',
-      description: 'Annual reunion for all AMET alumni. Join us for networking, discussions about industry trends, and reconnecting with fellow graduates.',
-      date: '2024-04-15',
-      time: '18:00',
-      endTime: '21:00',
-      location: 'AMET Campus Auditorium',
-      address: 'East Coast Road, Kanathur, Chennai - 603112',
-      type: 'in-person',
-      category: 'reunion',
-      organizer: 'AMET Alumni Association',
-      maxAttendees: 200,
-      currentAttendees: 145,
-      registeredAttendees: 145,
-      waitingList: 0,
-      image: 'https://images.unsplash.com/photo-1511578314322-379afb476865?w=400&h=200&fit=crop',
-      status: 'upcoming',
-      isRSVPed: false,
-      tags: ['Networking', 'Alumni', 'Campus'],
-      price: 'Free',
-      organizers: [
-        { name: 'Dr. Sarah Johnson', role: 'Alumni Director' },
-        { name: 'Prof. Rajesh Kumar', role: 'Event Coordinator' }
-      ]
-    },
-    {
-      id: 2,
-      title: 'Career Development Workshop',
-      description: 'Interactive workshop on resume building, interview skills, and career advancement strategies for maritime professionals.',
-      date: '2024-04-20',
-      time: '14:00',
-      endTime: '17:00',
-      location: 'Online',
-      address: 'Zoom Meeting',
-      type: 'virtual',
-      category: 'workshop',
-      organizer: 'Career Services',
-      maxAttendees: 100,
-      currentAttendees: 78,
-      registeredAttendees: 78,
-      waitingList: 5,
-      image: 'https://images.unsplash.com/photo-1552664730-d307ca884978?w=400&h=200&fit=crop',
-      status: 'upcoming',
-      isRSVPed: true,
-      tags: ['Career', 'Professional Development', 'Workshop'],
-      price: '₹500',
-      organizers: [
-        { name: 'Ms. Priya Sharma', role: 'Career Counselor' }
-      ]
-    },
-    {
-      id: 3,
-      title: 'Industry Networking Session',
-      description: 'Connect with industry leaders and explore new opportunities in the maritime sector. Panel discussion on future trends.',
-      date: '2024-04-25',
-      time: '17:30',
-      endTime: '20:00',
-      location: 'Chennai Maritime Center',
-      address: 'Marina Beach Road, Chennai - 600013',
-      type: 'in-person',
-      category: 'networking',
-      organizer: 'Maritime Industry Council',
-      maxAttendees: 80,
-      currentAttendees: 45,
-      registeredAttendees: 45,
-      waitingList: 2,
-      image: 'https://images.unsplash.com/photo-1515187029135-18ee286d815b?w=400&h=200&fit=crop',
-      status: 'upcoming',
-      isRSVPed: false,
-      tags: ['Networking', 'Industry', 'Panel Discussion'],
-      price: '₹300',
-      organizers: [
-        { name: 'Capt. Mohammed Ali', role: 'Industry Expert' }
-      ]
-    },
-    {
-      id: 4,
-      title: 'Technical Seminar: Green Shipping',
-      description: 'Explore the latest developments in sustainable shipping technologies and environmental regulations.',
-      date: '2024-05-02',
-      time: '10:00',
-      endTime: '16:00',
-      location: 'AMET Research Center',
-      address: 'AMET Campus, Chennai',
-      type: 'in-person',
-      category: 'seminar',
-      organizer: 'Research Department',
-      maxAttendees: 60,
-      currentAttendees: 38,
-      registeredAttendees: 38,
-      waitingList: 0,
-      image: 'https://images.unsplash.com/photo-1581093458791-9f3c3250e3b4?w=400&h=200&fit=crop',
-      status: 'upcoming',
-      isRSVPed: false,
-      tags: ['Technology', 'Environment', 'Research'],
-      price: '₹1000',
-      organizers: [
-        { name: 'Dr. Kavitha Menon', role: 'Research Director' }
-      ]
-    },
-    {
-      id: 5,
-      title: 'Alumni Sports Tournament',
-      description: 'Annual sports tournament featuring cricket, football, and badminton. Open to all alumni and their families.',
-      date: '2024-05-10',
-      time: '09:00',
-      endTime: '18:00',
-      location: 'AMET Sports Complex',
-      address: 'AMET Campus, Chennai',
-      type: 'in-person',
-      category: 'sports',
-      organizer: 'Alumni Sports Committee',
-      maxAttendees: 150,
-      currentAttendees: 89,
-      registeredAttendees: 89,
-      waitingList: 3,
-      image: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=400&h=200&fit=crop',
-      status: 'upcoming',
-      isRSVPed: true,
-      tags: ['Sports', 'Recreation', 'Family'],
-      price: '₹200',
-      organizers: [
-        { name: 'Mr. Arjun Nair', role: 'Sports Coordinator' }
-      ]
-    },
-    {
-      id: 6,
-      title: 'Maritime Law & Regulations Update',
-      description: 'Important updates on international maritime laws and regulations affecting the shipping industry.',
-      date: '2024-03-20',
-      time: '15:00',
-      endTime: '17:00',
-      location: 'Online',
-      address: 'Webinar',
-      type: 'virtual',
-      category: 'seminar',
-      organizer: 'Legal Affairs',
-      maxAttendees: 120,
-      currentAttendees: 95,
-      registeredAttendees: 95,
-      waitingList: 0,
-      image: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=400&h=200&fit=crop',
-      status: 'completed',
-      isRSVPed: true,
-      tags: ['Legal', 'Regulations', 'Updates'],
-      price: '₹750'
-    }
-  ];
+  useEffect(() => {
+    const fetchEvents = async () => {
+      setLoading(true);
+      try {
+        console.log('Fetching events from Supabase...');
+        
+        // First check for any events at all (published or not)
+        const { data: allEvents, error: allError } = await supabase
+          .from('events')
+          .select('*');
+        
+        console.log('All events (including unpublished):', allEvents);
+        
+        if (allError) {
+          console.error('Error fetching all events:', allError);
+          throw allError;
+        }
+        
+        // Then fetch only published events (our normal query)
+        const { data, error } = await supabase
+          .from('events')
+          .select('*')
+          .eq('is_published', true)
+          .order('start_date', { ascending: true });
 
-  const categories = [
+        if (error) throw error;
+        
+        console.log('Published events received:', data);
+        setEvents(data || []);
+      } catch (error) {
+        console.error('Error fetching events:', error);
+        toast.error(`Failed to fetch events: ${error.message}`);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEvents();
+  }, [location]); // Re-run effect on location change
+
+  const filteredEvents = useMemo(() => {
+    return events.filter(event => {
+      const matchesSearch = 
+        event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (event.description && event.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (event.tags && event.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())));
+
+      const eventDate = new Date(event.start_date);
+      const now = new Date();
+      const isUpcoming = eventDate > now;
+
+      const matchesFilter = selectedFilter === 'all' || 
+                           (selectedFilter === 'upcoming' && isUpcoming) ||
+                           event.category === selectedFilter;
+      
+      return matchesSearch && matchesFilter;
+    });
+  }, [events, searchQuery, selectedFilter]);
+
+  const categories = useMemo(() => [
     { value: 'all', label: 'All Events', count: events.length },
-    { value: 'upcoming', label: 'Upcoming', count: events.filter(e => e.status === 'upcoming').length },
+    { value: 'upcoming', label: 'Upcoming', count: events.filter(e => new Date(e.start_date) > new Date()).length },
     { value: 'reunion', label: 'Reunions', count: events.filter(e => e.category === 'reunion').length },
     { value: 'workshop', label: 'Workshops', count: events.filter(e => e.category === 'workshop').length },
     { value: 'networking', label: 'Networking', count: events.filter(e => e.category === 'networking').length },
     { value: 'seminar', label: 'Seminars', count: events.filter(e => e.category === 'seminar').length },
     { value: 'sports', label: 'Sports', count: events.filter(e => e.category === 'sports').length }
-  ];
-
-  const filteredEvents = events.filter(event => {
-    const matchesSearch = event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         event.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         event.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    const matchesFilter = selectedFilter === 'all' || 
-                         (selectedFilter === 'upcoming' && event.status === 'upcoming') ||
-                         event.category === selectedFilter;
-    
-    return matchesSearch && matchesFilter;
-  });
+  ], [events]);
 
   const handleRSVP = (eventId) => {
     // Mock RSVP functionality
@@ -217,18 +117,18 @@ const Events = () => {
     <div className="glass-card rounded-lg overflow-hidden card-hover">
       <div className="relative">
         <img 
-          src={event.image} 
+          src={event.image_url || 'https://placehold.co/600x400/0077b6/FFFFFF?text=Event'}
           alt={event.title}
           className="w-full h-48 object-cover"
         />
         <div className="absolute top-4 left-4">
-          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusBadge(event.status)}`}>
-            {event.status}
+          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusBadge(new Date(event.start_date) > new Date() ? 'upcoming' : 'completed')}`}>
+            {new Date(event.start_date) > new Date() ? 'Upcoming' : 'Completed'}
           </span>
         </div>
         <div className="absolute top-4 right-4">
           <span className="px-3 py-1 bg-white bg-opacity-90 rounded-full text-xs font-medium text-gray-800">
-            {event.type === 'virtual' ? 'Virtual' : 'In-Person'}
+            {event.event_type === 'virtual' ? 'Virtual' : 'In-Person'}
           </span>
         </div>
       </div>
@@ -236,7 +136,7 @@ const Events = () => {
       <div className="p-6">
         <div className="flex items-start justify-between mb-3">
           <h3 className="font-semibold text-gray-900 text-lg">{event.title}</h3>
-          <span className="text-ocean-600 font-medium text-sm">{event.price}</span>
+          <span className="text-ocean-600 font-medium text-sm">{event.price > 0 ? `$${event.price}` : 'Free'}</span>
         </div>
         
         <p className="text-gray-600 text-sm mb-4 line-clamp-2">{event.description}</p>
@@ -244,11 +144,16 @@ const Events = () => {
         <div className="space-y-2 mb-4">
           <div className="flex items-center text-sm text-gray-600">
             <CalendarIcon className="w-4 h-4 mr-2" />
-            <span>{new Date(event.date).toLocaleDateString()} at {event.time}</span>
+            <span>{new Date(event.start_date).toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' })}</span>
           </div>
           
           <div className="flex items-center text-sm text-gray-600">
-            {event.type === 'virtual' ? (
+            <ClockIcon className="w-4 h-4 mr-2" />
+            <span>{new Date(event.start_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+          </div>
+          
+          <div className="flex items-center text-sm text-gray-600">
+            {event.event_type === 'virtual' ? (
               <VideoCameraIcon className="w-4 h-4 mr-2" />
             ) : (
               <MapPinIcon className="w-4 h-4 mr-2" />
@@ -258,15 +163,12 @@ const Events = () => {
           
           <div className="flex items-center text-sm text-gray-600">
             <UserGroupIcon className="w-4 h-4 mr-2" />
-            <span>{event.currentAttendees}/{event.maxAttendees} attending</span>
-            {event.waitingList > 0 && (
-              <span className="ml-2 text-orange-600">({event.waitingList} waiting)</span>
-            )}
+            <span>{event.max_attendees ? `${event.max_attendees} spots available` : 'Unlimited spots'}</span>
           </div>
         </div>
         
         <div className="flex flex-wrap gap-1 mb-4">
-          {event.tags.slice(0, 3).map((tag, index) => (
+          {event.tags && event.tags.slice(0, 3).map((tag, index) => (
             <span 
               key={index}
               className="px-2 py-1 bg-ocean-100 text-ocean-800 rounded text-xs"
@@ -283,7 +185,7 @@ const Events = () => {
           >
             View Details
           </Link>
-          {event.status === 'upcoming' && (
+          {new Date(event.start_date) > new Date() && (
             <button 
               onClick={() => handleRSVP(event.id)}
               className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium ${
@@ -300,76 +202,51 @@ const Events = () => {
     </div>
   );
 
-  const EventListItem = ({ event }) => (
-    <div className="glass-card rounded-lg p-6 card-hover">
-      <div className="flex items-start space-x-4">
+  const EventListItem = ({ event }) => {
+    const isUpcoming = new Date(event.start_date) > new Date();
+    
+    return (
+      <div className="glass-card rounded-lg overflow-hidden card-hover flex">
         <img 
-          src={event.image} 
+          src={event.image_url || 'https://placehold.co/400x300/0077b6/FFFFFF?text=Event'}
           alt={event.title}
-          className="w-20 h-20 rounded-lg object-cover flex-shrink-0"
+          className="w-32 h-32 md:w-48 md:h-auto object-cover"
         />
-        
-        <div className="flex-1">
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="font-semibold text-gray-900 text-lg">{event.title}</h3>
-              <p className="text-gray-600 text-sm mt-1">{event.description}</p>
+        <div className="p-4 flex flex-col flex-1">
+          <div className="flex justify-between items-start mb-2">
+            <h3 className="font-semibold text-gray-900 text-lg flex-1 mr-4 line-clamp-2">{event.title}</h3>
+            <span className={`px-3 py-1 rounded-full text-xs font-medium flex-shrink-0 ${getStatusBadge(isUpcoming ? 'upcoming' : 'completed')}`}>
+              {isUpcoming ? 'Upcoming' : 'Completed'}
+            </span>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-gray-600">
+            <div className="flex items-center">
+              <CalendarIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+              <span>{new Date(event.start_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
             </div>
-            <div className="flex flex-col items-end space-y-2">
-              <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusBadge(event.status)}`}>
-                {event.status}
-              </span>
-              <span className="text-ocean-600 font-medium text-sm">{event.price}</span>
+            <div className="flex items-center">
+              <ClockIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+              <span>{new Date(event.start_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+            <div className="flex items-center col-span-2">
+              {event.event_type === 'virtual' ? <VideoCameraIcon className="w-4 h-4 mr-2 flex-shrink-0" /> : <MapPinIcon className="w-4 h-4 mr-2 flex-shrink-0" />}
+              <span className="truncate">{event.location}</span>
             </div>
           </div>
           
-          <div className="flex items-center space-x-6 mt-3 text-sm text-gray-600">
-            <div className="flex items-center">
-              <CalendarIcon className="w-4 h-4 mr-1" />
-              <span>{new Date(event.date).toLocaleDateString()} at {event.time}</span>
-            </div>
-            <div className="flex items-center">
-              {event.type === 'virtual' ? (
-                <VideoCameraIcon className="w-4 h-4 mr-1" />
-              ) : (
-                <MapPinIcon className="w-4 h-4 mr-1" />
-              )}
-              <span>{event.location}</span>
-            </div>
-            <div className="flex items-center">
-              <UserGroupIcon className="w-4 h-4 mr-1" />
-              <span>{event.currentAttendees}/{event.maxAttendees}</span>
-            </div>
-          </div>
-          
-          <div className="flex items-center justify-between mt-4">
+          <div className="flex items-center justify-between mt-auto pt-3">
             <div className="flex flex-wrap gap-1">
-              {event.tags.slice(0, 4).map((tag, index) => (
-                <span 
-                  key={index}
-                  className="px-2 py-1 bg-ocean-100 text-ocean-800 rounded text-xs"
-                >
-                  {tag}
-                </span>
+              {event.tags && event.tags.slice(0, 2).map((tag, index) => (
+                <span key={index} className="px-2 py-1 bg-ocean-100 text-ocean-800 rounded text-xs">{tag}</span>
               ))}
             </div>
-            
-            <div className="flex space-x-2">
-              <Link 
-                to={`/events/${event.id}`}
-                className="btn-ocean-outline py-1 px-3 rounded text-sm"
-              >
-                View Details
+            <div className="flex space-x-2 flex-shrink-0">
+              <Link to={`/events/${event.id}`} className="btn-ocean-outline py-1 px-3 rounded text-sm">
+                Details
               </Link>
-              {event.status === 'upcoming' && (
-                <button 
-                  onClick={() => handleRSVP(event.id)}
-                  className={`py-1 px-3 rounded text-sm font-medium ${
-                    event.isRSVPed 
-                      ? 'bg-red-100 text-red-800 hover:bg-red-200' 
-                      : 'btn-ocean'
-                  }`}
-                >
+              {isUpcoming && (
+                <button onClick={() => handleRSVP(event.id)} className={`py-1 px-3 rounded text-sm font-medium ${event.isRSVPed ? 'bg-red-100 text-red-800 hover:bg-red-200' : 'btn-ocean'}`}>
                   {event.isRSVPed ? 'Cancel' : 'RSVP'}
                 </button>
               )}
@@ -377,8 +254,8 @@ const Events = () => {
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -473,16 +350,27 @@ const Events = () => {
       </div>
 
       {/* Events Grid/List */}
-      <div className={viewMode === 'grid' 
-        ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
-        : 'space-y-4'
-      }>
-        {filteredEvents.map((event) => 
-          viewMode === 'grid' 
-            ? <EventCard key={event.id} event={event} />
-            : <EventListItem key={event.id} event={event} />
-        )}
-      </div>
+      {loading ? (
+        <div className="text-center py-10">
+          <p>Loading events...</p>
+        </div>
+      ) : filteredEvents.length > 0 ? (
+        <div className={viewMode === 'grid' 
+          ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
+          : 'space-y-4'
+        }>
+          {filteredEvents.map((event) => 
+            viewMode === 'grid' 
+              ? <EventCard key={event.id} event={event} />
+              : <EventListItem key={event.id} event={event} />
+          )}
+        </div>
+      ) : (
+        <div className="text-center py-10 glass-card rounded-lg">
+          <h3 className="text-lg font-semibold">No Events Found</h3>
+          <p className="text-gray-500 mt-2">Try adjusting your search or filters.</p>
+        </div>
+      )}
 
       {/* Load More / Pagination */}
       <div className="text-center">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   MagnifyingGlassIcon,
@@ -15,403 +15,107 @@ import {
   PlusIcon,
   BellIcon
 } from '@heroicons/react/24/outline';
+import { supabase } from '../../utils/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+import toast from 'react-hot-toast';
 
-const Jobs = () => {
-  const [viewMode, setViewMode] = useState('grid');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState({
-    jobType: 'all',
-    experience: 'all',
-    location: 'all',
-    industry: 'all',
-    salaryRange: 'all',
-    postedWithin: 'all'
-  });
+// Define the filterOptions outside of the component to prevent re-creating on each render
+const filterOptions = {
+  jobType: [
+    { value: 'all', label: 'All Job Types' },
+    { value: 'full-time', label: 'Full-Time' },
+    { value: 'part-time', label: 'Part-Time' },
+    { value: 'contract', label: 'Contract' },
+    { value: 'internship', label: 'Internship' },
+  ],
+  experience: [
+    { value: 'all', label: 'All Experience Levels' },
+    { value: 'entry', label: 'Entry Level' },
+    { value: 'mid', label: 'Mid Level' },
+    { value: 'senior', label: 'Senior Level' },
+    { value: 'executive', label: 'Executive' },
+  ],
+  location: [
+    { value: 'all', label: 'All Locations' },
+    { value: 'remote', label: 'Remote' },
+    { value: 'mumbai', label: 'Mumbai' },
+    { value: 'chennai', label: 'Chennai' },
+    { value: 'delhi', label: 'Delhi' },
+    { value: 'hyderabad', label: 'Hyderabad' },
+    { value: 'bengaluru', label: 'Bengaluru' },
+  ],
+  industry: [
+    { value: 'all', label: 'All Industries' },
+    { value: 'shipping', label: 'Shipping' },
+    { value: 'maritime', label: 'Maritime' },
+    { value: 'logistics', label: 'Logistics' },
+    { value: 'cruises', label: 'Cruises' },
+    { value: 'naval', label: 'Naval' },
+  ],
+  salaryRange: [
+    { value: 'all', label: 'All Salary Ranges' },
+    { value: '0-300000', label: 'Up to 3L' },
+    { value: '300000-600000', label: '3L to 6L' },
+    { value: '600000-1000000', label: '6L to 10L' },
+    { value: '1000000-1500000', label: '10L to 15L' },
+    { value: '1500000-', label: 'Above 15L' },
+  ],
+  postedWithin: [
+    { value: 'all', label: 'Anytime' },
+    { value: '1', label: 'Today' },
+    { value: '7', label: 'Last Week' },
+    { value: '30', label: 'Last Month' },
+    { value: '90', label: 'Last 3 Months' },
+  ],
+};
 
-  // Mock jobs data
-  const jobs = [
-    {
-      id: 1,
-      title: 'Senior Marine Engineer',
-      company: 'Ocean Shipping Ltd.',
-      companyLogo: 'https://images.unsplash.com/photo-1560179707-f14e90ef3623?w=100&h=100&fit=crop',
-      location: 'Mumbai, Maharashtra',
-      jobType: 'Full-time',
-      experience: '5-8 years',
-      salary: '₹12-15 LPA',
-      description: 'Leading maritime company seeking experienced marine engineer for vessel operations and maintenance.',
-      longDescription: `We are looking for a Senior Marine Engineer to join our fleet operations team. The successful candidate will be responsible for the safe and efficient operation of marine engines and related equipment aboard our vessels.
-
-Key Responsibilities:
-• Supervise and maintain marine propulsion systems
-• Ensure compliance with international maritime regulations
-• Lead engineering teams during voyage operations
-• Conduct regular inspections and preventive maintenance
-• Manage fuel efficiency and environmental compliance
-
-Requirements:
-• Bachelor's degree in Marine Engineering
-• 5+ years of sea-going experience
-• Valid Chief Engineer license
-• Knowledge of international maritime laws
-• Strong leadership and communication skills
-
-Benefits:
-• Competitive salary with performance bonuses
-• Comprehensive health insurance
-• Career advancement opportunities
-• Training and certification support`,
-      industry: 'Shipping & Maritime',
-      requirements: ['Marine Engineering Degree', 'Chief Engineer License', '5+ years experience'],
-      skills: ['Marine Engineering', 'Ship Operations', 'Leadership', 'Safety Management'],
-      postedDate: '2024-04-10',
-      applicationDeadline: '2024-05-10',
-      applicants: 23,
-      isBookmarked: false,
-      companyInfo: {
-        name: 'Ocean Shipping Ltd.',
-        size: '1000-5000 employees',
-        type: 'Private Company',
-        website: 'www.oceanshipping.com',
-        description: 'Leading international shipping company with 30+ years of experience'
-      },
-      contactPerson: {
-        name: 'Hr Manager',
-        email: 'hr@oceanshipping.com',
-        phone: '+91 98765 43210'
-      }
-    },
-    {
-      id: 2,
-      title: 'Naval Architect',
-      company: 'Maritime Design Solutions',
-      companyLogo: 'https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d?w=100&h=100&fit=crop',
-      location: 'Chennai, Tamil Nadu',
-      jobType: 'Full-time',
-      experience: '3-5 years',
-      salary: '₹8-12 LPA',
-      description: 'Innovative design firm seeking naval architect for cutting-edge vessel design projects.',
-      longDescription: `Join our dynamic team of naval architects working on innovative vessel designs. We specialize in eco-friendly ship designs and sustainable maritime solutions.
-
-Key Responsibilities:
-• Design and develop vessel concepts using CAD software
-• Perform structural analysis and stability calculations
-• Collaborate with engineering teams on project delivery
-• Ensure designs meet regulatory standards
-• Research and implement sustainable design practices
-
-Requirements:
-• B.Tech/M.Tech in Naval Architecture
-• Proficiency in AutoCAD, SolidWorks, and ANSYS
-• Understanding of ship design principles
-• Knowledge of classification society rules
-• Strong analytical and problem-solving skills`,
-      industry: 'Design & Engineering',
-      requirements: ['Naval Architecture Degree', 'CAD Software Proficiency', '3+ years experience'],
-      skills: ['Naval Architecture', 'CAD Design', 'Structural Analysis', 'Project Management'],
-      postedDate: '2024-04-08',
-      applicationDeadline: '2024-05-08',
-      applicants: 18,
-      isBookmarked: true,
-      companyInfo: {
-        name: 'Maritime Design Solutions',
-        size: '100-500 employees',
-        type: 'Private Company',
-        website: 'www.maritimedesign.com',
-        description: 'Specialized naval architecture and marine engineering consultancy'
-      }
-    },
-    {
-      id: 3,
-      title: 'Port Operations Manager',
-      company: 'Indian Ports Authority',
-      companyLogo: 'https://images.unsplash.com/photo-1541746972996-4e0b0f93e586?w=100&h=100&fit=crop',
-      location: 'Kochi, Kerala',
-      jobType: 'Full-time',
-      experience: '8-12 years',
-      salary: '₹15-20 LPA',
-      description: 'Government position managing port operations and logistics for major Indian port.',
-      longDescription: `Lead port operations for one of India's busiest commercial ports. This role involves strategic planning, operational management, and ensuring efficient cargo handling.
-
-Key Responsibilities:
-• Oversee daily port operations and logistics
-• Manage cargo handling and vessel scheduling
-• Ensure compliance with port regulations
-• Coordinate with shipping lines and logistics companies
-• Implement efficiency improvement initiatives
-
-Requirements:
-• MBA in Operations/Logistics or related field
-• 8+ years of port/logistics management experience
-• Knowledge of port operations and maritime regulations
-• Strong leadership and decision-making skills
-• Government sector experience preferred`,
-      industry: 'Port Operations',
-      requirements: ['MBA/Engineering Degree', 'Port Management Experience', 'Leadership Skills'],
-      skills: ['Port Operations', 'Logistics Management', 'Strategic Planning', 'Team Leadership'],
-      postedDate: '2024-04-05',
-      applicationDeadline: '2024-04-25',
-      applicants: 45,
-      isBookmarked: false,
-      companyInfo: {
-        name: 'Indian Ports Authority',
-        size: '5000+ employees',
-        type: 'Government',
-        website: 'www.indianports.gov.in',
-        description: 'Central government body managing major ports across India'
-      }
-    },
-    {
-      id: 4,
-      title: 'Marine Superintendent',
-      company: 'Global Fleet Management',
-      companyLogo: 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=100&h=100&fit=crop',
-      location: 'Mumbai, Maharashtra',
-      jobType: 'Full-time',
-      experience: '10+ years',
-      salary: '₹18-25 LPA',
-      description: 'Senior position overseeing fleet operations and vessel technical management.',
-      longDescription: `Senior leadership role in fleet management company overseeing technical operations of international vessel fleet.
-
-Key Responsibilities:
-• Manage technical operations of 50+ vessel fleet
-• Oversee dry-docking and maintenance schedules
-• Ensure regulatory compliance and safety standards
-• Manage relationships with classification societies
-• Lead technical teams and development programs
-
-Requirements:
-• Chief Engineer license with sailing experience
-• 10+ years in fleet management or ship management
-• Strong knowledge of maritime regulations
-• Experience with ship management software
-• Excellent communication and leadership skills`,
-      industry: 'Fleet Management',
-      requirements: ['Chief Engineer License', '10+ years experience', 'Fleet Management'],
-      skills: ['Fleet Management', 'Technical Operations', 'Regulatory Compliance', 'Leadership'],
-      postedDate: '2024-04-12',
-      applicationDeadline: '2024-05-15',
-      applicants: 12,
-      isBookmarked: false,
-      companyInfo: {
-        name: 'Global Fleet Management',
-        size: '500-1000 employees',
-        type: 'Private Company',
-        website: 'www.globalfleet.com',
-        description: 'International ship management and maritime services company'
-      }
-    },
-    {
-      id: 5,
-      title: 'Maritime Lawyer',
-      company: 'Coastal Legal Associates',
-      companyLogo: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop',
-      location: 'Chennai, Tamil Nadu',
-      jobType: 'Full-time',
-      experience: '5-7 years',
-      salary: '₹10-15 LPA',
-      description: 'Law firm specializing in maritime law seeking experienced lawyer for complex cases.',
-      longDescription: `Join our specialized maritime law practice handling complex admiralty and shipping law cases for international clients.
-
-Key Responsibilities:
-• Handle maritime law cases and disputes
-• Draft and review charter party agreements
-• Represent clients in admiralty courts
-• Provide legal advisory on maritime regulations
-• Manage international shipping law matters
-
-Requirements:
-• LLB with specialization in Maritime Law
-• 5+ years of maritime law practice
-• Knowledge of international maritime conventions
-• Experience with charter parties and bills of lading
-• Strong litigation and negotiation skills`,
-      industry: 'Legal Services',
-      requirements: ['LLB Maritime Law', '5+ years practice', 'Litigation Experience'],
-      skills: ['Maritime Law', 'Legal Research', 'Litigation', 'Contract Drafting'],
-      postedDate: '2024-04-07',
-      applicationDeadline: '2024-05-07',
-      applicants: 8,
-      isBookmarked: true,
-      companyInfo: {
-        name: 'Coastal Legal Associates',
-        size: '50-100 employees',
-        type: 'Partnership',
-        website: 'www.coastallegal.com',
-        description: 'Specialized maritime and admiralty law firm'
-      }
-    },
-    {
-      id: 6,
-      title: 'Junior Marine Engineer',
-      company: 'Coastal Engineering Corp',
-      companyLogo: 'https://images.unsplash.com/photo-1551434678-e076c223a692?w=100&h=100&fit=crop',
-      location: 'Visakhapatnam, Andhra Pradesh',
-      jobType: 'Full-time',
-      experience: '0-2 years',
-      salary: '₹4-6 LPA',
-      description: 'Entry-level position for fresh graduates in marine engineering with growth opportunities.',
-      longDescription: `Excellent opportunity for fresh marine engineering graduates to start their career with a leading engineering company.
-
-Key Responsibilities:
-• Assist in marine equipment maintenance
-• Support senior engineers in project execution
-• Learn vessel operations and safety procedures
-• Participate in training and development programs
-• Maintain technical documentation
-
-Requirements:
-• B.Tech in Marine Engineering
-• Fresh graduate or up to 2 years experience
-• Strong technical and analytical skills
-• Willingness to work in ship/offshore environments
-• Good communication and teamwork abilities`,
-      industry: 'Marine Engineering',
-      requirements: ['Marine Engineering Degree', 'Fresh Graduate', 'Technical Skills'],
-      skills: ['Marine Engineering', 'Technical Analysis', 'Learning Agility', 'Teamwork'],
-      postedDate: '2024-04-09',
-      applicationDeadline: '2024-05-09',
-      applicants: 67,
-      isBookmarked: false,
-      companyInfo: {
-        name: 'Coastal Engineering Corp',
-        size: '200-500 employees',
-        type: 'Private Company',
-        website: 'www.coastalengineering.com',
-        description: 'Marine engineering and offshore services company'
-      }
-    }
-  ];
-
-  const filterOptions = {
-    jobType: [
-      { value: 'all', label: 'All Job Types' },
-      { value: 'full-time', label: 'Full-time' },
-      { value: 'part-time', label: 'Part-time' },
-      { value: 'contract', label: 'Contract' },
-      { value: 'internship', label: 'Internship' }
-    ],
-    experience: [
-      { value: 'all', label: 'All Experience Levels' },
-      { value: 'entry', label: 'Entry Level (0-2 years)' },
-      { value: 'mid', label: 'Mid Level (3-7 years)' },
-      { value: 'senior', label: 'Senior Level (8+ years)' }
-    ],
-    location: [
-      { value: 'all', label: 'All Locations' },
-      { value: 'mumbai', label: 'Mumbai' },
-      { value: 'chennai', label: 'Chennai' },
-      { value: 'kochi', label: 'Kochi' },
-      { value: 'visakhapatnam', label: 'Visakhapatnam' },
-      { value: 'goa', label: 'Goa' }
-    ],
-    industry: [
-      { value: 'all', label: 'All Industries' },
-      { value: 'shipping', label: 'Shipping & Maritime' },
-      { value: 'ports', label: 'Port Operations' },
-      { value: 'offshore', label: 'Offshore' },
-      { value: 'naval', label: 'Naval & Defense' },
-      { value: 'legal', label: 'Maritime Legal' }
-    ],
-    salaryRange: [
-      { value: 'all', label: 'All Salary Ranges' },
-      { value: '0-5', label: '₹0-5 LPA' },
-      { value: '5-10', label: '₹5-10 LPA' },
-      { value: '10-15', label: '₹10-15 LPA' },
-      { value: '15-20', label: '₹15-20 LPA' },
-      { value: '20+', label: '₹20+ LPA' }
-    ],
-    postedWithin: [
-      { value: 'all', label: 'Any Time' },
-      { value: '1', label: 'Last 24 hours' },
-      { value: '7', label: 'Last 7 days' },
-      { value: '30', label: 'Last 30 days' }
-    ]
-  };
-
-  const filteredJobs = jobs.filter(job => {
-    const matchesSearch = job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         job.company.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         job.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         job.skills.some(skill => skill.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    const matchesJobType = filters.jobType === 'all' || 
-                          job.jobType.toLowerCase().includes(filters.jobType);
-    
-    const matchesLocation = filters.location === 'all' || 
-                           job.location.toLowerCase().includes(filters.location);
-    
-    const matchesIndustry = filters.industry === 'all' || 
-                           job.industry.toLowerCase().includes(filters.industry);
-
-    return matchesSearch && matchesJobType && matchesLocation && matchesIndustry;
-  });
-
-  const handleBookmark = (jobId) => {
-    // Mock bookmark functionality
-    console.log('Bookmark job:', jobId);
-  };
-
-  const handleFilterChange = (filterType, value) => {
-    setFilters(prev => ({
-      ...prev,
-      [filterType]: value
-    }));
-  };
-
-  const JobCard = ({ job }) => (
-    <div className="glass-card rounded-lg p-6 card-hover">
+// Job card component for grid view
+const JobCard = ({ job, handleBookmark, isBookmarked }) => {
+  return (
+    <div className="glass-card rounded-lg p-6 hover:shadow-lg transition-shadow">
       <div className="flex items-start justify-between mb-4">
-        <div className="flex items-start space-x-4 flex-1">
+        <div className="flex items-center">
           <img 
             src={job.companyLogo} 
             alt={job.company}
-            className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
+            className="w-12 h-12 rounded-lg object-cover mr-4"
           />
-          <div className="flex-1">
-            <h3 className="font-semibold text-gray-900 text-lg mb-1">{job.title}</h3>
+          <div>
+            <h3 className="font-semibold text-gray-900">{job.title}</h3>
             <p className="text-ocean-600 font-medium">{job.company}</p>
-            <div className="flex items-center text-sm text-gray-600 mt-1">
-              <MapPinIcon className="w-4 h-4 mr-1" />
-              <span>{job.location}</span>
-            </div>
           </div>
         </div>
-        <button 
+        <button
           onClick={() => handleBookmark(job.id)}
-          className={`p-2 rounded-lg transition-colors ${
-            job.isBookmarked 
-              ? 'bg-ocean-100 text-ocean-600' 
-              : 'hover:bg-gray-100 text-gray-400'
-          }`}
+          className="p-2 rounded-full hover:bg-gray-100"
         >
-          <BookmarkIcon className="w-5 h-5" />
+          <BookmarkIcon className={`w-5 h-5 ${isBookmarked ? 'text-ocean-500 fill-ocean-500' : 'text-ocean-500'}`} />
         </button>
       </div>
-
-      <p className="text-gray-700 text-sm mb-4 line-clamp-2">{job.description}</p>
-
-      <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
-        <div className="flex items-center">
-          <BriefcaseIcon className="w-4 h-4 text-gray-400 mr-2" />
-          <span className="text-gray-600">{job.jobType}</span>
+      
+      <p className="text-gray-600 text-sm mb-4 line-clamp-2">{job.description}</p>
+      
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        <div className="flex items-center text-sm text-gray-600">
+          <MapPinIcon className="w-4 h-4 mr-1" />
+          <span>{job.location}</span>
         </div>
-        <div className="flex items-center">
-          <ClockIcon className="w-4 h-4 text-gray-400 mr-2" />
-          <span className="text-gray-600">{job.experience}</span>
+        <div className="flex items-center text-sm text-gray-600">
+          <BriefcaseIcon className="w-4 h-4 mr-1" />
+          <span>{job.jobType}</span>
         </div>
-        <div className="flex items-center">
-          <CurrencyRupeeIcon className="w-4 h-4 text-gray-400 mr-2" />
-          <span className="text-gray-600">{job.salary}</span>
+        <div className="flex items-center text-sm text-gray-600">
+          <ClockIcon className="w-4 h-4 mr-1" />
+          <span>{job.experience || 'Any Level'}</span>
         </div>
-        <div className="flex items-center">
-          <BuildingOfficeIcon className="w-4 h-4 text-gray-400 mr-2" />
-          <span className="text-gray-600">{job.industry}</span>
+        <div className="flex items-center text-sm text-gray-600">
+          <CurrencyRupeeIcon className="w-4 h-4 mr-1" />
+          <span>{job.salaryRange}</span>
         </div>
       </div>
-
+      
       <div className="flex flex-wrap gap-1 mb-4">
-        {job.skills.slice(0, 3).map((skill, index) => (
+        {job.skills.slice(0, 4).map((skill, index) => (
           <span 
             key={index}
             className="px-2 py-1 bg-ocean-100 text-ocean-800 rounded text-xs"
@@ -419,34 +123,35 @@ Requirements:
             {skill}
           </span>
         ))}
-        {job.skills.length > 3 && (
-          <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">
-            +{job.skills.length - 3}
-          </span>
-        )}
       </div>
-
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-gray-500">
-          {job.applicants} applicants • Posted {new Date(job.postedDate).toLocaleDateString()}
-        </div>
-        <div className="flex space-x-2">
+      
+      <div className="flex justify-between items-center">
+        <span className="text-sm text-gray-500">
+          {job.applicants || 0} applicants
+        </span>
+        <div className="space-x-2">
           <Link 
             to={`/jobs/${job.id}`}
             className="btn-ocean-outline py-1 px-3 rounded text-sm"
           >
             View Details
           </Link>
-          <button className="btn-ocean py-1 px-3 rounded text-sm">
+          <Link 
+            to={`/jobs/${job.id}/apply`}
+            className="btn-ocean py-1 px-3 rounded text-sm"
+          >
             Apply Now
-          </button>
+          </Link>
         </div>
       </div>
     </div>
   );
+};
 
-  const JobListItem = ({ job }) => (
-    <div className="glass-card rounded-lg p-6 card-hover">
+// Job list item component for list view
+const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
+  return (
+    <div className="glass-card rounded-lg p-6">
       <div className="flex items-start justify-between">
         <div className="flex items-start space-x-4 flex-1">
           <img 
@@ -459,17 +164,13 @@ Requirements:
               <div>
                 <h3 className="font-semibold text-gray-900 text-lg">{job.title}</h3>
                 <p className="text-ocean-600 font-medium">{job.company}</p>
-                <p className="text-gray-600 text-sm mt-1">{job.description}</p>
+                <p className="text-gray-600 text-sm mt-1 line-clamp-2">{job.description}</p>
               </div>
-              <button 
+              <button
                 onClick={() => handleBookmark(job.id)}
-                className={`p-2 rounded-lg transition-colors ${
-                  job.isBookmarked 
-                    ? 'bg-ocean-100 text-ocean-600' 
-                    : 'hover:bg-gray-100 text-gray-400'
-                }`}
+                className="p-2 rounded-full hover:bg-gray-100"
               >
-                <BookmarkIcon className="w-5 h-5" />
+                <BookmarkIcon className={`w-5 h-5 ${isBookmarked ? 'text-ocean-500 fill-ocean-500' : 'text-ocean-500'}`} />
               </button>
             </div>
             
@@ -484,11 +185,11 @@ Requirements:
               </div>
               <div className="flex items-center">
                 <ClockIcon className="w-4 h-4 mr-1" />
-                <span>{job.experience}</span>
+                <span>{job.experience || 'Any Level'}</span>
               </div>
               <div className="flex items-center">
                 <CurrencyRupeeIcon className="w-4 h-4 mr-1" />
-                <span>{job.salary}</span>
+                <span>{job.salaryRange}</span>
               </div>
             </div>
 
@@ -506,7 +207,7 @@ Requirements:
               
               <div className="flex items-center space-x-2">
                 <span className="text-sm text-gray-500">
-                  {job.applicants} applicants
+                  {job.applicants || 0} applicants
                 </span>
                 <Link 
                   to={`/jobs/${job.id}`}
@@ -524,27 +225,216 @@ Requirements:
       </div>
     </div>
   );
+};
+
+// Main Jobs component
+const Jobs = () => {
+  const { user } = useAuth();
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filters, setFilters] = useState({
+    jobType: 'all',
+    experience: 'all',
+    location: 'all',
+    industry: 'all',
+    salaryRange: 'all',
+    postedWithin: 'all'
+  });
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [bookmarkedJobs, setBookmarkedJobs] = useState([]);
+  const [pagination, setPagination] = useState({
+    page: 0,
+    pageSize: 10,
+    totalCount: 0,
+    hasMore: true
+  });
+
+  const fetchBookmarkedJobs = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('bookmarked_jobs')
+        .select('job_id')
+        .eq('user_id', user.id);
+      
+      if (error) throw error;
+      
+      const bookmarkedIds = data.map(item => item.job_id);
+      setBookmarkedJobs(bookmarkedIds);
+    } catch (error) {
+      console.error('Error fetching bookmarked jobs:', error);
+      // Do not toast here, as it might be too noisy during initial load
+    }
+  }, [user]);
+
+  // Fetch jobs from Supabase
+  useEffect(() => {
+    const fetchJobs = async () => {
+      try {
+        setLoading(true);
+        
+        let query = supabase
+          .from('jobs')
+          .select('*', { count: 'exact' })
+          // .eq('is_approved', true) // Temporarily commented out to show all active jobs
+          .eq('is_active', true);
+        
+        if (filters.jobType !== 'all') {
+          query = query.eq('job_type', filters.jobType);
+        }
+        if (filters.location !== 'all' && filters.location !== 'remote') {
+          query = query.ilike('location', `%${filters.location}%`);
+        } else if (filters.location === 'remote'){
+          query = query.eq('is_remote', true);
+        }
+        
+        if (searchQuery) {
+          query = query.or(
+            `title.ilike.%${searchQuery}%,company_name.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%,skills.ilike.%${searchQuery}%`
+          );
+        }
+        
+        if (filters.postedWithin !== 'all') {
+          const daysAgo = parseInt(filters.postedWithin);
+          const date = new Date();
+          date.setDate(date.getDate() - daysAgo);
+          query = query.gte('created_at', date.toISOString());
+        }
+
+        if (filters.experience !== 'all') {
+          query = query.eq('experience_level', filters.experience);
+        }
+
+        if (filters.industry !== 'all') {
+          query = query.eq('industry', filters.industry);
+        }
+        
+        const from = pagination.page * pagination.pageSize;
+        const to = from + pagination.pageSize - 1;
+        
+        const { data, error, count } = await query
+          .order('created_at', { ascending: false })
+          .range(from, to);
+        
+        if (error) throw error;
+        
+        const formattedJobs = data.map(job => ({
+          id: job.id,
+          title: job.title,
+          company: job.company_name, // Ensure this matches your table column
+          location: job.location,
+          description: job.description,
+          requirements: job.requirements,
+          jobType: job.job_type || 'full-time',
+          salaryRange: job.salary_range || 'Not specified',
+          experience: job.experience_level || 'Any Level',
+          applicationDeadline: job.application_deadline,
+          postedBy: job.posted_by,
+          postedAt: job.created_at,
+          companyLogo: job.company_logo_url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(job.company_name || 'Company') + '&background=0D8ABC&color=fff',
+          skills: job.skills ? job.skills.split(',').map(s => s.trim()) : [],
+          applicants: job.applicants_count || 0 // Assuming you have this field
+        }));
+        
+        if (pagination.page === 0) {
+          setJobs(formattedJobs);
+        } else {
+          setJobs(prevJobs => [...prevJobs, ...formattedJobs]);
+        }
+
+        setPagination(prev => ({
+          ...prev,
+          totalCount: count || 0,
+          hasMore: (count || 0) > (from + formattedJobs.length)
+        }));
+        
+      } catch (error) {
+        console.error('Error fetching jobs:', error);
+        toast.error('Failed to load jobs');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchJobs();
+  }, [filters, searchQuery, pagination.page, pagination.pageSize]); // Removed user from deps, fetchBookmarkedJobs handles user changes
+
+  useEffect(() => {
+    if (user) {
+      fetchBookmarkedJobs();
+    }
+  }, [user, fetchBookmarkedJobs]);
+
+  // Handle job bookmarking
+  const handleBookmark = async (jobId) => {
+    if (!user) {
+      toast.error('Please login to bookmark jobs');
+      return;
+    }
+    
+    try {
+      const isBookmarked = bookmarkedJobs.includes(jobId);
+      
+      if (isBookmarked) {
+        const { error } = await supabase
+          .from('bookmarked_jobs')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('job_id', jobId);
+        
+        if (error) throw error;
+        setBookmarkedJobs(prev => prev.filter(id => id !== jobId));
+        toast.success('Job removed from bookmarks');
+      } else {
+        const { error } = await supabase
+          .from('bookmarked_jobs')
+          .insert({ user_id: user.id, job_id: jobId });
+        
+        if (error) throw error;
+        setBookmarkedJobs(prev => [...prev, jobId]);
+        toast.success('Job added to bookmarks');
+      }
+    } catch (error) {
+      console.error('Error updating bookmark:', error);
+      toast.error('Failed to update bookmark');
+    }
+  };
+  
+  const handleFilterChange = (filterType, value) => {
+    setPagination(prev => ({ ...prev, page: 0 })); // Reset to first page on filter change
+    setFilters(prev => ({
+      ...prev,
+      [filterType]: value
+    }));
+  };
+
+  const handleLoadMore = () => {
+    if (pagination.hasMore && !loading) {
+      setPagination(prev => ({ ...prev, page: prev.page + 1 }));
+    }
+  };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-4 md:p-6 bg-gradient-to-br from-ocean-100 via-sky-50 to-blue-100 min-h-screen">
       {/* Header */}
-      <div className="glass-card rounded-lg p-6">
-        <div className="flex items-center justify-between">
+      <div className="glass-card rounded-lg p-6 shadow-md">
+        <div className="flex flex-col md:flex-row items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Job Portal</h1>
+            <h1 className="text-3xl font-bold text-ocean-700 mb-2">Job Portal</h1>
             <p className="text-gray-600">Discover career opportunities in the maritime industry</p>
           </div>
-          <div className="flex space-x-2">
+          <div className="flex space-x-2 mt-4 md:mt-0">
             <Link 
               to="/jobs/alerts" 
-              className="btn-ocean-outline px-4 py-2 rounded-lg flex items-center"
+              className="btn-ocean-outline px-4 py-2 rounded-lg flex items-center text-sm"
             >
               <BellIcon className="w-4 h-4 mr-2" />
               Job Alerts
             </Link>
             <Link 
               to="/jobs/post" 
-              className="btn-ocean px-4 py-2 rounded-lg flex items-center"
+              className="btn-ocean px-4 py-2 rounded-lg flex items-center text-sm"
             >
               <PlusIcon className="w-4 h-4 mr-2" />
               Post Job
@@ -554,47 +444,49 @@ Requirements:
       </div>
 
       {/* Search and Filters */}
-      <div className="glass-card rounded-lg p-6">
+      <div className="glass-card rounded-lg p-6 shadow-md">
         <div className="flex flex-col lg:flex-row gap-4 mb-6">
-          {/* Search Bar */}
           <div className="flex-1">
             <div className="relative">
               <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="form-input w-full pl-10 pr-4 py-2 rounded-lg"
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setPagination(prev => ({ ...prev, page: 0 })); // Reset page on search
+                }}
+                className="form-input w-full pl-10 pr-4 py-2 rounded-lg border-gray-300 focus:border-ocean-500 focus:ring-ocean-500"
                 placeholder="Search jobs, companies, or skills..."
               />
             </div>
           </div>
           
-          {/* View Toggle */}
-          <div className="flex border border-gray-300 rounded-lg p-1">
+          <div className="flex border border-gray-300 rounded-lg p-1 bg-gray-50">
             <button
               onClick={() => setViewMode('grid')}
-              className={`p-2 rounded ${viewMode === 'grid' ? 'bg-ocean-500 text-white' : 'text-gray-600'}`}
+              className={`p-2 rounded ${viewMode === 'grid' ? 'bg-ocean-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
+              title="Grid View"
             >
-              <Squares2X2Icon className="w-4 h-4" />
+              <Squares2X2Icon className="w-5 h-5" />
             </button>
             <button
               onClick={() => setViewMode('list')}
-              className={`p-2 rounded ${viewMode === 'list' ? 'bg-ocean-500 text-white' : 'text-gray-600'}`}
+              className={`p-2 rounded ${viewMode === 'list' ? 'bg-ocean-500 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-200'}`}
+              title="List View"
             >
-              <ListBulletIcon className="w-4 h-4" />
+              <ListBulletIcon className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {Object.entries(filterOptions).map(([filterType, options]) => (
             <select
               key={filterType}
               value={filters[filterType]}
               onChange={(e) => handleFilterChange(filterType, e.target.value)}
-              className="form-input px-3 py-2 rounded text-sm"
+              className="form-input px-3 py-2 rounded text-sm border-gray-300 focus:border-ocean-500 focus:ring-ocean-500"
             >
               {options.map(option => (
                 <option key={option.value} value={option.value}>
@@ -607,36 +499,67 @@ Requirements:
       </div>
 
       {/* Results Count */}
-      <div className="flex items-center justify-between">
-        <p className="text-gray-600">
-          Showing <span className="font-medium">{filteredJobs.length}</span> jobs
+      <div className="flex items-center justify-between px-1">
+        <p className="text-gray-700">
+          Showing <span className="font-medium text-ocean-600">{jobs.length}</span> of <span className="font-medium text-ocean-600">{pagination.totalCount}</span> jobs
         </p>
-        <select className="form-input px-3 py-1 rounded text-sm">
-          <option>Sort by Relevance</option>
-          <option>Sort by Date Posted</option>
-          <option>Sort by Salary</option>
-          <option>Sort by Company</option>
-        </select>
+        {/* Add sort options if needed */}
       </div>
 
       {/* Jobs Grid/List */}
-      <div className={viewMode === 'grid' 
-        ? 'grid grid-cols-1 lg:grid-cols-2 gap-6'
-        : 'space-y-4'
-      }>
-        {filteredJobs.map((job) => 
-          viewMode === 'grid' 
-            ? <JobCard key={job.id} job={job} />
-            : <JobListItem key={job.id} job={job} />
-        )}
-      </div>
+      {loading && pagination.page === 0 ? (
+        <div className="flex items-center justify-center py-20">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-ocean-500"></div>
+          <p className="ml-4 text-ocean-600">Loading Jobs...</p>
+        </div>
+      ) : jobs.length > 0 ? (
+        <div className={viewMode === 'grid' 
+          ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6'
+          : 'space-y-4'
+        }>
+          {jobs.map((job) => 
+            viewMode === 'grid' 
+              ? <JobCard key={job.id} job={job} handleBookmark={handleBookmark} isBookmarked={bookmarkedJobs.includes(job.id)} />
+              : <JobListItem key={job.id} job={job} handleBookmark={handleBookmark} isBookmarked={bookmarkedJobs.includes(job.id)} />
+          )}
+        </div>
+      ) : (
+        <div className="text-center py-10 glass-card rounded-lg p-6 shadow-md">
+          <MagnifyingGlassIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <p className="text-xl text-gray-600 mb-2">No jobs found matching your criteria</p>
+          <p className="text-gray-500 mb-4">Try adjusting your search or filters.</p>
+          <button 
+            onClick={() => {
+              setSearchQuery('');
+              setFilters({
+                jobType: 'all',
+                experience: 'all',
+                location: 'all',
+                industry: 'all',
+                salaryRange: 'all',
+                postedWithin: 'all'
+              });
+              setPagination(prev => ({ ...prev, page: 0 }));
+            }}
+            className="btn-ocean-outline px-4 py-2 rounded-lg text-sm"
+          >
+            Clear all filters
+          </button>
+        </div>
+      )}
 
       {/* Load More */}
-      <div className="text-center">
-        <button className="btn-ocean-outline px-6 py-2 rounded-lg">
-          Load More Jobs
-        </button>
-      </div>
+      {pagination.hasMore && jobs.length > 0 && (
+        <div className="text-center mt-8">
+          <button 
+            className="btn-ocean px-6 py-3 rounded-lg font-semibold disabled:opacity-50"
+            onClick={handleLoadMore}
+            disabled={loading}
+          >
+            {loading && pagination.page > 0 ? 'Loading...' : 'Load More Jobs'}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
