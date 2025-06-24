@@ -34,93 +34,51 @@ const AlumniDirectory = () => {
   }, []);
 
   const fetchAlumniData = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
+      const { supabase } = await import('../../utils/supabase');
       
-      // Try fetching from backend API first
-      try {
-        // Use explicit URL to avoid environment variable caching issues
-        const backendUrl = 'http://localhost:8003';
-        console.log('Using backend URL for directory:', backendUrl);
-        const response = await fetch(`${backendUrl}/api/profiles?limit=1000`);
-        const data = await response.json();
-        
-        console.log('Fetched alumni from backend:', data);
-        
-        // Transform data to match component structure
-        const transformedAlumni = data.map(profile => ({
-          id: profile.id,
-          name: profile.full_name || `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'Unknown',
-          email: profile.email || '',
-          graduationYear: profile.graduation_year,
-          degree: profile.degree || 'Not specified',
-          currentPosition: profile.current_position || 'Not specified',
-          company: profile.current_company || profile.company_name || 'Not specified',
-          location: profile.location || 'Not specified',
-          avatar: profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.full_name || profile.email || 'User')}&background=3B82F6&color=fff`,
-          skills: profile.skills || [],
-          bio: profile.bio || '',
-          verified: profile.is_verified || false,
-          role: 'alumni',
-          phone: profile.phone || profile.phone_number || '',
-          linkedin: profile.linkedin_url || '',
-          studentId: profile.student_id || '',
-          department: profile.department || '',
-          isMentor: profile.is_mentor || false,
-          isEmployer: profile.is_employer || false
-        })).filter(alumni => alumni.name !== 'Unknown' || alumni.email); // Filter out completely empty profiles
+      const { data, error: supabaseError } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-        setAlumni(transformedAlumni);
-        
-      } catch (apiError) {
-        console.error('Backend API failed, trying direct Supabase:', apiError);
-        
-        // Fallback to direct Supabase if backend fails
-        const { supabase } = await import('../../utils/supabase');
-        
-        const { data, error: supabaseError } = await supabase
-          .from('profiles')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (supabaseError) {
-          console.error('Error fetching alumni:', supabaseError);
-          setError('Failed to load alumni data');
-          return;
-        }
-
-        console.log('Fetched alumni from Supabase:', data);
-        
-        // Transform data to match component structure  
-        const transformedAlumni = data.map(profile => ({
-          id: profile.id,
-          name: profile.full_name || `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'Unknown',
-          email: profile.email || '',
-          graduationYear: profile.graduation_year,
-          degree: profile.degree || 'Not specified',
-          currentPosition: profile.current_position || 'Not specified', 
-          company: profile.current_company || profile.company_name || 'Not specified',
-          location: profile.location || 'Not specified',
-          avatar: profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.full_name || profile.email || 'User')}&background=3B82F6&color=fff`,
-          skills: profile.skills || [],
-          bio: profile.bio || '',
-          verified: profile.is_verified || false,
-          role: 'alumni',
-          phone: profile.phone || profile.phone_number || '',
-          linkedin: profile.linkedin_url || '',
-          studentId: profile.student_id || '',
-          department: profile.department || '',
-          isMentor: profile.is_mentor || false,
-          isEmployer: profile.is_employer || false
-        })).filter(alumni => alumni.name !== 'Unknown' || alumni.email);
-
-        setAlumni(transformedAlumni);
+      if (supabaseError) {
+        console.error('Error fetching alumni:', supabaseError);
+        setError('Failed to load alumni data');
+        return;
       }
+
+      console.log('Fetched alumni from Supabase:', data);
       
-    } catch (error) {
-      console.error('Error in fetchAlumniData:', error);
-      setError('Failed to connect to database');
+      // Transform data to match component structure  
+      const transformedAlumni = data.map(profile => ({
+        id: profile.id,
+        name: profile.full_name || `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'Unknown',
+        email: profile.email || '',
+        graduationYear: profile.graduation_year,
+        degree: profile.degree || 'Not specified',
+        currentPosition: profile.current_position || 'Not specified',
+        company: profile.current_company || profile.company_name || 'Not specified',
+        location: profile.location || 'Not specified',
+        avatar: profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.full_name || profile.email || 'User')}&background=3B82F6&color=fff`,
+        skills: profile.skills || [],
+        bio: profile.bio || '',
+        verified: profile.is_verified || false,
+        role: 'alumni',
+        phone: profile.phone || profile.phone_number || '',
+        linkedin: profile.linkedin_url || '',
+        studentId: profile.student_id || '',
+        department: profile.department || '',
+        isMentor: profile.is_mentor || false,
+        isEmployer: profile.is_employer || false
+      })).filter(alumni => alumni.name !== 'Unknown' || alumni.email);
+
+      setAlumni(transformedAlumni);
+    } catch (err) {
+      console.error('An unexpected error occurred:', err);
+      setError('An unexpected error occurred while fetching data.');
     } finally {
       setLoading(false);
     }

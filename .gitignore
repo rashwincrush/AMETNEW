@@ -21,6 +21,9 @@ chainlit.md
 
 # misc
 .DS_Store
+
+# Supabase backups
+supabase/backups/
 *.pem
 
 # debug

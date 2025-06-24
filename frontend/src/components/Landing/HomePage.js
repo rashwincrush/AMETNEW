@@ -282,7 +282,7 @@ const HomePage = () => {
           </div>
           
           <div className="border-t border-gray-200 mt-8 pt-8 text-center text-gray-500">
-            <p>&copy; 2025 AMET Alumni Portal. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} AMET Alumni Portal. All rights reserved.</p>
           </div>
         </div>
       </footer>

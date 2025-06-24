@@ -20,6 +20,8 @@ import Header from './components/Layout/Header';
 import Login from './components/Auth/Login';
 import EnhancedRegister from './components/Auth/EnhancedRegister';
 import Profile from './components/Auth/Profile';
+import ForgotPassword from './components/Auth/ForgotPassword';
+import UpdatePassword from './components/Auth/UpdatePassword';
 
 // Dashboard Components
 import AlumniDashboard from './components/Dashboard/AlumniDashboard';
@@ -35,9 +37,11 @@ import CreateEvent from './components/Events/CreateEvent';
 import EventCalendar from './components/Events/EventCalendar';
 import Jobs from './components/Jobs/Jobs';
 import JobDetails from './components/Jobs/JobDetails';
+import UserProfilePage from './pages/UserProfilePage';
 import MentorRegistrationForm from './components/Mentorship/MentorRegistrationForm';
 import PostJob from './components/Jobs/PostJob';
 import JobAlerts from './components/Jobs/JobAlerts';
+import MessagesPage from './pages/MessagesPage';
 import JobPostingForm from './components/Jobs/JobPostingForm';
 import ResumeUploadForm from './components/Jobs/ResumeUploadForm';
 import JobApplication from './components/Jobs/JobApplication';
@@ -47,12 +51,14 @@ import NetworkingGroups from './components/Networking/NetworkingGroups';
 import BecomeMentorForm from './components/Mentorship/BecomeMentorForm';
 import MentorProfile from './components/Mentorship/MentorProfile';
 import MentorSettings from './components/Mentorship/MentorSettings';
-import CreateGroupForm from './components/Networking/CreateGroupForm';
+import CreateGroup from './components/Networking/CreateGroup';
+import GroupDetails from './components/Networking/GroupDetails';
 import Messages from './components/Messages/Messages';
 import Analytics from './components/Admin/Analytics';
 import UserManagement from './components/Admin/UserManagement';
-import UserApprovalDashboard from './components/Admin/UserApprovalDashboard';
+
 import AdminSettings from './components/Admin/AdminSettings';
+import MenteeRegistrationForm from './components/Registration/MenteeRegistrationForm';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -135,19 +141,22 @@ function AppContent() {
                   <Route path="/jobs/:jobId/apply" element={<JobApplication />} />
                   <Route path="/jobs/:jobId/application-success" element={<Navigate to="/jobs/applications" />} />
                   <Route path="/jobs/:id" element={<JobDetails />} />
-            <Route path="/mentorship/become-mentor" element={<MentorRegistrationForm />} />
+                  <Route path="/profile/:userId" element={<UserProfilePage />} />
+                  <Route path="/mentorship/become-mentor" element={<MentorRegistrationForm />} />
+                  <Route path="/mentorship/become-mentee" element={<MenteeRegistrationForm />} />
                   <Route path="/mentorship" element={<Mentorship />} />
                   <Route path="/mentorship/mentor/:id" element={<MentorProfile />} />
                   <Route path="/mentorship/mentor-settings" element={<MentorRegistrationForm />} />
                   <Route path="/networking" element={<NetworkingGroups />} />
-                  <Route path="/networking/create-group" element={<CreateGroupForm />} />
-                  <Route path="/messages" element={<Messages />} />
+                  <Route path="/networking/create-group" element={<CreateGroup />} />
+                  <Route path="/networking/groups/:groupId" element={<GroupDetails />} />
+                  <Route path="/messages" element={<MessagesPage />} />
                   <Route path="/notifications" element={<Notifications />} />
                   {getUserRole() === 'admin' && (
                     <>
                       <Route path="/admin/analytics" element={<Analytics />} />
                       <Route path="/admin/users" element={<UserManagement />} />
-                      <Route path="/admin/approvals" element={<UserApprovalDashboard />} />
+
                       <Route path="/admin/settings" element={<AdminSettings />} /> {/* Added Admin Settings Route */}
                     </>
                   )}
@@ -167,6 +176,8 @@ function AppContent() {
             <Route path="/home" element={<HomePage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<EnhancedRegister />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/update-password" element={<UpdatePassword />} />
             <Route path="/directory" element={<HomePage />} />
             <Route path="/events" element={<HomePage />} />
             <Route path="/jobs" element={<HomePage />} />

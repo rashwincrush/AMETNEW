@@ -11,6 +11,7 @@ import {
   UserPlusIcon,
   ShareIcon
 } from '@heroicons/react/24/outline';
+import { supabase } from '../../utils/supabase';
 
 const AlumniProfile = () => {
   const { id } = useParams();
@@ -21,121 +22,73 @@ const AlumniProfile = () => {
   
   useEffect(() => {
     const fetchAlumnusData = async () => {
+      if (!id) return;
+
+      setLoading(true);
+      setError(null);
+
       try {
-        setLoading(true);
-        setError(null);
-        
-        // Try fetching from backend API first
-        try {
-          // Use explicit URL to avoid environment variable caching issues
-          const backendUrl = 'http://localhost:8003';
-          console.log('Using backend URL:', backendUrl);
-          const response = await fetch(`${backendUrl}/api/profiles/${id}`);
-          
-          if (!response.ok) {
-            throw new Error('Failed to fetch alumni profile');
-          }
-          
-          const data = await response.json();
-          console.log('Fetched alumni from backend:', data);
-          
-          // Transform data to match component structure
-          const transformedAlumnus = {
-            id: data.id,
-            name: data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Unknown',
-            email: data.email || '',
-            phone: data.phone || data.phone_number || '',
-            graduationYear: data.graduation_year,
-            degree: data.degree || 'Not specified',
-            specialization: data.specialization || '',
-            currentPosition: data.current_position || 'Not specified',
-            company: data.current_company || data.company_name || 'Not specified',
-            location: data.location || 'Not specified',
-            avatar: data.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.full_name || data.email || 'User')}&background=3B82F6&color=fff`,
-            coverImage: data.cover_image || 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
-            verified: data.is_verified || false,
-            joinedDate: new Date(data.created_at || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-            about: data.bio || '',
-            experience: data.experience || [],
-            education: data.education || [],
-            skills: data.skills || [],
-            achievements: data.achievements || [],
-            interests: data.interests || [],
-            languages: data.languages || [],
-            socialLinks: {
-              linkedin: data.linkedin_url || '',
-              website: data.website || '',
-              twitter: data.twitter || ''
-            }
-          };
-          
-          setAlumnus(transformedAlumnus);
-          
-        } catch (apiError) {
-          console.error('Backend API failed, trying direct Supabase:', apiError);
-          
-          // Fallback to direct Supabase if backend fails
-          const { supabase } = await import('../../utils/supabase');
-          
-          const { data, error: supabaseError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', id)
-            .single();
+        const { data, error: supabaseError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', id)
+          .single();
 
-          if (supabaseError) {
-            console.error('Error fetching alumni:', supabaseError);
-            setError('Failed to load alumni profile');
-            return;
+        if (supabaseError) {
+          if (supabaseError.code === 'PGRST116') {
+             setError('Alumni profile not found');
+          } else {
+             setError('Failed to load alumni profile');
           }
-
-          if (!data) {
-            setError('Alumni profile not found');
-            return;
-          }
-
-          console.log('Fetched alumni from Supabase:', data);
-          
-          // Transform data to match component structure
-          const transformedAlumnus = {
-            id: data.id,
-            name: data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Unknown',
-            email: data.email || '',
-            phone: data.phone || data.phone_number || '',
-            graduationYear: data.graduation_year,
-            degree: data.degree || 'Not specified',
-            specialization: data.specialization || '',
-            currentPosition: data.current_position || 'Not specified',
-            company: data.current_company || data.company_name || 'Not specified',
-            location: data.location || 'Not specified',
-            avatar: data.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.full_name || data.email || 'User')}&background=3B82F6&color=fff`,
-            coverImage: data.cover_image || 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
-            verified: data.is_verified || false,
-            joinedDate: new Date(data.created_at || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-            about: data.bio || '',
-            experience: data.experience || [],
-            education: data.education || [],
-            skills: data.skills || [],
-            achievements: data.achievements || [],
-            interests: data.interests || [],
-            languages: data.languages || [],
-            socialLinks: {
-              linkedin: data.linkedin_url || '',
-              website: data.website || '',
-              twitter: data.twitter || ''
-            }
-          };
-          
-          setAlumnus(transformedAlumnus);
+          console.error('Error fetching alumni:', supabaseError);
+          return;
         }
+
+        if (!data) {
+          setError('Alumni profile not found');
+          return;
+        }
+
+        console.log('Fetched alumni from Supabase:', data);
+
+        const transformedAlumnus = {
+          id: data.id,
+          name: data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Unknown',
+          email: data.email || '',
+          phone: data.phone || data.phone_number || '',
+          graduationYear: data.graduation_year,
+          degree: data.degree || 'Not specified',
+          specialization: data.specialization || '',
+          currentPosition: data.current_position || 'Not specified',
+          company: data.current_company || data.company_name || 'Not specified',
+          location: data.location || 'Not specified',
+          avatar: data.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.full_name || data.email || 'User')}&background=3B82F6&color=fff`,
+          coverImage: data.cover_image || 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
+          verified: data.is_verified || false,
+          joinedDate: new Date(data.created_at || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+          about: data.bio || '',
+          experience: data.experience || [],
+          education: data.education || [],
+          skills: data.skills || [],
+          achievements: data.achievements || [],
+          interests: data.interests || [],
+          languages: data.languages || [],
+          socialLinks: {
+            linkedin: data.linkedin_url || '',
+            website: data.website || '',
+            twitter: data.twitter || ''
+          }
+        };
+
+        setAlumnus(transformedAlumnus);
       } catch (err) {
-        console.error('Error fetching alumni profile:', err);
-        setError('Could not load alumni profile. Please try again.');
+        console.error('An unexpected error occurred:', err);
+        setError('An unexpected error occurred while fetching the profile.');
       } finally {
         setLoading(false);
       }
     };
-    
+
     fetchAlumnusData();
   }, [id]);
   

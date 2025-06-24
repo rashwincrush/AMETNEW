@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { 
   MagnifyingGlassIcon,
   FunnelIcon,
@@ -229,6 +229,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
 
 // Main Jobs component
 const Jobs = () => {
+  const location = useLocation();
   const { user } = useAuth();
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
   const [searchQuery, setSearchQuery] = useState('');
@@ -269,96 +270,96 @@ const Jobs = () => {
   }, [user]);
 
   // Fetch jobs from Supabase
-  useEffect(() => {
-    const fetchJobs = async () => {
-      try {
-        setLoading(true);
-        
-        let query = supabase
-          .from('jobs')
-          .select('*', { count: 'exact' })
-          // .eq('is_approved', true) // Temporarily commented out to show all active jobs
-          .eq('is_active', true);
-        
-        if (filters.jobType !== 'all') {
-          query = query.eq('job_type', filters.jobType);
-        }
-        if (filters.location !== 'all' && filters.location !== 'remote') {
-          query = query.ilike('location', `%${filters.location}%`);
-        } else if (filters.location === 'remote'){
-          query = query.eq('is_remote', true);
-        }
-        
-        if (searchQuery) {
-          query = query.or(
-            `title.ilike.%${searchQuery}%,company_name.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%,skills.ilike.%${searchQuery}%`
-          );
-        }
-        
-        if (filters.postedWithin !== 'all') {
-          const daysAgo = parseInt(filters.postedWithin);
-          const date = new Date();
-          date.setDate(date.getDate() - daysAgo);
-          query = query.gte('created_at', date.toISOString());
-        }
-
-        if (filters.experience !== 'all') {
-          query = query.eq('experience_level', filters.experience);
-        }
-
-        if (filters.industry !== 'all') {
-          query = query.eq('industry', filters.industry);
-        }
-        
-        const from = pagination.page * pagination.pageSize;
-        const to = from + pagination.pageSize - 1;
-        
-        const { data, error, count } = await query
-          .order('created_at', { ascending: false })
-          .range(from, to);
-        
-        if (error) throw error;
-        
-        const formattedJobs = data.map(job => ({
-          id: job.id,
-          title: job.title,
-          company: job.company_name, // Ensure this matches your table column
-          location: job.location,
-          description: job.description,
-          requirements: job.requirements,
-          jobType: job.job_type || 'full-time',
-          salaryRange: job.salary_range || 'Not specified',
-          experience: job.experience_level || 'Any Level',
-          applicationDeadline: job.application_deadline,
-          postedBy: job.posted_by,
-          postedAt: job.created_at,
-          companyLogo: job.company_logo_url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(job.company_name || 'Company') + '&background=0D8ABC&color=fff',
-          skills: job.skills ? job.skills.split(',').map(s => s.trim()) : [],
-          applicants: job.applicants_count || 0 // Assuming you have this field
-        }));
-        
-        if (pagination.page === 0) {
-          setJobs(formattedJobs);
-        } else {
-          setJobs(prevJobs => [...prevJobs, ...formattedJobs]);
-        }
-
-        setPagination(prev => ({
-          ...prev,
-          totalCount: count || 0,
-          hasMore: (count || 0) > (from + formattedJobs.length)
-        }));
-        
-      } catch (error) {
-        console.error('Error fetching jobs:', error);
-        toast.error('Failed to load jobs');
-      } finally {
-        setLoading(false);
+  const fetchJobs = useCallback(async () => {
+    try {
+      setLoading(true);
+      
+      let query = supabase
+        .from('jobs')
+        .select('*', { count: 'exact' })
+        // .eq('is_approved', true) // Temporarily commented out to show all active jobs
+        .eq('is_active', true);
+      
+      if (filters.jobType !== 'all') {
+        query = query.eq('job_type', filters.jobType);
       }
-    };
-    
+      if (filters.location !== 'all' && filters.location !== 'remote') {
+        query = query.ilike('location', `%${filters.location}%`);
+      } else if (filters.location === 'remote'){
+        query = query.eq('is_remote', true);
+      }
+      
+      if (searchQuery) {
+        query = query.or(
+          `title.ilike.%${searchQuery}%,company_name.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%,skills.ilike.%${searchQuery}%`
+        );
+      }
+      
+      if (filters.postedWithin !== 'all') {
+        const daysAgo = parseInt(filters.postedWithin);
+        const date = new Date();
+        date.setDate(date.getDate() - daysAgo);
+        query = query.gte('created_at', date.toISOString());
+      }
+
+      if (filters.experience !== 'all') {
+        query = query.eq('experience_level', filters.experience);
+      }
+
+      if (filters.industry !== 'all') {
+        query = query.eq('industry', filters.industry);
+      }
+      
+      const from = pagination.page * pagination.pageSize;
+      const to = from + pagination.pageSize - 1;
+      
+      const { data, error, count } = await query
+        .order('created_at', { ascending: false })
+        .range(from, to);
+      
+      if (error) throw error;
+      
+      const formattedJobs = data.map(job => ({
+        id: job.id,
+        title: job.title,
+        company: job.company_name, // Ensure this matches your table column
+        location: job.location,
+        description: job.description,
+        requirements: job.requirements,
+        jobType: job.job_type || 'full-time',
+        salaryRange: job.salary_range || 'Not specified',
+        experience: job.experience_level || 'Any Level',
+        applicationDeadline: job.application_deadline,
+        postedBy: job.posted_by,
+        postedAt: job.created_at,
+        companyLogo: job.company_logo_url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(job.company_name || 'Company') + '&background=0D8ABC&color=fff',
+        skills: job.skills ? job.skills.split(',').map(s => s.trim()) : [],
+        applicants: job.applicants_count || 0 // Assuming you have this field
+      }));
+      
+      if (pagination.page === 0) {
+        setJobs(formattedJobs);
+      } else {
+        setJobs(prevJobs => [...prevJobs, ...formattedJobs]);
+      }
+
+      setPagination(prev => ({
+        ...prev,
+        totalCount: count || 0,
+        hasMore: (count || 0) > (from + formattedJobs.length)
+      }));
+      
+    } catch (error) {
+      console.error('Error fetching jobs:', error);
+      toast.error('Failed to load jobs');
+    } finally {
+      setLoading(false);
+    }
+  }, [filters, searchQuery, pagination.page, pagination.pageSize, location]); // Removed user from deps, fetchBookmarkedJobs handles user changes
+
+  useEffect(() => {
     fetchJobs();
-  }, [filters, searchQuery, pagination.page, pagination.pageSize]); // Removed user from deps, fetchBookmarkedJobs handles user changes
+  }, [fetchJobs]);
 
   useEffect(() => {
     if (user) {

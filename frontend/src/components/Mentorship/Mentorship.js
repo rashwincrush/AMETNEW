@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { 
   UserGroupIcon,
   AcademicCapIcon,
@@ -19,6 +20,7 @@ import {
 } from '@heroicons/react/24/outline';
 
 const Mentorship = () => {
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState('find-mentors');
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({
@@ -34,11 +36,13 @@ const Mentorship = () => {
   const [myMentees, setMyMentees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { user } = useAuth();
   
   // Fetch mentors on component mount
   useEffect(() => {
+    console.log('Mentorship component mounted, user:', user);
     fetchApprovedMentors();
-  }, []);
+  }, [location]); // Removed user from the dependency array to avoid re-fetching
   
   // Function to fetch approved mentors
   const fetchApprovedMentors = async () => {
@@ -48,13 +52,23 @@ const Mentorship = () => {
       
       console.log('Fetching approved mentors from Supabase...');
       
-      const { data: mentorsData, error: mentorsError } = await supabase
+      // Only add user condition if user exists
+      let query = supabase
         .from('mentors')
         .select(`
           *,
           profiles:user_id (full_name, avatar_url)
-        `)
-        .eq('status', 'approved'); // Only fetch approved mentors
+        `);
+        
+      // Add filter condition only if user is available
+      if (user && user.id) {
+        query = query.or(`status.eq.approved,user_id.eq.${user.id}`);
+      } else {
+        query = query.eq('status', 'approved');
+      }
+      
+      // Execute the query
+      const { data: mentorsData, error: mentorsError } = await query;
       
       console.log('Supabase query result:', mentorsData, mentorsError);
       
@@ -480,15 +494,7 @@ const Mentorship = () => {
           {/* My Mentoring Tab */}
           {activeTab === 'my-mentoring' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">My Mentees</h3>
-                <Link 
-                  to="/mentorship/mentor-settings" 
-                  className="btn-ocean-outline px-4 py-2 rounded-lg text-sm"
-                >
-                  Mentor Settings
-                </Link>
-              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">My Mentees</h3>
               
               {myMentees.length === 0 ? (
                 <div className="text-center py-12">

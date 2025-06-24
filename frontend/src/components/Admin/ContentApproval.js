@@ -1,20 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
+import ContentDetailsModal from './ContentDetailsModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import {
-  CheckIcon,
-  XMarkIcon,
+  CheckCircleIcon,
+  XCircleIcon,
   EyeIcon,
   ChatBubbleLeftRightIcon,
-  PencilIcon,
+  BriefcaseIcon,
   DocumentTextIcon,
   PhotoIcon,
   UserCircleIcon,
   CalendarIcon,
   ClockIcon,
   FlagIcon,
-  ArrowPathIcon
+  ArrowPathIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 
 /**
@@ -22,39 +24,52 @@ import {
  * Handles posts, comments, events, and other content that needs admin review
  */
 const ContentApproval = () => {
-  const { getUserRole, profile } = useAuth();
-  const [pendingContent, setPendingContent] = useState([]);
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const { profile } = useAuth();
+    const [pendingContent, setPendingContent] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [contentType, setContentType] = useState('all');
-  const [viewMode, setViewMode] = useState('grid');
-  
-  useEffect(() => {
-    fetchPendingContent();
-  }, [contentType]);
-  
-  const fetchPendingContent = async () => {
+  const [filter, setFilter] = useState('all');
+  const [viewMode, setViewMode] = useState('list');
+
+  const fetchPendingContent = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      
-      let query = supabase
+      // Fetch pending jobs
+      const { data: jobs, error: jobsError } = await supabase
+        .from('jobs')
+        .select('*, profiles:user_id(first_name, last_name, avatar_url, email)')
+        .eq('is_approved', false)
+        .order('created_at', { ascending: false });
+      if (jobsError) throw jobsError;
+
+      // Fetch pending events
+      const { data: events, error: eventsError } = await supabase
+        .from('events')
+        .select('*, profiles:user_id(first_name, last_name, avatar_url, email)')
+        .eq('is_approved', false)
+        .order('created_at', { ascending: false });
+      if (eventsError) throw eventsError;
+
+      // Fetch other pending content (posts, comments, etc.)
+      const { data: otherContent, error: otherContentError } = await supabase
         .from('content_approvals')
-        .select(`
-          *,
-          profiles:creator_id(first_name, last_name, avatar_url, email)
-        `)
+        .select('*, profiles:creator_id(first_name, last_name, avatar_url, email)')
         .eq('status', 'pending')
         .order('created_at', { ascending: false });
-      
-      if (contentType !== 'all') {
-        query = query.eq('content_type', contentType);
-      }
-      
-      const { data, error } = await query;
-      
-      if (error) throw error;
-      
-      setPendingContent(data || []);
+      if (otherContentError) throw otherContentError;
+
+      // Normalize and combine data
+      const normalizedJobs = jobs.map(item => ({ ...item, type: 'Job', content_type: 'job', creator: item.profiles }));
+      const normalizedEvents = events.map(item => ({ ...item, type: 'Event', content_type: 'event', creator: item.profiles }));
+      const normalizedOther = otherContent.map(item => ({ ...item, type: item.content_type, creator: item.profiles }));
+
+      const allContent = [...normalizedJobs, ...normalizedEvents, ...normalizedOther];
+      allContent.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      setPendingContent(allContent);
     } catch (err) {
       console.error('Error fetching pending content:', err);
       setError(err.message);
@@ -62,248 +77,237 @@ const ContentApproval = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchPendingContent();
+  }, [fetchPendingContent]);
   
-  const handleApprove = async (id) => {
+  
+  
+    const handleApprove = async (item) => {
+    const { id, content_type } = item;
+    let tableName, updateData;
+
+    switch (content_type) {
+      case 'job':
+        tableName = 'jobs';
+        updateData = { is_approved: true, updated_at: new Date().toISOString() };
+        break;
+      case 'event':
+        tableName = 'events';
+        updateData = { is_approved: true, updated_at: new Date().toISOString() };
+        break;
+      default:
+        tableName = 'content_approvals';
+        updateData = { status: 'approved', reviewer_id: profile?.id, reviewed_at: new Date().toISOString() };
+    }
+
     try {
-      const { error } = await supabase
-        .from('content_approvals')
-        .update({
-          status: 'approved',
-          reviewer_id: profile?.id,
-          reviewed_at: new Date().toISOString()
-        })
-        .eq('id', id);
-      
+      const { error } = await supabase.from(tableName).update(updateData).eq('id', id);
       if (error) throw error;
-      
-      // Update the specific item's status in local state
-      setPendingContent(current =>
-        current.map(item => 
-          item.id === id ? { ...item, status: 'approved' } : item
-        )
-      );
-      
-      toast.success('Content approved');
-      
-      // Refresh the list after a short delay
-      setTimeout(() => fetchPendingContent(), 1000);
+
+      setPendingContent(current => current.filter(p => p.id !== id));
+      toast.success(`${item.type} approved successfully.`);
     } catch (err) {
-      console.error('Error approving content:', err);
+      console.error(`Error approving ${content_type}:`, err);
       toast.error(`Approval failed: ${err.message}`);
     }
   };
   
-  const handleReject = async (id, reason = 'Content violates community guidelines') => {
-    try {
-      const { error } = await supabase
-        .from('content_approvals')
-        .update({
-          status: 'rejected',
-          reviewer_id: profile?.id,
-          reviewed_at: new Date().toISOString(),
-          rejection_reason: reason
-        })
-        .eq('id', id);
-      
-      if (error) throw error;
-      
-      // Update the specific item's status in local state
-      setPendingContent(current =>
-        current.map(item => 
-          item.id === id ? { ...item, status: 'rejected' } : item
-        )
-      );
-      
-      toast.success('Content rejected');
-      
-      // Refresh the list after a short delay
-      setTimeout(() => fetchPendingContent(), 1000);
-    } catch (err) {
-      console.error('Error rejecting content:', err);
-      toast.error(`Rejection failed: ${err.message}`);
+    const handleViewDetails = (item) => {
+    setSelectedItem(item);
+    setIsModalOpen(true);
+  };
+
+  const handleReject = async (item) => {
+    const { id, content_type } = item;
+    const reason = prompt(`Please provide a reason for rejecting this ${content_type}:`);
+    if (reason === null) return; // User cancelled the prompt
+
+    let tableName, updateData;
+
+    switch (content_type) {
+      case 'job':
+      case 'event':
+        // For jobs and events, we might just delete them or mark as rejected
+        // For now, let's delete them as an example of a different workflow
+        tableName = content_type === 'job' ? 'jobs' : 'events';
+        const { error } = await supabase.from(tableName).delete().eq('id', id);
+        if (error) {
+            toast.error(`Failed to delete ${content_type}: ${error.message}`);
+            return;
+        }
+        toast.success(`${item.type} rejected and removed.`);
+        break;
+      default:
+        tableName = 'content_approvals';
+        updateData = { status: 'rejected', reviewer_id: profile?.id, reviewed_at: new Date().toISOString(), rejection_reason: reason };
+        const { error: defaultError } = await supabase.from(tableName).update(updateData).eq('id', id);
+        if (defaultError) {
+            toast.error(`Failed to reject ${content_type}: ${defaultError.message}`);
+            return;
+        }
+        toast.success(`${item.type} rejected.`);
     }
+
+    setPendingContent(current => current.filter(p => p.id !== id));
   };
   
   const getContentTypeIcon = (type) => {
     switch(type) {
-      case 'post': return <DocumentTextIcon className="w-5 h-5" />;
-      case 'comment': return <ChatBubbleLeftRightIcon className="w-5 h-5" />;
-      case 'event': return <CalendarIcon className="w-5 h-5" />;
-      case 'job': return <PencilIcon className="w-5 h-5" />;
+            case 'post': return <DocumentTextIcon className="w-6 h-6 text-blue-500" />;
+      case 'comment': return <ChatBubbleLeftRightIcon className="w-6 h-6 text-green-500" />;
+      case 'event': return <CalendarIcon className="w-6 h-6 text-red-500" />;
+      case 'job': return <BriefcaseIcon className="w-6 h-6 text-indigo-500" />;
       case 'profile': return <UserCircleIcon className="w-5 h-5" />;
       case 'image': return <PhotoIcon className="w-5 h-5" />;
       default: return <DocumentTextIcon className="w-5 h-5" />;
     }
   };
-  
+
   const getContentTypeBadge = (type) => {
     const baseClasses = "px-2 py-1 text-xs font-medium rounded-full";
-    switch(type) {
-      case 'post': return `${baseClasses} bg-blue-100 text-blue-800`;
-      case 'comment': return `${baseClasses} bg-green-100 text-green-800`;
-      case 'event': return `${baseClasses} bg-purple-100 text-purple-800`;
-      case 'job': return `${baseClasses} bg-yellow-100 text-yellow-800`;
+    switch (type) {
+      case 'post': return 'bg-blue-100 text-blue-800';
+      case 'comment': return 'bg-green-100 text-green-800';
+      case 'event': return 'bg-red-100 text-red-800';
+      case 'job': return 'bg-indigo-100 text-indigo-800';
       case 'profile': return `${baseClasses} bg-indigo-100 text-indigo-800`;
       case 'image': return `${baseClasses} bg-pink-100 text-pink-800`;
       default: return `${baseClasses} bg-gray-100 text-gray-800`;
     }
   };
-  
+
+  const filteredContent = pendingContent.filter(item => filter === 'all' || item.content_type === filter);
+
   const renderGridItem = (item) => (
-    <div key={item.id} className="bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow">
-      <div className="flex justify-between items-start mb-3">
-        <span className={getContentTypeBadge(item.content_type)}>
-          {getContentTypeIcon(item.content_type)}
-          <span className="ml-1 capitalize">{item.content_type}</span>
-        </span>
-        <span className="text-xs text-gray-500">
-          {new Date(item.created_at).toLocaleString()}
-        </span>
-      </div>
-      
-      <div className="mb-3">
-        <h3 className="font-medium text-gray-900 truncate">
-          {item.title || 'Untitled Content'}
-        </h3>
-        <div className="mt-1 text-sm text-gray-600 line-clamp-3">
-          {item.content}
+    <div key={item.id} className="bg-white rounded-lg shadow-md border border-gray-200 flex flex-col p-4 hover:shadow-lg transition-shadow duration-200">
+      <div className="flex-grow">
+        <div className="flex justify-between items-center mb-2">
+          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getContentTypeBadge(item.content_type)}`}>
+            {item.type}
+          </span>
+          <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleDateString()}</span>
+        </div>
+        <h4 className="text-md font-bold text-gray-800 truncate mb-1">{item.title || item.job_title || `${item.type} Submission`}</h4>
+        <p className="text-sm text-gray-600 mb-2">
+          by {item.creator?.first_name || 'Unknown User'}
+        </p>
+        <div className="text-sm text-gray-700 line-clamp-3">
+          {item.description || item.content_summary || 'No description available.'}
         </div>
       </div>
-      
-      <div className="flex items-center text-xs text-gray-500 mb-4">
-        <UserCircleIcon className="w-4 h-4 mr-1" />
-        <span>
-          {item.profiles?.first_name} {item.profiles?.last_name}
-        </span>
-      </div>
-      
-      <div className="flex space-x-2 mt-2">
-        <button 
-          onClick={() => handleApprove(item.id)}
-          className="flex-1 flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-        >
-          <CheckIcon className="w-4 h-4 mr-1" />
-          Approve
+      <div className="flex items-center justify-end space-x-2 mt-4 pt-4 border-t border-gray-200">
+        <button title="View Details" onClick={() => handleViewDetails(item)} className="text-gray-500 hover:text-indigo-600">
+          <EyeIcon className="h-6 w-6" />
         </button>
-        <button 
-          onClick={() => handleReject(item.id)}
-          className="flex-1 flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-        >
-          <XMarkIcon className="w-4 h-4 mr-1" />
-          Reject
+        <button title="Approve" onClick={() => handleApprove(item)} className="text-green-600 hover:text-green-800">
+          <CheckCircleIcon className="h-6 w-6" />
+        </button>
+        <button title="Reject" onClick={() => handleReject(item)} className="text-red-600 hover:text-red-800">
+          <XCircleIcon className="h-6 w-6" />
         </button>
       </div>
     </div>
   );
-  
+
   const renderListItem = (item) => (
-    <div key={item.id} className="bg-white p-4 rounded-lg shadow mb-3 hover:shadow-md transition-shadow">
-      <div className="flex justify-between">
-        <div className="flex-1">
-          <div className="flex items-center">
-            <span className={getContentTypeBadge(item.content_type)}>
-              {item.content_type}
-            </span>
-            <h3 className="ml-2 font-medium text-gray-900">
-              {item.title || 'Untitled Content'}
-            </h3>
+    <li key={item.id} className="px-4 py-4 sm:px-6 hover:bg-gray-50 transition-colors duration-150">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center flex-1 min-w-0">
+          <div className="flex-shrink-0 flex items-center space-x-2">
+            {getContentTypeIcon(item.content_type)}
           </div>
-          
-          <div className="mt-1 text-sm text-gray-600">
-            {item.content?.substring(0, 100)}
-            {item.content?.length > 100 ? '...' : ''}
-          </div>
-          
-          <div className="flex items-center mt-2 text-xs text-gray-500">
-            <UserCircleIcon className="w-4 h-4 mr-1" />
-            <span className="mr-3">
-              {item.profiles?.first_name} {item.profiles?.last_name}
-            </span>
-            <ClockIcon className="w-4 h-4 mr-1" />
-            <span>
-              {new Date(item.created_at).toLocaleString()}
-            </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-md font-semibold text-gray-900 truncate">
+              {item.title || item.job_title || `${item.type} Submission`}
+            </p>
+            <p className="text-sm text-gray-500 truncate flex items-center">
+              <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getContentTypeBadge(item.content_type)}`}>
+                {item.type}
+              </span>
+              <span className="mx-2">•</span>
+              <span>by {item.creator?.first_name || 'Unknown'}</span>
+              <span className="mx-2">•</span>
+              <span>{new Date(item.created_at).toLocaleDateString()}</span>
+            </p>
           </div>
         </div>
-        
-        <div className="flex items-center space-x-2 ml-4">
-          <button 
-            onClick={() => handleApprove(item.id)}
-            className="inline-flex items-center px-3 py-1 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-          >
-            <CheckIcon className="w-4 h-4" />
+        <div className="ml-4 flex-shrink-0 flex items-center space-x-2">
+          <button title="View Details" onClick={() => handleViewDetails(item)} className="text-gray-500 hover:text-indigo-600">
+            <EyeIcon className="h-6 w-6" />
           </button>
-          <button 
-            onClick={() => handleReject(item.id)}
-            className="inline-flex items-center px-3 py-1 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-          >
-            <XMarkIcon className="w-4 h-4" />
+          <button title="Approve" onClick={() => handleApprove(item)} className="text-green-600 hover:text-green-800">
+            <CheckCircleIcon className="h-6 w-6" />
+          </button>
+          <button title="Reject" onClick={() => handleReject(item)} className="text-red-600 hover:text-red-800">
+            <XCircleIcon className="h-6 w-6" />
           </button>
         </div>
       </div>
-    </div>
+    </li>
   );
-  
-  const contentTypes = [
-    { value: 'all', label: 'All Types' },
+
+  const contentFilters = [
+    { value: 'all', label: 'All Content' },
+    { value: 'job', label: 'Jobs' },
+    { value: 'event', label: 'Events' },
     { value: 'post', label: 'Posts' },
     { value: 'comment', label: 'Comments' },
-    { value: 'event', label: 'Events' },
-    { value: 'job', label: 'Jobs' },
-    { value: 'profile', label: 'Profile Updates' },
+    { value: 'profile', label: 'Profiles' },
     { value: 'image', label: 'Images' }
   ];
-  
+
   return (
     <div className="space-y-6">
       {/* Header and filters */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-3 md:space-y-0">
         <div>
-          <h2 className="text-xl font-semibold text-gray-800">Content Approval</h2>
-          <p className="text-sm text-gray-600">
-            Review and approve user-generated content
+          <h2 className="text-2xl font-bold text-gray-900">Content Moderation</h2>
+          <p className="text-sm text-gray-500">
+            Review and manage all user-submitted content in one place.
           </p>
         </div>
-        
+
         <div className="flex flex-wrap items-center space-x-2">
           <select
-            value={contentType}
-            onChange={(e) => setContentType(e.target.value)}
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
             className="block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
           >
-            {contentTypes.map(type => (
+            {contentFilters.map(type => (
               <option key={type.value} value={type.value}>
                 {type.label}
               </option>
             ))}
           </select>
-          
+
           <div className="flex rounded-md shadow-sm">
             <button
               type="button"
-              onClick={() => setViewMode('grid')}
-              className={`relative inline-flex items-center px-3 py-2 rounded-l-md border ${
-                viewMode === 'grid' 
-                  ? 'bg-indigo-500 text-white border-indigo-500' 
-                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              Grid
-            </button>
-            <button
-              type="button"
               onClick={() => setViewMode('list')}
-              className={`relative inline-flex items-center px-3 py-2 rounded-r-md border ${
-                viewMode === 'list' 
-                  ? 'bg-indigo-500 text-white border-indigo-500' 
+              className={`relative inline-flex items-center px-3 py-2 rounded-l-md border ${
+                viewMode === 'list'
+                  ? 'bg-indigo-600 text-white border-indigo-600'
                   : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
               }`}
             >
               List
             </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className={`relative inline-flex items-center px-3 py-2 rounded-r-md border ${
+                viewMode === 'grid'
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              Grid
+            </button>
           </div>
-          
+
           <button
             onClick={fetchPendingContent}
             className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
@@ -317,37 +321,45 @@ const ContentApproval = () => {
       {/* Content display */}
       {loading ? (
         <div className="flex justify-center py-8">
-          <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-indigo-500"></div>
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-indigo-600"></div>
         </div>
       ) : error ? (
         <div className="bg-red-50 p-4 rounded-md">
           <div className="flex">
             <div className="flex-shrink-0">
-              <XMarkIcon className="h-5 w-5 text-red-400" aria-hidden="true" />
+                            <ExclamationTriangleIcon className="h-6 w-6 text-red-400" aria-hidden="true" />
             </div>
             <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">Error loading content</h3>
-              <div className="mt-2 text-sm text-red-700">
+                            <h3 className="text-lg font-semibold text-red-800">Failed to Load Content</h3>
+                            <div className="mt-2 text-md text-red-700">
                 <p>{error}</p>
               </div>
             </div>
           </div>
         </div>
-      ) : pendingContent.length === 0 ? (
-        <div className="bg-blue-50 p-8 text-center rounded-md">
-          <ChatBubbleLeftRightIcon className="h-12 w-12 text-blue-400 mx-auto" />
-          <h3 className="mt-2 text-lg font-medium text-blue-800">No pending content</h3>
-          <p className="mt-1 text-blue-600">All content has been reviewed!</p>
+      ) : filteredContent.length === 0 ? (
+                <div className="text-center py-12 bg-gray-50 rounded-lg">
+          <CheckCircleIcon className="mx-auto h-12 w-12 text-green-500" />
+          <h3 className="mt-2 text-lg font-medium text-gray-900">Queue Clear!</h3>
+          <p className="mt-1 text-sm text-gray-500">There is no content awaiting moderation.</p>
         </div>
       ) : viewMode === 'grid' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {pendingContent.map(renderGridItem)}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {filteredContent.map(renderGridItem)}
         </div>
       ) : (
-        <div className="space-y-2">
-          {pendingContent.map(renderListItem)}
+        <div className="bg-white shadow overflow-hidden sm:rounded-md">
+          <ul className="divide-y divide-gray-200">
+            {filteredContent.map(renderListItem)}
+          </ul>
         </div>
       )}
+    
+      <ContentDetailsModal 
+        item={selectedItem}
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+      />
     </div>
   );
 };

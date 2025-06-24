@@ -11,6 +11,8 @@ import {
   PencilIcon
 } from '@heroicons/react/24/outline';
 import ProfileResume from './ProfileResume';
+import { supabase } from '../../utils/supabase';
+import toast from 'react-hot-toast';
 
 const Profile = ({ user }) => {
   const { updateProfile } = useAuth();
@@ -95,48 +97,107 @@ const Profile = ({ user }) => {
         updated_at: new Date().toISOString()
       };
       
-      // Upload avatar image if a new one was selected
+      // Handle avatar image upload if a new one was selected
       if (imageFile) {
-        const { supabase } = await import('../../utils/supabase');
-        const fileExt = imageFile.name.split('.').pop();
-        const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-        const filePath = `avatars/${user.id}/${fileName}`;
-        
-        const { error: uploadError } = await supabase
-          .storage
-          .from('avatars')
-          .upload(filePath, imageFile);
+        try {
+          // Generate a unique filename to avoid caching issues
+          const fileExt = imageFile.name.split('.').pop();
+          const timestamp = new Date().getTime();
+          const fileName = `${user.id}_${timestamp}.${fileExt}`;
           
-        if (uploadError) {
-          console.error('Error uploading image:', uploadError);
-          throw uploadError;
+          // Upload the new file
+          const { error: uploadError } = await supabase
+            .storage
+            .from('avatars')
+            .upload(fileName, imageFile);
+            
+          if (uploadError) {
+            console.error('Upload error:', uploadError);
+            toast.error('Failed to upload profile image');
+          } else {
+            // Get the public URL
+            const { data: { publicUrl } } = supabase
+              .storage
+              .from('avatars')
+              .getPublicUrl(fileName);
+              
+            // Add avatar URL to profile updates
+            profileUpdates.avatar_url = publicUrl;
+            setImageUrl(publicUrl); // Update UI immediately
+            
+            console.log('Successfully uploaded profile picture:', publicUrl);
+            
+            // Clean up old avatars in the background if new upload successful
+            // This doesn't block the update process
+            cleanupOldAvatars(user.id, fileName).catch(err => {
+              console.log('Cleanup error (non-critical):', err);
+            });
+          }
+        } catch (imageError) {
+          console.error('Error handling profile image:', imageError);
+          toast.error('Failed to upload profile image');
+          // Continue with profile update even if image fails
         }
-        
-        // Get the public URL
-        const { data: { publicUrl } } = supabase
-          .storage
-          .from('avatars')
-          .getPublicUrl(filePath);
-          
-        // Add avatar URL to profile updates
-        profileUpdates.avatar_url = publicUrl;
-        setImageUrl(publicUrl);
       }
       
-      // Update profile in Supabase - pass the user ID
-      const { data: updatedProfile, error } = await updateProfile(user.id, profileUpdates);
+      // Always update the profile in the database
+      const result = await updateProfile(profileUpdates);
       
+      if (result.error) {
+        throw result.error;
+      }
+      
+      toast.success('Profile updated successfully');
+      setIsEditing(false);
+      
+      // Force a page refresh to ensure all components pick up the new avatar
+      setTimeout(() => {
+        window.location.reload();
+      }, 500); // Small delay to ensure the toast message is seen
+      
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      toast.error('Failed to update profile');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
+  // Helper function to clean up old avatar files
+  const cleanupOldAvatars = async (userId, exceptFileName) => {
+    try {
+      // List all files in the avatars bucket
+      const { data: fileList, error } = await supabase
+        .storage
+        .from('avatars')
+        .list();
+        
       if (error) {
         throw error;
       }
       
-      console.log('Profile updated successfully:', updatedProfile);
-      setIsEditing(false);
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      alert(`Failed to update profile: ${error.message || 'Unknown error'}`);
-    } finally {
-      setIsSubmitting(false);
+      // Find files related to this user
+      const userFiles = fileList.filter(file => 
+        file.name.startsWith(userId) && 
+        file.name !== exceptFileName
+      );
+      
+      // Delete old user files if any exist
+      if (userFiles.length > 0) {
+        const filesToDelete = userFiles.map(file => file.name);
+        console.log('Cleaning up old avatars:', filesToDelete);
+        
+        const { error: deleteError } = await supabase
+          .storage
+          .from('avatars')
+          .remove(filesToDelete);
+          
+        if (deleteError) {
+          console.error('Error cleaning up old avatars:', deleteError);
+        }
+      }
+    } catch (err) {
+      console.error('Avatar cleanup error:', err);
     }
   };
 

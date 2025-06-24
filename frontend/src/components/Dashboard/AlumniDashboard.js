@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext'; // Import useAuth
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { supabase } from '../../utils/supabase'; // Assuming supabase client is here
 import toast from 'react-hot-toast'; // For error notifications
 import { 
@@ -64,6 +64,7 @@ const formatEventDateTime = (dateString, timeString) => {
 const AlumniDashboard = () => {
   console.log('AlumniDashboard: Component mounted/rendered');
   const { user, profile, loading: authLoading } = useAuth(); // Get user and profile from AuthContext
+  const location = useLocation();
   const [dashboardData, setDashboardData] = useState({
     personalConnections: 0,
     totalAlumni: 0,
@@ -78,18 +79,9 @@ const AlumniDashboard = () => {
   const userName = profile?.full_name || user?.user_metadata?.full_name || user?.email || 'Alumni';
 
   useEffect(() => {
-    console.log('AlumniDashboard: useEffect for data fetching triggered.');
-    console.log('AlumniDashboard: Auth state:', { authLoading, user: !!user, userId: user?.id });
-    // Wait for authLoading to be false and user to be available
-    if (authLoading) {
-      console.log('AlumniDashboard: Auth is loading, returning early.');
-      return;
-    }
-    if (!user || !user.id) {
-      console.log('AlumniDashboard: User or user.id is not available, returning early.');
-      setLoading(false);
-      toast.error('User information is not available.');
-      return;
+    // This effect should only run once when the user is properly authenticated.
+    if (authLoading || !user?.id) {
+      return; // Wait for authentication to complete
     }
 
     const fetchDashboardData = async () => {
@@ -99,19 +91,21 @@ const AlumniDashboard = () => {
       try {
         const today = new Date().toISOString();
 
-        // 1. Personal Connections - count connections where user is requester or recipient and status is accepted
-        const { count: personalConnections, error: personalConnectionsError } = await supabase
-          .from('connections')
-          .select('id', { count: 'exact', head: true })
-          .or(`requester_id.eq.${user.id},recipient_id.eq.${user.id}`)
-          .eq('status', 'accepted');
+        // 1. Personal Connections - count of conversations the user is part of
+        let personalConnections = 0;
+        const { data: connectionsData, error: personalConnectionsError } = await supabase
+          .rpc('get_user_conversations_v2', {
+            p_user_id: user.id
+          });
+          
         if (personalConnectionsError) {
           console.error('AlumniDashboard: Error fetching personal connections:', personalConnectionsError);
           throw new Error(`Personal Connections: ${personalConnectionsError.message}`);
         }
+        personalConnections = connectionsData?.length || 0;
         console.log('AlumniDashboard: Fetched personal connections:', personalConnections);
         
-        // 2. Total Alumni - count all profiles, matching the logic in AlumniDirectory.js
+        // 2. Total Alumni - count all profiles (for debugging)
         const { count: totalAlumni, error: totalAlumniError } = await supabase
           .from('profiles')
           .select('id', { count: 'exact', head: true });
@@ -125,8 +119,8 @@ const AlumniDashboard = () => {
         const { count: eventsCount, error: eventsError } = await supabase
           .from('events')
           .select('id', { count: 'exact', head: true })
-          .gte('start_date', today) // Use start_date
-          .eq('is_published', true); // Assuming only published events should be counted
+          .gte('start_date', today.split('T')[0]) // Use just the date part
+          .eq('is_published', true);
         if (eventsError) {
           console.error('AlumniDashboard: Error fetching upcoming events count:', eventsError);
           throw new Error(`Upcoming Events Count: ${eventsError.message}`);
@@ -135,9 +129,8 @@ const AlumniDashboard = () => {
         
         const { data: eventsList, error: eventsListError } = await supabase
           .from('events')
-          // Removed attendees_count subquery as event_registrations table doesn't exist
           .select('id, title, start_date, end_date, location, virtual_link, event_type') 
-          .gte('start_date', today)
+          .gte('start_date', today.split('T')[0]) // Use just the date part
           .eq('is_published', true)
           .order('start_date', { ascending: true })
           .limit(3);
@@ -147,12 +140,12 @@ const AlumniDashboard = () => {
         }
         console.log('AlumniDashboard: Fetched upcoming events list:', eventsList);
 
-        // 4. Job Opportunities Count & List
+        // 4. Job Opportunities Count & List 
         const { count: jobsCount, error: jobsError } = await supabase
           .from('jobs')
           .select('id', { count: 'exact', head: true })
-          .gte('deadline', today) // Use deadline
-          .eq('is_active', true); // Use is_active (boolean)
+          .gte('deadline', today.split('T')[0]) // Use just the date part
+          .eq('is_active', true); 
         if (jobsError) {
           console.error('AlumniDashboard: Error fetching job opportunities count:', jobsError);
           throw new Error(`Job Opportunities Count: ${jobsError.message}`);
@@ -161,8 +154,8 @@ const AlumniDashboard = () => {
 
         const { data: jobsList, error: jobsListError } = await supabase
           .from('jobs')
-          .select('id, title, company_name, location, salary_range, created_at, job_type') // Use created_at for posted_at
-          .gte('deadline', today)
+          .select('id, title, company_name, location, salary_range, created_at, job_type')
+          .gte('deadline', today.split('T')[0]) // Use just the date part
           .eq('is_active', true)
           .order('created_at', { ascending: false })
           .limit(3);
@@ -172,49 +165,50 @@ const AlumniDashboard = () => {
         }
         console.log('AlumniDashboard: Fetched job opportunities list:', jobsList);
 
-        // 5. Unread Messages Count
-        const { count: messagesCount, error: messagesError } = await supabase
-          .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('recipient_id', user.id) // Use recipient_id
-          .eq('is_read', false); // Use is_read (boolean)
+        // 5. Unread Messages Count - using the proper conversations system
+        // This query will count all unread messages across all user's conversations
+        const { data: unreadMessagesData, error: messagesError } = await supabase
+          .rpc('get_user_conversations_v2', {
+            p_user_id: user.id
+          });
+        
         if (messagesError) {
           console.error('AlumniDashboard: Error fetching unread messages count:', messagesError);
           throw new Error(`Unread Messages: ${messagesError.message}`);
         }
+        
+        // Calculate total unread count by summing all unread_count values from conversations
+        const messagesCount = unreadMessagesData?.reduce((total, conv) => total + Number(conv.unread_count), 0) || 0;
         console.log('AlumniDashboard: Fetched unread messages count:', messagesCount);
 
-        // 5. Recent Activity List - COMMENTED OUT (activity_log table doesn't exist yet)
-        // Keep the fetch commented out until the activity_log table is created
-        // const { data: activityList, error: activityError } = await supabase
-        //   .from('activity_log') 
-        //   .select('id, activity_type, description, created_at, status, entity_type, entity_id, entity_title')
-           console.log('AlumniDashboard: Fetched job recommendations:', jobsList);
+        // 6. Recent Activity List - Skip as activity_log table doesn't exist yet
+        
+        // 7. Job Recommendations - We're using the same jobs list for now
+        console.log('AlumniDashboard: Using job list for recommendations');
 
         console.log('AlumniDashboard: Successfully fetched all data, updating state.');
-        setDashboardData(prevData => ({
-          ...prevData,
+        setDashboardData({
           personalConnections: personalConnections || 0,
           totalAlumni: totalAlumni || 0,
           upcomingEventsCount: eventsCount || 0,
-          jobOpportunitiesCount: jobsCount || 0,
-          unreadMessagesCount: messagesCount || 0,
-          // recentActivities: recentActivitiesData || [], // Keep commented out
           upcomingEventsList: eventsList || [],
+          jobOpportunitiesCount: jobsCount || 0,
           jobRecommendationsList: jobsList || [],
-        }));
-
+          unreadMessagesCount: messagesCount || 0,
+          recentActivities: [] // to be implemented when activity_log table is created
+        });
+        console.log('AlumniDashboard: State updated.');
       } catch (error) {
-        console.error('AlumniDashboard: Error in fetchDashboardData:', error.message);
-        toast.error(`Failed to load dashboard: ${error.message}`);
+        console.error('AlumniDashboard: Error fetching dashboard data:', error);
+        toast.error(`Error loading dashboard data: ${error.message}`);
       } finally {
-        console.log('AlumniDashboard: fetchDashboardData finished, setLoading(false)');
         setLoading(false);
+        console.log('AlumniDashboard: setLoading(false)');
       }
     };
 
     fetchDashboardData();
-  }, [user, authLoading]); // Re-run effect when user or auth state changes
+  }, [authLoading, user, location]); // Re-run effect when user or auth state changes
 
   const dynamicQuickStats = [
     { title: 'Alumni Connections', value: `${dashboardData.personalConnections}/${dashboardData.totalAlumni}`, icon: UsersIcon, color: 'bg-blue-500', path: '/directory' },
