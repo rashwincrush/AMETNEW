@@ -24,9 +24,35 @@ export const AuthProvider = ({ children }) => {
 
     // Add a timeout to prevent getting stuck on loading indefinitely
     const loadingTimeout = setTimeout(() => {
-      console.error('Auth process timed out after 10 seconds. This might be a Supabase connection issue or incorrect credentials.');
-      setLoading(false); // Force loading to false to unblock UI
-    }, 10000);
+      console.error('Auth process timed out after 8 seconds. This might be a Supabase connection issue or incorrect credentials.');
+      // Force loading to false and create a guest session to unblock UI
+      setLoading(false);
+      // If we're still stuck, we might want to provide a guest experience
+      if (!user) {
+        console.log('Creating guest session to allow app usage without authentication');
+        // Create a guest user to allow basic app functionality
+        const guestUser = {
+          id: 'guest-' + Date.now(),
+          email: 'guest@example.com',
+          is_guest: true
+        };
+        setUser(guestUser);
+        
+        // Create a basic profile for the guest user
+        const guestProfile = {
+          id: guestUser.id,
+          email: guestUser.email,
+          full_name: 'Guest User',
+          role: 'guest',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          is_fallback: true,
+          is_guest: true
+        };
+        setProfile(guestProfile);
+        console.log('Guest session created:', { user: guestUser, profile: guestProfile });
+      }
+    }, 8000); // Reduced from 10s to 8s
 
     const initializeAuth = async () => {
       console.log('1. Initializing authentication...');
@@ -50,44 +76,36 @@ export const AuthProvider = ({ children }) => {
         }
         console.log('3. Supabase client is available.');
 
-        console.log('4. Setting up onAuthStateChange listener...');
-        // First, check for an existing session to speed up initialization
-        const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) {
-          console.error('Error getting initial session:', sessionError);
-        } else if (initialSession) {
-          console.log('5a. Found initial session. Setting user and fetching profile.');
-          const currentUser = initialSession.user;
-          setUser(currentUser);
-          setSession(initialSession);
-          await fetchUserProfile(currentUser.id);
-          console.log('7a. Initial auth process finished. Setting loading to false.');
-          setLoading(false);
-          clearTimeout(loadingTimeout);
-        } else {
-          console.log('5b. No initial session found. Waiting for auth state change.');
-          // If no session, we might still be in a loading state until the listener below fires.
+        // Clean up previous listener if exists
+        if (listenerRef.current) {
+          console.log('Cleaning up previous auth listener.');
+          listenerRef.current.unsubscribe();
         }
 
-        // The listener will handle subsequent changes (login, logout, token refresh)
+        console.log('4. Setting up onAuthStateChange listener...');
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-          clearTimeout(loadingTimeout);
+          clearTimeout(loadingTimeout); // Clear timeout once auth state is received
           console.log(`5. Auth state change event received: ${event}`, { hasSession: !!session });
-
+          
           const currentUser = session?.user || null;
           setUser(currentUser);
           setSession(session);
 
-          if (currentUser) {
-            console.log('6a. User found via listener, fetching profile...');
-            await fetchUserProfile(currentUser.id);
-          } else {
-            console.log('6b. No user session via listener, setting profile to null.');
+          try {
+            if (currentUser) {
+              console.log('6a. User found, fetching profile...');
+              await fetchUserProfile(currentUser.id);
+            } else {
+              console.log('6b. No user session, setting profile to null.');
+              setProfile(null);
+            }
+          } catch (e) {
+            console.error("Error during profile fetch on auth change:", e);
             setProfile(null);
+          } finally {
+            console.log('7. Auth process finished. Setting loading to false.');
+            setLoading(false);
           }
-          
-          console.log('7. Auth process via listener finished. Setting loading to false.');
-          setLoading(false);
         });
 
         listenerRef.current = subscription;
@@ -117,54 +135,96 @@ export const AuthProvider = ({ children }) => {
     if (!userId) {
       console.error("fetchUserProfile called with no userId.");
       setProfile(null);
+      setLoading(false); // Ensure loading is set to false
       return null;
     }
 
-    // Create an abort controller for the fetch timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    // Create a manual timeout that will force completion after 5 seconds
+    const timeoutPromise = new Promise(resolve => {
+      setTimeout(() => {
+        console.log('⚠️ Profile fetch timeout reached - forcing fallback profile');
+        resolve({ timedOut: true });
+      }, 5000); // Reduced from 8s to 5s for faster fallback
+    });
     
     try {
       console.log('Executing Supabase profile query with timeout...');
       
-      // Use the abort controller with the fetch request
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
+      // Race between the profile fetch and the timeout
+      const result = await Promise.race([
+        timeoutPromise,
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single()
+      ]);
       
-      // Clear the timeout as soon as we get a response
-      clearTimeout(timeoutId);
+      // If we got the timeout result
+      if (result.timedOut) {
+        console.warn('Profile fetch timed out - creating fallback profile');
+        const fallbackProfile = createFallbackProfile(userId);
+        console.log('Fallback profile created:', fallbackProfile);
+        setProfile(fallbackProfile);
+        setLoading(false); // Ensure loading is set to false
+        return fallbackProfile;
+      }
       
+      // Otherwise we got the actual query result
+      const { data, error } = result;
       console.log('Supabase profile query finished.');
       
       if (error) {
         console.error('Error fetching profile:', error);
-        throw error;
+        // Create a fallback profile with basic user info instead of throwing
+        console.log('Creating fallback profile due to error');
+        const fallbackProfile = createFallbackProfile(userId);
+        console.log('Fallback profile created:', fallbackProfile);
+        setProfile(fallbackProfile);
+        setLoading(false); // Ensure loading is set to false
+        return fallbackProfile;
       }
       
       if (data) {
-        console.log('Profile data found, setting profile state.');
+        console.log('Profile data found, setting profile state:', data);
         setProfile(data);
+        setLoading(false); // Ensure loading is set to false
         return data;
       } else {
         console.log('No profile data found for user.');
-        setProfile(null);
-        return null;
+        // Create a fallback profile with basic user info
+        console.log('Creating fallback profile due to missing data');
+        const fallbackProfile = createFallbackProfile(userId);
+        console.log('Fallback profile created:', fallbackProfile);
+        setProfile(fallbackProfile);
+        setLoading(false); // Ensure loading is set to false
+        return fallbackProfile;
       }
     } catch (error) {
-      clearTimeout(timeoutId);
+      console.error('Exception during profile fetch:', error);
       
-      if (error.name === 'AbortError' || error.message?.includes('timeout')) {
-        console.error('A critical error occurred in the fetchUserProfile function: Profile fetch timed out after 8 seconds. Check RLS policies on the profiles table.');
-      } else {
-        console.error('A critical error occurred in the fetchUserProfile function:', error.message);
-      }
-      
-      setProfile(null);
-      return null;
+      // Create a fallback profile with basic user info
+      console.log('Creating fallback profile after exception');
+      const fallbackProfile = createFallbackProfile(userId);
+      console.log('Fallback profile created:', fallbackProfile);
+      setProfile(fallbackProfile);
+      setLoading(false); // Ensure loading is set to false
+      return fallbackProfile;
     }
+  };
+  
+  // Helper function to create a fallback profile
+  const createFallbackProfile = (userId) => {
+    return {
+      id: userId,
+      email: user?.email || 'unknown@email.com',
+      full_name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User',
+      role: 'alumni', // Default role
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      is_fallback: true, // Flag to indicate this is a fallback profile
+      avatar_url: null
+    };
   };
 
   const signOut = async () => {
