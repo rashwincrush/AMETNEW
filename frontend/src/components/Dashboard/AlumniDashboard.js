@@ -94,34 +94,19 @@ const AlumniDashboard = () => {
     try {
       console.log('Fetching connections count for user:', userId);
       
-      // Use a simpler approach with .match() which is more reliable
-      const { data: requesterData, error: requesterError, count: requesterCount } = await supabase
+      // Use a single query with an 'or' filter for efficiency and to work better with RLS policies.
+      const { error, count } = await supabase
         .from('connections')
-        .select('*', { count: 'exact' })
-        .match({
-          status: 'accepted',
-          requester_id: userId
-        });
-      
-      if (requesterError) {
-        console.error('Error fetching requester connections:', requesterError);
+        .select('*', { count: 'exact', head: true }) // head:true makes it faster
+        .eq('status', 'accepted')
+        .or(`requester_id.eq.${userId},receiver_id.eq.${userId}`);
+
+      if (error) {
+        console.error('Error fetching connections count:', error);
         return 0;
       }
-      
-      const { data: addresseeData, error: addresseeError, count: addresseeCount } = await supabase
-        .from('connections')
-        .select('*', { count: 'exact' })
-        .match({
-          status: 'accepted',
-          receiver_id: userId
-        });
-      
-      if (addresseeError) {
-        console.error('Error fetching addressee connections:', addresseeError);
-        return requesterCount || 0;
-      }
-      
-      const totalConnections = (requesterCount || 0) + (addresseeCount || 0);
+
+      const totalConnections = count || 0;
       console.log('Total connections count:', totalConnections);
       return totalConnections;
     } catch (error) {
