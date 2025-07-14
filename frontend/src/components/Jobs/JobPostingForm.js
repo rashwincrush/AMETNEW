@@ -70,7 +70,10 @@ const JobPostingForm = () => {
     if (!formData.description) newErrors.description = 'Job description is required';
     if (!formData.requiredSkills) newErrors.requiredSkills = 'At least one required skill is needed';
     if (!formData.applicationDeadline) newErrors.applicationDeadline = 'Application deadline is required';
-    if (!formData.contactEmail) newErrors.contactEmail = 'Contact email is required';
+    // Require contact email only if no external URL is provided
+    if (!formData.externalUrl && !formData.contactEmail) {
+      newErrors.contactEmail = 'Contact email is required if no application URL is provided.';
+    }
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -431,10 +434,26 @@ const JobPostingForm = () => {
             {errors.applicationDeadline && <p className="mt-1 text-sm text-red-500">{errors.applicationDeadline}</p>}
           </div>
           
+          {/* External URL */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Application URL (Optional)
+            </label>
+            <input
+              type="url"
+              name="externalUrl"
+              value={formData.externalUrl}
+              onChange={handleInputChange}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+              placeholder="e.g., https://careers.company.com/job123"
+            />
+            <p className="mt-1 text-xs text-gray-500">Provide a link for direct applications. If provided, contact email is not required.</p>
+          </div>
+
           {/* Contact Email */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Contact Email *
+              Contact Email {formData.externalUrl ? '(Optional)' : '*'}
             </label>
             <input
               type="email"
@@ -445,21 +464,6 @@ const JobPostingForm = () => {
               placeholder="e.g., jobs@company.com"
             />
             {errors.contactEmail && <p className="mt-1 text-sm text-red-500">{errors.contactEmail}</p>}
-          </div>
-          
-          {/* External URL */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              External Application URL (Optional)
-            </label>
-            <input
-              type="url"
-              name="externalUrl"
-              value={formData.externalUrl}
-              onChange={handleInputChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-              placeholder="e.g., https://careers.company.com/job123"
-            />
           </div>
         </div>
         

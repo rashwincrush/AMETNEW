@@ -10,11 +10,14 @@ import {
   ChartBarIcon,
   CogIcon,
   UserGroupIcon,
-  BuildingOfficeIcon
+  BuildingOfficeIcon,
+  ShieldCheckIcon
 } from '@heroicons/react/24/outline';
+import { useAuth } from '../../contexts/AuthContext';
 
-const Navigation = ({ user, onLogout }) => {
+const Navigation = () => {
   const location = useLocation();
+    const { signOut, getUserRole, profile } = useAuth();
 
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/');
 
@@ -25,6 +28,7 @@ const Navigation = ({ user, onLogout }) => {
     { path: '/jobs', label: 'Job Portal', icon: BriefcaseIcon },
     { path: '/mentorship', label: 'Mentorship', icon: AcademicCapIcon },
     { path: '/networking', label: 'Networking', icon: UserGroupIcon },
+    { path: '/networking-groups', label: 'Groups Directory', icon: UserGroupIcon },
     { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon },
   ];
 
@@ -35,20 +39,24 @@ const Navigation = ({ user, onLogout }) => {
     { path: '/jobs', label: 'Job Portal', icon: BriefcaseIcon },
     { path: '/mentorship', label: 'Mentorship', icon: AcademicCapIcon },
     { path: '/networking', label: 'Networking', icon: UserGroupIcon },
+    { path: '/networking-groups', label: 'Groups Directory', icon: UserGroupIcon },
     { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon },
+    { path: '/admin/approvals', label: 'User Approvals', icon: CogIcon },
     { path: '/admin/analytics', label: 'Analytics', icon: ChartBarIcon },
-    { path: '/admin/users', label: 'User Management', icon: CogIcon },
+    { path: '/admin/users', label: 'User Management', icon: BuildingOfficeIcon },
   ];
 
   const employerMenuItems = [
     { path: '/dashboard', label: 'Dashboard', icon: HomeIcon },
     { path: '/directory', label: 'Alumni Directory', icon: UsersIcon },
     { path: '/jobs', label: 'Job Portal', icon: BriefcaseIcon },
+    { path: '/networking-groups', label: 'Groups Directory', icon: UserGroupIcon },
     { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon },
   ];
 
-  const getMenuItems = () => {
-    switch (user.role) {
+    const getMenuItems = () => {
+        const role = profile?.role || 'alumni';
+    switch (role) {
       case 'admin':
         return adminMenuItems;
       case 'employer':
@@ -58,35 +66,27 @@ const Navigation = ({ user, onLogout }) => {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
   return (
     <div className="w-64 bg-white shadow-lg border-r border-ocean-200">
       {/* Logo Section */}
       <div className="p-6 border-b border-ocean-200">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-ocean-gradient rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-lg">A</span>
-          </div>
+          <img src="/logo.png" alt="AMET Alumni Logo" className="h-10 w-auto" />
           <div>
-            <h1 className="text-xl font-bold text-ocean-800">AMET</h1>
-            <p className="text-sm text-ocean-600">Alumni Portal</p>
+            <h1 className="text-xl font-bold text-gray-900">AMET Alumni</h1>
           </div>
         </div>
       </div>
 
-      {/* User Profile Section */}
-      <div className="p-4 border-b border-ocean-200">
-        <div className="flex items-center space-x-3">
-          <img 
-            src={user.avatar} 
-            alt={user.name}
-            className="w-10 h-10 rounded-full object-cover"
-          />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate">{user.name}</p>
-            <p className="text-xs text-ocean-600 capitalize">{user.role}</p>
-          </div>
-        </div>
-      </div>
+
 
       {/* Navigation Menu */}
       <nav className="flex-1 px-4 py-6 space-y-1">
@@ -118,10 +118,22 @@ const Navigation = ({ user, onLogout }) => {
           className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-ocean-50 hover:text-ocean-700 transition-all duration-200 mb-2"
         >
           <CogIcon className="w-5 h-5 mr-3" />
-          Settings
+          Profile Settings
         </Link>
+        
+        {/* Admin Settings Link - Only visible to admins and super_admins */}
+                {(profile?.role === 'admin' || profile?.role === 'super_admin' || profile?.role === 'moderator') && (
+          <Link
+            to="/admin/settings"
+            className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-ocean-50 hover:text-ocean-700 transition-all duration-200 mb-2"
+          >
+            <ShieldCheckIcon className="w-5 h-5 mr-3" />
+            Admin Settings
+          </Link>
+        )}
+        
         <button
-          onClick={onLogout}
+          onClick={handleLogout}
           className="w-full flex items-center px-3 py-2 text-sm font-medium text-red-700 rounded-lg hover:bg-red-50 transition-all duration-200"
         >
           <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

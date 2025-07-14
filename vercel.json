@@ -2,14 +2,6 @@
   "version": 2,
   "builds": [
     {
-      "src": "backend/server.py",
-      "use": "@vercel/python",
-      "config": {
-        "maxLambdaSize": "15mb",
-        "runtime": "python3.9"
-      }
-    },
-    {
       "src": "frontend/package.json",
       "use": "@vercel/static-build",
       "config": {
@@ -18,10 +10,6 @@
     }
   ],
   "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "backend/server.py"
-    },
     {
       "src": "/static/(.*)",
       "dest": "/frontend/static/$1"
@@ -40,11 +28,7 @@
     }
   ],
   "env": {
-    "REACT_APP_SUPABASE_URL": "${NEXT_PUBLIC_SUPABASE_URL}",
-    "REACT_APP_SUPABASE_KEY": "${NEXT_PUBLIC_SUPABASE_ANON_KEY}",
-    "SUPABASE_URL": "${NEXT_PUBLIC_SUPABASE_URL}",
-    "SUPABASE_KEY": "${NEXT_PUBLIC_SUPABASE_ANON_KEY}",
-    "SUPABASE_SERVICE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}",
-    "JWT_SECRET": "${NEXT_PUBLIC_SUPABASE_ANON_KEY}"
+    "REACT_APP_SUPABASE_URL": "${SUPABASE_URL}",
+    "REACT_APP_SUPABASE_KEY": "${SUPABASE_KEY}"
   }
 }

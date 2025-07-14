@@ -307,7 +307,7 @@ const HomePage = () => {
             </blockquote>
             <footer className="mt-4">
               <div className="font-bold text-gray-900">Capt. Jane Doe</div>
-              <div className="text-gray-600">Class of 2010, CEO at Maritime Innovations</div>
+              <div className="text-gray-600">Year of Completion : 2010, CEO at Maritime Innovations</div>
             </footer>
           </div>
         </div>
@@ -324,13 +324,13 @@ const HomePage = () => {
             {/* Placeholder Testimonial 1 */}
             <div className="bg-white p-8 rounded-lg shadow-md">
               <p className="text-gray-700 italic">"This platform is a fantastic resource for staying in touch with classmates and finding new opportunities. Highly recommended!"</p>
-              <p className="mt-4 font-bold text-gray-900">- John Smith, Class of 2015</p>
+              <p className="mt-4 font-bold text-gray-900">- John Smith, Year of Completion : 2015</p>
             </div>
             {/* Placeholder Testimonial 2 */}
             <div className="bg-white p-8 rounded-lg shadow-md">
               <p className="text-gray-700 italic">"The mentorship program connected me with an industry leader who provided incredible guidance for my career transition."
               </p>
-              <p className="mt-4 font-bold text-gray-900">- Priya Sharma, Class of 2018</p>
+              <p className="mt-4 font-bold text-gray-900">- Priya Sharma, Year of Completion : 2018</p>
             </div>
           </div>
         </div>

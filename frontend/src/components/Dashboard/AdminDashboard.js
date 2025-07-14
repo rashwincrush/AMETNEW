@@ -41,9 +41,10 @@ const AdminDashboard = ({ user }) => {
 
   const quickActions = [
     { title: 'User Management', icon: UsersIcon, link: '/admin/users', color: 'bg-blue-500' },
+    { title: 'User Approval', icon: CheckCircleIcon, link: '/admin/user-approval', color: 'bg-yellow-500' },
+    { title: 'Mentor Approval', icon: CheckCircleIcon, link: '/admin/mentor-approval', color: 'bg-teal-500' },
     { title: 'Analytics', icon: ChartBarIcon, link: '/admin/analytics', color: 'bg-green-500' },
     { title: 'System Settings', icon: CogIcon, link: '/admin/settings', color: 'bg-purple-500' },
-    { title: 'Reports', icon: ChartBarIcon, link: '/admin/reports', color: 'bg-orange-500' }
   ];
 
   return (

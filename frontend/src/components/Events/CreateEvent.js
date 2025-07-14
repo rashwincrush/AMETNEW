@@ -13,9 +13,13 @@ import {
   TagIcon,
   ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
+import { toast } from 'react-hot-toast';
+import { supabase } from '../../utils/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 
 const CreateEvent = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -123,70 +127,173 @@ const CreateEvent = () => {
   };
 
   const validateForm = () => {
-    const newErrors = {};
+    console.log('Entering validateForm...');
+    try {
+      const newErrors = {};
 
-    if (!formData.title.trim()) newErrors.title = 'Event title is required';
-    if (!formData.description.trim()) newErrors.description = 'Description is required';
-    if (!formData.date) newErrors.date = 'Date is required';
-    if (!formData.startTime) newErrors.startTime = 'Start time is required';
-    if (!formData.endTime) newErrors.endTime = 'End time is required';
-    if (!formData.location.trim()) newErrors.location = 'Location is required';
-    if (formData.type === 'in-person' && !formData.address.trim()) {
-      newErrors.address = 'Address is required for in-person events';
-    }
-    if (formData.type === 'virtual' && !formData.virtualLink.trim()) {
-      newErrors.virtualLink = 'Virtual meeting link is required';
-    }
-    if (!formData.maxAttendees || formData.maxAttendees < 1) {
-      newErrors.maxAttendees = 'Maximum attendees must be at least 1';
-    }
-    if (formData.priceType === 'paid' && (!formData.price || formData.price < 0)) {
-      newErrors.price = 'Price must be specified for paid events';
-    }
-    if (!formData.organizerName.trim()) newErrors.organizerName = 'Organizer name is required';
-    if (!formData.organizerEmail.trim()) newErrors.organizerEmail = 'Organizer email is required';
+      if (!formData.title.trim()) newErrors.title = 'Event title is required';
+      if (!formData.description.trim()) newErrors.description = 'Description is required';
+      if (!formData.date) newErrors.date = 'Date is required';
+      if (!formData.startTime) newErrors.startTime = 'Start time is required';
+      if (!formData.endTime) newErrors.endTime = 'End time is required';
+      if (!formData.location.trim()) newErrors.location = 'Location is required';
+      if (formData.type === 'virtual' && !formData.virtualLink.trim()) {
+        newErrors.virtualLink = 'Virtual meeting link is required';
+      }
+      // Ensure maxAttendees is treated as a number for comparison
+      const maxAttendeesNum = parseInt(formData.maxAttendees, 10);
+      if (isNaN(maxAttendeesNum) || maxAttendeesNum < 1) {
+        newErrors.maxAttendees = 'Maximum attendees must be a number and at least 1';
+      }
+      // Ensure price is treated as a number for comparison
+      const priceNum = parseFloat(formData.price);
+      if (formData.priceType === 'paid' && (isNaN(priceNum) || priceNum < 0)) {
+        newErrors.price = 'Price must be a valid number for paid events';
+      }
+      if (!formData.organizerName.trim()) newErrors.organizerName = 'Organizer name is required';
+      if (!formData.organizerEmail.trim()) newErrors.organizerEmail = 'Organizer email is required';
 
-    // Validate date is not in the past
-    const eventDate = new Date(formData.date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (eventDate < today) {
-      newErrors.date = 'Event date cannot be in the past';
-    }
+      // Validate date is not in the past
+      if (formData.date) {
+        const eventDate = new Date(formData.date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Compare date part only
+        // Check if eventDate is a valid date before comparison
+        if (!isNaN(eventDate.getTime()) && eventDate < today) {
+          newErrors.date = 'Event date cannot be in the past';
+        }
+      } else {
+        // If date is not set, it's already caught by '!formData.date' check
+      }
 
-    // Validate end time is after start time
-    if (formData.startTime && formData.endTime && formData.startTime >= formData.endTime) {
-      newErrors.endTime = 'End time must be after start time';
-    }
+      // Validate end time is after start time
+      if (formData.startTime && formData.endTime && formData.startTime >= formData.endTime) {
+        newErrors.endTime = 'End time must be after start time';
+      }
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+      setErrors(newErrors);
+      const isValid = Object.keys(newErrors).length === 0;
+      console.log('validateForm - newErrors (inside try):', JSON.stringify(newErrors));
+      console.log('validateForm - isValid (inside try):', isValid);
+      return isValid;
+    } catch (error) {
+      console.error('Error caught inside validateForm:', error);
+      setErrors(prevErrors => ({ ...prevErrors, form: 'An unexpected error occurred during validation.' }));
+      console.log('validateForm - returning false due to internal error');
+      return false; // Ensure it returns false if an error happens
+    }
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-
-    setIsSubmitting(true);
-
     try {
-      // Mock submission - in real app, this would be an API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log('Submit button clicked - starting event creation');
+      e.preventDefault();
+      if (!user) {
+        toast.error("You must be logged in to create an event.");
+        return;
+      }
+      console.log('Form validation starting...');
+      const isFormValid = validateForm();
+      if (!isFormValid) {
+        console.log('handleSubmit: Form validation failed. Errors:', JSON.stringify(errors)); // Log current errors state
+        toast.error('Please fix the errors before submitting.');
+        return;
+      }
+      console.log('Form validation passed');
+      setIsSubmitting(true);
+      console.log('Starting image processing');
+      let imageUrl = null;
+      if (formData.image) {
+        console.log('Image found, processing upload...');
+        const fileExt = formData.image.name.split('.').pop();
+        const fileName = `${user.id}_${Date.now()}.${fileExt}`;
+        // Corrected filePath to be just the fileName, as Supabase storage policies might be set at the bucket level
+        // and prepending 'event-images/' here might conflict if the bucket policy already implies this path.
+        // The .from('event-images') already specifies the bucket.
+        const filePath = `${fileName}`;
+        console.log('Uploading image to Supabase storage bucket: event-images, filePath:', filePath);
+        const { error: uploadError } = await supabase.storage
+          .from('event-images') // Corrected bucket name
+          .upload(filePath, formData.image);
+        if (uploadError) {
+          console.error('Image upload error:', uploadError);
+          throw new Error(`Image upload failed: ${uploadError.message}`);
+        }
+        console.log('Image uploaded successfully, getting URL');
+        const { data: urlData } = supabase.storage
+          .from('event-images') // Corrected bucket name
+          .getPublicUrl(filePath);
+        if (!urlData || !urlData.publicUrl) { // Check for publicUrl specifically
+          console.error('Failed to get URL data or publicUrl is missing', urlData);
+          throw new Error('Could not get public URL for the image.');
+        }
+        console.log('Got image URL:', urlData.publicUrl);
+        imageUrl = urlData.publicUrl;
+      }
+
+      console.log('Image processing complete');
+      console.log('Creating event data object');
+      const eventData = {
+        title: formData.title,
+        description: formData.description,
+        category: formData.category,
+        event_type: formData.type,
+        start_date: `${formData.date}T${formData.startTime}`,
+        end_date: `${formData.date}T${formData.endTime}`,
+        location: formData.location,
+        virtual_link: formData.virtualLink,
+        max_attendees: !isNaN(parseInt(formData.maxAttendees, 10)) ? parseInt(formData.maxAttendees, 10) : null,
+        cost: formData.priceType === 'free' ? '0' : (!isNaN(parseFloat(formData.price)) ? formData.price.toString() : '0'),
+        tags: formData.tags.split(',').map(tag => tag.trim()).filter(t => t),
+        featured_image_url: imageUrl, // Changed from image_url to featured_image_url to match DB schema
+        agenda: JSON.stringify(formData.agenda.filter(item => item.time && item.activity)),
+        is_published: true,
+        user_id: user.id,
+        organizer_id: user.id // Required field according to schema
+      };
       
-      console.log('Event created:', formData);
+      console.log('Submitting event data to Supabase:', eventData);
+      const { data: insertedData, error: insertError } = await supabase
+        .from('events')
+        .insert([eventData])
+        .select();
+      console.log('Response from insert:', { data: insertedData, error: insertError });
       
-      // Redirect to events list or event details
+      // Debug: Immediately query for events to see what's in the DB
+      const { data: allEvents } = await supabase
+        .from('events')
+        .select('*');
+      console.log('All events in database after insertion:', allEvents);
+
+      // Debug: Specifically check our newly created event
+      if (insertedData && insertedData.length > 0) {
+        const newEventId = insertedData[0].id;
+        const { data: verifyEvent } = await supabase
+          .from('events')
+          .select('*')
+          .eq('id', newEventId)
+          .single();
+        console.log('Verification of newly created event:', verifyEvent);
+      }
+
+      if (insertError) {
+        console.error('Supabase insert error:', insertError);
+        throw new Error(`Database insert failed: ${insertError.message}`);
+      }
+
+      if (!insertedData || insertedData.length === 0) {
+        console.error('Event created but no data returned. Check RLS policies.');
+        throw new Error('Event was not created successfully. You may not have permission to view it.');
+      }
+      
+      toast.success('Event created successfully!');
       navigate('/events');
-      
-      // Show success message
-      alert('Event created successfully!');
     } catch (error) {
+      console.error('Top level error caught in handleSubmit:', error);
       console.error('Error creating event:', error);
-      alert('Error creating event. Please try again.');
+      toast.error(`Error creating event: ${error.message}`);
     } finally {
+      console.log('Finishing event submission process');
       setIsSubmitting(false);
     }
   };

@@ -1,243 +1,116 @@
--- AMET Alumni Portal - Consolidated Database Schema
--- This file contains the complete database schema for the AMET Alumni Portal,
--- including all tables, functions, triggers, and Row Level Security (RLS) policies.
+-- AMET Alumni Database Schema - Consolidated
+-- This file represents the single source of truth for the database schema.
 
--- Enable UUID extension if not already enabled
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- =================================================================
+-- Table Definitions
+-- =================================================================
 
--- Function to handle updated_at timestamps
-CREATE OR REPLACE FUNCTION public.handle_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Helper function to get a user's role from their profile
-CREATE OR REPLACE FUNCTION get_user_role(p_user_id uuid)
-RETURNS TEXT AS $$
-DECLARE
-  user_role TEXT;
-BEGIN
-  SELECT primary_role INTO user_role FROM public.profiles WHERE id = p_user_id;
-  RETURN user_role;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Grant execute permissions to the 'authenticated' role
-GRANT EXECUTE ON FUNCTION public.get_user_role(UUID) TO authenticated;
-
--- PROFILES TABLE
+-- Profiles table (references auth.users)
 CREATE TABLE IF NOT EXISTS public.profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  first_name TEXT,
-  last_name TEXT,
-  primary_role TEXT,
-  bio TEXT,
-  avatar_url TEXT,
-  graduation_year INTEGER,
-  degree TEXT,
-  major TEXT,
-  location TEXT,
-  linkedin_url TEXT,
-  github_url TEXT,
-  portfolio_url TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    id UUID PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
+    email TEXT UNIQUE NOT NULL,
+    full_name TEXT,
+    avatar_url TEXT,
+    graduation_year INTEGER,
+    degree TEXT,
+    major TEXT,
+    location TEXT,
+    company TEXT,
+    job_title TEXT,
+    linkedin_url TEXT,
+    bio TEXT,
+    is_mentor BOOLEAN DEFAULT FALSE,
+    role TEXT DEFAULT 'alumni' NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
--- Enable RLS on profiles
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+-- Roles table (for user roles)
+CREATE TABLE IF NOT EXISTS public.roles (
+    role_name TEXT PRIMARY KEY,
+    description TEXT
+);
 
--- Create trigger for updated_at
-CREATE TRIGGER handle_updated_at
-BEFORE UPDATE ON public.profiles
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- EVENTS TABLE
+-- Events table
 CREATE TABLE IF NOT EXISTS public.events (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  title TEXT NOT NULL,
-  description TEXT,
-  event_type TEXT NOT NULL,
-  start_date TIMESTAMP WITH TIME ZONE NOT NULL,
-  end_date TIMESTAMP WITH TIME ZONE NOT NULL,
-  location TEXT,
-  is_virtual BOOLEAN DEFAULT FALSE,
-  virtual_meeting_link TEXT,
-  max_attendees INTEGER,
-  image_url TEXT,
-  is_featured BOOLEAN DEFAULT FALSE,
-  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    title TEXT NOT NULL,
+    description TEXT,
+    location TEXT,
+    event_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    end_date TIMESTAMP WITH TIME ZONE,
+    organizer_id UUID REFERENCES public.profiles(id),
+    image_url TEXT,
+    capacity INTEGER,
+    is_virtual BOOLEAN DEFAULT FALSE,
+    virtual_link TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
--- Enable RLS on events
-ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
-
--- Create trigger for updated_at
-CREATE TRIGGER handle_updated_at
-BEFORE UPDATE ON public.events
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- EVENT ATTENDEES TABLE
+-- Event attendees (for event registration)
 CREATE TABLE IF NOT EXISTS public.event_attendees (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  status TEXT NOT NULL DEFAULT 'registered',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(event_id, user_id)
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID REFERENCES public.events(id) ON DELETE CASCADE,
+    attendee_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    registration_date TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    attendance_status TEXT DEFAULT 'registered', -- registered, attended, canceled
+    UNIQUE (event_id, attendee_id)
 );
 
--- Enable RLS on event_attendees
-ALTER TABLE public.event_attendees ENABLE ROW LEVEL SECURITY;
+-- Event Feedback table
+CREATE TABLE IF NOT EXISTS public.event_feedback (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID REFERENCES public.events(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+    would_recommend TEXT,
+    comments TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    UNIQUE(event_id, user_id)
+);
 
--- Create trigger for updated_at
-CREATE TRIGGER handle_updated_at
-BEFORE UPDATE ON public.event_attendees
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- JOBS TABLE
+-- Jobs table (job portal)
 CREATE TABLE IF NOT EXISTS public.jobs (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  title TEXT NOT NULL,
-  company_name TEXT NOT NULL,
-  company_id UUID REFERENCES public.companies(id) ON DELETE SET NULL,
-  location TEXT,
-  job_type TEXT NOT NULL,
-  description TEXT NOT NULL,
-  requirements TEXT,
-  salary_range TEXT,
-  application_url TEXT,
-  contact_email TEXT,
-  is_active BOOLEAN DEFAULT TRUE,
-  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    title TEXT NOT NULL,
+    company TEXT NOT NULL,
+    location TEXT,
+    description TEXT,
+    requirements TEXT,
+    salary_range TEXT,
+    job_type TEXT, -- full-time, part-time, contract, etc.
+    contact_email TEXT,
+    application_url TEXT,
+    posted_by UUID REFERENCES public.profiles(id),
+    is_active BOOLEAN DEFAULT TRUE,
+    deadline DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
--- Enable RLS on jobs
-ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
-
--- Create trigger for updated_at
-CREATE TRIGGER handle_updated_at
-BEFORE UPDATE ON public.jobs
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- COMPANIES TABLE
-CREATE TABLE IF NOT EXISTS public.companies (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  description TEXT,
-  logo_url TEXT,
-  website_url TEXT,
-  industry TEXT,
-  size TEXT,
-  founded_year INTEGER,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+-- Job bookmarks
+CREATE TABLE IF NOT EXISTS public.job_bookmarks (
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    job_id UUID REFERENCES public.jobs(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    PRIMARY KEY (user_id, job_id)
 );
 
--- Enable RLS on companies
-ALTER TABLE public.companies ENABLE ROW LEVEL SECURITY;
-
--- Create trigger for updated_at
-CREATE TRIGGER handle_updated_at
-BEFORE UPDATE ON public.companies
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- MENTORS TABLE
-CREATE TABLE IF NOT EXISTS public.mentors (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  expertise TEXT[] NOT NULL,
-  mentoring_experience_years INTEGER,
-  availability TEXT,
-  mentoring_capacity_hours_per_month INTEGER,
-  mentoring_preferences TEXT,
-  mentoring_statement TEXT,
-  is_active BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(user_id)
+-- Job applications
+CREATE TABLE IF NOT EXISTS public.job_applications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    job_id UUID REFERENCES public.jobs(id) ON DELETE CASCADE,
+    applicant_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    resume_url TEXT,
+    cover_letter TEXT,
+    application_date TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    status TEXT DEFAULT 'submitted', -- submitted, reviewed, interview, accepted, rejected
+    UNIQUE(job_id, applicant_id)
 );
 
--- Enable RLS on mentors
-ALTER TABLE public.mentors ENABLE ROW LEVEL SECURITY;
-
--- Create trigger for updated_at
-CREATE TRIGGER handle_updated_at
-BEFORE UPDATE ON public.mentors
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- MENTEE PROFILES TABLE
-CREATE TABLE IF NOT EXISTS public.mentee_profiles (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  career_goals TEXT,
-  areas_seeking_mentorship TEXT[],
-  specific_skills_to_develop TEXT[],
-  preferred_mentor_characteristics TEXT,
-  time_commitment_available TEXT,
-  preferred_communication_method TEXT,
-  statement_of_expectations TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(user_id)
-);
-
--- Enable RLS on mentee_profiles
-ALTER TABLE public.mentee_profiles ENABLE ROW LEVEL SECURITY;
-
--- Create trigger for updated_at
-CREATE TRIGGER handle_updated_at
-BEFORE UPDATE ON public.mentee_profiles
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- MENTORSHIP REQUESTS TABLE
-CREATE TABLE IF NOT EXISTS public.mentorship_requests (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  mentee_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  mentor_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  status TEXT NOT NULL DEFAULT 'pending',
-  message TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(mentee_id, mentor_id)
-);
-
--- Enable RLS on mentorship_requests
-ALTER TABLE public.mentorship_requests ENABLE ROW LEVEL SECURITY;
-
--- Create trigger for updated_at
-CREATE TRIGGER handle_updated_at
-BEFORE UPDATE ON public.mentorship_requests
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- MESSAGES TABLE
-CREATE TABLE IF NOT EXISTS public.messages (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  sender_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  receiver_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  content TEXT NOT NULL,
-  is_read BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Enable RLS on messages
-ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
-
--- Create trigger for updated_at
-CREATE TRIGGER handle_updated_at
-BEFORE UPDATE ON public.messages
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- USER RESUMES TABLE
+-- User Resumes table
 CREATE TABLE IF NOT EXISTS public.user_resumes (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -247,186 +120,208 @@ CREATE TABLE IF NOT EXISTS public.user_resumes (
   file_size BIGINT NOT NULL,
   uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   is_primary BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Enable RLS on user_resumes
+-- Messages table (for direct messaging)
+CREATE TABLE IF NOT EXISTS public.messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    sender_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    recipient_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    subject TEXT,
+    content TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
+-- Networking connections (for alumni networking)
+CREATE TABLE IF NOT EXISTS public.connections (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    requester_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    recipient_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    status TEXT DEFAULT 'pending', -- pending, accepted, rejected
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    UNIQUE(requester_id, recipient_id)
+);
+
+-- Mentors table (extension of profiles for those who are mentors)
+CREATE TABLE IF NOT EXISTS public.mentors (
+    id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+    expertise TEXT[] NOT NULL,
+    experience_years INTEGER,
+    mentorship_areas TEXT,
+    availability TEXT,
+    is_available BOOLEAN DEFAULT TRUE,
+    max_mentees INTEGER DEFAULT 3,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
+-- Mentorship requests
+CREATE TABLE IF NOT EXISTS public.mentorship_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    mentee_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    mentor_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    request_message TEXT NOT NULL,
+    goals TEXT,
+    duration TEXT, -- e.g., '3 months', '6 months', etc.
+    status TEXT DEFAULT 'pending', -- pending, accepted, rejected, completed
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    UNIQUE(mentee_id, mentor_id)
+);
+
+
+-- =================================================================
+-- Enable Row Level Security (RLS)
+-- =================================================================
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_attendees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.job_applications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.job_bookmarks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_resumes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.connections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.mentors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.mentorship_requests ENABLE ROW LEVEL SECURITY;
 
--- Create trigger for updated_at
-CREATE TRIGGER handle_updated_at
-BEFORE UPDATE ON public.user_resumes
-FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
--- =============================================
--- ROW LEVEL SECURITY POLICIES
--- =============================================
+-- =================================================================
+-- Row Level Security (RLS) Policies
+-- =================================================================
 
--- PROFILES TABLE POLICIES
--- Policy: Users can view all profiles
-CREATE POLICY "Allow authenticated users to read all profiles" ON public.profiles
-  FOR SELECT
-  TO authenticated
-  USING (true);
+-- -----------------------------------------------------------------
+-- Policies for: profiles
+-- -----------------------------------------------------------------
+-- First, drop all existing policies on the profiles table
+DO $$
+DECLARE
+   policy_rec RECORD;
+BEGIN
+   FOR policy_rec IN (SELECT policyname FROM pg_policies WHERE tablename = 'profiles' AND schemaname = 'public')
+   LOOP
+      EXECUTE format('DROP POLICY IF EXISTS "%s" ON public.profiles', policy_rec.policyname);
+   END LOOP;
+END
+$$;
 
--- Policy: Users can update their own profile
-CREATE POLICY "Allow users to update their own profile" ON public.profiles
-  FOR UPDATE
-  USING (auth.uid() = id)
-  WITH CHECK (auth.uid() = id);
+-- Re-create policies for profiles
+CREATE POLICY "Profiles are viewable by everyone" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Users can create their own profile" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "Users can update their own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+CREATE POLICY "Users can delete their own profile" ON public.profiles FOR DELETE USING (auth.uid() = id);
 
--- Policy: Users can insert their own profile
-CREATE POLICY "Allow users to insert their own profile" ON public.profiles
-  FOR INSERT
-  WITH CHECK (auth.uid() = id);
+-- -----------------------------------------------------------------
+-- Policies for: roles
+-- -----------------------------------------------------------------
+-- First, drop all existing policies on the roles table
+DO $$
+DECLARE
+   policy_rec RECORD;
+BEGIN
+   FOR policy_rec IN (SELECT policyname FROM pg_policies WHERE tablename = 'roles' AND schemaname = 'public')
+   LOOP
+      EXECUTE format('DROP POLICY IF EXISTS "%s" ON public.roles', policy_rec.policyname);
+   END LOOP;
+END
+$$;
 
--- EVENTS TABLE POLICIES
--- Policy: Anyone can view events
-CREATE POLICY "Allow public read access to events" ON public.events
-  FOR SELECT
-  USING (true);
+-- Re-create policies for roles
+CREATE POLICY "Roles are viewable by everyone" ON public.roles FOR SELECT USING (true);
+CREATE POLICY "Super admins can create roles" ON public.roles FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'super_admin'));
+CREATE POLICY "Super admins can update roles" ON public.roles FOR UPDATE USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'super_admin'));
+CREATE POLICY "Super admins can delete roles" ON public.roles FOR DELETE USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'super_admin'));
 
--- Policy: Admins and Super Admins can create events
-CREATE POLICY "Allow admins to create events" ON public.events
-  FOR INSERT
-  WITH CHECK (get_user_role(auth.uid()) IN ('admin', 'super_admin'));
+-- -----------------------------------------------------------------
+-- Policies for: events
+-- -----------------------------------------------------------------
+CREATE POLICY "Events are viewable by everyone" ON public.events FOR SELECT USING (true);
+CREATE POLICY "Events are editable by organizer" ON public.events FOR UPDATE USING (auth.uid() = organizer_id);
+CREATE POLICY "Events can be created by authenticated users" ON public.events FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
--- Policy: The user who created the event or an admin can update it
-CREATE POLICY "Allow authorized users to update events" ON public.events
-  FOR UPDATE
-  USING (
-    (auth.uid() = user_id) OR (get_user_role(auth.uid()) IN ('admin', 'super_admin'))
-  );
+-- -----------------------------------------------------------------
+-- Policies for: event_attendees
+-- -----------------------------------------------------------------
+CREATE POLICY "Event registrations are viewable by everyone" ON public.event_attendees FOR SELECT USING (true);
+CREATE POLICY "Users can register for events" ON public.event_attendees FOR INSERT WITH CHECK (auth.uid() = attendee_id);
+CREATE POLICY "Users can cancel their own registrations" ON public.event_attendees FOR DELETE USING (auth.uid() = attendee_id);
 
--- Policy: The user who created the event or an admin can delete it
-CREATE POLICY "Allow authorized users to delete events" ON public.events
-  FOR DELETE
-  USING (
-    (auth.uid() = user_id) OR (get_user_role(auth.uid()) IN ('admin', 'super_admin'))
-  );
+-- -----------------------------------------------------------------
+-- Policies for: event_feedback
+-- -----------------------------------------------------------------
+CREATE POLICY "Users can view their own feedback" ON public.event_feedback FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Organizers can view event feedback" ON public.event_feedback FOR SELECT USING (EXISTS (SELECT 1 FROM public.events WHERE id = event_id AND organizer_id = auth.uid()));
+CREATE POLICY "Users can submit feedback" ON public.event_feedback FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update their own feedback" ON public.event_feedback FOR UPDATE USING (auth.uid() = user_id);
 
--- EVENT ATTENDEES TABLE POLICIES
--- Policy: Authenticated users can view attendees
-CREATE POLICY "Enable read access for authenticated users" ON public.event_attendees
-  FOR SELECT
-  TO authenticated
-  USING (true);
+-- -----------------------------------------------------------------
+-- Policies for: jobs
+-- -----------------------------------------------------------------
+CREATE POLICY "Jobs are viewable by everyone" ON public.jobs FOR SELECT USING (true);
+CREATE POLICY "Jobs are editable by poster" ON public.jobs FOR UPDATE USING (auth.uid() = posted_by);
+CREATE POLICY "Jobs can be posted by authenticated users" ON public.jobs FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
--- Policy: Authenticated users can register for events
-CREATE POLICY "Enable insert for authenticated users" ON public.event_attendees
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (true);
+-- -----------------------------------------------------------------
+-- Policies for: job_bookmarks
+-- -----------------------------------------------------------------
+CREATE POLICY "Users can view their own bookmarks" ON public.job_bookmarks FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can create bookmarks" ON public.job_bookmarks FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can delete their own bookmarks" ON public.job_bookmarks FOR DELETE USING (auth.uid() = user_id);
 
--- Policy: Users can update their own attendance
-CREATE POLICY "Enable update for own attendance" ON public.event_attendees
-  FOR UPDATE
-  USING (auth.uid() = user_id);
+-- -----------------------------------------------------------------
+-- Policies for: job_applications
+-- -----------------------------------------------------------------
+CREATE POLICY "Users can view their own applications" ON public.job_applications FOR SELECT USING (auth.uid() = applicant_id OR EXISTS (SELECT 1 FROM public.jobs WHERE id = job_id AND posted_by = auth.uid()));
+CREATE POLICY "Users can apply to jobs" ON public.job_applications FOR INSERT WITH CHECK (auth.uid() = applicant_id);
 
--- Policy: Users can delete their own attendance
-CREATE POLICY "Enable delete for own attendance" ON public.event_attendees
-  FOR DELETE
-  USING (auth.uid() = user_id);
+-- -----------------------------------------------------------------
+-- Policies for: user_resumes
+-- -----------------------------------------------------------------
+CREATE POLICY "Users can view their own resumes" ON public.user_resumes FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert their own resumes" ON public.user_resumes FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update their own resumes" ON public.user_resumes FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete their own resumes" ON public.user_resumes FOR DELETE USING (auth.uid() = user_id);
 
--- JOBS TABLE POLICIES
--- Policy: Anyone can view job listings
-CREATE POLICY "Allow public read access to jobs" ON public.jobs
-  FOR SELECT
-  USING (true);
+-- -----------------------------------------------------------------
+-- Policies for: messages
+-- -----------------------------------------------------------------
+CREATE POLICY "Users can view their own messages" ON public.messages FOR SELECT USING (auth.uid() = sender_id OR auth.uid() = recipient_id);
+CREATE POLICY "Users can send messages" ON public.messages FOR INSERT WITH CHECK (auth.uid() = sender_id);
+CREATE POLICY "Recipients can update messages" ON public.messages FOR UPDATE USING (auth.uid() = recipient_id);
 
--- Policy: Employers and Admins can create jobs
-CREATE POLICY "Allow authorized users to create jobs" ON public.jobs
-  FOR INSERT
-  WITH CHECK (get_user_role(auth.uid()) IN ('employer', 'admin', 'super_admin'));
+-- -----------------------------------------------------------------
+-- Policies for: connections
+-- -----------------------------------------------------------------
+CREATE POLICY "Users can view their own connections" ON public.connections FOR SELECT USING (auth.uid() = requester_id OR auth.uid() = recipient_id);
+CREATE POLICY "Users can request connections" ON public.connections FOR INSERT WITH CHECK (auth.uid() = requester_id);
+CREATE POLICY "Users can accept/reject connection requests" ON public.connections FOR UPDATE USING (auth.uid() = recipient_id) WITH CHECK (status <> 'pending');
 
--- Policy: Users can update jobs they created. Admins can update any job
-CREATE POLICY "Allow authorized users to update jobs" ON public.jobs
-  FOR UPDATE
-  USING (
-    (auth.uid() = user_id) OR (get_user_role(auth.uid()) IN ('admin', 'super_admin'))
-  );
+-- -----------------------------------------------------------------
+-- Policies for: mentors
+-- -----------------------------------------------------------------
+CREATE POLICY "Mentors are viewable by everyone" ON public.mentors FOR SELECT USING (true);
+CREATE POLICY "Mentors can update their own info" ON public.mentors FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Users can become mentors" ON public.mentors FOR INSERT WITH CHECK (auth.uid() = id);
 
--- Policy: Users can delete jobs they created. Admins can delete any job
-CREATE POLICY "Allow authorized users to delete jobs" ON public.jobs
-  FOR DELETE
-  USING (
-    (auth.uid() = user_id) OR (get_user_role(auth.uid()) IN ('admin', 'super_admin'))
-  );
+-- -----------------------------------------------------------------
+-- Policies for: mentorship_requests
+-- -----------------------------------------------------------------
+CREATE POLICY "Users can view their mentor/mentee requests" ON public.mentorship_requests FOR SELECT USING (auth.uid() = mentee_id OR auth.uid() = mentor_id);
+CREATE POLICY "Users can request mentorship" ON public.mentorship_requests FOR INSERT WITH CHECK (auth.uid() = mentee_id);
+CREATE POLICY "Mentors can respond to requests" ON public.mentorship_requests FOR UPDATE USING (auth.uid() = mentor_id) WITH CHECK (status <> 'pending');
 
--- MENTORS TABLE POLICIES
--- Policy: Authenticated users can view all mentor profiles
-CREATE POLICY "Allow authenticated users to view mentor profiles" ON public.mentors
-  FOR SELECT
-  TO authenticated
-  USING (true);
 
--- Policy: Users can create their own mentor profile
-CREATE POLICY "Allow users to create their own mentor profile" ON public.mentors
-  FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+-- =================================================================
+-- Analyze tables to refresh statistics
+-- =================================================================
 
--- Policy: Users can update their own mentor profile
-CREATE POLICY "Allow users to update their own mentor profile" ON public.mentors
-  FOR UPDATE
-  USING (user_id = auth.uid());
-
--- MENTEE PROFILES TABLE POLICIES
--- Policy: Users can view their own mentee profile. Admins can view all
-CREATE POLICY "Allow users and admins to view mentee profiles" ON public.mentee_profiles
-  FOR SELECT
-  USING (
-    (user_id = auth.uid()) OR (get_user_role(auth.uid()) IN ('admin', 'super_admin'))
-  );
-
--- Policy: Users can create their own mentee profile
-CREATE POLICY "Allow users to create their own mentee profile" ON public.mentee_profiles
-  FOR INSERT
-  WITH CHECK (user_id = auth.uid());
-
--- Policy: Users can update their own mentee profile
-CREATE POLICY "Allow users to update their own mentee profile" ON public.mentee_profiles
-  FOR UPDATE
-  USING (user_id = auth.uid());
-
--- MESSAGES TABLE POLICIES
--- Policy: Users can view messages they sent or received
-CREATE POLICY "Allow users to view their own messages" ON public.messages
-  FOR SELECT
-  USING (auth.uid() IN (sender_id, receiver_id));
-
--- Policy: Users can send messages
-CREATE POLICY "Allow users to send messages" ON public.messages
-  FOR INSERT
-  WITH CHECK (auth.uid() = sender_id);
-
--- Policy: Users can update messages they sent
-CREATE POLICY "Allow users to update sent messages" ON public.messages
-  FOR UPDATE
-  USING (auth.uid() = sender_id);
-
--- Policy: Users can delete messages they sent or received
-CREATE POLICY "Allow users to delete their messages" ON public.messages
-  FOR DELETE
-  USING (auth.uid() IN (sender_id, receiver_id));
-
--- USER RESUMES TABLE POLICIES
--- Policy: Users can view their own resumes
-CREATE POLICY "Allow users to view their own resumes" ON public.user_resumes
-  FOR SELECT
-  USING (auth.uid() = user_id);
-
--- Policy: Users can upload their own resumes
-CREATE POLICY "Allow users to upload their own resumes" ON public.user_resumes
-  FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
--- Policy: Users can update their own resumes
-CREATE POLICY "Allow users to update their own resumes" ON public.user_resumes
-  FOR UPDATE
-  USING (auth.uid() = user_id);
-
--- Policy: Users can delete their own resumes
-CREATE POLICY "Allow users to delete their own resumes" ON public.user_resumes
-  FOR DELETE
-  USING (auth.uid() = user_id);
+ANALYZE public.profiles;
+ANALYZE public.roles;
