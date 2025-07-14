@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
+import apiClient from '../../utils/api';
+import { signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase'; // For social logins
 
 const Login = ({ onLogin }) => {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -10,41 +13,41 @@ const Login = ({ onLogin }) => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
 
-    // Mock login - in real app, this would be an API call
-    setTimeout(() => {
-      const mockUsers = [
-        { 
-          id: '1', 
-          email: 'admin@amet.ac.in', 
-          role: 'admin', 
-          name: 'Admin User',
-          avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face'
-        },
-        { 
-          id: '2', 
-          email: 'employer@company.com', 
-          role: 'employer', 
-          name: 'HR Manager',
-          avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b77c?w=100&h=100&fit=crop&crop=face'
-        },
-        { 
-          id: '3', 
-          email: 'alumni@amet.ac.in', 
-          role: 'alumni', 
-          name: 'John Doe',
-          avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face'
-        }
-      ];
+    try {
+      // Use the new API client to call the backend
+      const response = await apiClient.post('/test_login', {
+        email: formData.email,
+        password: formData.password,
+      });
 
-      const user = mockUsers.find(u => u.email === formData.email) || mockUsers[2];
-      onLogin(user);
+      const { token, user } = response.data;
+
+      if (token && user) {
+        // Store the token for subsequent API calls
+        localStorage.setItem('authToken', token);
+        
+        // Update auth state
+        onLogin(user);
+        
+        // Navigate to dashboard
+        navigate('/dashboard');
+      } else {
+        setError('Login failed. Please check your credentials.');
+      }
+    } catch (err) {
+      const errorMessage = err.response?.data?.detail || 'An unexpected error occurred. Please try again.';
+      setError(errorMessage);
+      console.error('Login error:', err);
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   const handleChange = (e) => {
@@ -160,6 +163,12 @@ const Login = ({ onLogin }) => {
                 'Sign In'
               )}
             </button>
+            
+            {error && (
+              <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+                {error}
+              </div>
+            )}
 
             {/* Demo Users */}
             <div className="mt-6 p-4 bg-ocean-50 rounded-lg">
