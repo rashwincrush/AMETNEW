@@ -2,6 +2,10 @@
   "version": 2,
   "builds": [
     {
+      "src": "backend/server.py",
+      "use": "@vercel/python"
+    },
+    {
       "src": "frontend/package.json",
       "use": "@vercel/static-build",
       "config": {
@@ -10,6 +14,10 @@
     }
   ],
   "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "backend/server.py"
+    },
     {
       "src": "/static/(.*)",
       "dest": "/frontend/static/$1"
@@ -28,7 +36,10 @@
     }
   ],
   "env": {
-    "REACT_APP_SUPABASE_URL": "${SUPABASE_URL}",
-    "REACT_APP_SUPABASE_KEY": "${SUPABASE_KEY}"
+    "REACT_APP_SUPABASE_URL": "@supabase_url",
+    "REACT_APP_SUPABASE_KEY": "@supabase_key",
+    "SUPABASE_URL": "@supabase_url",
+    "SUPABASE_KEY": "@supabase_key",
+    "JWT_SECRET": "@jwt_secret"
   }
 }

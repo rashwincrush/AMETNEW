@@ -1,20 +1,21 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
-import { signInWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
+import { signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase'; // Keep for social logins
+import apiClient from '../../utils/api'; // Import our new API client
+import { useAuth } from '../../contexts/AuthContext'; // Import useAuth to manage session
 
 const Login = () => {
   const navigate = useNavigate();
+  const { login } = useAuth(); // Get the login function from our context
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     rememberMe: false,
-    otpCode: ''
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [requiresTwoFactor, setRequiresTwoFactor] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -22,31 +23,24 @@ const Login = () => {
     setError('');
 
     try {
-      // If we're in 2FA mode, include the OTP code
-      const { data, error, requiresTwoFactor: requires2FA } = await signInWithEmail(
-        formData.email, 
-        formData.password,
-        requiresTwoFactor ? formData.otpCode : null
-      );
-      
-      if (requires2FA) {
-        setRequiresTwoFactor(true);
-        setError('Please enter the verification code from your authenticator app');
-        setIsLoading(false);
-        return;
-      }
-      
-      if (error) {
-        setError(error.message);
-        return;
-      }
+      // Use the new API client to call the backend
+      const response = await apiClient.post('/test_login', {
+        email: formData.email,
+        password: formData.password,
+      });
 
-      if (data.user) {
-        // Navigation will be handled by AuthContext
+      const { token, user } = response.data;
+
+      if (token && user) {
+        // Use the login function from AuthContext to update the global state
+        login(user, token);
         navigate('/dashboard');
+      } else {
+        setError('Login failed. Please check your credentials.');
       }
     } catch (err) {
-      setError('An unexpected error occurred. Please try again.');
+      const errorMessage = err.response?.data?.detail || 'An unexpected error occurred. Please try again.';
+      setError(errorMessage);
       console.error('Login error:', err);
     } finally {
       setIsLoading(false);
