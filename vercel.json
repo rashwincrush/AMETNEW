@@ -10,13 +10,6 @@
       }
     }
   ],
-  "rewrites": [
-    { "source": "/static/(.*)", "destination": "/static/$1" },
-    { "source": "/logo.png", "destination": "/logo.png" },
-    { "source": "/manifest.json", "destination": "/manifest.json" },
-    { "source": "/favicon.ico", "destination": "/favicon.ico" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ],
   "env": {
     "REACT_APP_SUPABASE_URL": "https://gvbtfolcizkzihforqte.supabase.co",
     "REACT_APP_SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2YnRmb2xjaXpremloZm9ycXRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2MTMzMDksImV4cCI6MjA1OTE4OTMwOX0.vhqGWSgmMcUNXnPtH2AXdJ9DQ6Thw_l1TX3tsr3ns70"
