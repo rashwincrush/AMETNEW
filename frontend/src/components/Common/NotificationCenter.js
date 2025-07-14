@@ -154,39 +154,7 @@ export const NotificationProvider = ({ children }) => {
     return toastId;
   };
 
-  // Function to show birthday notification
-  const showBirthdayWish = (name, options = {}) => {
-    const toastId = toast.custom((t) => (
-      <div 
-        className={`${
-          t.visible ? 'animate-enter' : 'animate-leave'
-        } max-w-md w-full bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 shadow-lg rounded-lg pointer-events-auto flex flex-col p-4`}
-      >
-        <div className="flex-1 text-center">
-          <div className="flex flex-col items-center justify-center">
-            <div className="flex-shrink-0 mb-2">
-              <span className="text-2xl">🎉</span>
-            </div>
-            <div className="text-white">
-              <p className="text-lg font-bold">Happy Birthday, {name}!</p>
-              <p className="mt-1 text-sm">Wishing you a fantastic day filled with joy and success!</p>
-            </div>
-          </div>
-        </div>
-        <div className="mt-3 text-center">
-          <button
-            onClick={() => toast.dismiss(t.id)}
-            className="px-4 py-2 text-sm font-medium text-white bg-white/30 rounded-md hover:bg-white/40 focus:outline-none"
-          >
-            Thank you!
-          </button>
-        </div>
-      </div>
-    ), { duration: options.duration || 10000, ...options });
 
-    addToNotifications('birthday', `Happy Birthday, ${name}!`, toastId);
-    return toastId;
-  };
 
   // Add notification to history
   const addToNotifications = (type, message, id) => {
@@ -211,7 +179,6 @@ export const NotificationProvider = ({ children }) => {
     showError,
     showWarning,
     showInfo,
-    showBirthdayWish,
     dismiss,
     notifications
   };

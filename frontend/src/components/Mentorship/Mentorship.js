@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../../utils/supabase';
+import { toast } from 'react-hot-toast';
+import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { 
   UserGroupIcon,
   AcademicCapIcon,
@@ -17,6 +20,7 @@ import {
 } from '@heroicons/react/24/outline';
 
 const Mentorship = () => {
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState('find-mentors');
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({
@@ -26,187 +30,86 @@ const Mentorship = () => {
     availability: 'all'
   });
 
-  // Mock mentors data
-  const mentors = [
-    {
-      id: 1,
-      name: 'Captain Rajesh Kumar',
-      title: 'Senior Marine Engineer',
-      company: 'Ocean Shipping Ltd.',
-      location: 'Mumbai, Maharashtra',
-      experience: '15 years',
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face',
-      rating: 4.9,
-      totalMentees: 12,
-      activeMentees: 3,
-      expertise: ['Marine Engineering', 'Ship Operations', 'Leadership', 'Safety Management'],
-      industries: ['Shipping', 'Maritime', 'Offshore'],
-      bio: 'Experienced marine engineer with 15+ years in international shipping. Passionate about mentoring young engineers and helping them navigate their maritime careers.',
-      achievements: ['Master Mariner License', 'Safety Excellence Award', 'Published 5 research papers'],
-      availability: 'Available',
-      responseTime: '< 24 hours',
-      languages: ['English', 'Hindi', 'Gujarati'],
-      mentoringSince: '2019',
-      compatibilityScore: 95,
-      isBookmarked: false,
-      sessions: {
-        completed: 48,
-        scheduled: 2,
-        avgRating: 4.9
+  // State for data from Supabase
+  const [mentors, setMentors] = useState([]);
+  const [mentorshipRequests, setMentorshipRequests] = useState([]);
+  const [myMentees, setMyMentees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const { user } = useAuth();
+  
+  // Fetch mentors on component mount
+  useEffect(() => {
+    console.log('Mentorship component mounted, user:', user);
+    fetchApprovedMentors();
+  }, [location]); // Removed user from the dependency array to avoid re-fetching
+  
+  // Function to fetch approved mentors
+  const fetchApprovedMentors = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      console.log('Fetching approved mentors from Supabase...');
+      
+      // Only add user condition if user exists
+      let query = supabase
+        .from('mentors')
+        .select(`
+          *,
+          profiles:user_id (full_name, avatar_url)
+        `);
+        
+      // Add filter condition only if user is available
+      if (user && user.id) {
+        query = query.or(`status.eq.approved,user_id.eq.${user.id}`);
+      } else {
+        query = query.eq('status', 'approved');
       }
-    },
-    {
-      id: 2,
-      name: 'Dr. Priya Sharma',
-      title: 'Naval Architect & Research Director',
-      company: 'Maritime Design Solutions',
-      location: 'Chennai, Tamil Nadu',
-      experience: '12 years',
-      avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b77c?w=150&h=150&fit=crop&crop=face',
-      rating: 4.8,
-      totalMentees: 18,
-      activeMentees: 5,
-      expertise: ['Naval Architecture', 'Ship Design', 'Research', 'Sustainable Design'],
-      industries: ['Design', 'Research', 'Consulting'],
-      bio: 'PhD in Naval Architecture with focus on sustainable ship design. Leading research projects and mentoring the next generation of naval architects.',
-      achievements: ['PhD Naval Architecture', 'Green Ship Design Award', 'TEDx Speaker'],
-      availability: 'Busy',
-      responseTime: '1-2 days',
-      languages: ['English', 'Tamil', 'Hindi'],
-      mentoringSince: '2020',
-      compatibilityScore: 88,
-      isBookmarked: true,
-      sessions: {
-        completed: 34,
-        scheduled: 1,
-        avgRating: 4.8
+      
+      // Execute the query
+      const { data: mentorsData, error: mentorsError } = await query;
+      
+      console.log('Supabase query result:', mentorsData, mentorsError);
+      
+      if (mentorsError) {
+        throw mentorsError;
       }
-    },
-    {
-      id: 3,
-      name: 'Mohammed Ali',
-      title: 'Port Operations Manager',
-      company: 'Indian Ports Authority',
-      location: 'Kochi, Kerala',
-      experience: '20 years',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face',
-      rating: 4.7,
-      totalMentees: 25,
-      activeMentees: 4,
-      expertise: ['Port Management', 'Logistics', 'Government Relations', 'Strategy'],
-      industries: ['Port Operations', 'Government', 'Logistics'],
-      bio: 'Two decades of experience in port operations and management. Expert in logistics optimization and government relations in maritime sector.',
-      achievements: ['Port Excellence Award', 'MBA Operations', 'Logistics Certification'],
-      availability: 'Available',
-      responseTime: '< 12 hours',
-      languages: ['English', 'Malayalam', 'Arabic'],
-      mentoringSince: '2018',
-      compatibilityScore: 82,
-      isBookmarked: false,
-      sessions: {
-        completed: 67,
-        scheduled: 3,
-        avgRating: 4.7
-      }
-    },
-    {
-      id: 4,
-      name: 'Kavitha Menon',
-      title: 'Maritime Lawyer',
-      company: 'Coastal Legal Associates',
-      location: 'Chennai, Tamil Nadu',
-      experience: '10 years',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop&crop=face',
-      rating: 4.9,
-      totalMentees: 8,
-      activeMentees: 2,
-      expertise: ['Maritime Law', 'Legal Research', 'Contract Negotiation', 'Admiralty'],
-      industries: ['Legal', 'Shipping', 'Insurance'],
-      bio: 'Specialized maritime lawyer with expertise in admiralty law and shipping regulations. Helping law students and professionals navigate maritime legal careers.',
-      achievements: ['LLM Maritime Law', 'Bar Association Award', 'Legal Excellence Recognition'],
-      availability: 'Limited',
-      responseTime: '2-3 days',
-      languages: ['English', 'Tamil'],
-      mentoringSince: '2021',
-      compatibilityScore: 75,
-      isBookmarked: false,
-      sessions: {
-        completed: 22,
-        scheduled: 1,
-        avgRating: 4.9
-      }
+      
+      console.log('Fetched mentors:', mentorsData);
+      
+      // Transform data to match the expected structure for rendering
+      const transformedMentors = mentorsData.map(mentor => ({
+        id: mentor.id,
+        user_id: mentor.user_id,
+        name: mentor.profiles?.full_name || 'Anonymous Mentor',
+        avatar: mentor.profiles?.avatar_url || '/default-avatar.png',
+        title: 'Maritime Professional', // Default as we no longer fetch title
+        company: 'AMET', // Default value
+        location: 'Unknown', // Default value
+        bio: mentor.mentoring_statement || '', // Use mentoring_statement as bio
+        expertise: mentor.expertise || [],
+        experience: `${mentor.mentoring_experience_years || 0} years`,
+        responseTime: '48 hours',
+        availability: 'Available',
+        compatibilityScore: 85, // Placeholder compatibility score
+        ratings: '5.0', // Default or can be calculated if you have ratings
+        totalMentees: mentor.max_mentees || 0,
+        isBookmarked: false // You can add logic to check if bookmarked by current user
+      }));
+      
+      console.log('Transformed mentors:', transformedMentors);
+      
+      setMentors(transformedMentors);
+    } catch (err) {
+      console.error('Error fetching mentors:', err);
+      setError(err.message || 'Failed to load mentors');
+      toast.error('Failed to load mentors');
+    } finally {
+      setLoading(false);
     }
-  ];
-
-  // Mock mentorship requests
-  const mentorshipRequests = [
-    {
-      id: 1,
-      mentorName: 'Captain Rajesh Kumar',
-      mentorAvatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=50&h=50&fit=crop&crop=face',
-      requestedDate: '2024-04-10',
-      status: 'pending',
-      message: 'Hi Captain Kumar, I am interested in learning about marine engineering career paths and would love to get your guidance on transitioning from academic studies to industry.',
-      expertise: 'Marine Engineering',
-      sessionType: 'Virtual',
-      preferredDuration: '45 minutes'
-    },
-    {
-      id: 2,
-      mentorName: 'Dr. Priya Sharma',
-      mentorAvatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b77c?w=50&h=50&fit=crop&crop=face',
-      requestedDate: '2024-04-08',
-      status: 'accepted',
-      message: 'I would like to discuss research opportunities in sustainable ship design and potential PhD pathways.',
-      expertise: 'Naval Architecture',
-      sessionType: 'In-person',
-      preferredDuration: '60 minutes',
-      scheduledDate: '2024-04-15',
-      scheduledTime: '14:00'
-    },
-    {
-      id: 3,
-      mentorName: 'Mohammed Ali',
-      mentorAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=50&h=50&fit=crop&crop=face',
-      requestedDate: '2024-04-05',
-      status: 'completed',
-      message: 'Seeking guidance on port operations management and career progression in government sector.',
-      expertise: 'Port Management',
-      sessionType: 'Virtual',
-      preferredDuration: '30 minutes',
-      completedDate: '2024-04-12',
-      rating: 5,
-      feedback: 'Excellent session! Mohammed provided great insights into port operations and career paths.'
-    }
-  ];
-
-  // Mock my mentoring activities (if user is a mentor)
-  const myMentees = [
-    {
-      id: 1,
-      name: 'Arjun Nair',
-      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=50&h=50&fit=crop&crop=face',
-      program: 'Marine Engineering',
-      graduationYear: '2024',
-      requestDate: '2024-04-01',
-      status: 'active',
-      sessionsCompleted: 3,
-      nextSession: '2024-04-16',
-      goals: ['Career guidance', 'Industry insights', 'Skill development']
-    },
-    {
-      id: 2,
-      name: 'Sneha Patel',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=50&h=50&fit=crop&crop=face',
-      program: 'Naval Architecture',
-      graduationYear: '2023',
-      requestDate: '2024-03-20',
-      status: 'active',
-      sessionsCompleted: 5,
-      nextSession: '2024-04-18',
-      goals: ['Job search strategy', 'Portfolio development', 'Interview preparation']
-    }
-  ];
+  };
+  
 
   const expertiseOptions = [
     { value: 'all', label: 'All Expertise Areas' },
@@ -362,7 +265,7 @@ const Mentorship = () => {
 
       <div className="flex space-x-2">
         <Link 
-          to={`/mentorship/mentor/${mentor.id}`}
+          to={`/mentorship/mentor/${mentor.user_id}`}
           className="flex-1 btn-ocean-outline py-2 px-3 rounded text-sm text-center"
         >
           View Profile
@@ -387,10 +290,10 @@ const Mentorship = () => {
             <p className="text-gray-600">Connect with experienced professionals and advance your maritime career</p>
           </div>
           <Link 
-            to="/mentorship/become-mentor" 
-            className="btn-ocean px-4 py-2 rounded-lg flex items-center"
+            to="/mentorship/become-mentor"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center"
           >
-            <PlusIcon className="w-4 h-4 mr-2" />
+            <PlusIcon className="w-5 h-5 mr-2" />
             Become a Mentor
           </Link>
         </div>
@@ -455,25 +358,52 @@ const Mentorship = () => {
               </div>
 
               {/* Results */}
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <p className="text-gray-600">
-                    Found <span className="font-medium">{filteredMentors.length}</span> mentors
+              {loading ? (
+                <div className="text-center py-12">
+                  <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-ocean-500"></div>
+                  <h3 className="text-lg font-medium text-gray-700 mt-4">Loading mentors...</h3>
+                </div>
+              ) : error ? (
+                <div className="bg-red-50 p-8 rounded-lg text-center">
+                  <XCircleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-red-800 mb-2">Failed to load mentors</h3>
+                  <p className="text-red-600 mb-6">{error}</p>
+                  <button 
+                    onClick={fetchApprovedMentors}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              ) : filteredMentors.length === 0 ? (
+                <div className="bg-gray-50 p-8 rounded-lg text-center">
+                  <UserGroupIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No mentors found</h3>
+                  <p className="text-gray-600 mb-6">
+                    Try adjusting your filters or search criteria
                   </p>
-                  <select className="form-input px-3 py-1 rounded text-sm">
-                    <option>Sort by Compatibility</option>
-                    <option>Sort by Rating</option>
-                    <option>Sort by Experience</option>
-                    <option>Sort by Availability</option>
-                  </select>
                 </div>
+              ) : (
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-gray-600">
+                      Found <span className="font-medium">{filteredMentors.length}</span> mentors
+                    </p>
+                    <select className="form-input px-3 py-1 rounded text-sm">
+                      <option>Sort by Compatibility</option>
+                      <option>Sort by Rating</option>
+                      <option>Sort by Experience</option>
+                      <option>Sort by Availability</option>
+                    </select>
+                  </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {filteredMentors.map((mentor) => (
-                    <MentorCard key={mentor.id} mentor={mentor} />
-                  ))}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {filteredMentors.map((mentor) => (
+                      <MentorCard key={mentor.id} mentor={mentor} />
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -564,15 +494,7 @@ const Mentorship = () => {
           {/* My Mentoring Tab */}
           {activeTab === 'my-mentoring' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">My Mentees</h3>
-                <Link 
-                  to="/mentorship/mentor-settings" 
-                  className="btn-ocean-outline px-4 py-2 rounded-lg text-sm"
-                >
-                  Mentor Settings
-                </Link>
-              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">My Mentees</h3>
               
               {myMentees.length === 0 ? (
                 <div className="text-center py-12">
@@ -601,7 +523,7 @@ const Mentorship = () => {
                           />
                           <div className="flex-1">
                             <h4 className="font-semibold text-gray-900">{mentee.name}</h4>
-                            <p className="text-ocean-600 text-sm">{mentee.program} • Class of {mentee.graduationYear}</p>
+                            <p className="text-ocean-600 text-sm">{mentee.program} • Year of Completion : {mentee.graduationYear}</p>
                             
                             <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
                               <span>Started: {new Date(mentee.requestDate).toLocaleDateString()}</span>

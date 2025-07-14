@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, momentLocalizer } from 'react-big-calendar';
 import moment from 'moment';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { supabase } from '../../utils/supabase';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import { 
   ChevronLeftIcon,
@@ -17,8 +18,75 @@ const EventCalendar = () => {
   const [currentView, setCurrentView] = useState('month');
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // Mock events data formatted for react-big-calendar
-  const events = [
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const subscriptionRef = useRef(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    fetchEvents();
+    
+    // Set up real-time subscription for events
+    const channel = supabase
+      .channel('events-calendar-subscription')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'events' },
+        (payload) => {
+          console.log('Real-time change received in calendar:', payload);
+          fetchEvents();
+        }
+      )
+      .subscribe();
+
+    subscriptionRef.current = channel;
+
+    // Cleanup function
+    return () => {
+      if (subscriptionRef.current) {
+        supabase.removeChannel(subscriptionRef.current);
+        subscriptionRef.current = null;
+      }
+    };
+  }, []);
+
+  const fetchEvents = async () => {
+    try {
+      setLoading(true);
+      
+      const { data, error: fetchError } = await supabase
+        .from('events')
+        .select('*');
+
+      if (fetchError) throw fetchError;
+      
+      // Format events for the calendar
+      const formattedEvents = data.map(event => ({
+        id: event.id,
+        title: event.title,
+        start: new Date(event.start_date),
+        end: new Date(event.end_date),
+        resource: {
+          type: event.location.toLowerCase().includes('online') ? 'virtual' : 'in-person',
+          category: event.event_type || 'general',
+          location: event.location,
+          description: event.description,
+          organizer: event.organizer || 'AMET Alumni Association'
+        }
+      }));
+      
+      setEvents(formattedEvents);
+    } catch (err) {
+      console.error('Error fetching events:', err);
+      setError('Failed to load events');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Sample events for when no events exist in the database
+  const sampleEvents = [
     {
       id: 1,
       title: 'AMET Alumni Meetup 2024',
@@ -91,7 +159,20 @@ const EventCalendar = () => {
     }
   ];
 
-  const [filteredEvents, setFilteredEvents] = useState(events);
+  const [filteredEvents, setFilteredEvents] = useState([]);
+  
+  // Update filtered events when events change
+  useEffect(() => {
+    if (selectedCategories.includes('all')) {
+      setFilteredEvents(events.length > 0 ? events : sampleEvents);
+    } else {
+      setFilteredEvents(
+        (events.length > 0 ? events : sampleEvents).filter(event => 
+          selectedCategories.includes(event.resource.category)
+        )
+      );
+    }
+  }, [events, selectedCategories]);
   const [selectedCategories, setSelectedCategories] = useState(['all']);
 
   const categories = [
@@ -238,8 +319,7 @@ const EventCalendar = () => {
   );
 
   const handleSelectEvent = (event) => {
-    // Navigate to event details
-    window.location.href = `/events/${event.id}`;
+    navigate(`/events/${event.id}`);
   };
 
   return (

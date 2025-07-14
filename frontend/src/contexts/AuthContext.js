@@ -19,40 +19,24 @@ export const AuthProvider = ({ children }) => {
   const [permissionsCache, setPermissionsCache] = useState({});
   const listenerRef = useRef(null);
 
+  // Track initialization state with ref to prevent duplicate inits
+  const initializedRef = useRef(false);
+
   useEffect(() => {
     console.log('AuthProvider useEffect started.');
 
+    // Prevent duplicate initialization in development
+    if (initializedRef.current) {
+      console.log('Auth already initialized, skipping duplicate init');
+      return;
+    }
+    initializedRef.current = true;
+
     // Add a timeout to prevent getting stuck on loading indefinitely
     const loadingTimeout = setTimeout(() => {
-      console.error('Auth process timed out after 8 seconds. This might be a Supabase connection issue or incorrect credentials.');
-      // Force loading to false and create a guest session to unblock UI
+      console.error('Auth process timed out after 8 seconds.');
       setLoading(false);
-      // If we're still stuck, we might want to provide a guest experience
-      if (!user) {
-        console.log('Creating guest session to allow app usage without authentication');
-        // Create a guest user to allow basic app functionality
-        const guestUser = {
-          id: 'guest-' + Date.now(),
-          email: 'guest@example.com',
-          is_guest: true
-        };
-        setUser(guestUser);
-        
-        // Create a basic profile for the guest user
-        const guestProfile = {
-          id: guestUser.id,
-          email: guestUser.email,
-          full_name: 'Guest User',
-          role: 'guest',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          is_fallback: true,
-          is_guest: true
-        };
-        setProfile(guestProfile);
-        console.log('Guest session created:', { user: guestUser, profile: guestProfile });
-      }
-    }, 8000); // Reduced from 10s to 8s
+    }, 8000);
 
     const initializeAuth = async () => {
       console.log('1. Initializing authentication...');
@@ -68,24 +52,28 @@ export const AuthProvider = ({ children }) => {
         }
         console.log('2. Supabase credentials found.');
 
-        if (!supabase || !supabase.auth) {
-          console.error('CRITICAL: Supabase client or auth module is not available.');
+        if (!supabase?.auth) {
+          console.error('CRITICAL: Supabase auth module is not available.');
           setLoading(false);
           clearTimeout(loadingTimeout);
           return;
         }
         console.log('3. Supabase client is available.');
 
-        // Clean up previous listener if exists
-        if (listenerRef.current) {
-          console.log('Cleaning up previous auth listener.');
-          listenerRef.current.unsubscribe();
+        // Check for existing session first
+        const { data: { session: existingSession } } = await supabase.auth.getSession();
+        if (existingSession) {
+          console.log('3.5. Found existing session');
+          setUser(existingSession.user);
+          setSession(existingSession);
+          await fetchUserProfile(existingSession.user.id);
         }
 
+        // Set up auth state change listener
         console.log('4. Setting up onAuthStateChange listener...');
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-          clearTimeout(loadingTimeout); // Clear timeout once auth state is received
-          console.log(`5. Auth state change event received: ${event}`, { hasSession: !!session });
+          clearTimeout(loadingTimeout);
+          console.log(`5. Auth state change event: ${event}`, { hasSession: !!session });
           
           const currentUser = session?.user || null;
           setUser(currentUser);
@@ -93,10 +81,13 @@ export const AuthProvider = ({ children }) => {
 
           try {
             if (currentUser) {
-              console.log('6a. User found, fetching profile...');
-              await fetchUserProfile(currentUser.id);
+              console.log('6a. User found, checking if profile needs update...');
+              // Only fetch profile if we don't have one or if user changed
+              if (!profile || profile.id !== currentUser.id) {
+                await fetchUserProfile(currentUser.id);
+              }
             } else {
-              console.log('6b. No user session, setting profile to null.');
+              console.log('6b. No user session, resetting profile.');
               setProfile(null);
             }
           } catch (e) {
@@ -119,112 +110,45 @@ export const AuthProvider = ({ children }) => {
 
     initializeAuth();
 
-    // The cleanup function is returned directly by useEffect
+    // Cleanup function
     return () => {
       console.log('AuthProvider cleanup function called.');
       clearTimeout(loadingTimeout);
       if (listenerRef.current) {
+        console.log('Unsubscribing auth listener');
         listenerRef.current.unsubscribe();
-        console.log('Auth listener unsubscribed on cleanup.');
+        listenerRef.current = null;
       }
+      initializedRef.current = false;
     };
-  }, []);
+  }, [profile?.id]); // Only re-run if profile ID changes
 
   const fetchUserProfile = async (userId) => {
     console.log(`Fetching profile for userId: ${userId}`);
     if (!userId) {
       console.error("fetchUserProfile called with no userId.");
       setProfile(null);
-      setLoading(false); // Ensure loading is set to false
+      setLoading(false);
       return null;
     }
 
-    // Create a manual timeout that will force completion after 5 seconds
-    const timeoutPromise = new Promise(resolve => {
-      setTimeout(() => {
-        console.log('⚠️ Profile fetch timeout reached - forcing fallback profile');
-        resolve({ timedOut: true });
-      }, 5000); // Reduced from 8s to 5s for faster fallback
-    });
-    
     try {
-      console.log('Executing Supabase profile query with timeout...');
-      
-      // Race between the profile fetch and the timeout
-      const result = await Promise.race([
-        timeoutPromise,
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .single()
-      ]);
-      
-      // If we got the timeout result
-      if (result.timedOut) {
-        console.warn('Profile fetch timed out - creating fallback profile');
-        const fallbackProfile = createFallbackProfile(userId);
-        console.log('Fallback profile created:', fallbackProfile);
-        setProfile(fallbackProfile);
-        setLoading(false); // Ensure loading is set to false
-        return fallbackProfile;
-      }
-      
-      // Otherwise we got the actual query result
-      const { data, error } = result;
-      console.log('Supabase profile query finished.');
-      
-      if (error) {
-        console.error('Error fetching profile:', error);
-        // Create a fallback profile with basic user info instead of throwing
-        console.log('Creating fallback profile due to error');
-        const fallbackProfile = createFallbackProfile(userId);
-        console.log('Fallback profile created:', fallbackProfile);
-        setProfile(fallbackProfile);
-        setLoading(false); // Ensure loading is set to false
-        return fallbackProfile;
-      }
-      
-      if (data) {
-        console.log('Profile data found, setting profile state:', data);
-        setProfile(data);
-        setLoading(false); // Ensure loading is set to false
-        return data;
-      } else {
-        console.log('No profile data found for user.');
-        // Create a fallback profile with basic user info
-        console.log('Creating fallback profile due to missing data');
-        const fallbackProfile = createFallbackProfile(userId);
-        console.log('Fallback profile created:', fallbackProfile);
-        setProfile(fallbackProfile);
-        setLoading(false); // Ensure loading is set to false
-        return fallbackProfile;
-      }
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+        .throwOnError();
+
+      setProfile(profileData);
+      return profileData;
     } catch (error) {
-      console.error('Exception during profile fetch:', error);
-      
-      // Create a fallback profile with basic user info
-      console.log('Creating fallback profile after exception');
-      const fallbackProfile = createFallbackProfile(userId);
-      console.log('Fallback profile created:', fallbackProfile);
-      setProfile(fallbackProfile);
-      setLoading(false); // Ensure loading is set to false
-      return fallbackProfile;
+      console.error('Error fetching profile:', error);
+      setProfile(null);
+      return null;
+    } finally {
+      setLoading(false);
     }
-  };
-  
-  // Helper function to create a fallback profile
-  const createFallbackProfile = (userId) => {
-    return {
-      id: userId,
-      email: user?.email || 'unknown@email.com',
-      full_name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User',
-      role: 'alumni', // Default role
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      is_fallback: true, // Flag to indicate this is a fallback profile
-      avatar_url: null
-    };
   };
 
   const signOut = async () => {
@@ -235,7 +159,11 @@ export const AuthProvider = ({ children }) => {
         console.error('Error signing out:', error);
       }
       
-      // Force logout even if there's an error
+      // Unsubscribe auth listener
+      if (listenerRef.current) {
+        listenerRef.current.unsubscribe();
+        listenerRef.current = null;
+      }
       setUser(null);
       setProfile(null);
       setSession(null);
@@ -424,6 +352,9 @@ export const AuthProvider = ({ children }) => {
     return user?.user_metadata?.role || 'alumni';
   };
   
+  const userRole = getUserRole();
+  const isAdmin = userRole === 'admin' || userRole === 'super_admin';
+
   const value = {
     user,
     profile,
@@ -433,6 +364,8 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     fetchUserProfile,
     isAuthenticated: !!user,
+    isAdmin,
+    userRole,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,

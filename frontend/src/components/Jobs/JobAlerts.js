@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../../utils/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+import { useNotification } from '../../hooks/useNotification';
 import { Link } from 'react-router-dom';
 import { 
   BellIcon,
@@ -13,63 +16,21 @@ import {
 } from '@heroicons/react/24/outline';
 
 const JobAlerts = () => {
-  const [alerts, setAlerts] = useState([
-    {
-      id: 1,
-      title: 'Senior Marine Engineer Jobs',
-      keywords: 'Senior Marine Engineer, Chief Engineer',
-      location: 'Mumbai, Chennai',
-      jobType: 'Full-time',
-      experienceLevel: 'Senior Level',
-      salaryRange: '₹12-20 LPA',
-      frequency: 'weekly',
-      isActive: true,
-      createdDate: '2024-04-01',
-      lastSent: '2024-04-08',
-      matchingJobs: 3
-    },
-    {
-      id: 2,
-      title: 'Naval Architecture Opportunities',
-      keywords: 'Naval Architect, Ship Design',
-      location: 'Any Location',
-      jobType: 'Any',
-      experienceLevel: 'Mid Level',
-      salaryRange: '₹8-15 LPA',
-      frequency: 'daily',
-      isActive: true,
-      createdDate: '2024-03-25',
-      lastSent: '2024-04-10',
-      matchingJobs: 1
-    },
-    {
-      id: 3,
-      title: 'Port Management Roles',
-      keywords: 'Port Manager, Logistics Manager',
-      location: 'Kochi, Visakhapatnam',
-      jobType: 'Full-time',
-      experienceLevel: 'Senior Level',
-      salaryRange: '₹15+ LPA',
-      frequency: 'biweekly',
-      isActive: false,
-      createdDate: '2024-03-15',
-      lastSent: '2024-03-29',
-      matchingJobs: 0
-    }
-  ]);
+  const { user } = useAuth();
+  const { showSuccess, showError } = useNotification();
+  const [loading, setLoading] = useState(true);
+  const [alerts, setAlerts] = useState([]);
+
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingAlert, setEditingAlert] = useState(null);
   const [formData, setFormData] = useState({
-    title: '',
+    name: '',
     keywords: '',
     location: '',
-    jobType: 'any',
-    experienceLevel: 'any',
-    salaryMin: '',
-    salaryMax: '',
+    job_type: 'any',
     frequency: 'weekly',
-    isActive: true
+    is_active: true
   });
 
   const jobTypes = [
@@ -102,72 +63,123 @@ const JobAlerts = () => {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const fetchAlerts = useCallback(async () => {
+    if (!user) return;
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('job_alerts')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setAlerts(data || []);
+    } catch (error) {
+      showError('Could not fetch your job alerts.');
+      console.error('Error fetching job alerts:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, showError]);
+
+  useEffect(() => {
+    fetchAlerts();
+  }, [fetchAlerts]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (editingAlert) {
-      // Update existing alert
-      setAlerts(prev => prev.map(alert => 
-        alert.id === editingAlert.id 
-          ? { ...alert, ...formData, id: editingAlert.id }
-          : alert
-      ));
-    } else {
-      // Create new alert
-      const newAlert = {
-        ...formData,
-        id: Date.now(),
-        createdDate: new Date().toISOString().split('T')[0],
-        lastSent: null,
-        matchingJobs: 0
-      };
-      setAlerts(prev => [newAlert, ...prev]);
+    if (!user) {
+      showError('You must be logged in to manage alerts.');
+      return;
     }
 
-    // Reset form
-    setFormData({
-      title: '',
-      keywords: '',
-      location: '',
-      jobType: 'any',
-      experienceLevel: 'any',
-      salaryMin: '',
-      salaryMax: '',
-      frequency: 'weekly',
-      isActive: true
-    });
-    setShowCreateForm(false);
-    setEditingAlert(null);
+    const alertData = {
+      user_id: user.id,
+      name: formData.name,
+      keywords: formData.keywords.split(',').map(k => k.trim()).filter(Boolean),
+      location: formData.location,
+      job_type: formData.job_type,
+      frequency: formData.frequency,
+      is_active: formData.is_active,
+    };
+
+    try {
+      let error;
+      if (editingAlert) {
+        // Update existing alert
+        const { error: updateError } = await supabase
+          .from('job_alerts')
+          .update(alertData)
+          .eq('id', editingAlert.id);
+        error = updateError;
+      } else {
+        // Create new alert
+        const { error: insertError } = await supabase
+          .from('job_alerts')
+          .insert(alertData);
+        error = insertError;
+      }
+
+      if (error) throw error;
+
+      showSuccess(editingAlert ? 'Job alert updated successfully!' : 'Job alert created successfully!');
+      fetchAlerts(); // Refresh the list
+      setShowCreateForm(false);
+      setEditingAlert(null);
+    } catch (error) {
+      showError(`Error: ${error.message}`);
+      console.error('Error submitting job alert:', error);
+    }
   };
 
   const handleEdit = (alert) => {
     setEditingAlert(alert);
     setFormData({
-      title: alert.title,
-      keywords: alert.keywords,
-      location: alert.location,
-      jobType: alert.jobType.toLowerCase().replace(' ', '-') || 'any',
-      experienceLevel: alert.experienceLevel.toLowerCase().replace(' level', '').replace(' ', '-') || 'any',
-      salaryMin: '',
-      salaryMax: '',
-      frequency: alert.frequency,
-      isActive: alert.isActive
+      name: alert.name,
+      keywords: Array.isArray(alert.keywords) ? alert.keywords.join(', ') : '',
+      location: alert.location || '',
+      job_type: alert.job_type || 'any',
+      frequency: alert.frequency || 'weekly',
+      is_active: alert.is_active
     });
     setShowCreateForm(true);
   };
 
-  const handleDelete = (alertId) => {
-    if (window.confirm('Are you sure you want to delete this job alert?')) {
-      setAlerts(prev => prev.filter(alert => alert.id !== alertId));
+  const handleDelete = async (alertId) => {
+    if (!window.confirm('Are you sure you want to delete this alert?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('job_alerts')
+        .delete()
+        .eq('id', alertId);
+
+      if (error) throw error;
+
+      showSuccess('Job alert deleted successfully!');
+      fetchAlerts(); // Refresh the list
+    } catch (error) {
+      showError(`Error deleting alert: ${error.message}`);
+      console.error('Error deleting job alert:', error);
     }
   };
 
-  const toggleAlert = (alertId) => {
-    setAlerts(prev => prev.map(alert => 
-      alert.id === alertId 
-        ? { ...alert, isActive: !alert.isActive }
-        : alert
-    ));
+  const toggleAlert = async (alert) => {
+    try {
+      const { error } = await supabase
+        .from('job_alerts')
+        .update({ is_active: !alert.is_active })
+        .eq('id', alert.id);
+
+      if (error) throw error;
+
+      showSuccess(`Alert "${alert.name}" has been ${!alert.is_active ? 'activated' : 'deactivated'}.`);
+      fetchAlerts(); // Refresh the list
+    } catch (error) {
+      showError(`Error updating alert status: ${error.message}`);
+      console.error('Error toggling alert:', error);
+    }
   };
 
   const getFrequencyBadgeColor = (frequency) => {
@@ -370,8 +382,8 @@ const JobAlerts = () => {
                 </label>
                 <input
                   type="text"
-                  name="title"
-                  value={formData.title}
+                  name="name"
+                  value={formData.name}
                   onChange={handleInputChange}
                   required
                   className="form-input w-full px-3 py-2 rounded-lg"
@@ -415,8 +427,8 @@ const JobAlerts = () => {
                     Job Type
                   </label>
                   <select
-                    name="jobType"
-                    value={formData.jobType}
+                    name="job_type"
+                    value={formData.job_type}
                     onChange={handleInputChange}
                     className="form-input w-full px-3 py-2 rounded-lg"
                   >
@@ -486,8 +498,8 @@ const JobAlerts = () => {
               <div className="flex items-center">
                 <input
                   type="checkbox"
-                  name="isActive"
-                  checked={formData.isActive}
+                  name="is_active"
+                  checked={formData.is_active}
                   onChange={handleInputChange}
                   className="mr-2"
                 />

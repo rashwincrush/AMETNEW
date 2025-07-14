@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { supabase } from '../../utils/supabase';
+import toast from 'react-hot-toast';
 import { 
   MapPinIcon,
   BriefcaseIcon,
@@ -8,596 +10,629 @@ import {
   BuildingOfficeIcon,
   CalendarIcon,
   UserGroupIcon,
-  BookmarkIcon,
+  BookmarkIcon as BookmarkIconOutline,
   ShareIcon,
   DocumentTextIcon,
   EnvelopeIcon,
   PhoneIcon,
   GlobeAltIcon,
   CheckCircleIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
+import { BookmarkIcon as BookmarkIconSolid } from '@heroicons/react/24/solid';
+
+// Helper function to safely convert string data to arrays
+const convertToArray = (data) => {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (typeof data === 'string') {
+    if (data.includes(',')) return data.split(',').map(item => item.trim());
+    if (data.includes('|')) return data.split('|').map(item => item.trim());
+    if (data.includes(';')) return data.split(';').map(item => item.trim());
+    return [data];
+  }
+  return [];
+};
 
 const JobDetails = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const [job, setJob] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [isBookmarked, setIsBookmarked] = useState(false);
-  const [showApplicationForm, setShowApplicationForm] = useState(false);
+  const [user, setUser] = useState(null); // For the current authenticated user
+  const [bookmarking, setBookmarking] = useState(false); // For loading state of bookmark action
+  const [sharing, setSharing] = useState(false); // For loading state of share action
   
-  // Mock detailed job data
-  const job = {
-    id: 1,
-    title: 'Senior Marine Engineer',
-    company: 'Ocean Shipping Ltd.',
-    companyLogo: 'https://images.unsplash.com/photo-1560179707-f14e90ef3623?w=200&h=200&fit=crop',
-    location: 'Mumbai, Maharashtra',
-    jobType: 'Full-time',
-    experience: '5-8 years',
-    salary: '₹12-15 LPA',
-    description: 'Leading maritime company seeking experienced marine engineer for vessel operations and maintenance.',
-    longDescription: `We are looking for a Senior Marine Engineer to join our fleet operations team. The successful candidate will be responsible for the safe and efficient operation of marine engines and related equipment aboard our vessels.
-
-The role offers excellent opportunities for career advancement in a dynamic maritime environment. You will work with state-of-the-art equipment and be part of a team committed to excellence in maritime operations.`,
-    responsibilities: [
-      'Supervise and maintain marine propulsion systems and auxiliary machinery',
-      'Ensure compliance with international maritime regulations (SOLAS, MARPOL)',
-      'Lead engineering teams during voyage operations and port calls',
-      'Conduct regular inspections and preventive maintenance schedules',
-      'Manage fuel efficiency optimization and environmental compliance',
-      'Coordinate with port authorities and classification societies',
-      'Mentor junior engineers and deck officers',
-      'Maintain detailed engineering logs and reports'
-    ],
-    requirements: [
-      'Bachelor\'s degree in Marine Engineering from recognized institution',
-      'Valid Chief Engineer license (Class 1 preferred)',
-      'Minimum 5 years of sea-going experience on merchant vessels',
-      'Knowledge of international maritime laws and regulations',
-      'Strong leadership and communication skills',
-      'Experience with modern marine propulsion systems',
-      'Proficiency in English (verbal and written)',
-      'Valid STCW certificates and medical fitness'
-    ],
-    preferredQualifications: [
-      'MBA or advanced degree in maritime studies',
-      'Experience with LNG or specialized vessel types',
-      'Knowledge of ship management software (AMOS, DANAOS)',
-      'Previous experience in fleet management or superintendency',
-      'Additional language skills (especially for international routes)'
-    ],
-    benefits: [
-      'Competitive salary with performance-based bonuses',
-      'Comprehensive health and life insurance',
-      'Annual leave as per maritime regulations (4 months)',
-      'Career advancement opportunities within the organization',
-      'Training and certification support for professional development',
-      'Family accommodation allowance for shore positions',
-      'Retirement benefits and provident fund',
-      'International exposure and travel opportunities'
-    ],
-    industry: 'Shipping & Maritime',
-    skills: ['Marine Engineering', 'Ship Operations', 'Leadership', 'Safety Management', 'Regulatory Compliance'],
-    postedDate: '2024-04-10',
-    applicationDeadline: '2024-05-10',
-    applicants: 23,
-    jobId: 'OSL-ME-2024-001',
-    reportingTo: 'Fleet Technical Manager',
-    department: 'Technical Operations',
-    workSchedule: 'Rotation-based (4 months on/off)',
-    travelRequired: 'Extensive (International voyages)',
-    companyInfo: {
-      name: 'Ocean Shipping Ltd.',
-      founded: '1994',
-      size: '1000-5000 employees',
-      type: 'Private Company',
-      headquarters: 'Mumbai, India',
-      website: 'www.oceanshipping.com',
-      description: 'Ocean Shipping Ltd. is a leading international shipping company with over 30 years of experience in maritime transportation. We operate a modern fleet of vessels serving global trade routes and are committed to sustainable shipping practices.',
-      values: ['Safety First', 'Environmental Responsibility', 'Excellence in Service', 'Innovation'],
-      fleetSize: '50+ vessels',
-      routes: 'Asia-Europe, Trans-Pacific, Indian Ocean',
-      certifications: ['ISO 9001', 'ISO 14001', 'OHSAS 18001', 'MLC 2006']
-    },
-    contactPerson: {
-      name: 'Rajesh Kapoor',
-      title: 'HR Manager - Maritime Operations',
-      email: 'hr@oceanshipping.com',
-      phone: '+91 98765 43210',
-      linkedin: 'linkedin.com/in/rajeshkapoor'
-    },
-    applicationProcess: [
-      'Submit online application with resume and cover letter',
-      'Initial screening and document verification',
-      'Technical interview with Fleet Technical Manager',
-      'Medical examination and background check',
-      'Final interview with senior management',
-      'Job offer and contract negotiation'
-    ],
-    similarJobs: [
-      {
-        id: 2,
-        title: 'Chief Engineer',
-        company: 'Maritime Services Corp',
-        location: 'Chennai',
-        salary: '₹18-22 LPA'
-      },
-      {
-        id: 3,
-        title: 'Marine Superintendent',
-        company: 'Global Fleet Management',
-        location: 'Mumbai',
-        salary: '₹15-20 LPA'
-      },
-      {
-        id: 4,
-        title: 'Fleet Engineer',
-        company: 'Indian Shipping Lines',
-        location: 'Kochi',
-        salary: '₹10-14 LPA'
+  // Fetch current user
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const { data: { user: currentUser }, error } = await supabase.auth.getUser();
+      if (error) {
+        console.error("Error getting user:", error.message);
+        // Features requiring auth might not work as expected.
+        // Consider showing a toast: toast.error("Could not get user session.");
       }
-    ]
-  };
+      setUser(currentUser);
+      // console.log('Current user:', currentUser); // For debugging
+    };
+    getCurrentUser();
+  }, []); // Runs once on component mount
 
-  const [applicationData, setApplicationData] = useState({
-    coverLetter: '',
-    expectedSalary: '',
-    availableFrom: '',
-    resumeFile: null,
-    experience: '',
-    whyInterested: ''
-  });
+  // Fetch job data from Supabase
+  useEffect(() => {
+    const fetchJobDetails = async () => {
+      setLoading(true);
+      setError(null);
+      
+      try {
+        const { data, error } = await supabase
+          .from('jobs')
+          .select('*')
+          .eq('id', id)
+          .single();
+          
+        if (error) throw error;
+        
+        if (data) {
+          // Process data to ensure arrays are handled properly
+          const processedData = {
+            ...data,
+            requirements: convertToArray(data.requirements),
+            responsibilities: convertToArray(data.responsibilities),
+            preferredQualifications: convertToArray(data.preferredQualifications),
+            benefits: convertToArray(data.benefits),
+            applicationProcess: convertToArray(data.applicationProcess),
+            skills: convertToArray(data.skills),
+            companyInfo: data.companyInfo ? {
+              ...data.companyInfo,
+              values: data.companyInfo?.values ? convertToArray(data.companyInfo.values) : []
+            } : null,
+            similarJobs: Array.isArray(data.similarJobs) ? data.similarJobs : []
+          };
+          
+          setJob(processedData);
+          console.log('Fetched job data:', processedData);
+        } else {
+          setError('Job not found');
+          toast.error('Job not found');
+        }
+      } catch (err) {
+        console.error('Error fetching job details:', err);
+        setError(err.message || 'Failed to load job details');
+        toast.error('Failed to load job details');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    const fetchBookmarkStatus = async (currentJobId, currentUserId) => {
+      if (!currentJobId || !currentUserId) return;
+      try {
+        const { data: bookmark, error } = await supabase
+          .from('bookmarked_jobs')
+          .select('id')
+          .eq('job_id', currentJobId)
+          .eq('user_id', currentUserId)
+          .maybeSingle(); // Use maybeSingle as a bookmark might not exist
 
-  const handleBookmark = () => {
-    setIsBookmarked(!isBookmarked);
-    console.log('Job bookmarked:', job.id);
-  };
+        if (error) {
+          console.error('Error fetching bookmark status:', error.message);
+          // Don't set error state here, as it's not critical for job view
+          // toast.error('Could not check bookmark status.');
+          return;
+        }
+        setIsBookmarked(!!bookmark); // Set to true if bookmark exists, false otherwise
+        // console.log('Bookmark status:', !!bookmark, 'for job:', currentJobId, 'user:', currentUserId); // For debugging
+      } catch (err) {
+        console.error('Exception fetching bookmark status:', err.message);
+      }
+    };
 
-  const handleShare = () => {
-    if (navigator.share) {
-      navigator.share({
-        title: job.title,
-        text: `${job.title} at ${job.company}`,
-        url: window.location.href
+    if (id) {
+      fetchJobDetails().then(() => {
+        // After job details are fetched (or attempted), check user and then bookmark status
+        // This 'then' block might need adjustment if fetchJobDetails doesn't directly reflect when 'job' state is set
+        // A more robust way would be another useEffect dependent on 'job' and 'user'
       });
-    } else {
-      navigator.clipboard.writeText(window.location.href);
-      alert('Job link copied to clipboard!');
+    }
+  }, [id]); // Initial fetchJobDetails trigger
+
+  // New useEffect to fetch bookmark status when job and user are available
+  useEffect(() => {
+    const fetchBookmarkStatus = async () => {
+      if (job && job.id && user && user.id) {
+        // console.log(`Fetching bookmark status for job ${job.id} and user ${user.id}`); // For debugging
+        try {
+          const { data: bookmark, error } = await supabase
+            .from('bookmarked_jobs')
+            .select('id')
+            .eq('job_id', job.id)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          if (error) {
+            console.error('Error fetching bookmark status:', error.message);
+            // toast.error('Could not check bookmark status.');
+            return;
+          }
+          setIsBookmarked(!!bookmark);
+          // console.log('Bookmark status set to:', !!bookmark); // For debugging
+        } catch (err) {
+          console.error('Exception fetching bookmark status:', err.message);
+        }
+      }
+    };
+
+    fetchBookmarkStatus();
+  }, [job, user]); // Runs when job or user state changes
+
+  const handleBookmark = async () => {
+    if (!user) {
+      toast.error('Please log in to bookmark jobs.');
+      // Optionally, navigate to login: navigate('/login');
+      return;
+    }
+
+    if (!job || !job.id) {
+      toast.error('Job details not available to bookmark.');
+      return;
+    }
+
+    setBookmarking(true);
+    try {
+      if (isBookmarked) {
+        // User wants to unbookmark
+        const { error } = await supabase
+          .from('bookmarked_jobs')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('job_id', job.id);
+
+        if (error) throw error;
+        setIsBookmarked(false);
+        toast.success('Bookmark removed!');
+      } else {
+        // User wants to bookmark
+        const { error } = await supabase
+          .from('bookmarked_jobs')
+          .insert([{ user_id: user.id, job_id: job.id }]);
+        
+        if (error) throw error;
+        setIsBookmarked(true);
+        toast.success('Job bookmarked!');
+      }
+    } catch (error) {
+      console.error('Error handling bookmark:', error.message);
+      toast.error('Failed to update bookmark. Please try again.');
+    } finally {
+      setBookmarking(false);
     }
   };
 
-  const handleApplicationSubmit = (e) => {
-    e.preventDefault();
-    console.log('Application submitted:', applicationData);
-    alert('Application submitted successfully!');
-    setShowApplicationForm(false);
+  const handleShare = async () => {
+    if (!job) {
+      toast.error('Job details not available to share.');
+      return;
+    }
+    if (navigator.share) {
+      setSharing(true);
+      try {
+        await navigator.share({
+          title: `${job.title} at ${job.company || 'our company'}`, // Ensure job.company has a fallback
+          text: `Check out this job opportunity: ${job.title} at ${job.company || 'our company'}`,
+          url: window.location.href
+        });
+        // console.log('Shared successfully'); // Optional: log success
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          console.log('Share canceled by user.'); // Not an actual error, user dismissed UI
+          // toast.info('Share canceled.'); // Optional: inform user
+        } else {
+          console.error('Error sharing:', error);
+          toast.error('Could not share. Please try again.');
+        }
+      } finally {
+        setSharing(false);
+      }
+    } else {
+      // Fallback for browsers that don't support Web Share API
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        toast.success('Link copied to clipboard!');
+      } catch (err) {
+        console.error('Failed to copy link:', err);
+        toast.error('Could not copy link.');
+      }
+    }
   };
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setApplicationData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+  const handleApply = () => {
+    navigate(`/jobs/${id}/apply`);
+    toast.success('Taking you to the application form');
   };
 
-  const handleFileChange = (e) => {
-    setApplicationData(prev => ({
-      ...prev,
-      resumeFile: e.target.files[0]
-    }));
-  };
-
-  return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      {/* Job Header */}
-      <div className="glass-card rounded-lg p-6">
-        <div className="flex items-start justify-between mb-6">
-          <div className="flex items-start space-x-4 flex-1">
-            <img 
-              src={job.companyLogo} 
-              alt={job.company}
-              className="w-20 h-20 rounded-lg object-cover flex-shrink-0"
-            />
-            <div className="flex-1">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">{job.title}</h1>
-              <p className="text-xl text-ocean-600 font-medium mb-2">{job.company}</p>
-              <p className="text-gray-600 mb-4">{job.description}</p>
-              
-              {/* Key Info Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="flex items-center">
-                  <MapPinIcon className="w-5 h-5 text-gray-400 mr-2" />
-                  <span className="text-gray-700">{job.location}</span>
-                </div>
-                <div className="flex items-center">
-                  <BriefcaseIcon className="w-5 h-5 text-gray-400 mr-2" />
-                  <span className="text-gray-700">{job.jobType}</span>
-                </div>
-                <div className="flex items-center">
-                  <ClockIcon className="w-5 h-5 text-gray-400 mr-2" />
-                  <span className="text-gray-700">{job.experience}</span>
-                </div>
-                <div className="flex items-center">
-                  <CurrencyRupeeIcon className="w-5 h-5 text-gray-400 mr-2" />
-                  <span className="text-gray-700">{job.salary}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          {/* Action Buttons */}
-          <div className="flex flex-col space-y-2 ml-6">
-            <button 
-              onClick={() => setShowApplicationForm(true)}
-              className="btn-ocean px-6 py-3 rounded-lg font-medium"
-            >
-              Apply Now
-            </button>
-            <div className="flex space-x-2">
-              <button 
-                onClick={handleBookmark}
-                className={`p-2 rounded-lg border transition-colors ${
-                  isBookmarked 
-                    ? 'bg-ocean-100 text-ocean-600 border-ocean-200' 
-                    : 'hover:bg-gray-100 text-gray-600 border-gray-300'
-                }`}
-              >
-                <BookmarkIcon className="w-5 h-5" />
-              </button>
-              <button 
-                onClick={handleShare}
-                className="p-2 rounded-lg border border-gray-300 hover:bg-gray-100 text-gray-600"
-              >
-                <ShareIcon className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Job Meta Info */}
-        <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 pt-4 border-t border-gray-200">
-          <div className="flex items-center">
-            <CalendarIcon className="w-4 h-4 mr-1" />
-            <span>Posted {new Date(job.postedDate).toLocaleDateString()}</span>
-          </div>
-          <div className="flex items-center">
-            <UserGroupIcon className="w-4 h-4 mr-1" />
-            <span>{job.applicants} applicants</span>
-          </div>
-          <div className="flex items-center">
-            <ExclamationTriangleIcon className="w-4 h-4 mr-1" />
-            <span>Deadline: {new Date(job.applicationDeadline).toLocaleDateString()}</span>
-          </div>
-          <div className="flex items-center">
-            <DocumentTextIcon className="w-4 h-4 mr-1" />
-            <span>Job ID: {job.jobId}</span>
-          </div>
+  if (loading) {
+    return (
+      <div className="bg-gray-100 min-h-screen flex items-center justify-center py-12">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-ocean-500 mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold text-gray-700">Loading job details...</h2>
         </div>
       </div>
+    );
+  }
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Content */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Job Description */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Job Description</h2>
-            <p className="text-gray-700 leading-relaxed whitespace-pre-line">{job.longDescription}</p>
-          </div>
+  if (error || !job) {
+    return (
+      <div className="bg-gray-100 min-h-screen flex items-center justify-center py-12">
+        <div className="text-center max-w-md mx-auto glass-card p-8 rounded-lg shadow-lg">
+          <ExclamationTriangleIcon className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Error Loading Job</h2>
+          <p className="text-gray-600 mb-6">{error || 'Job not found'}</p>
+          <Link to="/jobs" className="bg-ocean-600 hover:bg-ocean-700 text-white px-6 py-3 rounded-md inline-block">
+            Return to Jobs
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
-          {/* Responsibilities */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Key Responsibilities</h2>
-            <ul className="space-y-3">
-              {job.responsibilities.map((responsibility, index) => (
-                <li key={index} className="flex items-start">
-                  <CheckCircleIcon className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-gray-700">{responsibility}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Requirements */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Requirements</h2>
-            <ul className="space-y-3 mb-6">
-              {job.requirements.map((requirement, index) => (
-                <li key={index} className="flex items-start">
-                  <span className="text-red-500 mr-3 mt-1">•</span>
-                  <span className="text-gray-700">{requirement}</span>
-                </li>
-              ))}
-            </ul>
-            
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Preferred Qualifications</h3>
-            <ul className="space-y-2">
-              {job.preferredQualifications.map((qualification, index) => (
-                <li key={index} className="flex items-start">
-                  <span className="text-orange-500 mr-3 mt-1">◦</span>
-                  <span className="text-gray-700">{qualification}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Benefits */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Benefits & Perks</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {job.benefits.map((benefit, index) => (
-                <div key={index} className="flex items-start">
-                  <CheckCircleIcon className="w-5 h-5 text-blue-500 mr-3 mt-0.5 flex-shrink-0" />
-                  <span className="text-gray-700">{benefit}</span>
+  return (
+    <div className="bg-gray-100 min-h-screen py-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Job Header */}
+        <div className="glass-card rounded-lg p-6 mb-8">
+          <div className="flex items-start justify-between flex-wrap lg:flex-nowrap gap-4">
+            {/* Company Logo and Job Info */}
+            <div className="flex items-start space-x-4 flex-1">
+              {job.companyLogo && (
+                <img 
+                  src={job.companyLogo} 
+                  alt={job.company || 'Company logo'}
+                  className="w-16 h-16 md:w-20 md:h-20 rounded-lg object-cover flex-shrink-0"
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">{job.title}</h1>
+                <p className="text-xl text-ocean-600 font-medium mb-2">{job.company || 'Company Name Not Available'}</p>
+                <p className="text-gray-600 mb-4">{job.description || 'No summary available.'}</p>
+                
+                {/* Key Info Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+                  <div className="flex items-center">
+                    <MapPinIcon className="w-5 h-5 text-gray-400 mr-3 flex-shrink-0" />
+                    <span className="text-gray-700 text-sm md:text-base truncate">{job.location || 'Location not specified'}</span>
+                  </div>
+                  <div className="flex items-center">
+                    <BriefcaseIcon className="w-5 h-5 text-gray-400 mr-3 flex-shrink-0" />
+                    <span className="text-gray-700 text-sm md:text-base">{job.job_type || job.jobType || 'Full-time'}</span>
+                  </div>
+                  <div className="flex items-center">
+                    <ClockIcon className="w-5 h-5 text-gray-400 mr-3 flex-shrink-0" />
+                    <span className="text-gray-700 text-sm md:text-base">{job.experience_level || job.experience || 'Not specified'}</span>
+                  </div>
+                  <div className="flex items-center">
+                    <CurrencyRupeeIcon className="w-5 h-5 text-gray-400 mr-3 flex-shrink-0" />
+                    <span className="text-gray-700 text-sm md:text-base">{job.salary_range || job.salary || 'Salary not disclosed'}</span>
+                  </div>
                 </div>
-              ))}
+              </div>
+            </div>
+            
+            {/* Action Buttons */}
+            <div className="flex flex-col space-y-3 w-full lg:w-auto">
+              <button 
+                onClick={handleApply}
+                className="btn-ocean w-full lg:w-auto px-6 py-3 rounded-lg font-medium text-white bg-ocean-600 hover:bg-ocean-700 transition-colors"
+              >
+                Apply Now
+              </button>
+              <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 w-full">
+                {/* Bookmark Button */}
+                <button 
+                  onClick={handleBookmark}
+                  disabled={bookmarking || !job}
+                  className={`flex items-center justify-center w-full px-4 py-2.5 border rounded-md shadow-sm text-sm font-medium transition-colors duration-150 
+                    ${isBookmarked 
+                      ? 'border-ocean-500 bg-ocean-50 text-ocean-700 hover:bg-ocean-100'
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'}
+                    ${(bookmarking || !job) ? 'opacity-50 cursor-not-allowed' : ''}
+                    focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ocean-500`}
+                >
+                  {bookmarking ? (
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-ocean-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  ) : (
+                    isBookmarked ? 
+                      <BookmarkIconSolid className="w-5 h-5 mr-2 text-ocean-600" /> : 
+                      <BookmarkIconOutline className="w-5 h-5 mr-2 text-gray-500" />
+                  )}
+                  {bookmarking ? 'Updating...' : (isBookmarked ? 'Bookmarked' : 'Bookmark')}
+                </button>
+                {/* Share Button */}
+                <button 
+                  onClick={handleShare}
+                  disabled={sharing || !job} 
+                  className={`flex items-center justify-center w-full px-4 py-2.5 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 
+                    ${(sharing || !job) ? 'opacity-50 cursor-not-allowed' : ''}
+                    focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ocean-500 transition-colors duration-150`}
+                >
+                  {sharing ? (
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  ) : (
+                    <ShareIcon className="w-5 h-5 mr-2 text-gray-500" /> 
+                  )}
+                  {sharing ? 'Sharing...' : 'Share'}
+                </button>
+              </div>
             </div>
           </div>
-
-          {/* Application Process */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Application Process</h2>
-            <div className="space-y-4">
-              {job.applicationProcess.map((step, index) => (
-                <div key={index} className="flex items-start">
-                  <div className="w-8 h-8 bg-ocean-500 text-white rounded-full flex items-center justify-center text-sm font-medium mr-4 flex-shrink-0">
-                    {index + 1}
-                  </div>
-                  <p className="text-gray-700 mt-1">{step}</p>
-                </div>
-              ))}
+          {/* Job Meta Info */}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm text-gray-600 pt-4 mt-6 border-t border-gray-200">
+            <div className="flex items-center">
+              <CalendarIcon className="w-4 h-4 mr-2 flex-shrink-0 text-gray-400" />
+              <span>Posted: {job.created_at ? new Date(job.created_at).toLocaleDateString() : 'Recently'}</span>
+            </div>
+            <div className="flex items-center">
+              <UserGroupIcon className="w-4 h-4 mr-2 flex-shrink-0 text-gray-400" />
+              <span>{job.applicants_count || 0} applicants</span>
+            </div>
+            <div className="flex items-center">
+              <ExclamationTriangleIcon className="w-4 h-4 mr-2 flex-shrink-0 text-gray-400" />
+              <span>Deadline: {job.application_deadline ? new Date(job.application_deadline).toLocaleDateString() : 'Open until filled'}</span>
+            </div>
+            <div className="flex items-center">
+              <DocumentTextIcon className="w-4 h-4 mr-2 flex-shrink-0 text-gray-400" />
+              <span>Job ID: {job.id || 'N/A'}</span>
             </div>
           </div>
         </div>
 
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Job Overview */}
-          <div className="glass-card rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Job Overview</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-gray-600">Industry</label>
-                <p className="text-gray-900">{job.industry}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-600">Department</label>
-                <p className="text-gray-900">{job.department}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-600">Reports To</label>
-                <p className="text-gray-900">{job.reportingTo}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-600">Work Schedule</label>
-                <p className="text-gray-900">{job.workSchedule}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-600">Travel Required</label>
-                <p className="text-gray-900">{job.travelRequired}</p>
-              </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main Content */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Job Description */}
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Job Description</h2>
+              <p className="text-gray-700 leading-relaxed whitespace-pre-line">{job.long_description || job.description || 'No detailed description available.'}</p>
             </div>
-          </div>
 
-          {/* Required Skills */}
-          <div className="glass-card rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Required Skills</h3>
-            <div className="flex flex-wrap gap-2">
-              {job.skills.map((skill, index) => (
-                <span 
-                  key={index}
-                  className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm font-medium"
-                >
-                  {skill}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Company Info */}
-          <div className="glass-card rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">About {job.company}</h3>
-            <div className="space-y-4">
-              <p className="text-gray-700 text-sm">{job.companyInfo.description}</p>
-              
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Founded:</span>
-                  <span className="text-gray-900">{job.companyInfo.founded}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Company Size:</span>
-                  <span className="text-gray-900">{job.companyInfo.size}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Fleet Size:</span>
-                  <span className="text-gray-900">{job.companyInfo.fleetSize}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Type:</span>
-                  <span className="text-gray-900">{job.companyInfo.type}</span>
-                </div>
+            {/* Responsibilities */}
+            {(job.responsibilities && job.responsibilities.length > 0) && (
+              <div className="glass-card rounded-lg p-6">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">Key Responsibilities</h2>
+                <ul className="space-y-3">
+                  {job.responsibilities.map((responsibility, index) => (
+                    <li key={index} className="flex items-start">
+                      <CheckCircleIcon className="w-5 h-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
+                      <span className="text-gray-700">{responsibility}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
+            )}
 
-              <div>
-                <h4 className="font-medium text-gray-900 mb-2">Core Values</h4>
-                <div className="space-y-1">
-                  {job.companyInfo.values.map((value, index) => (
-                    <div key={index} className="flex items-center">
-                      <span className="w-2 h-2 bg-ocean-500 rounded-full mr-2"></span>
-                      <span className="text-gray-700 text-sm">{value}</span>
+            {/* Requirements */}
+            {(job.requirements && job.requirements.length > 0) && (
+              <div className="glass-card rounded-lg p-6">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">Requirements</h2>
+                <ul className="space-y-3 mb-6">
+                  {job.requirements.map((requirement, index) => (
+                    <li key={index} className="flex items-start">
+                      <span className="text-red-500 mr-3 mt-1 text-lg font-bold">•</span>
+                      <span className="text-gray-700">{requirement}</span>
+                    </li>
+                  ))}
+                </ul>
+                
+                {(job.preferredQualifications && job.preferredQualifications.length > 0) && (
+                  <>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-3">Preferred Qualifications</h3>
+                    <ul className="space-y-2">
+                      {job.preferredQualifications.map((qualification, index) => (
+                        <li key={index} className="flex items-start">
+                          <span className="text-orange-500 mr-3 mt-1 text-lg">◦</span>
+                          <span className="text-gray-700">{qualification}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Benefits */}
+            {(job.benefits && job.benefits.length > 0) && (
+              <div className="glass-card rounded-lg p-6">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">Benefits & Perks</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {job.benefits.map((benefit, index) => (
+                    <div key={index} className="flex items-start">
+                      <CheckCircleIcon className="w-5 h-5 text-blue-500 mr-3 mt-0.5 flex-shrink-0" />
+                      <span className="text-gray-700">{benefit}</span>
                     </div>
                   ))}
                 </div>
               </div>
+            )}
 
-              <a 
-                href={`https://${job.companyInfo.website}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm"
-              >
-                <GlobeAltIcon className="w-4 h-4 mr-2" />
-                Visit Website
-              </a>
-            </div>
+            {/* Application Process */}
+            {(job.applicationProcess && job.applicationProcess.length > 0) && (
+              <div className="glass-card rounded-lg p-6">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">Application Process</h2>
+                <div className="space-y-4">
+                  {job.applicationProcess.map((step, index) => (
+                    <div key={index} className="flex items-start">
+                      <div className="w-8 h-8 bg-ocean-500 text-white rounded-full flex items-center justify-center text-sm font-medium mr-4 flex-shrink-0">
+                        {index + 1}
+                      </div>
+                      <p className="text-gray-700 mt-1">{step}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Contact Person */}
-          <div className="glass-card rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
-            <div className="space-y-3">
-              <div>
-                <h4 className="font-medium text-gray-900">{job.contactPerson.name}</h4>
-                <p className="text-gray-600 text-sm">{job.contactPerson.title}</p>
-              </div>
-              
-              <div className="space-y-2">
-                <a 
-                  href={`mailto:${job.contactPerson.email}`}
-                  className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm"
-                >
-                  <EnvelopeIcon className="w-4 h-4 mr-2" />
-                  {job.contactPerson.email}
-                </a>
-                <a 
-                  href={`tel:${job.contactPerson.phone}`}
-                  className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm"
-                >
-                  <PhoneIcon className="w-4 h-4 mr-2" />
-                  {job.contactPerson.phone}
-                </a>
+          {/* Sidebar */}
+          <div className="space-y-6">
+            {/* Job Overview */}
+            <div className="glass-card rounded-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Job Overview</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Industry</label>
+                  <p className="text-gray-900">{job.industry || 'Not specified'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Department</label>
+                  <p className="text-gray-900">{job.department || 'Not specified'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Location</label>
+                  <p className="text-gray-900">{job.location || 'Not specified'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Job Type</label>
+                  <p className="text-gray-900">{job.job_type || job.jobType || 'Full-time'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Experience Level</label>
+                  <p className="text-gray-900">{job.experience_level || job.experience || 'Not specified'}</p>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Similar Jobs */}
-          <div className="glass-card rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Similar Jobs</h3>
-            <div className="space-y-3">
-              {job.similarJobs.map((similarJob) => (
-                <Link 
-                  key={similarJob.id}
-                  to={`/jobs/${similarJob.id}`}
-                  className="block p-3 border border-gray-200 rounded-lg hover:bg-ocean-50 transition-colors"
-                >
-                  <h4 className="font-medium text-gray-900 text-sm">{similarJob.title}</h4>
-                  <p className="text-gray-600 text-xs">{similarJob.company}</p>
-                  <div className="flex justify-between items-center mt-1">
-                    <span className="text-gray-500 text-xs">{similarJob.location}</span>
-                    <span className="text-ocean-600 text-xs font-medium">{similarJob.salary}</span>
+            {/* Required Skills */}
+            {(job.skills && job.skills.length > 0) && (
+              <div className="glass-card rounded-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Required Skills</h3>
+                <div className="flex flex-wrap gap-2">
+                  {job.skills.map((skill, index) => (
+                    <span 
+                      key={index}
+                      className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm font-medium inline-flex items-center"
+                    >
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Company Info */}
+            {job.companyInfo && (
+              <div className="glass-card rounded-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">About {job.company || 'the Company'}</h3>
+                <div className="space-y-4">
+                  <p className="text-gray-700 text-sm">{job.companyInfo?.description || 'No description available.'}</p>
+                  
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Founded:</span>
+                      <span className="text-gray-900">{job.companyInfo?.founded || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Company Size:</span>
+                      <span className="text-gray-900">{job.companyInfo?.size || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Fleet Size:</span>
+                      <span className="text-gray-900">{job.companyInfo?.fleetSize || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Type:</span>
+                      <span className="text-gray-900">{job.companyInfo?.type || 'N/A'}</span>
+                    </div>
                   </div>
-                </Link>
-              ))}
-            </div>
+
+                  <div>
+                    <h4 className="font-medium text-gray-900 mb-2">Core Values</h4>
+                    <div className="space-y-1">
+                      {(job.companyInfo?.values || []).map((value, index) => (
+                        <div key={index} className="flex items-center">
+                          <span className="w-2 h-2 bg-ocean-500 rounded-full mr-2"></span>
+                          <span className="text-gray-700 text-sm">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <a 
+                    href={job.companyInfo?.website ? `https://${job.companyInfo.website}` : '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex items-center text-ocean-600 hover:text-ocean-700 text-sm ${!job.companyInfo?.website ? 'pointer-events-none opacity-50' : ''}`}
+                  >
+                    <GlobeAltIcon className="w-4 h-4 mr-2" />
+                    Visit Website
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {/* Contact Person */}
+            {job.contactPerson && (
+              <div className="glass-card rounded-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
+                <div className="space-y-3">
+                  <div>
+                    <h4 className="font-medium text-gray-900">{job.contactPerson?.name || 'N/A'}</h4>
+                    <p className="text-gray-600 text-sm">{job.contactPerson?.title || 'N/A'}</p>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <a 
+                      href={job.contactPerson?.email ? `mailto:${job.contactPerson.email}` : '#'}
+                      className={`flex items-center text-ocean-600 hover:text-ocean-700 text-sm ${!job.contactPerson?.email ? 'pointer-events-none opacity-50' : ''}`}
+                    >
+                      <EnvelopeIcon className="w-4 h-4 mr-2" />
+                      {job.contactPerson?.email || 'Email not available'}
+                    </a>
+                    <a 
+                      href={job.contactPerson?.phone ? `tel:${job.contactPerson.phone}` : '#'}
+                      className={`flex items-center text-ocean-600 hover:text-ocean-700 text-sm ${!job.contactPerson?.phone ? 'pointer-events-none opacity-50' : ''}`}
+                    >
+                      <PhoneIcon className="w-4 h-4 mr-2" />
+                      {job.contactPerson?.phone || 'Phone not available'}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Similar Jobs */}
+            {(job.similarJobs && job.similarJobs.length > 0) && (
+              <div className="glass-card rounded-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Similar Jobs</h3>
+                <div className="space-y-3">
+                  {job.similarJobs.map((similarJob) => (
+                    <Link 
+                      key={similarJob.id}
+                      to={`/jobs/${similarJob.id}`}
+                      className="block p-3 border border-gray-200 rounded-lg hover:bg-ocean-50 transition-colors"
+                    >
+                      <h4 className="font-medium text-gray-900 text-sm">{similarJob.title}</h4>
+                      <p className="text-gray-600 text-xs">{similarJob.company}</p>
+                      <div className="flex justify-between items-center mt-1">
+                        <span className="text-gray-500 text-xs">{similarJob.location}</span>
+                        <span className="text-ocean-600 text-xs font-medium">{similarJob.salary}</span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Application Form Modal */}
-      {showApplicationForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="glass-card rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">Apply for {job.title}</h2>
-              <button 
-                onClick={() => setShowApplicationForm(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleApplicationSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Cover Letter *
-                </label>
-                <textarea
-                  name="coverLetter"
-                  value={applicationData.coverLetter}
-                  onChange={handleInputChange}
-                  rows={4}
-                  required
-                  className="form-input w-full px-3 py-2 rounded-lg"
-                  placeholder="Explain why you're interested in this position..."
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Expected Salary
-                  </label>
-                  <input
-                    type="text"
-                    name="expectedSalary"
-                    value={applicationData.expectedSalary}
-                    onChange={handleInputChange}
-                    className="form-input w-full px-3 py-2 rounded-lg"
-                    placeholder="₹12-15 LPA"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Available From
-                  </label>
-                  <input
-                    type="date"
-                    name="availableFrom"
-                    value={applicationData.availableFrom}
-                    onChange={handleInputChange}
-                    className="form-input w-full px-3 py-2 rounded-lg"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Resume *
-                </label>
-                <input
-                  type="file"
-                  accept=".pdf,.doc,.docx"
-                  onChange={handleFileChange}
-                  required
-                  className="form-input w-full px-3 py-2 rounded-lg"
-                />
-                <p className="text-xs text-gray-500 mt-1">Accepted formats: PDF, DOC, DOCX (Max 5MB)</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Relevant Experience
-                </label>
-                <textarea
-                  name="experience"
-                  value={applicationData.experience}
-                  onChange={handleInputChange}
-                  rows={3}
-                  className="form-input w-full px-3 py-2 rounded-lg"
-                  placeholder="Briefly describe your relevant experience..."
-                />
-              </div>
-
-              <div className="flex justify-end space-x-4 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowApplicationForm(false)}
-                  className="btn-ocean-outline px-6 py-2 rounded-lg"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-ocean px-6 py-2 rounded-lg"
-                >
-                  Submit Application
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

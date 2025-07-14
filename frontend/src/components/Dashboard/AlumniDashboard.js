@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext'; // Import useAuth
-import { Link, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
+import { useNotification } from '../../hooks/useNotification'; // Import useAuth
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase'; // Assuming supabase client is here
 import toast from 'react-hot-toast'; // For error notifications
 import { 
@@ -13,6 +14,7 @@ import {
   DocumentIcon,
   ClipboardDocumentCheckIcon
 } from '@heroicons/react/24/outline';
+
 
 // Skeleton Card Component for loading states
 const SkeletonCard = ({ className = '' }) => (
@@ -62,9 +64,10 @@ const formatEventDateTime = (dateString, timeString) => {
 };
 
 const AlumniDashboard = () => {
-  console.log('AlumniDashboard: Component mounted/rendered');
-  const { user, profile, loading: authLoading } = useAuth(); // Get user and profile from AuthContext
+  const { showInfo } = useNotification();
+  const { user, profile, loading: authLoading } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState({
     personalConnections: 0,
     totalAlumni: 0,
@@ -77,9 +80,9 @@ const AlumniDashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const userName = profile?.full_name || user?.user_metadata?.full_name || user?.email || 'Alumni';
+  const hasFetched = useRef(false);
 
-  // Helper for promise with timeout
-  const promiseWithTimeout = (promise, ms, timeoutError = new Error('Request timed out')) => {
+  const promiseWithTimeout = useCallback((promise, ms, timeoutError = new Error('Request timed out')) => {
     const timeout = new Promise((_, reject) => {
       const id = setTimeout(() => {
         clearTimeout(id);
@@ -87,316 +90,321 @@ const AlumniDashboard = () => {
       }, ms);
     });
     return Promise.race([promise, timeout]);
-  };
-  
-  // Helper function to fetch connections count separately
-  const fetchConnectionsCount = async (userId) => {
-    try {
-      console.log('Fetching connections count for user:', userId);
-      
-      // Use a single query with an 'or' filter for efficiency and to work better with RLS policies.
-      const { error, count } = await supabase
-        .from('connections')
-        .select('*', { count: 'exact', head: true }) // head:true makes it faster
-        .eq('status', 'accepted')
-        .or(`requester_id.eq.${userId},receiver_id.eq.${userId}`);
+  }, []);
 
-      if (error) {
-        console.error('Error fetching connections count:', error);
+  const fetchConnectionsCount = useCallback(async (userId) => {
+    if (!userId) return 0;
+    try {
+      const { data, error } = await supabase.rpc('get_connections_count', { p_user_id: userId });
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.warn('RPC get_connections_count failed, falling back to manual count:', error.message);
+      const { count, error: countError } = await supabase
+        .from('connections')
+        .select('id', { count: 'exact', head: true })
+        .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
+        .eq('status', 'connected');
+      
+      if (countError) {
+        console.error('Error counting connections fallback:', countError);
         return 0;
       }
-
-      const totalConnections = count || 0;
-      console.log('Total connections count:', totalConnections);
-      return totalConnections;
-    } catch (error) {
-      console.error('Error in fetchConnectionsCount:', error);
-      return 0;
+      return count;
     }
-  };
+  }, []);
+
+  const fetchDashboardData = useCallback(async () => {
+    if (!user?.id) return;
+    console.log('AlumniDashboard: fetchDashboardData started.');
+    setLoading(true);
+    try {
+      const todayStart = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+      const promises = [
+        supabase.from('events').select('id', { count: 'exact', head: true }).gte('start_date', todayStart).eq('is_published', true),
+        supabase.from('jobs').select('id', { count: 'exact', head: true }).gte('deadline', todayStart).eq('is_active', true),
+        supabase.from('events').select('id, title, start_date, location, event_type').gte('start_date', todayStart).eq('is_published', true).order('start_date', { ascending: true }).limit(3),
+        supabase.from('jobs').select('id, title, company_name, location, created_at').gte('deadline', todayStart).eq('is_active', true).order('created_at', { ascending: false }).limit(3),
+        supabase.from('profiles').select('id', { count: 'exact', head: true }),
+      ];
+
+      const results = await Promise.all(promises.map(p => promiseWithTimeout(p, 10000)));
+      const connectionsCount = await fetchConnectionsCount(user.id);
+
+      setDashboardData(prev => ({
+        ...prev,
+        upcomingEventsCount: results[0].count || 0,
+        jobOpportunitiesCount: results[1].count || 0,
+        upcomingEventsList: results[2].data || [],
+        jobRecommendationsList: results[3].data || [],
+        totalAlumni: results[4].count || 0,
+        personalConnections: connectionsCount,
+      }));
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      toast.error('Failed to load dashboard data.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id, promiseWithTimeout, fetchConnectionsCount]);
+
+  const checkEventReminders = useCallback(async (userId) => {
+    if (!userId) return;
+    try {
+      const lastCheck = localStorage.getItem(`lastEventCheck_${userId}`);
+      const now = new Date();
+      if (lastCheck && now.toDateString() === new Date(lastCheck).toDateString()) {
+        return;
+      }
+
+      const { data: registrations, error: regError } = await supabase
+        .from('event_attendees')
+        .select('event_id')
+        .eq('attendee_id', userId);
+
+      if (regError) throw regError;
+      if (!registrations || registrations.length === 0) {
+        return;
+      }
+
+      const eventIds = registrations.map(reg => reg.event_id);
+
+      const { data: events, error: eventsError } = await supabase
+        .from('events')
+        .select('id, title, start_date, start_time')
+        .in('id', eventIds);
+
+      if (eventsError) throw eventsError;
+
+      const upcomingEvents = events.filter(event => {
+        if (!event) return false;
+        const eventDate = new Date(`${event.start_date}T${event.start_time || '00:00:00'}`);
+        const diffHours = (eventDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+        return diffHours > 0 && diffHours <= 24;
+      });
+
+      if (upcomingEvents.length > 0) {
+        const eventTitles = upcomingEvents.map(e => e.title).join(', ');
+        const message = `Reminder: You have upcoming events within 24 hours: ${eventTitles}.`;
+        showInfo(message, {
+          duration: 10000,
+          onClick: () => navigate('/events/my-registrations'),
+          className: 'cursor-pointer',
+        });
+      }
+
+      localStorage.setItem(`lastEventCheck_${userId}`, now.toISOString());
+    } catch (error) {
+      console.error('Error checking event reminders:', error);
+    }
+  }, [showInfo, navigate]);
 
   useEffect(() => {
-    // This effect should only run once when the user is properly authenticated.
-    if (authLoading || !user?.id) {
-      return; // Wait for authentication to complete
+    if (user?.id && !authLoading && !hasFetched.current) {
+      hasFetched.current = true;
+      fetchDashboardData();
+      checkEventReminders(user.id);
+    } else if (!authLoading) {
+      setLoading(false);
     }
+  }, [user?.id, authLoading, fetchDashboardData, checkEventReminders]);
 
-    const fetchDashboardData = async () => {
-      console.log('AlumniDashboard: fetchDashboardData started.');
-      setLoading(true);
-      try {
-        const today = new Date().toISOString().split('T')[0];
+  useEffect(() => {
+    if (location.state?.showToast) {
+      toast.success(location.state.message);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
-        // Add queries for alumni and connection counts
-        const promises = [
-          supabase.from('events').select('id', { count: 'exact', head: true }).gte('start_date', today).eq('is_published', true), // 0: Upcoming Events Count
-          supabase.from('jobs').select('id', { count: 'exact', head: true }).gte('deadline', today).eq('is_active', true), // 1: Job Opportunities Count
-          supabase.from('events').select('id, title, start_date, location, event_type').gte('start_date', today).eq('is_published', true).order('start_date', { ascending: true }).limit(3), // 2: Upcoming Events List
-          supabase.from('jobs').select('id, title, company_name, location, created_at').gte('deadline', today).eq('is_active', true).order('created_at', { ascending: false }).limit(3), // 3: Job Recommendations
-          supabase.from('profiles').select('id', { count: 'exact', head: true }), // 4: Total Alumni Count
-          // 5: Total Alumni Count (continued)
-          // We'll handle connections count separately after this Promise.all to avoid query syntax issues
-          null,
-          null
-        ];
-
-        const fetchDataPromise = Promise.allSettled(promises);
-        const results = await promiseWithTimeout(fetchDataPromise, 30000, new Error('Dashboard data request timed out.'));
-
-        const newState = { ...dashboardData };
-        let hasError = false;
-
-        // 0: Upcoming Events Count
-        if (results[0].status === 'fulfilled' && !results[0].value.error) {
-          newState.upcomingEventsCount = results[0].value.count || 0;
-        } else {
-          console.error('Error fetching upcoming events count:', results[0].status === 'rejected' ? results[0].reason : results[0].value.error);
-          hasError = true;
-        }
-
-        // 1: Job Opportunities Count
-        if (results[1].status === 'fulfilled' && !results[1].value.error) {
-          newState.jobOpportunitiesCount = results[1].value.count || 0;
-        } else {
-          console.error('Error fetching job opportunities count:', results[1].status === 'rejected' ? results[1].reason : results[1].value.error);
-          hasError = true;
-        }
-
-        // 2: Upcoming Events List
-        if (results[2].status === 'fulfilled' && !results[2].value.error) {
-          newState.upcomingEventsList = results[2].value.data || [];
-        } else {
-          console.error('Error fetching upcoming events list:', results[2].status === 'rejected' ? results[2].reason : results[2].value.error);
-          newState.upcomingEventsList = [];
-          hasError = true;
-        }
-
-        // 3: Job Recommendations
-        if (results[3].status === 'fulfilled' && !results[3].value.error) {
-          newState.jobRecommendationsList = results[3].value.data || [];
-        } else {
-          console.error('Error fetching job recommendations:', results[3].status === 'rejected' ? results[3].reason : results[3].value.error);
-          newState.jobRecommendationsList = [];
-          hasError = true;
-        }
-
-        // 4: Total Alumni Count
-        if (results[4].status === 'fulfilled' && !results[4].value.error) {
-          newState.totalAlumni = results[4].value.count || 0;
-        } else {
-          console.error('Error fetching total alumni count:', results[4].status === 'rejected' ? results[4].reason : results[4].value.error);
-          hasError = true;
-          newState.totalAlumni = 0; // fallback
-        }
-
-        // We'll fetch connections count separately to avoid query syntax issues
-        newState.personalConnections = 0; // Initialize to 0
-        
-        // Fetch connections count separately after main dashboard data is loaded
-        fetchConnectionsCount(user.id).then(count => {
-          setDashboardData(prevState => ({
-            ...prevState,
-            personalConnections: count
-          }));
-        });
-
-        // Set other default values
-        newState.unreadMessagesCount = 0;
-        newState.recentActivities = [];
-
-        setDashboardData(newState);
-        if (hasError) {
-          toast.error('Some dashboard widgets failed to load. The data may be incomplete.');
-        }
-
-      } catch (error) {
-        console.error('AlumniDashboard: A critical error occurred fetching dashboard data:', error);
-        toast.error(`Failed to load dashboard: ${error.message}`);
-      } finally {
-        setLoading(false);
-        console.log('AlumniDashboard: setLoading(false)');
-      }
-    };
-
-    fetchDashboardData();
-  }, [user?.id, authLoading]);
-
-  const dynamicQuickStats = [
-    { title: 'Alumni Connections', value: `${dashboardData.personalConnections}/${dashboardData.totalAlumni}`, icon: UsersIcon, color: 'bg-blue-500', path: '/directory' },
-    { title: 'Upcoming Events', value: dashboardData.upcomingEventsCount, icon: CalendarIcon, color: 'bg-green-500', path: '/events' },
-    { title: 'Job Opportunities', value: dashboardData.jobOpportunitiesCount, icon: BriefcaseIcon, color: 'bg-purple-500', path: '/jobs' },
-    { title: 'Unread Messages', value: dashboardData.unreadMessagesCount, icon: ChatBubbleLeftRightIcon, color: 'bg-orange-500', path: '/messages' },
-  ];
-
-  if (loading) {
+  if (authLoading) {
     return (
-      <div className="space-y-6 animate-pulse">
-        <div className="h-24 glass-card rounded-lg p-6"></div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[...Array(4)].map((_, i) => <div key={i} className="h-24 glass-card rounded-lg p-6"></div>)}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 h-64 glass-card rounded-lg p-6"></div>
-          <div className="space-y-6">
-            <div className="h-48 glass-card rounded-lg p-6"></div>
-            <div className="h-48 glass-card rounded-lg p-6"></div>
+      <div className="p-6 bg-gray-50 min-h-screen">
+        <div className="max-w-7xl mx-auto">
+          <div className="animate-pulse mb-6">
+            <div className="h-8 bg-gray-300 rounded w-1/3"></div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+            <StatSkeletonCard />
+            <StatSkeletonCard />
+            <StatSkeletonCard />
+            <StatSkeletonCard />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-6">
+              <SkeletonCard className="h-48" />
+              <SkeletonCard className="h-64" />
+            </div>
+            <div className="space-y-6">
+              <SkeletonCard className="h-64" />
+              <SkeletonCard className="h-64" />
+            </div>
           </div>
         </div>
       </div>
     );
   }
-  
-  // userName is already declared above within the component scope.
 
   return (
-    <div className="space-y-6">
-      {/* Welcome Section */}
-      <div className="glass-card rounded-lg p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Welcome back, {userName}! 🌊</h1>
-            <p className="text-gray-600 mt-1">
-              Stay connected with your AMET alumni network
-            </p>
-          </div>
-          <div className="hidden md:block">
-            <div className="w-16 h-16 bg-ocean-gradient rounded-full flex items-center justify-center ocean-wave">
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 3v4.8l-2.787 5.574A1 1 0 003.68 15h7.84a.25.25 0 01.192.41l-.056.084-.808 1.212A3 3 0 0110 18h4a3 3 0 01-.857-1.294l-.808-1.212a.25.25 0 01.192-.494h7.84a1 1 0 00.467-1.626L18 7.8V3h-3v1.5a.5.5 0 01-.5.5h-6a.5.5 0 01-.5-.5V3H6zm.75 11a.75.75 0 100-1.5.75.75 0 000 1.5zm10.5 0a.75.75 0 100-1.5.75.75 0 000 1.5z" />
-              </svg>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Stat Cards Section */}
-      {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <StatSkeletonCard />
-          <StatSkeletonCard />
-          <StatSkeletonCard />
-          <StatSkeletonCard />
-        </div>
-      ) : (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {dynamicQuickStats.map((stat, index) => {
-          const Icon = stat.icon;
-          return (
-            <Link to={stat.path} key={index} className="block glass-card rounded-lg p-6 card-hover no-underline">
-              <div className="flex items-center">
-                <div className={`p-3 rounded-lg ${stat.color}`}>
-                  <Icon className="w-6 h-6 text-white" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-500">{stat.title}</p>
-                  <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-                </div>
-              </div>
-            </Link>
-          );
-        })}
-      </div>
-      )} {/* Closes the ternary operator for stat cards loading state */}
-
-      {/* Main Content Area: Recent Activity and Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="p-4 md:p-6 bg-gray-50 min-h-screen">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-2xl font-bold text-gray-800 mb-6">Welcome back, {userName}!</h1>
         {loading ? (
-          // Skeleton for the entire 3-column section
-          <React.Fragment>
-            <div className="lg:col-span-2">
-              <SkeletonCard className="h-64" /> {/* Skeleton for Recent Activity */}
-            </div>
-            <div className="space-y-6"> {/* Skeleton for Events & Jobs column */}
-              <SkeletonCard className="h-48" />
-              <SkeletonCard className="h-48" />
-            </div>
-          </React.Fragment>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+            <StatSkeletonCard />
+            <StatSkeletonCard />
+            <StatSkeletonCard />
+            <StatSkeletonCard />
+          </div>
         ) : (
-          // Actual content for the 3-column section
           <React.Fragment>
-            {/* Column 1 & 2: Recent Activity */}
-            <div className="lg:col-span-2">
-              <div className="glass-card rounded-lg p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
-                  <ArrowTrendingUpIcon className="w-5 h-5 text-ocean-500" />
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+              {/* Total Alumni */}
+              <div className="glass-card rounded-lg p-4 flex items-center">
+                <div className="bg-blue-100 rounded-full p-3 mr-4">
+                  <UsersIcon className="w-6 h-6 text-blue-500" />
                 </div>
-                <p className="text-gray-500 text-center py-4">Activity feed will be available soon.</p>
-                <div className="mt-4 text-center">
-                  <Link 
-                    to="/activity" 
-                    className="text-ocean-600 hover:text-ocean-700 text-sm font-medium"
-                  >
-                    Activity Center →
-                  </Link>
+                <div>
+                  <p className="text-sm text-gray-600">Total Alumni</p>
+                  <p className="text-2xl font-bold text-gray-900">{dashboardData.totalAlumni}</p>
+                </div>
+              </div>
+
+              {/* Upcoming Events */}
+              <div className="glass-card rounded-lg p-4 flex items-center">
+                <div className="bg-green-100 rounded-full p-3 mr-4">
+                  <CalendarIcon className="w-6 h-6 text-green-500" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Upcoming Events</p>
+                  <p className="text-2xl font-bold text-gray-900">{dashboardData.upcomingEventsCount}</p>
+                </div>
+              </div>
+
+              {/* Job Opportunities */}
+              <div className="glass-card rounded-lg p-4 flex items-center">
+                <div className="bg-orange-100 rounded-full p-3 mr-4">
+                  <BriefcaseIcon className="w-6 h-6 text-orange-500" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Job Opportunities</p>
+                  <p className="text-2xl font-bold text-gray-900">{dashboardData.jobOpportunitiesCount}</p>
+                </div>
+              </div>
+
+              {/* Personal Connections */}
+              <div className="glass-card rounded-lg p-4 flex items-center">
+                <div className="bg-purple-100 rounded-full p-3 mr-4">
+                  <UsersIcon className="w-6 h-6 text-purple-500" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Connections</p>
+                  <p className="text-2xl font-bold text-gray-900">{dashboardData.personalConnections}</p>
                 </div>
               </div>
             </div>
 
-            {/* Column 3: Quick Actions (Upcoming Events & Job Recommendations) */}
-            <div className="space-y-6">
-              {/* Upcoming Events */}
-              <div className="glass-card rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Upcoming Events</h3>
-                <div className="space-y-3">
-                  {dashboardData.upcomingEventsList.length > 0 ? dashboardData.upcomingEventsList.map((event) => (
-                    <Link to={`/events/${event.id}`} key={event.id} className="block p-3 bg-ocean-50 rounded-lg hover:bg-ocean-100">
-                      <h4 className="font-medium text-gray-900 text-sm">{event.title}</h4>
-                      <p className="text-xs text-gray-600">{formatEventDateTime(event.start_date, null)}</p>
-                      <p className="text-xs text-gray-500 capitalize">{event.event_type} {event.location ? `- ${event.location}` : (event.virtual_link ? '- Virtual' : '')}</p>
-                    </Link>
-                  )) :                   <div className="text-center py-4">
-                    <div className="w-12 h-12 bg-ocean-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <CalendarIcon className="w-6 h-6 text-ocean-400" />
+            {/* Main Content Area */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+              {/* Left Column: News/Updates and My Groups */}
+              <div className="lg:col-span-2 space-y-6">
+                {/* My Groups - Placeholder */}
+                <div className="glass-card rounded-lg p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">My Networking Groups</h3>
+                  <div className="text-center py-4">
+                    <div className="w-12 h-12 bg-purple-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <ChatBubbleLeftRightIcon className="w-6 h-6 text-purple-400" />
                     </div>
-                    <h4 className="text-md font-semibold text-gray-700">No Upcoming Events</h4>
-                    <p className="text-sm text-gray-500 mt-1">Check back later or create one.</p>
-                  </div>}
+                    <h4 className="text-md font-semibold text-gray-700">No Groups Joined</h4>
+                    <p className="text-sm text-gray-500 mt-1">Join a group to start networking with peers.</p>
+                    <Link 
+                      to="/networking"
+                      className="mt-4 inline-block btn-ocean-fill text-sm py-2 px-4 rounded-lg"
+                    >
+                      Explore Groups
+                    </Link>
+                  </div>
                 </div>
-                <div className="mt-4">
-                  <Link 
-                    to="/events" 
-                    className="btn-ocean-outline w-full py-2 px-4 rounded-lg text-center block text-sm"
-                  >
-                    View All Events
-                  </Link>
+
+                {/* Recent Activity - Placeholder */}
+                <div className="glass-card rounded-lg p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
+                  <div className="text-center py-4">
+                    <div className="w-12 h-12 bg-yellow-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <ArrowTrendingUpIcon className="w-6 h-6 text-yellow-500" />
+                    </div>
+                    <h4 className="text-md font-semibold text-gray-700">No Recent Activity</h4>
+                    <p className="text-sm text-gray-500 mt-1">Updates from your network will appear here.</p>
+                  </div>
                 </div>
               </div>
 
-              {/* Job Recommendations */}
-              <div className="glass-card rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Recommended Jobs</h3>
-                <div className="space-y-3">
-                  {dashboardData.jobRecommendationsList.length > 0 ? dashboardData.jobRecommendationsList.map((job) => (
-                    <Link to={`/jobs/${job.id}`} key={job.id} className="block p-3 bg-green-50 rounded-lg hover:bg-green-100">
-                      <h4 className="font-medium text-gray-900 text-sm">{job.title}</h4>
-                      <p className="text-xs text-gray-600">{job.company_name} - {job.location}</p>
-                      <div className="flex justify-between items-center mt-1">
-                        <p className="text-xs text-green-600 font-medium">{job.salary_range || 'Not specified'}</p>
-                        <p className="text-xs text-gray-500">{formatRelativeTime(job.created_at)}</p>
+              {/* Right Column: Upcoming Events and Job Recommendations */}
+              <div className="space-y-6">
+                {/* Upcoming Events */}
+                <div className="glass-card rounded-lg p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Upcoming Events</h3>
+                  <div className="space-y-3">
+                    {dashboardData.upcomingEventsList.length > 0 ? dashboardData.upcomingEventsList.map((event) => (
+                      <Link to={`/events/${event.id}`} key={event.id} className="block p-3 bg-blue-50 rounded-lg hover:bg-blue-100">
+                        <h4 className="font-medium text-gray-900 text-sm">{event.title}</h4>
+                        <p className="text-xs text-gray-600">{event.location}</p>
+                        <p className="text-xs text-blue-600 font-medium">{formatEventDateTime(event.start_date, event.start_time)}</p>
+                      </Link>
+                    )) : 
+                    <div className="text-center py-4">
+                      <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <CalendarIcon className="w-6 h-6 text-blue-400" />
                       </div>
+                      <h4 className="text-md font-semibold text-gray-700">No Upcoming Events</h4>
+                      <p className="text-sm text-gray-500 mt-1">Check the events page for new listings.</p>
+                    </div>}
+                  </div>
+                  <div className="mt-4">
+                    <Link 
+                      to="/events" 
+                      className="btn-ocean-outline w-full py-2 px-4 rounded-lg text-center block text-sm"
+                    >
+                      View All Events
                     </Link>
-                  )) :                   <div className="text-center py-4">
-                    <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <BriefcaseIcon className="w-6 h-6 text-green-400" />
-                    </div>
-                    <h4 className="text-md font-semibold text-gray-700">No Recommended Jobs</h4>
-                    <p className="text-sm text-gray-500 mt-1">Explore the job portal for opportunities.</p>
-                  </div>}
+                  </div>
                 </div>
-                <div className="mt-4 flex flex-col space-y-2">
-                  <Link 
-                    to="/jobs" 
-                    className="btn-ocean-outline w-full py-2 px-4 rounded-lg text-center block text-sm"
-                  >
-                    Browse All Jobs
-                  </Link>
-                  <Link 
-                    to="/jobs/applications" 
-                    className="text-ocean-600 hover:text-ocean-800 text-center block text-sm"
-                  >
-                    View My Applications
-                  </Link>
+
+                {/* Job Recommendations */}
+                <div className="glass-card rounded-lg p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Recommended Jobs</h3>
+                  <div className="space-y-3">
+                    {dashboardData.jobRecommendationsList.length > 0 ? dashboardData.jobRecommendationsList.map((job) => (
+                      <Link to={`/jobs/${job.id}`} key={job.id} className="block p-3 bg-green-50 rounded-lg hover:bg-green-100">
+                        <h4 className="font-medium text-gray-900 text-sm">{job.title}</h4>
+                        <p className="text-xs text-gray-600">{job.company_name} - {job.location}</p>
+                        <div className="flex justify-between items-center mt-1">
+                          <p className="text-xs text-green-600 font-medium">{job.salary_range || 'Not specified'}</p>
+                          <p className="text-xs text-gray-500">{formatRelativeTime(job.created_at)}</p>
+                        </div>
+                      </Link>
+                    )) :                   <div className="text-center py-4">
+                      <div className="w-12 h-12 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <BriefcaseIcon className="w-6 h-6 text-green-400" />
+                      </div>
+                      <h4 className="text-md font-semibold text-gray-700">No Recommended Jobs</h4>
+                      <p className="text-sm text-gray-500 mt-1">Explore the job portal for opportunities.</p>
+                    </div>}
+                  </div>
+                  <div className="mt-4 flex flex-col space-y-2">
+                    <Link 
+                      to="/jobs" 
+                      className="btn-ocean-outline w-full py-2 px-4 rounded-lg text-center block text-sm"
+                    >
+                      Browse All Jobs
+                    </Link>
+                    <Link 
+                      to="/jobs/applications" 
+                      className="text-ocean-600 hover:text-ocean-800 text-center block text-sm"
+                    >
+                      View My Applications
+                    </Link>
+                  </div>
                 </div>
               </div>
             </div>

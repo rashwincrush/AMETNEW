@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { 
   CalendarIcon,
@@ -15,99 +15,83 @@ import {
   PhoneIcon,
   EnvelopeIcon
 } from '@heroicons/react/24/outline';
+import { supabase } from '../../utils/supabase';
+import { toast } from 'react-hot-toast';
 
 const EventDetails = () => {
   const { id } = useParams();
+  const [event, setEvent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [isRSVPed, setIsRSVPed] = useState(false);
   const [showAttendeeList, setShowAttendeeList] = useState(false);
 
-  // Mock detailed event data
-  const event = {
-    id: 1,
-    title: 'AMET Alumni Meetup 2024',
-    description: 'Join us for the biggest alumni gathering of the year! This annual reunion brings together graduates from all batches for an evening of networking, nostalgia, and celebration of our maritime heritage.',
-    longDescription: `
-      <p>The AMET Alumni Meetup 2024 is more than just a reunion - it's a celebration of our shared journey and future aspirations in the maritime industry.</p>
-      
-      <h3>Event Highlights:</h3>
-      <ul>
-        <li>Welcome reception with refreshments</li>
-        <li>Keynote speech by industry leaders</li>
-        <li>Panel discussion on "Future of Maritime Industry"</li>
-        <li>Networking sessions with batch-wise meetups</li>
-        <li>Cultural program and entertainment</li>
-        <li>Award ceremony recognizing outstanding alumni</li>
-        <li>Dinner and fellowship</li>
-      </ul>
-      
-      <h3>What to Expect:</h3>
-      <p>This event offers a unique opportunity to reconnect with classmates, meet new people from different batches, and learn about the latest developments in the maritime sector. Whether you're a recent graduate or have decades of experience, there's something for everyone.</p>
-      
-      <h3>Dress Code:</h3>
-      <p>Business casual recommended. Alumni are encouraged to wear AMET branded merchandise if available.</p>
-    `,
-    date: '2024-04-15',
-    time: '18:00',
-    endTime: '21:00',
-    location: 'AMET Campus Auditorium',
-    address: 'East Coast Road, Kanathur, Chennai - 603112',
-    type: 'in-person',
-    category: 'reunion',
-    organizer: 'AMET Alumni Association',
-    maxAttendees: 200,
-    currentAttendees: 145,
-    registeredAttendees: 145,
-    waitingList: 0,
-    image: 'https://images.unsplash.com/photo-1511578314322-379afb476865?w=800&h=400&fit=crop',
-    gallery: [
-      'https://images.unsplash.com/photo-1511578314322-379afb476865?w=300&h=200&fit=crop',
-      'https://images.unsplash.com/photo-1515187029135-18ee286d815b?w=300&h=200&fit=crop',
-      'https://images.unsplash.com/photo-1552664730-d307ca884978?w=300&h=200&fit=crop'
-    ],
-    status: 'upcoming',
-    tags: ['Networking', 'Alumni', 'Campus', 'Annual'],
-    price: 'Free',
-    organizers: [
-      { 
-        name: 'Dr. Sarah Johnson', 
-        role: 'Alumni Director',
-        email: 'sarah.johnson@amet.ac.in',
-        phone: '+91 98765 43210',
-        avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b77c?w=100&h=100&fit=crop&crop=face'
-      },
-      { 
-        name: 'Prof. Rajesh Kumar', 
-        role: 'Event Coordinator',
-        email: 'rajesh.kumar@amet.ac.in',
-        phone: '+91 98765 43211',
-        avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face'
+  useEffect(() => {
+    const fetchEvent = async () => {
+      if (!id) {
+        setLoading(false);
+        setError("No event ID provided.");
+        return;
       }
-    ],
-    agenda: [
-      { time: '18:00', activity: 'Registration & Welcome Reception' },
-      { time: '18:30', activity: 'Keynote Address by Chief Guest' },
-      { time: '19:00', activity: 'Panel Discussion: Future of Maritime Industry' },
-      { time: '19:45', activity: 'Networking Break' },
-      { time: '20:00', activity: 'Alumni Awards Ceremony' },
-      { time: '20:30', activity: 'Cultural Program' },
-      { time: '21:00', activity: 'Dinner & Fellowship' }
-    ],
-    requirements: [
-      'Valid ID for campus entry',
-      'RSVP confirmation required',
-      'Business casual dress code',
-      'Alumni ID recommended'
-    ],
-    amenities: [
-      'Free parking available',
-      'Complimentary refreshments',
-      'Wi-Fi access',
-      'Photography services',
-      'Live streaming for virtual attendees'
-    ]
-  };
+
+      try {
+        setLoading(true);
+        const { data, error: fetchError } = await supabase
+          .from('events')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (fetchError) {
+          throw fetchError;
+        }
+
+        if (data) {
+          setEvent(data);
+        } else {
+          setError('Event not found.');
+          toast.error('Event not found.');
+        }
+      } catch (err) {
+        console.error('Error fetching event details:', err);
+        setError(err.message);
+        toast.error('Could not load event details.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEvent();
+  }, [id]);
 
   // Mock attendees data
+  if (loading) {
+    return (
+      <div className="text-center py-20">
+        <h2 className="text-xl font-semibold">Loading Event...</h2>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-20">
+        <h2 className="text-xl font-semibold text-red-500">Error</h2>
+        <p>{error}</p>
+        <Link to="/events" className="btn-ocean mt-4">Back to Events</Link>
+      </div>
+    );
+  }
+
+  if (!event) {
+    return (
+      <div className="text-center py-20">
+        <h2 className="text-xl font-semibold">Event Not Found</h2>
+        <Link to="/events" className="btn-ocean mt-4">Back to Events</Link>
+      </div>
+    );
+  }
+
   const attendees = [
     {
       id: 1,
@@ -264,7 +248,7 @@ const EventDetails = () => {
 
               {/* Tags */}
               <div className="flex flex-wrap gap-2 mb-6">
-                {event.tags.map((tag, index) => (
+                {Array.isArray(event.tags) && event.tags.map((tag, index) => (
                   <span 
                     key={index}
                     className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm font-medium"
@@ -343,7 +327,7 @@ const EventDetails = () => {
           <div className="glass-card rounded-lg p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Event Agenda</h2>
             <div className="space-y-4">
-              {event.agenda.map((item, index) => (
+              {Array.isArray(event.agenda) && event.agenda.map((item, index) => (
                 <div key={index} className="flex items-start">
                   <div className="w-16 text-sm font-medium text-ocean-600 flex-shrink-0">
                     {item.time}
@@ -361,7 +345,7 @@ const EventDetails = () => {
             <div className="glass-card rounded-lg p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Requirements</h3>
               <ul className="space-y-2">
-                {event.requirements.map((req, index) => (
+                {Array.isArray(event.requirements) && event.requirements.map((req, index) => (
                   <li key={index} className="flex items-start">
                     <span className="text-ocean-500 mr-2">•</span>
                     <span className="text-gray-700 text-sm">{req}</span>
@@ -373,7 +357,7 @@ const EventDetails = () => {
             <div className="glass-card rounded-lg p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">What's Included</h3>
               <ul className="space-y-2">
-                {event.amenities.map((amenity, index) => (
+                {Array.isArray(event.amenities) && event.amenities.map((amenity, index) => (
                   <li key={index} className="flex items-start">
                     <span className="text-green-500 mr-2">✓</span>
                     <span className="text-gray-700 text-sm">{amenity}</span>
@@ -387,7 +371,7 @@ const EventDetails = () => {
           <div className="glass-card rounded-lg p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Event Gallery</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {event.gallery.map((image, index) => (
+              {Array.isArray(event.gallery) && event.gallery.map((image, index) => (
                 <img 
                   key={index}
                   src={image} 
@@ -405,7 +389,7 @@ const EventDetails = () => {
           <div className="glass-card rounded-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Event Organizers</h3>
             <div className="space-y-4">
-              {event.organizers.map((organizer, index) => (
+              {Array.isArray(event.organizers) && event.organizers.map((organizer, index) => (
                 <div key={index} className="flex items-start space-x-3">
                   <img 
                     src={organizer.avatar} 

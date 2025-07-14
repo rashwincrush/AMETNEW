@@ -1,5 +1,5 @@
-import React from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
   EnvelopeIcon,
   PhoneIcon,
@@ -11,80 +11,127 @@ import {
   UserPlusIcon,
   ShareIcon
 } from '@heroicons/react/24/outline';
+import { supabase } from '../../utils/supabase';
 
 const AlumniProfile = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const [alumnus, setAlumnus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   
-  // Mock detailed alumni data
-  const alumnus = {
-    id: 1,
-    name: 'Rajesh Kumar',
-    email: 'rajesh.kumar@email.com',
-    phone: '+91 98765 43210',
-    graduationYear: 2018,
-    degree: 'B.Tech Naval Architecture',
-    specialization: 'Marine Engineering',
-    currentPosition: 'Senior Marine Engineer',
-    company: 'Ocean Shipping Ltd.',
-    location: 'Mumbai, Maharashtra',
-    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop&crop=face',
-    coverImage: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
-    verified: true,
-    joinedDate: 'March 2018',
-    about: 'Experienced marine engineer with 6+ years in the maritime industry. Passionate about sustainable shipping solutions and innovative vessel design. Currently leading engineering projects at Ocean Shipping Ltd. with a focus on reducing environmental impact through advanced propulsion systems.',
-    experience: [
-      {
-        position: 'Senior Marine Engineer',
-        company: 'Ocean Shipping Ltd.',
-        duration: '2021 - Present',
-        location: 'Mumbai, Maharashtra',
-        description: 'Leading engineering teams in vessel design and maintenance projects. Implemented sustainable propulsion systems resulting in 15% fuel efficiency improvement.'
-      },
-      {
-        position: 'Marine Engineer',
-        company: 'Coastal Engineering Corp',
-        duration: '2019 - 2021',
-        location: 'Chennai, Tamil Nadu',
-        description: 'Designed and maintained marine propulsion systems. Collaborated with international teams on offshore platform projects.'
-      },
-      {
-        position: 'Junior Engineer',
-        company: 'Maritime Solutions',
-        duration: '2018 - 2019',
-        location: 'Kochi, Kerala',
-        description: 'Entry-level position focusing on vessel inspection and maintenance protocols. Gained expertise in marine safety regulations.'
+  useEffect(() => {
+    const fetchAlumnusData = async () => {
+      if (!id) return;
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const { data, error: supabaseError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (supabaseError) {
+          if (supabaseError.code === 'PGRST116') {
+             setError('Alumni profile not found');
+          } else {
+             setError('Failed to load alumni profile');
+          }
+          console.error('Error fetching alumni:', supabaseError);
+          return;
+        }
+
+        if (!data) {
+          setError('Alumni profile not found');
+          return;
+        }
+
+        console.log('Fetched alumni from Supabase:', data);
+
+        const transformedAlumnus = {
+          id: data.id,
+          name: data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Unknown',
+          email: data.email || '',
+          phone: data.phone || data.phone_number || '',
+          graduationYear: data.graduation_year,
+          degree: data.degree || 'Not specified',
+          specialization: data.specialization || '',
+          currentPosition: data.current_position || 'Not specified',
+          company: data.current_company || data.company_name || 'Not specified',
+          location: data.location || 'Not specified',
+          avatar: data.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.full_name || data.email || 'User')}&background=3B82F6&color=fff`,
+          coverImage: data.cover_image || 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
+          verified: data.is_verified || false,
+          joinedDate: new Date(data.created_at || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+          about: data.bio || '',
+          experience: data.experience || [],
+          education: data.education || [],
+          skills: data.skills || [],
+          achievements: data.achievements || [],
+          interests: data.interests || [],
+          languages: data.languages || [],
+          socialLinks: {
+            linkedin: data.linkedin_url || '',
+            website: data.website || '',
+            twitter: data.twitter || ''
+          }
+        };
+
+        setAlumnus(transformedAlumnus);
+      } catch (err) {
+        console.error('An unexpected error occurred:', err);
+        setError('An unexpected error occurred while fetching the profile.');
+      } finally {
+        setLoading(false);
       }
-    ],
-    education: [
-      {
-        degree: 'B.Tech Naval Architecture',
-        institution: 'Academy of Maritime Education and Training (AMET)',
-        year: '2014 - 2018',
-        grade: 'First Class with Distinction',
-        activities: ['Student Council President', 'Maritime Engineering Society', 'Research Assistant']
-      }
-    ],
-    skills: [
-      'Marine Engineering', 'Ship Design', 'Naval Architecture', 'Project Management', 
-      'AutoCAD', 'SolidWorks', 'MATLAB', 'Sustainability', 'Leadership', 'Safety Protocols'
-    ],
-    achievements: [
-      'Led the design of eco-friendly cargo vessel prototype',
-      'Reduced fuel consumption by 15% through engine optimization',
-      'Published 3 research papers on sustainable marine technology',
-      'Mentored 25+ junior engineers across the industry',
-      'Recipient of "Young Engineer of the Year" award (2022)'
-    ],
-    interests: ['Sustainable Shipping', 'Marine Technology', 'Environmental Conservation', 'Mentorship'],
-    languages: ['English', 'Tamil', 'Hindi', 'Malayalam'],
-    socialLinks: {
-      linkedin: 'https://linkedin.com/in/rajeshkumar',
-      website: 'https://rajeshkumar.dev',
-      twitter: 'https://twitter.com/rajesh_marine'
-    },
-    connections: 245,
-    mutualConnections: 12
-  };
+    };
+
+    fetchAlumnusData();
+  }, [id]);
+  
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto p-6 text-center">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+        <p className="text-gray-600">Loading alumni profile...</p>
+      </div>
+    );
+  }
+  
+  if (error) {
+    return (
+      <div className="max-w-4xl mx-auto p-6 text-center">
+        <div className="text-red-500 text-5xl mb-4">⚠️</div>
+        <h2 className="text-xl font-semibold text-gray-800 mb-2">Profile Not Found</h2>
+        <p className="text-gray-600 mb-6">{error}</p>
+        <button 
+          onClick={() => navigate('/directory')} 
+          className="btn-ocean px-4 py-2 rounded-lg"
+        >
+          Back to Directory
+        </button>
+      </div>
+    );
+  }
+  
+  if (!alumnus) {
+    return (
+      <div className="max-w-4xl mx-auto p-6 text-center">
+        <div className="text-gray-500 text-5xl mb-4">🔍</div>
+        <h2 className="text-xl font-semibold text-gray-800 mb-2">Profile Not Available</h2>
+        <p className="text-gray-600 mb-6">The requested alumni profile could not be found.</p>
+        <button 
+          onClick={() => navigate('/directory')} 
+          className="btn-ocean px-4 py-2 rounded-lg"
+        >
+          Back to Directory
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -102,14 +149,14 @@ const AlumniProfile = () => {
         <div className="p-6">
           <div className="flex flex-col md:flex-row items-start md:items-end space-y-4 md:space-y-0 md:space-x-6">
             {/* Profile Picture */}
-            <div className="relative -mt-20 md:-mt-16">
+            <div className="relative -mt-20 md:-mt-24 flex-shrink-0">
               <img 
                 src={alumnus.avatar} 
-                alt={alumnus.name}
-                className="w-32 h-32 rounded-full object-cover border-4 border-white shadow-lg"
+                alt={`${alumnus.name}'s profile picture`}
+                className="w-32 h-32 md:w-40 md:h-40 rounded-full object-cover border-4 border-white shadow-lg"
               />
               {alumnus.verified && (
-                <div className="absolute bottom-2 right-2 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center border-2 border-white">
+                <div className="absolute bottom-2 right-2 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center border-2 border-white" title="Verified Alumnus">
                   <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                   </svg>
@@ -130,7 +177,7 @@ const AlumniProfile = () => {
                 </div>
                 <div className="flex items-center">
                   <AcademicCapIcon className="w-4 h-4 mr-1" />
-                  <span className="text-sm">{alumnus.degree} • Class of {alumnus.graduationYear}</span>
+                  <span className="text-sm">{alumnus.degree} • Year of Completion : {alumnus.graduationYear}</span>
                 </div>
               </div>
               
@@ -313,7 +360,7 @@ const AlumniProfile = () => {
           <div className="glass-card rounded-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Social Links</h3>
             <div className="space-y-2">
-              {Object.entries(alumnus.socialLinks).map(([platform, url]) => (
+              {Object.entries(alumnus.socialLinks || {}).map(([platform, url]) => (
                 url && (
                   <a 
                     key={platform}
