@@ -7,7 +7,7 @@ const Logo = ({ className = 'h-10 w-auto', alt = 'Logo' }) => {
   return (
     <div className={className} style={{display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
       <img
-        src="/Logo.png"
+        src="/logo.png"
         alt={alt}
         style={{maxWidth: '100%', maxHeight: '100%', objectFit: 'contain'}}
       />
