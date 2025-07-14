@@ -92,8 +92,8 @@ function AppContent() {
         <div className="text-center">
           <div className="w-24 h-24 mb-4 mx-auto animate-pulse">
             <img 
-              src="/logo.png" 
-              alt="AMET Logo" 
+              src="/Logo.png" 
+              alt="Logo" 
               className="w-full h-full object-contain"
             />
           </div>

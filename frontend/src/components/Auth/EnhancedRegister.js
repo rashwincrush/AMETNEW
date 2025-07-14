@@ -644,7 +644,7 @@ const EnhancedRegister = () => {
       <div className="max-w-2xl w-full space-y-8">
         <div className="text-center">
           <Link to="/" className="flex items-center justify-center space-x-3 mb-6">
-            <img src="/logo.png" alt="AMET Alumni Logo" className="h-12 w-auto" />
+            <img src="/Logo.png" alt="Logo" className="h-12 w-auto" />
             <span className="text-2xl font-bold text-gray-900">AMET Alumni</span>
           </Link>
           <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900">Join the AMET Network</h2>

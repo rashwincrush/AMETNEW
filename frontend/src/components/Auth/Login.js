@@ -101,7 +101,7 @@ const Login = () => {
         {/* Header */}
         <div className="text-center">
           <Link to="/">
-            <img className="mx-auto h-16 w-auto" src="/logo.png" alt="AMET Alumni" />
+            <img className="mx-auto h-16 w-auto" src="/Logo.png" alt="Logo" />
           </Link>
           <h2 className="mt-6 text-3xl font-bold tracking-tight text-gray-900">
             Welcome Back
