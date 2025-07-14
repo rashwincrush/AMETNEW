@@ -23,6 +23,10 @@
       "dest": "/frontend/manifest.json"
     },
     {
+      "src": "/(.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|json|txt|xml))",
+      "dest": "/frontend/$1"
+    },
+    {
       "src": "/(.*)",
       "dest": "/frontend/index.html"
     }
