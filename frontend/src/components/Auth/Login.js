@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import Logo from '../Common/Logo';
 import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
 import { signInWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
@@ -101,7 +102,7 @@ const Login = () => {
         {/* Header */}
         <div className="text-center">
           <Link to="/">
-            <img className="mx-auto h-16 w-auto" src="/Logo.png" alt="Logo" />
+            <Logo className="mx-auto h-16 w-auto" />
           </Link>
           <h2 className="mt-6 text-3xl font-bold tracking-tight text-gray-900">
             Welcome Back

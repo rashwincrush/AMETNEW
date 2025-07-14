@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import Logo from '../Common/Logo';
 import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, CheckIcon, ArrowLeftIcon } from '@heroicons/react/24/outline'; // Removed XMarkIcon as it's not used in the final version
 import { supabase, signUpWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
@@ -644,7 +645,7 @@ const EnhancedRegister = () => {
       <div className="max-w-2xl w-full space-y-8">
         <div className="text-center">
           <Link to="/" className="flex items-center justify-center space-x-3 mb-6">
-            <img src="/Logo.png" alt="Logo" className="h-12 w-auto" />
+            <Logo className="h-12 w-auto" />
             <span className="text-2xl font-bold text-gray-900">AMET Alumni</span>
           </Link>
           <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900">Join the AMET Network</h2>

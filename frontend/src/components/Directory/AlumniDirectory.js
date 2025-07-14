@@ -163,7 +163,7 @@ const AlumniDirectory = () => {
         currentPosition: profile.current_position || 'Not specified',
         company: profile.current_company || profile.company_name || 'Not specified',
         location: profile.location || 'Not specified',
-        avatar: profile.avatar_url || '/Logo.png',
+        avatar: profile.avatar_url || '/static/Logo.png',
         skills: profile.skills || [],
         achievements: profile.achievements || [],
         bio: profile.bio || '',

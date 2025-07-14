@@ -1,4 +1,5 @@
 import React from 'react';
+import Logo from '../Common/Logo';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   HomeIcon, 
@@ -79,7 +80,7 @@ const Navigation = () => {
       {/* Logo Section */}
       <div className="p-6 border-b border-ocean-200">
         <div className="flex items-center space-x-3">
-          <img src="/Logo.png" alt="Logo" className="h-10 w-auto" />
+          <Logo className="h-10 w-auto" />
           <div>
             <h1 className="text-xl font-bold text-gray-900">AMET Alumni</h1>
           </div>

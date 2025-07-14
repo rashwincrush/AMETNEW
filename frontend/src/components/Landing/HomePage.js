@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import Logo from '../Common/Logo';
 import { 
   UsersIcon, 
   CalendarIcon, 
@@ -82,7 +83,7 @@ const HomePage = () => {
             {/* Logo */}
             <div className="flex items-center">
               <Link to="/" className="flex items-center space-x-3">
-                <img src="/Logo.png" alt="Logo" className="h-10 w-auto" />
+                <Logo className="h-10 w-auto" />
                 <div>
                   <span className="text-xl font-bold text-gray-900">AMET Alumni</span>
                 </div>
@@ -342,7 +343,7 @@ const HomePage = () => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div className="md:col-span-2">
               <div className="flex items-center space-x-3 mb-4">
-                <img src="/Logo.png" alt="Logo" className="h-10 w-auto" />
+                <Logo className="h-10 w-auto" />
                 <div>
                   <span className="text-xl font-bold text-gray-900">AMET Alumni Portal</span>
                 </div>

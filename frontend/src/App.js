@@ -6,6 +6,9 @@ import './App.css';
 // Context
 import { useAuth } from './contexts/AuthContext';
 
+// Common Components
+import Logo from './components/Common/Logo';
+
 // Home Page
 import HomePage from './components/Landing/HomePage';
 
@@ -91,11 +94,7 @@ function AppContent() {
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
           <div className="w-24 h-24 mb-4 mx-auto animate-pulse">
-            <img 
-              src="/Logo.png" 
-              alt="Logo" 
-              className="w-full h-full object-contain"
-            />
+            <Logo className="w-full h-full object-contain" />
           </div>
           <div className="text-gray-600 text-lg mb-2 font-medium">Building Your Alumni Network</div>
           <div className="text-gray-500 text-sm">Connecting you with fellow AMETians worldwide</div>
