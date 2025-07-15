@@ -84,10 +84,19 @@ const AlumniDirectory = () => {
   const fetchAlumniData = async () => {
     setLoading(true);
     setError(null);
+    
+    // For performance monitoring
+    const startTime = performance.now();
+    
     try {
       // Using the imported supabase client (singleton pattern)
       const from = (currentPage - 1) * itemsPerPage;
       const to = from + itemsPerPage - 1;
+      
+      console.log(`Fetching alumni data: page ${currentPage}, items ${from}-${to}`);
+      if (Object.values(filters).some(v => v)) {
+        console.log('Active filters:', filters);
+      }
 
       const columnMap = {
         graduationYear: 'graduation_year',
@@ -127,12 +136,24 @@ const AlumniDirectory = () => {
       Object.keys(filters).forEach(key => {
         if (filters[key]) {
           const columnName = columnMap[key] || key;
+          // Special handling for specific filter types
           if (key === 'skills') {
             const skillsArray = filters[key].split(',').map(s => s.trim()).filter(Boolean);
             if (skillsArray.length > 0) {
               query = query.cs(columnName, skillsArray);
             }
-          } else {
+          } 
+          // Handle batch_year as an exact match if it's a number
+          else if (key === 'batchYear' && !isNaN(filters[key])) {
+            console.log(`Applying batch_year filter: ${filters[key]}`);
+            query = query.eq(columnName, parseInt(filters[key]));
+          }
+          // Handle company with special case for both current_company and company_name fields
+          else if (key === 'company') {
+            console.log(`Applying company filter: ${filters[key]}`);
+            query = query.or(`current_company.ilike.%${filters[key]}%,company_name.ilike.%${filters[key]}%`);
+          }
+          else {
             query = query.ilike(columnName, `%${filters[key]}%`);
           }
         }
@@ -147,7 +168,23 @@ const AlumniDirectory = () => {
 
       if (supabaseError) {
         console.error('Error fetching alumni:', supabaseError);
-        setError('Failed to load alumni data');
+        
+        // Handle specific error types
+        if (supabaseError.code === 'PGRST301') {
+          setError('Database timeout. Please try a more specific search.');
+        } else if (supabaseError.code === '23505') {
+          setError('Database constraint error. Please try again.');
+        } else if (supabaseError.code?.startsWith('23')) {
+          setError('Database integrity error. Please try again.');
+        } else if (supabaseError.code === '42P01') {
+          setError('Table not found. Please contact support.');
+        } else if (supabaseError.message?.includes('network')) {
+          setError('Network error. Please check your connection and try again.');
+        } else if (supabaseError.message?.includes('rate limit')) {
+          setError('Rate limit exceeded. Please try again in a few minutes.');
+        } else {
+          setError(`Failed to load alumni data: ${supabaseError.message || 'Unknown error'}`);
+        }
         return;
       }
 
@@ -178,12 +215,26 @@ const AlumniDirectory = () => {
 
       setAlumni(transformedAlumni);
       setTotalAlumni(count || 0);
+      
+      // Log performance metrics
+      const endTime = performance.now();
+      const queryTime = endTime - startTime;
+      console.log(`Alumni query completed in ${queryTime.toFixed(2)}ms, found ${count || 0} results`);
+      
     } catch (err) {
       console.error('An unexpected error occurred:', err);
-      setError('An unexpected error occurred while fetching data.');
+      
+      // Handle network errors and other common issues
+      if (err.message?.includes('network') || err.message?.includes('fetch')) {
+        setError('Network error. Please check your connection and try again.');
+      } else if (err.message?.includes('timeout')) {
+        setError('Request timed out. Please try again later.');
+      } else {
+        setError('An unexpected error occurred while fetching data.');
+      }
     } finally {
       setLoading(false);
-    }
+    }  
   };
 
   const AlumniCard = ({ alumnus }) => (
@@ -364,6 +415,25 @@ const AlumniDirectory = () => {
             >
               Search
             </Button>
+            
+            {/* Clear Filters Button - Only show when filters are active */}
+            {(searchTerm || Object.values(filters).some(val => val)) && (
+              <Button
+                variant="outlined"
+                color="secondary"
+                onClick={handleClearFilters}
+                sx={{ 
+                  height: 42,
+                  borderRadius: 2,
+                  textTransform: 'none',
+                  fontSize: '0.93rem',
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Clear
+              </Button>
+            )}
             
             <Button
               variant="outlined"

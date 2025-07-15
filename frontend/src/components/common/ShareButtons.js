@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Twitter, Facebook, Linkedin, Link as LinkIcon, Check } from 'lucide-react';
+import { Twitter, Facebook, Linkedin, Link, Share2, Check } from 'lucide-react';
 
-const SocialShareButtons = ({ url, title }) => {
+const ShareButtons = ({ url, title }) => {
   const [copied, setCopied] = useState(false);
 
   const platforms = {
@@ -30,10 +30,10 @@ const SocialShareButtons = ({ url, title }) => {
         <Linkedin size={20} />
       </a>
       <button onClick={handleCopy} className="text-gray-500 hover:text-gray-800">
-        {copied ? <Check size={20} className="text-green-500" /> : <LinkIcon size={20} />}
+        {copied ? <Check size={20} className="text-green-500" /> : <Link size={20} />}
       </button>
     </div>
   );
 };
 
-export default SocialShareButtons;
+export default ShareButtons;

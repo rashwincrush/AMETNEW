@@ -1,280 +1,96 @@
-// Version check to confirm code changes are loaded
-console.log('EventDetail.js loaded with event_attendees table fix - version 1.0.1');
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
-import { 
-  Box, 
-  Typography, 
-  Paper, 
-  Button, 
-  Chip, 
-  Divider, 
-  Grid, 
-  IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
-  Snackbar,
-  Alert,
-  Avatar,
-  List,
-  ListItem,
-  ListItemAvatar,
-  ListItemText,
-  ListItemSecondaryAction,
-  Container
-} from '@mui/material';
-import LoadingSpinner from '../common/LoadingSpinner';
-import { 
-  Event as EventIcon, 
-  LocationOn as LocationIcon, 
-  CalendarToday as CalendarIcon,
-  AccessTime as AccessTimeIcon,
-  EventAvailable as EventAvailableIcon,
-  People as PeopleIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  ArrowBack as ArrowBackIcon,
-  Person as PersonIcon,
-  CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon,
-  Assessment as AssessmentIcon
-} from '@mui/icons-material';
-import FacebookIcon from '@mui/icons-material/Facebook';
-import TwitterIcon from '@mui/icons-material/Twitter';
-import LinkedInIcon from '@mui/icons-material/LinkedIn';
-import EmailIcon from '@mui/icons-material/Email';
 import { format, parseISO, isPast, isFuture } from 'date-fns';
+import { ArrowLeft, Edit, Trash2, Calendar, Clock, MapPin, Tag, Users, CheckCircle, BarChart2 } from 'lucide-react';
 import SocialShareButtons from '../common/SocialShareButtons';
 
-const EventDetail = ({ isAdmin = false }) => {
+const EventDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [rsvpLoading, setRsvpLoading] = useState(false);
   const [rsvpSuccess, setRsvpSuccess] = useState('');
   const [attendees, setAttendees] = useState([]);
   const [userRsvp, setUserRsvp] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
-  const subscriptionRef = useRef(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  useEffect(() => {
-    fetchEvent();
-    fetchCurrentUser();
-    
-    // Set up real-time subscription for this specific event
-    const channel = supabase
-      .channel(`event-detail-${id}`)
-      .on(
-        'postgres_changes',
-        { 
-          event: '*', 
-          schema: 'public', 
-          table: 'events',
-          filter: `id=eq.${id}`
-        },
-        (payload) => {
-          console.log('Real-time change for event detail received:', payload);
-          fetchEvent();
-        }
-      )
-      .subscribe();
-
-    subscriptionRef.current = channel;
-
-    // Cleanup function
-    return () => {
-      if (subscriptionRef.current) {
-        supabase.removeChannel(subscriptionRef.current);
-        subscriptionRef.current = null;
-      }
-    };
-  }, [id]);
-
-  const fetchCurrentUser = async () => {
+  const fetchEventData = useCallback(async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setCurrentUserId(user.id);
-        fetchUserRsvp(user.id);
-      }
-    } catch (err) {
-      console.error('Error fetching current user:', err);
-    }
-  };
-
-  const fetchUserRsvp = async (userId) => {
-    try {
-      // Use a basic query with minimal fields and proper string formatting
-      const { data, error } = await supabase
-        .from('event_attendees')
-        .select('id,attendance_status,registration_date') // Use correct column names
-        .eq('event_id', id)
-        .eq('attendee_id', userId);
-
-      if (error) {
-        console.error('Error fetching user RSVP:', error);
-        return;
-      }
-
-      // If we have results, take the first one
-      setUserRsvp(data && data.length > 0 ? data[0] : null);
-    } catch (err) {
-      console.error('Error fetching user RSVP:', err);
-    }
-  };
-
-  const fetchEvent = async () => {
-    try {
-      setLoading(true);
-      
-      // Fetch event details
       const { data: eventData, error: eventError } = await supabase
         .from('events')
         .select('*')
         .eq('id', id)
         .single();
-
       if (eventError) throw eventError;
-      if (!eventData) throw new Error('Event not found');
-
       setEvent(eventData);
-      
-      // Fetch attendees
-      await fetchAttendees(eventData.id);
-      
-    } catch (err) {
-      console.error('Error fetching event:', err);
-      setError(err.message || 'Failed to load event');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const fetchAttendees = async (eventId) => {
-    try {
-      // Step 1: Get RSVPs with attendance_status 'registered' for this event
-      const { data: rsvpData, error: rsvpError } = await supabase
+      const { data: attendeesData, error: attendeesError } = await supabase
         .from('event_attendees')
-        .select('id,attendance_status,registration_date,attendee_id') // Use correct column names
-        .eq('event_id', eventId)
-        .eq('attendance_status', 'registered');
-
-      if (rsvpError) {
-        console.error('Error fetching RSVPs:', rsvpError);
-        throw rsvpError;
-      }
-
-      if (!rsvpData || rsvpData.length === 0) {
-        setAttendees([]);
-        return;
-      }
-
-      // Step 2: Get profiles for the users who RSVP'd
-      const attendeeIds = rsvpData.map(rsvp => rsvp.attendee_id);
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('id,full_name,avatar_url,job_title,company')
-        .in('id', attendeeIds);
-
-      if (profileError) {
-        console.error('Error fetching profiles:', profileError);
-        throw profileError;
-      }
-
-      // Step 3: Combine the data
-      const attendeesWithProfiles = rsvpData.map(rsvp => {
-        const profile = profileData.find(p => p.id === rsvp.attendee_id);
-        return {
-          ...rsvp,
-          profiles: profile || null
-        };
-      }).filter(a => a.profiles); // Only include attendees with valid profiles
-
-      setAttendees(attendeesWithProfiles);
+        .select('id, attendance_status, profiles:attendee_id(id, full_name, avatar_url, current_position)')
+        .eq('event_id', id)
+        .eq('attendance_status', 'going');
+      if (attendeesError) throw attendeesError;
+      setAttendees(attendeesData.filter(a => a.profiles));
 
     } catch (err) {
-      console.error('Error in fetchAttendees function:', err);
-      setError('Failed to load attendee information. Please try again later.');
+      console.error("Error fetching event data:", err);
+      setError('Failed to fetch event details.');
     }
-  };
+  }, [id]);
+
+  const fetchCurrentUser = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      setCurrentUserId(user.id);
+      const { data } = await supabase.from('event_attendees').select('*').eq('event_id', id).eq('attendee_id', user.id).single();
+      setUserRsvp(data);
+
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+      if (profile && profile.role === 'admin') {
+        setIsAdmin(true);
+      }
+    }
+  }, [id]);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([fetchEventData(), fetchCurrentUser()]).finally(() => setLoading(false));
+  }, [id, fetchEventData, fetchCurrentUser]);
 
   const handleDelete = async () => {
-    try {
-      setLoading(true);
-      
-      // First delete all RSVPs for this event
-      const { error: rsvpError } = await supabase
-        .from('event_attendees')
-        .delete()
-        .eq('event_id', id);
-
-      if (rsvpError) throw rsvpError;
-      
-      // Then delete the event
-      const { error: eventError } = await supabase
-        .from('events')
-        .delete()
-        .eq('id', id);
-
-      if (eventError) throw eventError;
-      
-      navigate('/events', { replace: true, state: { message: 'Event deleted successfully' } });
-    } catch (err) {
-      console.error('Error deleting event:', err);
-      setError('Failed to delete event');
+    if (!window.confirm('Are you sure you want to delete this event?')) return;
+    setLoading(true);
+    const { error } = await supabase.from('events').delete().eq('id', id);
+    if (error) {
+      setError('Failed to delete event.');
       setLoading(false);
+    } else {
+      navigate('/events');
     }
   };
 
   const handleRsvp = async (attendance_status) => {
+    if (!currentUserId) return setError('You must be logged in to RSVP.');
+    setRsvpLoading(true);
     try {
-      if (!currentUserId) {
-        navigate('/login', { state: { from: `/events/${id}` } });
-        return;
-      }
+      const { error } = await supabase.rpc('rsvp_to_event', { 
+        p_event_id: id, 
+        p_attendee_id: currentUserId, 
+        p_attendance_status: attendance_status 
+      });
 
-      setRsvpLoading(true);
+      if (error) throw error;
 
-      if (userRsvp) {
-        // Update existing RSVP
-        const { error } = await supabase
-          .from('event_attendees')
-          .update({ 
-            attendance_status: attendance_status === 'going' ? 'registered' : 'canceled',
-            registration_date: new Date().toISOString() 
-          })
-          .eq('id', userRsvp.id);
-
-        if (error) throw error;
-      } else {
-        // Create new RSVP
-        const { error } = await supabase
-          .from('event_attendees')
-          .insert([{ 
-            event_id: id, 
-            attendee_id: currentUserId, 
-            attendance_status: attendance_status === 'going' ? 'registered' : 'canceled',
-            registration_date: new Date().toISOString()
-          }]);
-
-        if (error) throw error;
-      }
-
-      setRsvpSuccess(`Successfully ${attendance_status === 'going' ? 'registered for this event' : 'canceled your registration'}!`);
-      fetchUserRsvp(currentUserId);
-      fetchAttendees(id);
-      
+      setRsvpSuccess(`Successfully RSVP'd as ${attendance_status}!`)
+      await Promise.all([fetchEventData(), fetchCurrentUser()]);
+      setTimeout(() => setRsvpSuccess(''), 3000);
     } catch (err) {
-      console.error('Error updating RSVP:', err);
-      setError('Failed to update your RSVP');
+      console.error('Error during RSVP:', err);
+      setError('Failed to process your RSVP.');
     } finally {
       setRsvpLoading(false);
     }
@@ -282,441 +98,105 @@ const EventDetail = ({ isAdmin = false }) => {
 
   const getEventStatus = (startDate, endDate) => {
     const now = new Date();
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-
-    if (isPast(end)) return { text: 'Past Event', color: 'default' };
-    if (isFuture(start)) return { text: 'Upcoming Event', color: 'info' };
-    return { text: 'Happening Now', color: 'success' };
+    if (isPast(parseISO(endDate))) return { text: 'Past', color: 'bg-red-500' };
+    if (isFuture(parseISO(startDate))) return { text: 'Upcoming', color: 'bg-blue-500' };
+    return { text: 'Ongoing', color: 'bg-green-500' };
   };
 
-  if (loading) {
-    return <LoadingSpinner message="Loading event details..." />;
-  }
+  if (loading && !event) return <div className="flex justify-center items-center h-screen"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div></div>;
+  if (error) return <div className="text-center p-4 text-red-500 bg-red-100 rounded-md">Error: {error}</div>;
+  if (!event) return <div className="text-center p-4">Event not found.</div>;
 
-  if (error) {
-    return (
-      <Paper elevation={0} sx={{ p: 4, textAlign: 'center' }}>
-        <Typography color="error" gutterBottom>{error}</Typography>
-        <Button 
-          variant="outlined" 
-          color="primary" 
-          onClick={fetchEvent}
-          startIcon={<ArrowBackIcon />}
-          sx={{ mt: 2 }}
-        >
-          Back to Events
-        </Button>
-      </Paper>
-    );
-  }
-
-  if (!event) {
-    return (
-      <Paper elevation={0} sx={{ p: 4, textAlign: 'center' }}>
-        <Typography variant="h6" gutterBottom>Event not found</Typography>
-        <Button 
-          variant="outlined" 
-          color="primary" 
-          component={Link} 
-          to="/events"
-          startIcon={<ArrowBackIcon />}
-          sx={{ mt: 2 }}
-        >
-          Back to Events
-        </Button>
-      </Paper>
-    );
-  }
-
-  const attendance_status = getEventStatus(event.start_date, event.end_date);
-  const isPastEvent = isPast(new Date(event.end_date));
-  const registrationOpen = !isPastEvent && 
-    (!event.registration_deadline || new Date() < new Date(event.registration_deadline));
+  const eventStatus = getEventStatus(event.start_time, event.end_time);
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Button 
-        component={Link} 
-        to="/events" 
-        startIcon={<ArrowBackIcon />} 
-        sx={{ mb: 3 }}
-      >
-        Back to Events
-      </Button>
+    <div className="bg-gray-50 min-h-screen">
+      <div className="container mx-auto p-4 md:p-6">
+        <Link to="/events" className="flex items-center text-sm font-medium text-gray-600 hover:text-gray-900 mb-4">
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to All Events
+        </Link>
 
-      <Paper elevation={3} sx={{ mb: 4, borderRadius: 2, overflow: 'hidden' }}>
-        <Box 
-          sx={{
-            bgcolor: 'primary.main',
-            color: 'white',
-            p: { xs: 3, md: 4 },
-            position: 'relative',
-            minHeight: 200,
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center'
-          }}
-        >
-          <Box sx={{ position: 'absolute', top: 16, right: 16, zIndex: 1 }}>
-            <Chip 
-              label={attendance_status.text} 
-              color={attendance_status.color} 
-              size="small"
-              sx={{ color: 'white', fontWeight: 'medium' }}
-            />
-          </Box>
-          
-          <Typography variant="h3" component="h1" sx={{ mb: 2, fontWeight: 'bold' }}>
-            {event.title}
-          </Typography>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2, mt: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <CalendarIcon sx={{ mr: 1, color: 'text.secondary' }} />
-              <Typography variant="body1">
-                {format(parseISO(event.start_date), 'EEEE, MMMM d, yyyy')}
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <AccessTimeIcon sx={{ mr: 1 }} />
-              <Typography variant="body1">
-                {format(parseISO(event.start_date), 'h:mm a')} - {format(parseISO(event.end_date), 'h:mm a')}
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <LocationIcon sx={{ mr: 1 }} />
-              <Typography variant="body1">{event.location}</Typography>
-            </Box>
-          </Box>
-        </Box>
+        <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+          {event.image_url && <img src={event.image_url} alt={event.name} className="w-full h-48 md:h-64 object-cover" />}
+          <div className="p-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start mb-2">
+              <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mb-2 sm:mb-0">{event.name}</h1>
+              <span className={`px-3 py-1 text-sm font-semibold text-white rounded-full ${eventStatus.color}`}>
+                {eventStatus.text}
+              </span>
+            </div>
 
-        <Box sx={{ p: { xs: 3, md: 4 } }}>
-          <Grid container spacing={4}>
-            <Grid item xs={12} md={8}>
-              <Box sx={{ mb: 4 }}>
-                <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold' }}>
-                  About This Event
-                </Typography>
-                <Divider sx={{ mb: 2 }} />
-                <Typography variant="body1" paragraph sx={{ whiteSpace: 'pre-line' }}>
-                  {event.description}
-                </Typography>
-                <SocialShareButtons shareUrl={window.location.href} title={event.title} />
-              </Box>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+              {/* Event Info */}
+              <div className="md:col-span-2 space-y-4">
+                <p className="text-gray-600 whitespace-pre-wrap">{event.description}</p>
+                <div className="flex items-center"><Calendar className="w-5 h-5 mr-3 text-gray-500"/><span>{format(parseISO(event.start_time), 'EEEE, MMMM d, yyyy')}</span></div>
+                <div className="flex items-center"><Clock className="w-5 h-5 mr-3 text-gray-500"/><span>{format(parseISO(event.start_time), 'h:mm a')} - {format(parseISO(event.end_time), 'h:mm a')}</span></div>
+                <div className="flex items-center"><MapPin className="w-5 h-5 mr-3 text-gray-500"/><span>{event.location}</span></div>
+                <div className="flex items-center"><Tag className="w-5 h-5 mr-3 text-gray-500"/><span>{event.type}</span></div>
+              </div>
 
-              <Box sx={{ mb: 4 }}>
-                <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold' }}>
-                  Event Details
-                </Typography>
-                <Divider sx={{ mb: 2 }} />
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
-                    <Box sx={{ display: 'flex', mb: 2 }}>
-                      <EventIcon color="action" sx={{ mr: 2 }} />
-                      <Box>
-                        <Typography variant="subtitle2" color="textSecondary">Event Type</Typography>
-                        <Typography variant="body1">
-                          {event.event_type.charAt(0).toUpperCase() + event.event_type.slice(1)}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Box sx={{ display: 'flex', mb: 2 }}>
-                      <PeopleIcon color="action" sx={{ mr: 2 }} />
-                      <Box>
-                        <Typography variant="subtitle2" color="textSecondary">Capacity</Typography>
-                        <Typography variant="body1">
-                          {event.max_attendees ? `${attendees.length} / ${event.max_attendees} attending` : 'Unlimited'}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  </Grid>
-                  {event.registration_deadline && (
-                    <Grid item xs={12} sm={6}>
-                      <Box sx={{ display: 'flex', mb: 2 }}>
-                        <EventAvailableIcon color="action" sx={{ mr: 2 }} />
-                        <Box>
-                          <Typography variant="subtitle2" color="textSecondary">Registration Deadline</Typography>
-                          <Typography variant="body1">
-                            {format(parseISO(event.registration_deadline), 'MMMM d, yyyy h:mm a')}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </Grid>
+              {/* RSVP & Admin */}
+              <div className="md:col-span-1 space-y-4">
+                <div className="bg-gray-50 p-4 rounded-lg border">
+                  <h3 className="font-bold text-lg mb-3 text-center">RSVP Here</h3>
+                  {rsvpSuccess && <div className="text-center p-2 mb-3 bg-green-100 text-green-700 rounded">{rsvpSuccess}</div>}
+                  {userRsvp?.attendance_status === 'going' ? (
+                    <div className="text-center">
+                      <div className="flex items-center justify-center text-green-600 font-semibold mb-2"><CheckCircle className="w-5 h-5 mr-2"/> You are going!</div>
+                      <button onClick={() => handleRsvp('not_going')} disabled={rsvpLoading} className="text-sm text-red-500 hover:underline">Cancel RSVP</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => handleRsvp('going')} disabled={rsvpLoading || isPast(parseISO(event.end_time))} className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 disabled:bg-gray-400 transition duration-200">
+                      {rsvpLoading ? 'Processing...' : 'Attend Event'}
+                    </button>
                   )}
-                  {event.organizer && (
-                    <Grid item xs={12} sm={6}>
-                      <Box sx={{ display: 'flex', mb: 2 }}>
-                        <PersonIcon color="action" sx={{ mr: 2 }} />
-                        <Box>
-                          <Typography variant="subtitle2" color="textSecondary">Organizer</Typography>
-                          <Typography variant="body1">{event.organizer}</Typography>
-                        </Box>
-                      </Box>
-                    </Grid>
-                  )}
-                </Grid>
-              </Box>
-
-              {event.additional_info && (
-                <Box sx={{ mb: 4 }}>
-                  <Typography variant="h5" gutterBottom sx={{ fontWeight: 'bold' }}>
-                    Additional Information
-                  </Typography>
-                  <Divider sx={{ mb: 2 }} />
-                  <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>
-                    {event.additional_info}
-                  </Typography>
-                </Box>
-              )}
-            </Grid>
-
-            <Grid item xs={12} md={4}>
-              <Paper elevation={0} sx={{ p: 3, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
-                  Register for this event
-                </Typography>
-                
-                {isPastEvent ? (
-                  <Box>
-                    <Alert severity="info" sx={{ mb: 2 }}>
-                      This event has already ended.
-                    </Alert>
-                    <Button
-                      variant="outlined"
-                      color="primary"
-                      fullWidth
-                      component={Link}
-                      to={`/events/${id}/feedback`}
-                      sx={{ mb: 2 }}
-                      startIcon={<EventAvailableIcon />}
-                    >
-                      Provide Feedback
-                    </Button>
-                  </Box>
-                ) : !registrationOpen ? (
-                  <Alert severity="warning" sx={{ mb: 2 }}>
-                    Registration for this event is closed.
-                  </Alert>
-                ) : userRsvp ? (
-                  <Box>
-                    <Alert 
-                      severity={userRsvp.attendance_status === 'going' ? 'success' : 'info'}
-                      sx={{ mb: 2 }}
-                    >
-                      You've marked yourself as <strong>{userRsvp.attendance_status}</strong> for this event.
-                    </Alert>
-                    <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                      Change your response:
-                    </Typography>
-                  </Box>
-                ) : (
-                  <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                    Let us know if you'll be attending this event.
-                  </Typography>
-                )}
-
-                {!isPastEvent && registrationOpen && (
-                  <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                    <Button
-                      variant={userRsvp?.attendance_status === 'going' ? 'contained' : 'outlined'}
-                      color="primary"
-                      fullWidth
-                      onClick={() => handleRsvp('going')}
-                      disabled={rsvpLoading}
-                      startIcon={userRsvp?.attendance_status === 'going' ? <CheckCircleIcon /> : null}
-                    >
-                      {rsvpLoading && userRsvp?.attendance_status !== 'going' ? 'Updating...' : 'Going'}
-                    </Button>
-                    
-                    <Button
-                      variant={userRsvp?.attendance_status === 'not_going' ? 'contained' : 'outlined'}
-                      color="secondary"
-                      fullWidth
-                      onClick={() => handleRsvp('not_going')}
-                      disabled={rsvpLoading}
-                      startIcon={userRsvp?.attendance_status === 'not_going' ? <CancelIcon /> : null}
-                    >
-                      {rsvpLoading && userRsvp?.attendance_status !== 'not_going' ? 'Updating...' : 'Not Going'}
-                    </Button>
-                  </Box>
-                )}
-
-                <Divider sx={{ my: 3 }} />
-
-                <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-                  Share this event:
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                  <IconButton 
-                    color="primary" 
-                    size="small"
-                    onClick={() => {
-                      const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(event.title)}`;
-                      window.open(url, '_blank', 'width=600,height=400');
-                    }}
-                    aria-label="Share on Facebook"
-                  >
-                    <FacebookIcon />
-                  </IconButton>
-                  <IconButton 
-                    color="primary" 
-                    size="small"
-                    onClick={() => {
-                      const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(`Check out this event: ${event.title}`)}&url=${encodeURIComponent(window.location.href)}`;
-                      window.open(url, '_blank', 'width=600,height=400');
-                    }}
-                    aria-label="Share on Twitter"
-                  >
-                    <TwitterIcon />
-                  </IconButton>
-                  <IconButton 
-                    color="primary" 
-                    size="small"
-                    onClick={() => {
-                      const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}`;
-                      window.open(url, '_blank', 'width=600,height=400');
-                    }}
-                    aria-label="Share on LinkedIn"
-                  >
-                    <LinkedInIcon />
-                  </IconButton>
-                  <IconButton 
-                    color="primary" 
-                    size="small"
-                    onClick={() => {
-                      const subject = encodeURIComponent(`AMET Alumni Event: ${event.title}`);
-                      const body = encodeURIComponent(`Check out this event: ${event.title}\n\nDate: ${format(parseISO(event.start_date), 'MMMM d, yyyy')}\nTime: ${format(parseISO(event.start_date), 'h:mm a')} - ${format(parseISO(event.end_date), 'h:mm a')}\nLocation: ${event.location}\n\nDetails: ${window.location.href}`);
-                      window.location.href = `mailto:?subject=${subject}&body=${body}`;
-                    }}
-                    aria-label="Share via Email"
-                  >
-                    <EmailIcon />
-                  </IconButton>
-                </Box>
+                </div>
 
                 {isAdmin && (
-                  <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
-                    <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-                      Admin Actions:
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                      <Button
-                        component={Link}
-                        to={`/events/${event.id}/edit`}
-                        variant="outlined"
-                        color="primary"
-                        size="small"
-                        startIcon={<EditIcon />}
-                      >
-                        Edit Event
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        size="small"
-                        startIcon={<DeleteIcon />}
-                        onClick={() => setDeleteDialogOpen(true)}
-                      >
-                        Delete Event
-                      </Button>
-                        <Button
-                          component={Link}
-                          to={`/events/${event.id}/feedback-dashboard`}
-                          variant="outlined"
-                          color="secondary"
-                          size="small"
-                          startIcon={<AssessmentIcon />}
-                        >
-                          View Feedback
-                        </Button>
-                    </Box>
-                  </Box>
+                  <div className="bg-gray-50 p-4 rounded-lg border">
+                    <h3 className="font-bold text-lg mb-3 text-center">Admin Actions</h3>
+                    <div className="flex flex-col space-y-2">
+                      <Link to={`/events/edit/${id}`} className="flex items-center justify-center w-full bg-yellow-500 text-white font-bold py-2 px-4 rounded hover:bg-yellow-600 transition duration-200">
+                        <Edit className="w-4 h-4 mr-2"/> Edit
+                      </Link>
+                      <button onClick={handleDelete} disabled={loading} className="flex items-center justify-center w-full bg-red-600 text-white font-bold py-2 px-4 rounded hover:bg-red-700 disabled:bg-gray-400 transition duration-200">
+                        <Trash2 className="w-4 h-4 mr-2"/> Delete
+                      </button>
+                      <Link to={`/admin/events/${id}/feedback`} className="flex items-center justify-center w-full bg-indigo-500 text-white font-bold py-2 px-4 rounded hover:bg-indigo-600 transition duration-200">
+                        <BarChart2 className="w-4 h-4 mr-2"/> View Feedback
+                      </Link>
+                    </div>
+                  </div>
                 )}
-              </Paper>
+              </div>
+            </div>
 
-              {attendees.length > 0 && (
-                <Paper elevation={0} sx={{ mt: 3, p: 3, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                  <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold' }}>
-                    Who's Going ({attendees.length})
-                  </Typography>
-                  <List dense>
-                    {attendees.slice(0, 5).map((rsvp) => (
-                      <ListItem key={rsvp.id}>
-                        <ListItemAvatar>
-                          <Avatar 
-                            src={rsvp.profiles.avatar_url} 
-                            alt={rsvp.profiles.full_name}
-                          >
-                            {rsvp.profiles.full_name ? rsvp.profiles.full_name.charAt(0) : 'U'}
-                          </Avatar>
-                        </ListItemAvatar>
-                        <ListItemText 
-                          primary={rsvp.profiles.full_name || 'Anonymous User'} 
-                          secondary={rsvp.profiles.current_position || ''}
-                        />
-                        {rsvp.attendance_status === 'going' && (
-                          <CheckCircleIcon color="success" fontSize="small" />
-                        )}
-                      </ListItem>
-                    ))}
-                    {attendees.length > 5 && (
-                      <Button 
-                        fullWidth 
-                        size="small" 
-                        sx={{ mt: 1 }}
-                        onClick={() => {/* TODO: Show all attendees */}}
-                      >
-                        View all {attendees.length} attendees
-                      </Button>
-                    )}
-                  </List>
-                </Paper>
+            <div className="mt-8 pt-6 border-t">
+              <SocialShareButtons url={window.location.href} title={event.name} />
+            </div>
+
+            <div className="mt-8 pt-6 border-t">
+              <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center"><Users className="w-6 h-6 mr-3"/>Attendees ({attendees.length})</h3>
+              {attendees.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                  {attendees.map(attendee => (
+                    <Link to={`/profile/${attendee.profiles.id}`} key={attendee.id} className="text-center">
+                      <img src={attendee.profiles.avatar_url || `https://api.dicebear.com/6.x/initials/svg?seed=${attendee.profiles.full_name}` } alt={attendee.profiles.full_name} className="w-20 h-20 rounded-full mx-auto mb-2 object-cover"/>
+                      <p className="font-semibold text-sm text-gray-700">{attendee.profiles.full_name}</p>
+                      <p className="text-xs text-gray-500">{attendee.profiles.current_position}</p>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500">No attendees yet. Be the first to RSVP!</p>
               )}
-            </Grid>
-          </Grid>
-        </Box>
-      </Paper>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog
-        open={deleteDialogOpen}
-        onClose={() => setDeleteDialogOpen(false)}
-        aria-labelledby="alert-dialog-title"
-        aria-describedby="alert-dialog-description"
-      >
-        <DialogTitle id="alert-dialog-title">
-          Delete Event?
-        </DialogTitle>
-        <DialogContent>
-          <DialogContentText id="alert-dialog-description">
-            Are you sure you want to delete this event? This action cannot be undone.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)} color="primary">
-            Cancel
-          </Button>
-          <Button onClick={handleDelete} color="error" autoFocus disabled={loading}>
-            {loading ? 'Deleting...' : 'Delete'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* RSVP Success Snackbar */}
-      <Snackbar
-        open={!!rsvpSuccess}
-        autoHideDuration={6000}
-        onClose={() => setRsvpSuccess('')}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert onClose={() => setRsvpSuccess('')} severity="success" sx={{ width: '100%' }}>
-          {rsvpSuccess}
-        </Alert>
-      </Snackbar>
-    </Container>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };
 

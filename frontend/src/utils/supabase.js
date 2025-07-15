@@ -345,6 +345,94 @@ export const createMentorshipRequest = async (requestData) => {
   return { data, error };
 };
 
+// Networking Groups Functions
+
+// Fetch all public groups
+export const fetchPublicGroups = async () => {
+  const { data, error } = await supabase
+    .from('groups')
+    .select('*, group_members(count)')
+    .eq('is_private', false)
+    .order('created_at', { ascending: false });
+  return { data, error };
+};
+
+// Fetch a single group's details, including members
+export const fetchGroupDetails = async (groupId) => {
+  const { data, error } = await supabase
+    .from('groups')
+    .select(`
+      *,
+      members:group_members(profiles(*))
+    `)
+    .eq('id', groupId)
+    .single();
+  return { data, error };
+};
+
+// Create a new group
+export const createGroup = async (groupData, creatorId) => {
+  const { data, error } = await supabase
+    .from('groups')
+    .insert([{ ...groupData, created_by: creatorId }])
+    .select()
+    .single();
+
+  // If group created successfully, add creator as admin member
+  if (data && !error) {
+    await supabase.from('group_members').insert([{
+      group_id: data.id,
+      user_id: creatorId,
+      role: 'admin'
+    }]);
+  }
+
+  return { data, error };
+};
+
+// Join a group
+export const joinGroup = async (groupId, userId) => {
+  const { data, error } = await supabase
+    .from('group_members')
+    .insert([{ group_id: groupId, user_id: userId, role: 'member' }])
+    .select();
+  return { data, error };
+};
+
+// Leave a group
+export const leaveGroup = async (groupId, userId) => {
+  const { data, error } = await supabase
+    .from('group_members')
+    .delete()
+    .eq('group_id', groupId)
+    .eq('user_id', userId);
+  return { data, error };
+};
+
+// Fetch posts from a specific group
+export const fetchGroupPosts = async (groupId) => {
+  const { data, error } = await supabase
+    .from('group_posts')
+    .select(`
+      *,
+      author:profiles(*)
+    `)
+    .eq('group_id', groupId)
+    .order('created_at', { ascending: false });
+  return { data, error };
+};
+
+// Create a new post in a group
+export const createGroupPost = async (postData) => {
+  const { data, error } = await supabase
+    .from('group_posts')
+    .insert([postData])
+    .select()
+    .single();
+  return { data, error };
+};
+
+
 export const fetchMentorshipRequests = async (userId) => {
   const { data, error } = await supabase
     .from('mentorship_requests')

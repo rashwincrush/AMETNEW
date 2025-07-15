@@ -20,6 +20,8 @@ import {
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
 import { BookmarkIcon as BookmarkIconSolid } from '@heroicons/react/24/solid';
+import JobApplicationForm from './JobApplicationForm';
+import { useAuth } from '../../contexts/AuthContext';
 
 // Helper function to safely convert string data to arrays
 const convertToArray = (data) => {
@@ -41,24 +43,11 @@ const JobDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isBookmarked, setIsBookmarked] = useState(false);
-  const [user, setUser] = useState(null); // For the current authenticated user
+  const { user, getUserRole } = useAuth();
   const [bookmarking, setBookmarking] = useState(false); // For loading state of bookmark action
   const [sharing, setSharing] = useState(false); // For loading state of share action
   
-  // Fetch current user
-  useEffect(() => {
-    const getCurrentUser = async () => {
-      const { data: { user: currentUser }, error } = await supabase.auth.getUser();
-      if (error) {
-        console.error("Error getting user:", error.message);
-        // Features requiring auth might not work as expected.
-        // Consider showing a toast: toast.error("Could not get user session.");
-      }
-      setUser(currentUser);
-      // console.log('Current user:', currentUser); // For debugging
-    };
-    getCurrentUser();
-  }, []); // Runs once on component mount
+
 
   // Fetch job data from Supabase
   useEffect(() => {
@@ -248,11 +237,6 @@ const JobDetails = () => {
     }
   };
 
-  const handleApply = () => {
-    navigate(`/jobs/${id}/apply`);
-    toast.success('Taking you to the application form');
-  };
-
   if (loading) {
     return (
       <div className="bg-gray-100 min-h-screen flex items-center justify-center py-12">
@@ -323,12 +307,6 @@ const JobDetails = () => {
             
             {/* Action Buttons */}
             <div className="flex flex-col space-y-3 w-full lg:w-auto">
-              <button 
-                onClick={handleApply}
-                className="btn-ocean w-full lg:w-auto px-6 py-3 rounded-lg font-medium text-white bg-ocean-600 hover:bg-ocean-700 transition-colors"
-              >
-                Apply Now
-              </button>
               <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 w-full">
                 {/* Bookmark Button */}
                 <button 
@@ -371,6 +349,15 @@ const JobDetails = () => {
                   )}
                   {sharing ? 'Sharing...' : 'Share'}
                 </button>
+
+                {user && (getUserRole() === 'admin' || getUserRole() === 'super_admin' || (getUserRole() === 'employer' && job && user.id === job.user_id)) && (
+                  <Link 
+                    to={`/jobs/${job.id}/manage`}
+                    className="flex items-center justify-center w-full px-4 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                  >
+                    Manage Applications
+                  </Link>
+                )}
               </div>
             </div>
           </div>
@@ -467,18 +454,18 @@ const JobDetails = () => {
             {(job.applicationProcess && job.applicationProcess.length > 0) && (
               <div className="glass-card rounded-lg p-6">
                 <h2 className="text-xl font-semibold text-gray-900 mb-4">Application Process</h2>
-                <div className="space-y-4">
+                <ol className="list-decimal list-inside space-y-2 text-gray-700 text-sm">
                   {job.applicationProcess.map((step, index) => (
-                    <div key={index} className="flex items-start">
-                      <div className="w-8 h-8 bg-ocean-500 text-white rounded-full flex items-center justify-center text-sm font-medium mr-4 flex-shrink-0">
-                        {index + 1}
-                      </div>
-                      <p className="text-gray-700 mt-1">{step}</p>
-                    </div>
+                    <li key={index}>{step}</li>
                   ))}
-                </div>
+                </ol>
               </div>
             )}
+
+            {/* Application Form */}
+            <div className="mt-8">
+              <JobApplicationForm jobId={id} />
+            </div>
           </div>
 
           {/* Sidebar */}

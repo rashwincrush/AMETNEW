@@ -28,8 +28,7 @@ const Navigation = () => {
     { path: '/events', label: 'Events', icon: CalendarIcon },
     { path: '/jobs', label: 'Job Portal', icon: BriefcaseIcon },
     { path: '/mentorship', label: 'Mentorship', icon: AcademicCapIcon },
-    { path: '/networking', label: 'Networking', icon: UserGroupIcon },
-    { path: '/networking-groups', label: 'Groups Directory', icon: UserGroupIcon },
+    { path: '/groups', label: 'Groups', icon: UserGroupIcon },
     { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon },
   ];
 
@@ -39,8 +38,7 @@ const Navigation = () => {
     { path: '/events', label: 'Events', icon: CalendarIcon },
     { path: '/jobs', label: 'Job Portal', icon: BriefcaseIcon },
     { path: '/mentorship', label: 'Mentorship', icon: AcademicCapIcon },
-    { path: '/networking', label: 'Networking', icon: UserGroupIcon },
-    { path: '/networking-groups', label: 'Groups Directory', icon: UserGroupIcon },
+    { path: '/groups', label: 'Groups', icon: UserGroupIcon },
     { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon },
     { path: '/admin/approvals', label: 'User Approvals', icon: CogIcon },
     { path: '/admin/analytics', label: 'Analytics', icon: ChartBarIcon },
@@ -51,7 +49,7 @@ const Navigation = () => {
     { path: '/dashboard', label: 'Dashboard', icon: HomeIcon },
     { path: '/directory', label: 'Alumni Directory', icon: UsersIcon },
     { path: '/jobs', label: 'Job Portal', icon: BriefcaseIcon },
-    { path: '/networking-groups', label: 'Groups Directory', icon: UserGroupIcon },
+    { path: '/groups', label: 'Groups', icon: UserGroupIcon },
     { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon },
   ];
 

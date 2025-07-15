@@ -147,6 +147,40 @@ CREATE TABLE IF NOT EXISTS public.connections (
     UNIQUE(requester_id, recipient_id)
 );
 
+-- =================================================================
+-- Networking: Groups
+-- =================================================================
+
+-- Groups table
+CREATE TABLE IF NOT EXISTS public.groups (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    description TEXT,
+    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    is_private BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
+-- Group members table
+CREATE TABLE IF NOT EXISTS public.group_members (
+    group_id UUID REFERENCES public.groups(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    role TEXT DEFAULT 'member', -- e.g., 'member', 'admin'
+    joined_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    PRIMARY KEY (group_id, user_id)
+);
+
+-- Group posts table
+CREATE TABLE IF NOT EXISTS public.group_posts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    group_id UUID REFERENCES public.groups(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
 -- Mentors table (extension of profiles for those who are mentors)
 CREATE TABLE IF NOT EXISTS public.mentors (
     id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -192,6 +226,9 @@ ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.connections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mentors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.mentorship_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.group_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.group_posts ENABLE ROW LEVEL SECURITY;
 
 
 -- =================================================================
@@ -243,80 +280,176 @@ CREATE POLICY "Super admins can delete roles" ON public.roles FOR DELETE USING (
 -- -----------------------------------------------------------------
 -- Policies for: events
 -- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Events are viewable by everyone" ON public.events;
 CREATE POLICY "Events are viewable by everyone" ON public.events FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Events are editable by organizer" ON public.events;
 CREATE POLICY "Events are editable by organizer" ON public.events FOR UPDATE USING (auth.uid() = organizer_id);
+
+DROP POLICY IF EXISTS "Events can be created by authenticated users" ON public.events;
 CREATE POLICY "Events can be created by authenticated users" ON public.events FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
 -- -----------------------------------------------------------------
 -- Policies for: event_attendees
 -- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Event registrations are viewable by everyone" ON public.event_attendees;
 CREATE POLICY "Event registrations are viewable by everyone" ON public.event_attendees FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can register for events" ON public.event_attendees;
 CREATE POLICY "Users can register for events" ON public.event_attendees FOR INSERT WITH CHECK (auth.uid() = attendee_id);
+
+DROP POLICY IF EXISTS "Users can cancel their own registrations" ON public.event_attendees;
 CREATE POLICY "Users can cancel their own registrations" ON public.event_attendees FOR DELETE USING (auth.uid() = attendee_id);
 
 -- -----------------------------------------------------------------
 -- Policies for: event_feedback
 -- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Users can view their own feedback" ON public.event_feedback;
 CREATE POLICY "Users can view their own feedback" ON public.event_feedback FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Organizers can view event feedback" ON public.event_feedback;
 CREATE POLICY "Organizers can view event feedback" ON public.event_feedback FOR SELECT USING (EXISTS (SELECT 1 FROM public.events WHERE id = event_id AND organizer_id = auth.uid()));
+
+DROP POLICY IF EXISTS "Users can submit feedback" ON public.event_feedback;
 CREATE POLICY "Users can submit feedback" ON public.event_feedback FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update their own feedback" ON public.event_feedback;
 CREATE POLICY "Users can update their own feedback" ON public.event_feedback FOR UPDATE USING (auth.uid() = user_id);
 
 -- -----------------------------------------------------------------
 -- Policies for: jobs
 -- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Jobs are viewable by everyone" ON public.jobs;
 CREATE POLICY "Jobs are viewable by everyone" ON public.jobs FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Jobs are editable by poster" ON public.jobs;
 CREATE POLICY "Jobs are editable by poster" ON public.jobs FOR UPDATE USING (auth.uid() = posted_by);
+
+DROP POLICY IF EXISTS "Jobs can be posted by authenticated users" ON public.jobs;
 CREATE POLICY "Jobs can be posted by authenticated users" ON public.jobs FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
 -- -----------------------------------------------------------------
 -- Policies for: job_bookmarks
 -- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Users can view their own bookmarks" ON public.job_bookmarks;
 CREATE POLICY "Users can view their own bookmarks" ON public.job_bookmarks FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can create bookmarks" ON public.job_bookmarks;
 CREATE POLICY "Users can create bookmarks" ON public.job_bookmarks FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete their own bookmarks" ON public.job_bookmarks;
 CREATE POLICY "Users can delete their own bookmarks" ON public.job_bookmarks FOR DELETE USING (auth.uid() = user_id);
 
 -- -----------------------------------------------------------------
 -- Policies for: job_applications
 -- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Users can view their own applications" ON public.job_applications;
 CREATE POLICY "Users can view their own applications" ON public.job_applications FOR SELECT USING (auth.uid() = applicant_id OR EXISTS (SELECT 1 FROM public.jobs WHERE id = job_id AND posted_by = auth.uid()));
+
+DROP POLICY IF EXISTS "Users can apply to jobs" ON public.job_applications;
 CREATE POLICY "Users can apply to jobs" ON public.job_applications FOR INSERT WITH CHECK (auth.uid() = applicant_id);
 
 -- -----------------------------------------------------------------
 -- Policies for: user_resumes
 -- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Users can view their own resumes" ON public.user_resumes;
 CREATE POLICY "Users can view their own resumes" ON public.user_resumes FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert their own resumes" ON public.user_resumes;
 CREATE POLICY "Users can insert their own resumes" ON public.user_resumes FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update their own resumes" ON public.user_resumes;
 CREATE POLICY "Users can update their own resumes" ON public.user_resumes FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can delete their own resumes" ON public.user_resumes;
 CREATE POLICY "Users can delete their own resumes" ON public.user_resumes FOR DELETE USING (auth.uid() = user_id);
 
 -- -----------------------------------------------------------------
 -- Policies for: messages
 -- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Users can view their own messages" ON public.messages;
 CREATE POLICY "Users can view their own messages" ON public.messages FOR SELECT USING (auth.uid() = sender_id OR auth.uid() = recipient_id);
+
+DROP POLICY IF EXISTS "Users can send messages" ON public.messages;
 CREATE POLICY "Users can send messages" ON public.messages FOR INSERT WITH CHECK (auth.uid() = sender_id);
+
+DROP POLICY IF EXISTS "Recipients can update messages" ON public.messages;
 CREATE POLICY "Recipients can update messages" ON public.messages FOR UPDATE USING (auth.uid() = recipient_id);
 
 -- -----------------------------------------------------------------
 -- Policies for: connections
 -- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Users can view their own connections" ON public.connections;
 CREATE POLICY "Users can view their own connections" ON public.connections FOR SELECT USING (auth.uid() = requester_id OR auth.uid() = recipient_id);
+
+DROP POLICY IF EXISTS "Users can request connections" ON public.connections;
 CREATE POLICY "Users can request connections" ON public.connections FOR INSERT WITH CHECK (auth.uid() = requester_id);
+
+DROP POLICY IF EXISTS "Users can accept/reject connection requests" ON public.connections;
 CREATE POLICY "Users can accept/reject connection requests" ON public.connections FOR UPDATE USING (auth.uid() = recipient_id) WITH CHECK (status <> 'pending');
 
 -- -----------------------------------------------------------------
 -- Policies for: mentors
 -- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Mentors are viewable by everyone" ON public.mentors;
 CREATE POLICY "Mentors are viewable by everyone" ON public.mentors FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Mentors can update their own info" ON public.mentors;
 CREATE POLICY "Mentors can update their own info" ON public.mentors FOR UPDATE USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Users can become mentors" ON public.mentors;
 CREATE POLICY "Users can become mentors" ON public.mentors FOR INSERT WITH CHECK (auth.uid() = id);
 
 -- -----------------------------------------------------------------
 -- Policies for: mentorship_requests
 -- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Users can view their mentor/mentee requests" ON public.mentorship_requests;
 CREATE POLICY "Users can view their mentor/mentee requests" ON public.mentorship_requests FOR SELECT USING (auth.uid() = mentee_id OR auth.uid() = mentor_id);
+
+DROP POLICY IF EXISTS "Users can request mentorship" ON public.mentorship_requests;
 CREATE POLICY "Users can request mentorship" ON public.mentorship_requests FOR INSERT WITH CHECK (auth.uid() = mentee_id);
+
+DROP POLICY IF EXISTS "Mentors can respond to requests" ON public.mentorship_requests;
 CREATE POLICY "Mentors can respond to requests" ON public.mentorship_requests FOR UPDATE USING (auth.uid() = mentor_id) WITH CHECK (status <> 'pending');
+
+-- -----------------------------------------------------------------
+-- Policies for: groups
+-- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Public groups are viewable by everyone." ON public.groups;
+CREATE POLICY "Public groups are viewable by everyone." ON public.groups FOR SELECT USING (is_private = false);
+
+DROP POLICY IF EXISTS "Private groups are viewable by members." ON public.groups;
+CREATE POLICY "Private groups are viewable by members." ON public.groups FOR SELECT USING (EXISTS (SELECT 1 FROM public.group_members WHERE group_id = id AND user_id = auth.uid()));
+
+DROP POLICY IF EXISTS "Users can create groups." ON public.groups;
+CREATE POLICY "Users can create groups." ON public.groups FOR INSERT WITH CHECK (auth.uid() = created_by);
+
+DROP POLICY IF EXISTS "Group creators can update their groups." ON public.groups;
+CREATE POLICY "Group creators can update their groups." ON public.groups FOR UPDATE USING (auth.uid() = created_by);
+
+-- -----------------------------------------------------------------
+-- Policies for: group_members
+-- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Group members are viewable by other members." ON public.group_members;
+CREATE POLICY "Group members are viewable by other members." ON public.group_members FOR SELECT USING (EXISTS (SELECT 1 FROM public.group_members WHERE group_id = public.group_members.group_id AND user_id = auth.uid()));
+
+DROP POLICY IF EXISTS "Users can join public groups." ON public.group_members;
+CREATE POLICY "Users can join public groups." ON public.group_members FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.groups WHERE id = group_id AND is_private = false AND auth.uid() = user_id));
+
+DROP POLICY IF EXISTS "Users can leave groups." ON public.group_members;
+CREATE POLICY "Users can leave groups." ON public.group_members FOR DELETE USING (auth.uid() = user_id);
+
+-- -----------------------------------------------------------------
+-- Policies for: group_posts
+-- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Group posts are viewable by group members." ON public.group_posts;
+CREATE POLICY "Group posts are viewable by group members." ON public.group_posts FOR SELECT USING (EXISTS (SELECT 1 FROM public.group_members WHERE group_id = public.group_posts.group_id AND user_id = auth.uid()));
+
+DROP POLICY IF EXISTS "Group members can create posts." ON public.group_posts;
+CREATE POLICY "Group members can create posts." ON public.group_posts FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.group_members WHERE group_id = public.group_posts.group_id AND user_id = auth.uid()));
+
+DROP POLICY IF EXISTS "Users can delete their own posts." ON public.group_posts;
+CREATE POLICY "Users can delete their own posts." ON public.group_posts FOR DELETE USING (auth.uid() = user_id);
 
 
 -- =================================================================

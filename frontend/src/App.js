@@ -39,6 +39,7 @@ import EmployerDashboard from './components/Dashboard/EmployerDashboard';
 import AlumniDirectory from './components/Directory/AlumniDirectory';
 import AlumniProfile from './components/Directory/AlumniProfile';
 import EventsPage from './pages/EventsPage';
+import GroupsPage from './pages/GroupsPage';
 import JobListingsPage from './components/Jobs/JobListingsPage';
 import JobDetails from './components/Jobs/JobDetails';
 import UserProfilePage from './pages/UserProfilePage';
@@ -53,9 +54,9 @@ import ResumeUploadForm from './components/Jobs/ResumeUploadForm';
 import JobApplication from './components/Jobs/JobApplication';
 import ApplicationTracking from './components/Jobs/ApplicationTracking';
 import Mentorship from './components/Mentorship/Mentorship';
-import NetworkingGroups from './components/Networking/NetworkingGroups';
-import NetworkingGroupsDirectory from './components/NetworkingGroups/NetworkingGroupsDirectory';
-import NetworkingGroupDetail from './components/NetworkingGroups/NetworkingGroupDetail';
+// import NetworkingGroups from './components/Networking/NetworkingGroups';
+// import NetworkingGroupsDirectory from './components/NetworkingGroups/NetworkingGroupsDirectory';
+// import NetworkingGroupDetail from './components/NetworkingGroups/NetworkingGroupDetail';
 import BecomeMentorForm from './components/Mentorship/BecomeMentorForm';
 import MentorProfile from './components/Mentorship/MentorProfile';
 import MentorSettings from './components/Mentorship/MentorSettings';
@@ -156,13 +157,7 @@ function AppContent() {
             <Route path="/mentorship/matching" element={<ProtectedRoute><MentorMatching /></ProtectedRoute>} />
             <Route path="/mentorship/mentor/:id" element={<MentorProfile />} />
             <Route path="/mentorship/mentor-settings" element={<MentorRegistrationForm />} />
-            <Route path="/networking" element={<NetworkingGroups />} />
-            <Route path="/networking/create-group" element={<CreateGroup />} />
-            <Route path="/networking/groups/:groupId" element={<GroupDetails />} />
-
-            {/* New Networking Groups Directory and Detail */}
-            <Route path="/networking-groups" element={<NetworkingGroupsDirectory />} />
-            <Route path="/networking-groups/:groupId" element={<NetworkingGroupDetail />} />
+            <Route path="/groups/*" element={<GroupsPage />} />
             <Route path="/messages" element={<MessagesPage />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><Analytics /></ProtectedRoute>} />

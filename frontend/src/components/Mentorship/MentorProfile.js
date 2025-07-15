@@ -2,34 +2,78 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import { useAuth } from '../../contexts/AuthContext';
 
 const MentorProfile = () => {
-  const { id } = useParams();
+  const { id: mentorId } = useParams();
+  const { user } = useAuth();
   const [mentor, setMentor] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [requestMessage, setRequestMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [existingRequest, setExistingRequest] = useState(null);
+
+  const handleRequestSubmit = async () => {
+    if (!requestMessage.trim()) {
+      toast.error('Please enter a message for the mentor.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const { data, error } = await supabase
+        .from('mentorship_requests')
+        .insert({
+          mentor_id: mentorId,
+          mentee_id: user.id,
+          request_message: requestMessage,
+          status: 'pending',
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setExistingRequest(data);
+      setShowRequestModal(false);
+      setRequestMessage('');
+      toast.success('Mentorship request sent successfully!');
+    } catch (error) {
+      toast.error(`Failed to send request: ${error.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchMentor = async () => {
+    const fetchMentorAndRequestStatus = async () => {
+      if (!user) return;
+
       try {
         setLoading(true);
-        const { data, error } = await supabase
+        // Fetch mentor profile
+        const { data: mentorData, error: mentorError } = await supabase
           .from('mentors')
-          .select(`
-            *,
-            profile:user_id (full_name, avatar_url)
-          `)
-          .eq('user_id', id)
+          .select(`*, profile:user_id (full_name, avatar_url)`)
+          .eq('user_id', mentorId)
           .single();
 
-        if (error) {
-          throw error;
-        }
+        if (mentorError) throw mentorError;
+        if (mentorData) setMentor(mentorData);
+        else toast.error('Mentor not found.');
 
-        if (data) {
-          setMentor(data);
-        } else {
-          toast.error('Mentor not found.');
-        }
+        // Check for an existing mentorship request
+        const { data: requestData, error: requestError } = await supabase
+          .from('mentorship_requests')
+          .select('*')
+          .eq('mentor_id', mentorId)
+          .eq('mentee_id', user.id)
+          .in('status', ['pending', 'accepted'])
+          .maybeSingle();
+
+        if (requestError) throw requestError;
+        if (requestData) setExistingRequest(requestData);
+
       } catch (error) {
         toast.error('Failed to fetch mentor details: ' + error.message);
       } finally {
@@ -37,8 +81,8 @@ const MentorProfile = () => {
       }
     };
 
-    fetchMentor();
-  }, [id]);
+    fetchMentorAndRequestStatus();
+  }, [mentorId, user]);
 
   if (loading) {
     return <div className="text-center p-8">Loading mentor profile...</div>;
@@ -97,10 +141,37 @@ const MentorProfile = () => {
                 )}
               </li>
             </ul>
-            <button className="btn-ocean w-full mt-6 py-2">Request Mentorship</button>
+            <button 
+              className="btn-ocean w-full mt-6 py-2 disabled:opacity-50"
+              onClick={() => setShowRequestModal(true)}
+              disabled={loading || !!existingRequest || user?.id === mentorId}
+            >
+              {user?.id === mentorId ? 'This is your profile' : existingRequest ? `Request ${existingRequest.status}` : 'Request Mentorship'}
+            </button>
           </div>
         </div>
       </div>
+
+      {showRequestModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+          <div className="bg-white rounded-lg p-8 max-w-lg w-full">
+            <h2 className="text-2xl font-bold mb-4">Send Mentorship Request</h2>
+            <p className="mb-4 text-gray-600">Send a message to {mentor.profile?.full_name} to start your mentorship journey.</p>
+            <textarea
+              className="w-full border rounded-md p-2 h-32"
+              placeholder="Write a brief message about your goals and why you'd like to connect..."
+              value={requestMessage}
+              onChange={(e) => setRequestMessage(e.target.value)}
+            />
+            <div className="flex justify-end gap-4 mt-6">
+              <button onClick={() => setShowRequestModal(false)} className="btn-secondary-outline">Cancel</button>
+              <button onClick={handleRequestSubmit} className="btn-primary" disabled={isSubmitting || !requestMessage.trim()}>
+                {isSubmitting ? 'Sending...' : 'Send Request'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

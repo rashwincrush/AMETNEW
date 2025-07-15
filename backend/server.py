@@ -1,30 +1,13 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, status
-from dotenv import load_dotenv
+from fastapi import FastAPI, APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
-import os
+from typing import List, Dict, Any
 import logging
-from pathlib import Path
-from datetime import datetime
-from supabase import create_client, Client
-from jose import jwt, JWTError
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
-
-# Supabase configuration
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
-
-if not all([SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY]):
-    raise ValueError("Missing required Supabase environment variables")
-
-# Create Supabase clients
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+from .dependencies import get_current_user, supabase, supabase_admin, SUPABASE_URL
+from .routers import groups
 
 # Create the main app
 app = FastAPI(title="AMET Alumni Portal API", version="1.0.0")
@@ -32,71 +15,97 @@ app = FastAPI(title="AMET Alumni Portal API", version="1.0.0")
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
-# Security
-security = HTTPBearer()
+# Include routers
+api_router.include_router(groups.router)
 
-# Pydantic Models
-class User(BaseModel):
-    id: str
+# Basic routes
+@api_router.get("/")
+async def root():
+    return {"message": "AMET Alumni Portal API", "version": "1.0.0"}
+
+@api_router.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    try:
+        # Test Supabase connection
+        response = supabase_admin.table("profiles").select("count").execute()
+        return {"status": "healthy", "database": "connected"}
+    except Exception as e:
+        return {"status": "unhealthy", "error": str(e)}
+
+class LoginRequest(BaseModel):
     email: str
-    role: Optional[str] = None
-    full_name: Optional[str] = None
-    created_at: Optional[datetime] = None
+    password: str
 
-class Profile(BaseModel):
-    id: str
-    user_id: str
-    full_name: str
-    email: str
-    phone: Optional[str] = None
-    graduation_year: Optional[int] = None
-    department: Optional[str] = None
-    current_position: Optional[str] = None
-    company: Optional[str] = None
-    location: Optional[str] = None
-    bio: Optional[str] = None
-    avatar_url: Optional[str] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+# Registration endpoint
+@api_router.post("/register")
+async def register_user(request: dict):
+    """Register a new user"""
+    email = request.get("email")
+    password = request.get("password")
+    full_name = request.get("full_name")
 
-class Event(BaseModel):
-    id: str
-    title: str
-    description: str
-    event_date: datetime
-    location: str
-    organizer_id: str
-    max_attendees: Optional[int] = None
-    registration_deadline: Optional[datetime] = None
-    is_virtual: bool = False
-    meeting_link: Optional[str] = None
-    created_at: Optional[datetime] = None
+    if not email or not password or not full_name:
+        raise HTTPException(
+            status_code=400, detail="Email, password, and full name are required"
+        )
 
-class Job(BaseModel):
-    id: str
-    title: str
-    company: str
-    description: str
-    location: str
-    job_type: str
-    salary_range: Optional[str] = None
-    requirements: str
-    posted_by: str
-    application_deadline: Optional[datetime] = None
-    is_active: bool = True
-    created_at: Optional[datetime] = None
+    try:
+        # Create user in Supabase Auth
+        user_response = supabase.auth.sign_up({
+            "email": email,
+            "password": password,
+        })
 
-class Message(BaseModel):
-    id: str
-    sender_id: str
-    recipient_id: str
-    subject: str
-    content: str
-    is_read: bool = False
-    created_at: Optional[datetime] = None
+        if user_response.user is None:
+            raise HTTPException(
+                status_code=400, detail="Could not create user account."
+            )
 
-# Authentication helper functions
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
+        user_id = user_response.user.id
+
+        # Create profile in the public.profiles table
+        profile_data = {
+            "id": user_id,
+            "user_id": user_id,
+            "email": email,
+            "full_name": full_name,
+        }
+        
+        profile_response = supabase_admin.table("profiles").insert(profile_data).execute()
+
+        if not profile_response.data:
+            # If profile creation fails, you might want to delete the auth user
+            # This part is complex and requires admin privileges.
+            # For now, we log the error.
+            logging.error(f"Failed to create profile for user {user_id}")
+            raise HTTPException(
+                status_code=500, detail="Failed to create user profile."
+            )
+
+        return {"message": "User registered successfully. Please check your email for verification.", "user_id": user_id}
+
+    except Exception as e:
+        # More specific error handling can be added here
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Authentication routes
+@api_router.post("/login/test")
+async def test_login(request: LoginRequest):
+    """Test login endpoint for debugging"""
+    email = request.email
+    password = request.password
+    try:
+        response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        if response.session:
+            return {"access_token": response.session.access_token, "token_type": "bearer"}
+        else:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/user", response_model=Dict[str, Any])
+async def get_user(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Verify JWT token and return user data"""
     try:
         token = credentials.credentials
@@ -135,9 +144,7 @@ async def health_check():
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}
 
-from pydantic import BaseModel, Field
 
-# Login request model
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -569,7 +576,7 @@ async def create_mentorship_request(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Include the router in the main app
+# Include the main router in the app
 app.include_router(api_router)
 
 # Add CORS middleware
