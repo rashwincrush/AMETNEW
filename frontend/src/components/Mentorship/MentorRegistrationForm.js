@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
-import { useNotification } from '../Common/NotificationCenter';
+import { useNotification } from '../common/NotificationCenter';
 import { XMarkIcon, CheckCircleIcon, InformationCircleIcon, PlusIcon } from '@heroicons/react/24/outline';
 
 const MentorRegistrationForm = () => {
@@ -305,16 +305,35 @@ const MentorRegistrationForm = () => {
             <legend className="text-base font-medium text-gray-900 px-2">Mentoring Preferences</legend>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
               <div>
-                <label htmlFor="communication" className="form-label">Communication <span className="text-red-500">*</span></label>
-                <input type="text" name="communication" id="communication" value={formData.mentoring_preferences.communication} onChange={handlePreferenceChange} required className="form-input" placeholder="e.g., Slack, Email"/>
+                <label htmlFor="communication" className="form-label">Preferred Communication <span className="text-red-500">*</span></label>
+                <select name="communication" id="communication" value={formData.mentoring_preferences.communication} onChange={handlePreferenceChange} required className="form-input">
+                  <option value="">Select a method</option>
+                  <option value="Email">Email</option>
+                  <option value="Slack/Teams">Slack/Teams</option>
+                  <option value="Video Call">Video Call</option>
+                  <option value="Phone Call">Phone Call</option>
+                  <option value="In-person">In-person</option>
+                </select>
               </div>
               <div>
-                <label htmlFor="format" className="form-label">Format <span className="text-red-500">*</span></label>
-                <input type="text" name="format" id="format" value={formData.mentoring_preferences.format} onChange={handlePreferenceChange} required className="form-input" placeholder="e.g., 1-on-1, Group"/>
+                <label htmlFor="format" className="form-label">Preferred Format <span className="text-red-500">*</span></label>
+                <select name="format" id="format" value={formData.mentoring_preferences.format} onChange={handlePreferenceChange} required className="form-input">
+                  <option value="">Select a format</option>
+                  <option value="1-on-1 Sessions">1-on-1 Sessions</option>
+                  <option value="Group Mentoring">Group Mentoring</option>
+                  <option value="Project Collaboration">Project Collaboration</option>
+                  <option value="Informal Check-ins">Informal Check-ins</option>
+                </select>
               </div>
               <div>
-                <label htmlFor="duration" className="form-label">Duration <span className="text-red-500">*</span></label>
-                <input type="text" name="duration" id="duration" value={formData.mentoring_preferences.duration} onChange={handlePreferenceChange} required className="form-input" placeholder="e.g., 3 months"/>
+                <label htmlFor="duration" className="form-label">Preferred Duration <span className="text-red-500">*</span></label>
+                <select name="duration" id="duration" value={formData.mentoring_preferences.duration} onChange={handlePreferenceChange} required className="form-input">
+                  <option value="">Select a duration</option>
+                  <option value="1-3 Months">1-3 Months</option>
+                  <option value="3-6 Months">3-6 Months</option>
+                  <option value="6-12 Months">6-12 Months</option>
+                  <option value="Ongoing">Ongoing</option>
+                </select>
               </div>
             </div>
           </fieldset>

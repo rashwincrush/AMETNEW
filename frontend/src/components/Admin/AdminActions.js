@@ -1,6 +1,6 @@
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import PermissionGate from '../Common/PermissionGate';
+import PermissionGate from '../common/PermissionGate';
 import { Link } from 'react-router-dom';
 import {
   CalendarIcon,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import Logo from '../Common/Logo';
+import Logo from '../common/Logo';
 import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
 import { signInWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';

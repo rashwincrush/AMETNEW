@@ -16,8 +16,7 @@ import {
   FormControlLabel,
   Checkbox,
   Snackbar,
-  Alert,
-  CircularProgress
+  Alert
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { TimePicker } from '@mui/x-date-pickers/TimePicker';
@@ -25,6 +24,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { format, parseISO } from 'date-fns';
 import { useAuth } from '../../contexts/AuthContext';
+import LoadingSpinner from '../common/LoadingSpinner';
 
 const EditEventForm = () => {
   const { id } = useParams();
@@ -148,9 +148,7 @@ const EditEventForm = () => {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="300px">
-        <CircularProgress />
-      </Box>
+      <LoadingSpinner message="Loading event details..." />
     );
   }
 

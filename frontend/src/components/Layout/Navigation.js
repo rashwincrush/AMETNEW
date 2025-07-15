@@ -1,5 +1,5 @@
 import React from 'react';
-import Logo from '../Common/Logo';
+import Logo from '../common/Logo';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   HomeIcon, 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
-import { useNotification } from '../Common/NotificationCenter';
+import { useNotification } from '../common/NotificationCenter';
 import { XMarkIcon, PlusIcon } from '@heroicons/react/24/outline';
 
 const MenteeRegistrationForm = () => {

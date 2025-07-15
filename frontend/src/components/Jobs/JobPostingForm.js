@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { LinkIcon, DocumentTextIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
-import { useNotification } from '../Common/NotificationCenter';
+import { useNotification } from '../common/NotificationCenter';
 
 const JobPostingForm = () => {
   const navigate = useNavigate();

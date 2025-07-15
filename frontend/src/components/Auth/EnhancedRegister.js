@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import Logo from '../Common/Logo';
+import Logo from '../common/Logo';
 import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, CheckIcon, ArrowLeftIcon } from '@heroicons/react/24/outline'; // Removed XMarkIcon as it's not used in the final version
 import { supabase, signUpWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
