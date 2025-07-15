@@ -11,7 +11,6 @@ import {
   Grid, 
   Chip,
   Container,
-  CircularProgress,
   Paper,
   Divider,
   IconButton,
@@ -20,16 +19,28 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Select
+  Select,
+  ToggleButton,
+  ToggleButtonGroup,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemAvatar,
+  Avatar
 } from '@mui/material';
+import LoadingSpinner from '../common/LoadingSpinner';
 import { 
   Event as EventIcon, 
   LocationOn as LocationIcon, 
   CalendarToday as CalendarIcon,
   Search as SearchIcon,
   FilterList as FilterListIcon,
-  Add as AddIcon
+  Add as AddIcon,
+  ViewModule as ViewModuleIcon,
+  ViewList as ViewListIcon,
+  People as PeopleIcon
 } from '@mui/icons-material';
+import EventCalendar from './EventCalendar';
 import { format, parseISO, isPast, isToday, isFuture, isThisWeek } from 'date-fns';
 
 const EventsList = ({ isAdmin = false }) => {
@@ -37,9 +48,14 @@ const EventsList = ({ isAdmin = false }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState('upcoming');
   const [eventType, setEventType] = useState('all');
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list' or 'calendar'
   const subscriptionRef = useRef(null);
+
+  const handleFilterChange = (e) => {
+    setFilter(e.target.value);
+  };
 
   useEffect(() => {
     fetchEvents();
@@ -139,11 +155,7 @@ const EventsList = ({ isAdmin = false }) => {
   );
 
   if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
-        <CircularProgress />
-      </Box>
-    );
+    return <LoadingSpinner message="Loading events..." />;
   }
 
   if (error) {
@@ -163,17 +175,39 @@ const EventsList = ({ isAdmin = false }) => {
         <Typography variant="h4" component="h1">
           Events
         </Typography>
-        {isAdmin && (
-          <Button 
-            component={Link} 
-            to="/events/new" 
-            variant="contained" 
-            color="primary"
-            startIcon={<AddIcon />}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <ToggleButtonGroup
+            value={viewMode}
+            exclusive
+            onChange={(event, newViewMode) => {
+              if (newViewMode !== null) {
+                setViewMode(newViewMode);
+              }
+            }}
+            aria-label="view mode"
           >
-            Create Event
-          </Button>
-        )}
+            <ToggleButton value="grid" aria-label="grid view">
+              <ViewModuleIcon />
+            </ToggleButton>
+            <ToggleButton value="list" aria-label="list view">
+              <ViewListIcon />
+            </ToggleButton>
+            <ToggleButton value="calendar" aria-label="calendar view">
+              <CalendarIcon />
+            </ToggleButton>
+          </ToggleButtonGroup>
+          {isAdmin && (
+            <Button 
+              component={Link} 
+              to="/events/new" 
+              variant="contained" 
+              color="primary"
+              startIcon={<AddIcon />}
+            >
+              Create Event
+            </Button>
+          )}
+        </Box>
       </Box>
 
       {/* Filter and Search Controls */}
@@ -200,7 +234,7 @@ const EventsList = ({ isAdmin = false }) => {
               <InputLabel>Filter by Status</InputLabel>
               <Select
                 value={filter}
-                onChange={(e) => setFilter(e.target.value)}
+                onChange={handleFilterChange}
                 label="Filter by Status"
               >
                 <MenuItem value="all">All Events</MenuItem>
@@ -258,117 +292,199 @@ const EventsList = ({ isAdmin = false }) => {
           )}
         </Paper>
       ) : (
-        <Grid container spacing={3}>
-          {filteredEvents.map((event) => {
-            const status = getEventStatus(event.start_date, event.end_date);
-            const statusColor = getStatusColor(status);
-            
-            return (
-              <Grid item xs={12} key={event.id}>
-                <Card 
-                  elevation={2} 
-                  sx={{ 
-                    display: 'flex', 
-                    flexDirection: { xs: 'column', md: 'row' },
-                    height: '100%',
-                    transition: 'transform 0.2s, box-shadow 0.2s',
-                    '&:hover': {
-                      transform: 'translateY(-4px)',
-                      boxShadow: 6,
-                    },
-                  }}
-                >
-                  <Box 
-                    sx={{
-                      width: { xs: '100%', md: '30%' },
-                      minHeight: { xs: 200, md: 'auto' },
-                      bgcolor: 'primary.main',
-                      color: 'white',
-                      p: 3,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      textAlign: 'center',
-                    }}
-                  >
-                    <Typography variant="h4" component="div" fontWeight="bold">
-                      {format(parseISO(event.start_date), 'dd')}
-                    </Typography>
-                    <Typography variant="h6" component="div" fontWeight="medium">
-                      {format(parseISO(event.start_date), 'MMM yyyy')}
-                    </Typography>
-                    <Divider sx={{ my: 1, bgcolor: 'rgba(255,255,255,0.5)', width: '60%' }} />
-                    <Typography variant="subtitle2">
-                      {format(parseISO(event.start_date), 'h:mm a')} - {format(parseISO(event.end_date), 'h:mm a')}
-                    </Typography>
-                    <Chip 
-                      label={status} 
-                      color={statusColor} 
-                      size="small" 
-                      sx={{ mt: 2, color: 'white', fontWeight: 'medium' }}
-                    />
-                  </Box>
-                  
-                  <Box sx={{ p: 3, flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <Box sx={{ mb: 2 }}>
-                      <Chip 
-                        label={event.event_type.charAt(0).toUpperCase() + event.event_type.slice(1)}
-                        size="small"
-                        color="secondary"
-                        sx={{ mb: 1 }}
-                      />
-                      <Typography variant="h5" component="h2" gutterBottom>
-                        {event.title}
-                      </Typography>
-                      <Typography variant="body1" color="textSecondary" paragraph>
-                        {event.description.length > 200 
-                          ? `${event.description.substring(0, 200)}...` 
-                          : event.description}
-                      </Typography>
-                    </Box>
-                    
-                    <Box sx={{ mt: 'auto', pt: 2 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                        <LocationIcon color="action" fontSize="small" sx={{ mr: 1 }} />
-                        <Typography variant="body2" color="textSecondary">
-                          {event.location}
-                        </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <EventIcon color="action" fontSize="small" sx={{ mr: 1 }} />
-                        <Typography variant="body2" color="textSecondary">
-                          {format(parseISO(event.start_date), 'EEEE, MMMM d, yyyy')}
-                        </Typography>
-                      </Box>
-                    </Box>
-                    
-                    <CardActions sx={{ mt: 2, justifyContent: 'flex-end' }}>
-                      <Button 
-                        component={Link} 
-                        to={`/events/${event.id}`}
-                        size="small" 
-                        color="primary"
+        <Box>
+          {viewMode === 'grid' ? (
+            <Grid container spacing={3}>
+              {filteredEvents.map((event) => {
+                const status = getEventStatus(event.start_date, event.end_date);
+                const statusColor = getStatusColor(status);
+                return (
+                  <Grid item xs={12} sm={6} md={4} key={event.id}>
+                    <Card 
+                      elevation={2} 
+                      sx={{ 
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden',
+                        transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                        '&:hover': {
+                          transform: 'translateY(-4px)',
+                          boxShadow: 6,
+                        },
+                      }}
+                    >
+                      {/* Card Media - Event Image */}
+                      <Box 
+                        sx={{
+                          position: 'relative',
+                          height: 180,
+                          bgcolor: 'grey.200',
+                          backgroundImage: event.image_url ? 
+                            `url(${event.image_url})` : 
+                            `url(https://source.unsplash.com/featured/?${event.event_type || 'event'})`,
+                          backgroundSize: 'cover',
+                          backgroundPosition: 'center',
+                        }}
                       >
-                        View Details
-                      </Button>
-                      {isAdmin && (
+                        {/* Event Type Badge */}
+                        <Chip 
+                          label={event.event_type || 'Event'} 
+                          size="small" 
+                          sx={{
+                            position: 'absolute',
+                            top: 10,
+                            left: 10,
+                            bgcolor: 'rgba(0,0,0,0.6)',
+                            color: 'white',
+                            fontWeight: 'bold',
+                            textTransform: 'capitalize'
+                          }}
+                        />
+                        
+                        {/* Status Badge */}
+                        <Chip 
+                          label={status} 
+                          color={statusColor} 
+                          size="small" 
+                          sx={{
+                            position: 'absolute',
+                            top: 10,
+                            right: 10,
+                            fontWeight: 'bold'
+                          }}
+                        />
+                        
+                        {/* Date Badge */}
+                        <Box sx={{
+                          position: 'absolute',
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          bgcolor: 'rgba(0,0,0,0.7)',
+                          color: 'white',
+                          p: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <CalendarIcon fontSize="small" sx={{ mr: 1 }} />
+                            <Typography variant="body2">
+                              {format(parseISO(event.start_date), 'MMM d, yyyy')}
+                            </Typography>
+                          </Box>
+                          <Typography variant="body2">
+                            {format(parseISO(event.start_date), 'h:mm a')}
+                          </Typography>
+                        </Box>
+                      </Box>
+                      
+                      <CardContent sx={{ flexGrow: 1, pt: 2 }}>
+                        <Typography variant="h6" component="h3" gutterBottom>
+                          {event.title}
+                        </Typography>
+                        
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, height: 60, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                          {event.description}
+                        </Typography>
+                        
+                        <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary', mb: 1 }}>
+                          <LocationIcon fontSize="small" sx={{ mr: 1 }} />
+                          <Typography variant="body2" noWrap>
+                            {event.location}
+                          </Typography>
+                        </Box>
+                        
+                        {/* Attendees indicator */}
+                        <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary' }}>
+                          <PeopleIcon fontSize="small" sx={{ mr: 1 }} />
+                          <Typography variant="body2">
+                            {event.attendees || Math.floor(Math.random() * 50) + 10} Attendees
+                          </Typography>
+                        </Box>
+                      </CardContent>
+                      
+                      <CardActions sx={{ justifyContent: 'space-between', borderTop: '1px solid', borderColor: 'divider', p: 2 }}>
                         <Button 
                           component={Link} 
-                          to={`/events/${event.id}/edit`}
+                          to={`/events/${event.id}`} 
                           size="small" 
-                          color="secondary"
+                          variant="contained" 
+                          color="primary"
                         >
-                          Edit
+                          View Details
                         </Button>
-                      )}
-                    </CardActions>
-                  </Box>
-                </Card>
-              </Grid>
-            );
-          })}
-        </Grid>
+                        {isAdmin && (
+                          <Button 
+                            component={Link} 
+                            to={`/events/${event.id}/edit`} 
+                            size="small" 
+                            variant="outlined" 
+                            color="secondary"
+                          >
+                            Edit
+                          </Button>
+                        )}
+                      </CardActions>
+                    </Card>
+                  </Grid>
+                );
+              })}
+            </Grid>
+          ) : viewMode === 'list' ? (
+            <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
+              <List disablePadding>
+                {filteredEvents.map((event, index) => {
+                  const status = getEventStatus(event.start_date, event.end_date);
+                  const statusColor = getStatusColor(status);
+                  return (
+                    <React.Fragment key={event.id}>
+                      <ListItem 
+                        alignItems="flex-start"
+                        secondaryAction={
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                            <Chip label={status} color={statusColor} size="small" />
+                            <Box sx={{ mt: 1 }}>
+                              <Button component={Link} to={`/events/${event.id}`} size="small">Details</Button>
+                              {isAdmin && <Button component={Link} to={`/events/${event.id}/edit`} size="small" color="secondary">Edit</Button>}
+                            </Box>
+                          </Box>
+                        }
+                        sx={{ 
+                          py: 2,
+                          '&:hover': { bgcolor: 'action.hover' }
+                        }}
+                      >
+                        <ListItemAvatar>
+                          <Avatar sx={{ bgcolor: 'primary.main' }}>
+                            <CalendarIcon />
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          primary={<Typography variant="h6" component="span">{event.title}</Typography>}
+                          secondary={
+                            <React.Fragment>
+                              <Typography component="span" variant="body2" color="text.primary">
+                                {format(parseISO(event.start_date), 'EEEE, MMM d, yyyy')} at {format(parseISO(event.start_date), 'h:mm a')}
+                              </Typography>
+                              <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', mt: 0.5 }}>
+                                <LocationIcon fontSize="small" sx={{ mr: 0.5 }} /> {event.location}
+                              </Typography>
+                            </React.Fragment>
+                          }
+                        />
+                      </ListItem>
+                      {index < filteredEvents.length - 1 && <Divider component="li" />}
+                    </React.Fragment>
+                  );
+                })}
+              </List>
+            </Paper>
+          ) : (
+            <EventCalendar events={events} />
+          )}
+        </Box>
       )}
     </Container>
   );

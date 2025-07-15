@@ -1,16 +1,42 @@
 import React, { useState, useEffect, useRef } from 'react';
-import './EventFeedbackDashboard.css';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import {
-  ArrowLeftIcon,
-  ChartBarIcon,
-  ChatBubbleLeftRightIcon,
-  FaceSmileIcon,
-  FaceFrownIcon,
-  StarIcon
-} from '@heroicons/react/24/outline';
+  Container,
+  Box,
+  Typography,
+  Paper,
+  Grid,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  Avatar,
+  Chip,
+  Divider,
+  Alert,
+  Rating,
+  IconButton,
+  Tooltip,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemAvatar
+} from '@mui/material';
+import {
+  ArrowBack as ArrowBackIcon,
+  BarChart as BarChartIcon,
+  ChatBubble as ChatBubbleIcon,
+  ThumbUp as ThumbUpIcon,
+  ThumbDown as ThumbDownIcon,
+  Star as StarIcon,
+  StarBorder as StarBorderIcon,
+  FileDownload as FileDownloadIcon,
+  Person as PersonIcon,
+  Event as EventIcon
+} from '@mui/icons-material';
+import LoadingSpinner from '../common/LoadingSpinner';
 
 const EventFeedbackDashboard = () => {
   const { id } = useParams();
@@ -23,9 +49,7 @@ const EventFeedbackDashboard = () => {
   const [stats, setStats] = useState({
     averageRating: 0,
     totalResponses: 0,
-    recommendYes: 0,
-    recommendNo: 0,
-    recommendPercent: 0
+    commentsCount: 0
   });
   
   // Use a ref to track mounted state to prevent state updates after unmount
@@ -38,375 +62,424 @@ const EventFeedbackDashboard = () => {
     };
   }, []);
 
-  // Check if user is admin or event organizer
+  // Centralized data fetching and permission check
   useEffect(() => {
+    // Track if the component is mounted
+    isMounted.current = true;
+    console.log('DEBUG: useEffect triggered with id:', id);
+    
     if (!user) {
+      console.log('DEBUG: No user, redirecting to login');
       navigate('/login', { state: { from: window.location.pathname } });
       return;
     }
-    
-    const fetchEventAndCheckPermission = async () => {
+
+    const fetchAllData = async () => {
       try {
-        setLoading(true);
+        if (!isMounted.current) return;
         
+        console.log('DEBUG: Starting data fetch, setting loading state to true');
+        setLoading(true);
+        setError(null); // Reset any previous errors
+
+        // Fetch event data
+        console.log('DEBUG: Fetching event data for id:', id);
         const { data: eventData, error: eventError } = await supabase
           .from('events')
           .select('*')
           .eq('id', id)
           .single();
+
+        // Handle event data errors
+        if (eventError) {
+          console.error('DEBUG: Error fetching event:', eventError);
+          throw eventError;
+        }
         
-        if (eventError) throw eventError;
-        if (!eventData) throw new Error('Event not found');
-        
-        // Check if user is admin or event organizer
+        if (!eventData) {
+          console.error('DEBUG: Event not found');
+          throw new Error('Event not found');
+        }
+
+        // Check permissions
         if (!isAdmin && eventData.organizer_id !== user.id) {
-          navigate('/events', { 
-            state: { error: 'You do not have permission to view this feedback dashboard' }
+          console.log('DEBUG: Permission denied, redirecting');
+          navigate('/events', {
+            state: { error: 'You do not have permission to view this feedback dashboard' },
           });
           return;
         }
-        
+
+        // Update event state
         if (isMounted.current) {
+          console.log('DEBUG: Setting event state:', eventData);
           setEvent(eventData);
-          fetchFeedback();
+          
+          // Wait for state update to complete
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+
+        // Fetch feedback after event is set
+        if (isMounted.current) {
+          console.log('DEBUG: Now fetching feedback data');
+          await fetchFeedback();
+          console.log('DEBUG: Feedback fetch completed');
         }
       } catch (err) {
-        console.error('Error fetching event:', err);
         if (isMounted.current) {
-          setError(err.message || 'Failed to load event');
+          console.error('DEBUG: Error in fetchAllData:', err);
+          setError(err.message || 'Failed to load data');
           setLoading(false);
         }
       }
     };
-    
-    fetchEventAndCheckPermission();
+
+    // Ensure loading is always set to false even if an error occurs
+    // Execute data fetch and handle any unhandled errors
+    fetchAllData().catch(err => {
+      console.error('Unhandled error in data fetching:', err);
+      if (isMounted.current) {
+        setLoading(false);
+        setError('An unexpected error occurred. Please try again.');
+      }
+    });
+
+    // Cleanup function
+    return () => {
+      console.log('DEBUG: Component unmounting, cleaning up');
+      isMounted.current = false;
+    };
   }, [id, user, isAdmin, navigate]);
-  
-  // Mock feedback data for demonstration purposes
-  const generateMockFeedback = () => {
-    const mockNames = ['John Smith', 'Maria Garcia', 'David Lee', 'Sarah Johnson', 'Ahmed Hassan'];
-    const mockComments = [
-      'Great event! I learned a lot and made some valuable connections.',
-      'The speakers were excellent and the content was very relevant to my career.',
-      'Well organized event, but I wish there was more time for networking.',
-      'The venue was perfect and the food was delicious. Looking forward to the next one!',
-      'Very informative sessions. I particularly enjoyed the panel discussion.',
-      'The workshops were hands-on and practical. Exactly what I needed!',
-      'Good event overall, but the schedule was a bit too packed.',
-    ];
-    
-    // Generate 5-10 mock feedback entries
-    const count = Math.floor(Math.random() * 6) + 5;
-    const mockData = [];
-    
-    for (let i = 0; i < count; i++) {
-      const rating = Math.floor(Math.random() * 3) + 3; // Ratings between 3-5
-      const wouldRecommend = Math.random() > 0.2 ? 'yes' : 'no'; // 80% yes, 20% no
-      const hasComment = Math.random() > 0.3; // 70% have comments
-      
-      mockData.push({
-        id: `mock-${i}`,
-        rating,
-        would_recommend: wouldRecommend,
-        comments: hasComment ? mockComments[Math.floor(Math.random() * mockComments.length)] : '',
-        created_at: new Date(Date.now() - Math.floor(Math.random() * 30) * 24 * 60 * 60 * 1000).toISOString(),
-        user_id: `user-${i}`,
-        profiles: {
-          full_name: mockNames[i % mockNames.length],
-          avatar_url: null
-        }
-      });
-    }
-    
-    return mockData;
-  };
 
   const fetchFeedback = async () => {
     try {
-      // Check if event_feedback table exists by attempting to query it
-      const { error: tableCheckError } = await supabase
-        .from('event_feedback')
-        .select('id')
-        .limit(1);
+      console.log('DEBUG: Starting fetchFeedback for event_id:', id);
       
-      // If the table doesn't exist, use mock data
-      if (tableCheckError) {
-        console.log('Using mock feedback data for demonstration');
-        if (isMounted.current) {
-          const mockData = generateMockFeedback();
-          setFeedback(mockData);
-          calculateStats(mockData);
-          setLoading(false);
-        }
-        return;
-      }
-      
-      // Fetch all feedback for this event
+      // Step 1: Fetch all feedback for the event.
       const { data: feedbackData, error: feedbackError } = await supabase
         .from('event_feedback')
-        .select(`
-          id,
-          rating,
-          would_recommend,
-          comments,
-          created_at,
-          user_id,
-          profiles:user_id (
-            full_name,
-            avatar_url
-          )
-        `)
+        .select('id, rating, comments, submitted_at, user_id')
         .eq('event_id', id)
-        .order('created_at', { ascending: false });
+        .order('submitted_at', { ascending: false });
       
+      console.log('DEBUG: Feedback query response:', { feedbackData, feedbackError });
+
       if (feedbackError) {
-        console.error('Error fetching feedback:', feedbackError);
-        // Fall back to mock data on error
+        console.error('DEBUG: Feedback query error:', feedbackError);
+        throw feedbackError;
+      }
+
+      if (!feedbackData || feedbackData.length === 0) {
+        console.log('DEBUG: No feedback data found');
         if (isMounted.current) {
-          const mockData = generateMockFeedback();
-          setFeedback(mockData);
-          calculateStats(mockData);
+          setFeedback([]);
+          setStats({
+            averageRating: 0,
+            totalResponses: 0,
+            commentsCount: 0
+          });
+          setError('No feedback found for this event');
+          setLoading(false); // Explicitly set loading to false here
+        }
+        return; // Exit early, finally block will still run.
+      }
+
+      // Step 2: Get the unique, non-null user IDs from the feedback.
+      // Get the unique, non-null user IDs from the feedback
+      console.log('DEBUG: Processing feedback data:', feedbackData);
+      const userIds = [...new Set(feedbackData.map(item => item.user_id).filter(Boolean))];
+      console.log('DEBUG: Found userIds:', userIds);
+      
+      let profileData = [];
+      if (userIds.length > 0) {
+        // Step 3: Fetch the profiles for those users.
+        const { data, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url')
+          .in('id', userIds);
+
+        if (profileError) {
+          // Log the error but don't block rendering feedback.
+          console.error('Error fetching profiles:', profileError);
+        } else {
+          profileData = data;
+        }
+      }
+
+      // Step 4: Combine the feedback with the profile data.
+      const transformedData = feedbackData.map(item => {
+        const profile = profileData.find(p => p.id === item.user_id);
+        return {
+          ...item,
+          profiles: profile || { full_name: 'Anonymous User', avatar_url: null },
+        };
+      });
+      
+      console.log('DEBUG: Final transformed feedback data:', transformedData);
+      
+      // Force a synchronous state update to avoid race conditions
+      if (isMounted.current) {
+        try {
+          console.log('DEBUG: Setting feedback state to:', transformedData);
+          setFeedback([...transformedData]);
+          
+          // Immediately calculate stats with the same data to ensure consistency
+          const statsData = {
+            averageRating: transformedData.reduce((sum, item) => sum + (item.rating || 0), 0) / 
+                        (transformedData.length || 1),
+            totalResponses: transformedData.length,
+            commentsCount: transformedData.filter(item => item.comments && item.comments.trim() !== '').length
+          };
+          
+          console.log('DEBUG: Calculated stats directly:', statsData);
+          setStats(statsData);
+          
+          // Explicitly set loading to false
+          setLoading(false);
+          
+          console.log('DEBUG: State updates completed');
+        } catch (err) {
+          console.error('Error updating state:', err);
           setLoading(false);
         }
-        return;
-      }
-      
-      if (isMounted.current) {
-        // If no feedback found, use mock data for demonstration
-        if (!feedbackData || feedbackData.length === 0) {
-          const mockData = generateMockFeedback();
-          setFeedback(mockData);
-          calculateStats(mockData);
-        } else {
-          setFeedback(feedbackData);
-          calculateStats(feedbackData);
-        }
-        setLoading(false);
       }
     } catch (err) {
       console.error('Error fetching feedback:', err);
-      // Fall back to mock data on error
       if (isMounted.current) {
-        const mockData = generateMockFeedback();
-        setFeedback(mockData);
-        calculateStats(mockData);
-        setLoading(false);
+        setError(err.message || 'Failed to load feedback');
       }
+      // Re-throw the error so the calling function's catch block is triggered
+      throw err;
     }
   };
-  
+
   const calculateStats = (feedbackData) => {
-    if (!feedbackData || feedbackData.length === 0) {
-      return;
-    }
-    
+    if (!feedbackData || feedbackData.length === 0) return;
+
     const totalResponses = feedbackData.length;
     const totalRating = feedbackData.reduce((sum, item) => sum + item.rating, 0);
-    const averageRating = totalRating / totalResponses;
-    
-    const recommendYes = feedbackData.filter(item => item.would_recommend === 'yes').length;
-    const recommendPercent = (recommendYes / totalResponses) * 100;
-    
-    setStats({
-      averageRating: averageRating.toFixed(1),
-      totalResponses,
-      recommendYes,
-      recommendNo: totalResponses - recommendYes,
-      recommendPercent: recommendPercent.toFixed(0)
-    });
+    const averageRating = totalResponses > 0 ? (totalRating / totalResponses) : 0;
+    const commentsCount = feedbackData.filter(item => item.comments && item.comments.trim() !== '').length;
+
+    if (isMounted.current) {
+      setStats({
+        averageRating: averageRating.toFixed(1),
+        totalResponses,
+        commentsCount
+      });
+    }
   };
-  
+
   const exportFeedbackCSV = () => {
-    if (!feedback || feedback.length === 0) return;
-    
-    // Create CSV content
-    const headers = ['Date', 'User', 'Rating', 'Would Recommend', 'Comments'];
-    const csvRows = [headers];
-    
-    feedback.forEach(item => {
-      const row = [
-        new Date(item.created_at).toLocaleDateString(),
-        item.profiles?.full_name || 'Anonymous',
-        item.rating,
-        item.would_recommend || 'N/A',
-        `"${(item.comments || '').replace(/"/g, '""')}"`  // Escape quotes in CSV
-      ];
-      csvRows.push(row);
-    });
-    
-    const csvContent = csvRows.map(row => row.join(',')).join('\n');
-    
-    // Create and download the CSV file
+    if (feedback.length === 0) return;
+
+    const headers = ['Date', 'Name', 'Rating', 'Comments'];
+    const rows = feedback.map(item => [
+      new Date(item.submitted_at).toLocaleDateString(),
+      item.profiles?.full_name || 'Anonymous',
+      item.rating,
+      `"${item.comments ? item.comments.replace(/"/g, '""') : ''}"`
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    link.setAttribute('download', `feedback-${event.title}-${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
+    link.setAttribute('download', `${event.title}_feedback.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
-  
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-  
+
+  // Add debugging before render
+  console.log('DEBUG: Current feedback state:', feedback);
+  console.log('DEBUG: Current stats:', stats);
+  console.log('DEBUG: Current event:', event);
+  console.log('DEBUG: Loading state:', loading);
+
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="flex items-center mb-6">
-        <button
-          onClick={() => navigate(`/events/${id}`)}
-          className="mr-4 p-2 rounded-full hover:bg-gray-100"
-        >
-          <ArrowLeftIcon className="h-5 w-5 text-gray-600" />
-        </button>
-        <h1 className="text-2xl font-bold text-gray-900">Feedback Dashboard</h1>
-      </div>
-      
-      <div className="mb-6">
-        <h2 className="text-xl font-semibold text-gray-800">{event.title}</h2>
-        <p className="text-gray-600">
-          {new Date(event.start_date).toLocaleDateString()} • {event.location}
-        </p>
-      </div>
-      
-      {feedback.length === 0 ? (
-        <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded mb-6">
-          <p>No feedback has been submitted for this event yet.</p>
-        </div>
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      {/* Back Button */}
+      <Button
+        startIcon={<ArrowBackIcon />}
+        component={Link}
+        to={`/events/${id}`}
+        sx={{ mb: 3 }}
+        color="primary"
+      >
+        Back to Event
+      </Button>
+
+      {loading ? (
+        <LoadingSpinner message="Loading feedback data..." />
+      ) : error ? (
+        <Alert severity="error" sx={{ mb: 4 }}>{error}</Alert>
       ) : (
         <>
+          {/* Event Header */}
+          <Paper elevation={1} sx={{ mb: 4, overflow: 'hidden', borderRadius: 2 }}>
+            <Box p={3} borderBottom={1} borderColor="divider">
+              <Typography variant="h4" component="h1" gutterBottom>
+                {event.title}
+              </Typography>
+              <Typography color="text.secondary">
+                {event.description}
+              </Typography>
+            </Box>
+            <Box p={3} bgcolor="grey.50">
+              <Typography variant="h5" component="h2" gutterBottom>
+                Feedback Dashboard
+              </Typography>
+              <Typography color="text.secondary">
+                View and analyze feedback from attendees for this event.
+              </Typography>
+            </Box>
+          </Paper>
+
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div className="glass-card p-6 rounded-lg">
-              <div className="flex items-center mb-2">
-                <StarIcon className="h-5 w-5 text-yellow-500 mr-2" />
-                <h3 className="text-lg font-medium text-gray-700">Average Rating</h3>
-              </div>
-              <div className="flex items-baseline">
-                <span className="text-3xl font-bold text-gray-900">{stats.averageRating}</span>
-                <span className="text-gray-500 ml-1">/ 5</span>
-              </div>
-              <p className="text-sm text-gray-500 mt-1">From {stats.totalResponses} responses</p>
-            </div>
-            
-            <div className="glass-card p-6 rounded-lg">
-              <div className="flex items-center mb-2">
-                <FaceSmileIcon className="h-5 w-5 text-green-500 mr-2" />
-                <h3 className="text-lg font-medium text-gray-700">Would Recommend</h3>
-              </div>
-              <div className="flex items-baseline">
-                <span className="text-3xl font-bold text-gray-900">{stats.recommendPercent}%</span>
-              </div>
-              <p className="text-sm text-gray-500 mt-1">{stats.recommendYes} out of {stats.totalResponses} said yes</p>
-            </div>
-            
-            <div className="glass-card p-6 rounded-lg">
-              <div className="flex items-center mb-2">
-                <ChatBubbleLeftRightIcon className="h-5 w-5 text-blue-500 mr-2" />
-                <h3 className="text-lg font-medium text-gray-700">Comments</h3>
-              </div>
-              <div className="flex items-baseline">
-                <span className="text-3xl font-bold text-gray-900">
-                  {feedback.filter(item => item.comments && item.comments.trim()).length}
-                </span>
-              </div>
-              <p className="text-sm text-gray-500 mt-1">Written feedback received</p>
-            </div>
-          </div>
-          
+          <Grid container spacing={3} sx={{ mb: 4 }}>
+            {/* Average Rating */}
+            <Grid item xs={12} sm={6} md={3}>
+              <Card elevation={1} sx={{ height: '100%' }}>
+                <CardContent>
+                  <Box display="flex" alignItems="center" mb={1}>
+                    <StarIcon color="warning" sx={{ mr: 1 }} />
+                    <Typography variant="h6" component="h3">
+                      Average Rating
+                    </Typography>
+                  </Box>
+                  <Box display="flex" alignItems="baseline">
+                    <Typography variant="h3" component="p" fontWeight="bold">
+                      {stats.averageRating}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" ml={1}>
+                      / 5
+                    </Typography>
+                  </Box>
+                  <Rating
+                    value={stats.averageRating}
+                    precision={0.5}
+                    readOnly
+                    sx={{ mt: 1 }}
+                  />
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Total Responses */}
+            <Grid item xs={12} sm={6} md={3}>
+              <Card elevation={1} sx={{ height: '100%' }}>
+                <CardContent>
+                  <Box display="flex" alignItems="center" mb={1}>
+                    <BarChartIcon color="primary" sx={{ mr: 1 }} />
+                    <Typography variant="h6" component="h3">
+                      Total Responses
+                    </Typography>
+                  </Box>
+                  <Typography variant="h3" component="p" fontWeight="bold">
+                    {stats.totalResponses}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Feedback submissions
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Comments */}
+            <Grid item xs={12} sm={6} md={3}>
+              <Card elevation={1} sx={{ height: '100%' }}>
+                <CardContent>
+                  <Box display="flex" alignItems="center" mb={1}>
+                    <ChatBubbleIcon color="secondary" sx={{ mr: 1 }} />
+                    <Typography variant="h6" component="h3">
+                      Comments
+                    </Typography>
+                  </Box>
+                  <Typography variant="h3" component="p" fontWeight="bold">
+                    {stats.commentsCount}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Written feedback received
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+
           {/* Export Button */}
-          <div className="flex justify-end mb-6">
-            <button
-              onClick={exportFeedbackCSV}
-              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <ChartBarIcon className="h-5 w-5 mr-2" />
-              Export to CSV
-            </button>
-          </div>
-          
+          <Box display="flex" justifyContent="flex-end" mb={3}>
+    
+          </Box>
+
           {/* Feedback List */}
-          <div className="glass-card rounded-lg overflow-hidden">
-            <div className="p-6 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-800">All Feedback</h3>
-            </div>
-            
-            <div className="divide-y divide-gray-200">
-              {feedback.map(item => (
-                <div key={item.id} className="p-6">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center">
-                      <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden mr-3">
-                        {item.profiles?.avatar_url ? (
-                          <img 
-                            src={item.profiles.avatar_url} 
-                            alt={item.profiles.full_name || 'User'} 
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <span className="text-gray-500 text-sm">
-                            {(item.profiles?.full_name || 'User').charAt(0).toUpperCase()}
-                          </span>
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-900">
-                          {item.profiles?.full_name || 'Anonymous User'}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          {new Date(item.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="flex mr-3">
-                        {[...Array(5)].map((_, i) => (
-                          <StarIcon 
-                            key={i} 
-                            className={`h-5 w-5 ${i < item.rating ? 'text-yellow-500 fill-current' : 'text-gray-300'}`}
-                          />
-                        ))}
-                      </div>
-                      {item.would_recommend && (
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          item.would_recommend === 'yes' 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {item.would_recommend === 'yes' ? (
-                            <>
-                              <FaceSmileIcon className="h-3 w-3 mr-1" />
-                              Would recommend
-                            </>
-                          ) : (
-                            <>
-                              <FaceFrownIcon className="h-3 w-3 mr-1" />
-                              Would not recommend
-                            </>
+          <Paper elevation={1} sx={{ borderRadius: 2, overflow: 'hidden' }}>
+            <Box p={3} borderBottom={1} borderColor="divider">
+              <Typography variant="h6" component="h3">
+                All Feedback
+              </Typography>
+            </Box>
+
+            <List disablePadding>
+              {feedback.map((item) => (
+                <React.Fragment key={item.id}>
+                  <ListItem
+                    alignItems="flex-start"
+                    sx={{ py: 2, px: 3 }}
+                  >
+                    <ListItemAvatar>
+                      <Avatar
+                        src={item.profiles?.avatar_url}
+                        alt={item.profiles?.full_name || 'User'}
+                      >
+                        {(item.profiles?.full_name || 'U').charAt(0).toUpperCase()}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={
+                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                          <Typography variant="subtitle1">
+                            {item.profiles?.full_name || 'Anonymous User'}
+                          </Typography>
+                          <Box display="flex" alignItems="center">
+                            <Rating value={item.rating} readOnly size="small" />
+                          </Box>
+                        </Box>
+                      }
+                      secondary={
+                        <>
+                          <Typography
+                            component="span"
+                            variant="body2"
+                            color="text.secondary"
+                          >
+                            {item.submitted_at ? new Date(item.submitted_at).toLocaleDateString() : 'No date available'}
+                          </Typography>
+                          {item.comments && (
+                            <Paper
+                              variant="outlined"
+                              sx={{ mt: 1, p: 2, bgcolor: 'grey.50' }}
+                            >
+                              <Typography variant="body2">{item.comments}</Typography>
+                            </Paper>
                           )}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {item.comments && (
-                    <div className="bg-gray-50 rounded-lg p-4 mt-2">
-                      <p className="text-gray-700">{item.comments}</p>
-                    </div>
-                  )}
-                </div>
+                        </>
+                      }
+                    />
+                  </ListItem>
+                  <Divider component="li" />
+                </React.Fragment>
               ))}
-            </div>
-          </div>
+            </List>
+          </Paper>
         </>
       )}
-    </div>
+    </Container>
   );
 };
 

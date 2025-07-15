@@ -7,14 +7,15 @@ import './App.css';
 import { useAuth } from './contexts/AuthContext';
 
 // Common Components
-import Logo from './components/Common/Logo';
+import Logo from './components/common/Logo';
 
 // Home Page
 import HomePage from './components/Landing/HomePage';
 
 // Notifications Component
 import Notifications from './components/Notifications/Notifications';
-import { NotificationProvider } from './components/Common/NotificationCenter';
+import { NotificationProvider } from './components/common/NotificationCenter';
+import FeedbackWidget from './components/common/FeedbackWidget';
 
 // Layout Components
 import Navigation from './components/Layout/Navigation';
@@ -26,6 +27,7 @@ import EnhancedRegister from './components/Auth/EnhancedRegister';
 import Profile from './components/Auth/Profile';
 import ForgotPassword from './components/Auth/ForgotPassword';
 import UpdatePassword from './components/Auth/UpdatePassword';
+import LoadingSpinner from './components/common/LoadingSpinner';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 
 // Dashboard Components
@@ -37,7 +39,7 @@ import EmployerDashboard from './components/Dashboard/EmployerDashboard';
 import AlumniDirectory from './components/Directory/AlumniDirectory';
 import AlumniProfile from './components/Directory/AlumniProfile';
 import EventsPage from './pages/EventsPage';
-import Jobs from './components/Jobs/Jobs';
+import JobListingsPage from './components/Jobs/JobListingsPage';
 import JobDetails from './components/Jobs/JobDetails';
 import UserProfilePage from './pages/UserProfilePage';
 import MentorRegistrationForm from './components/Mentorship/MentorRegistrationForm';
@@ -65,7 +67,13 @@ import UserManagement from './components/Admin/UserManagement';
 
 import AdminSettings from './components/Admin/AdminSettings';
 import MenteeRegistrationForm from './components/Mentorship/MenteeRegistrationForm';
-
+import JobApplicationStatus from './components/Jobs/JobApplicationStatus';
+import ManageJobApplications from './components/Jobs/ManageJobApplications';
+import MentorshipDashboard from './components/Mentorship/MentorshipDashboard';
+import MentorDirectory from './components/Mentorship/MentorDirectory';
+import MentorshipStatus from './components/Mentorship/MentorshipStatus';
+import MentorshipChat from './components/Mentorship/MentorshipChat';
+import MentorMatching from './components/Mentorship/MentorMatching';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -92,16 +100,7 @@ function AppContent() {
   if (loading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-24 h-24 mb-4 mx-auto animate-pulse">
-            <Logo className="w-full h-full object-contain" />
-          </div>
-          <div className="text-gray-600 text-lg mb-2 font-medium">Building Your Alumni Network</div>
-          <div className="text-gray-500 text-sm">Connecting you with fellow AMETians worldwide</div>
-          <div className="mt-4">
-            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          </div>
-        </div>
+        <LoadingSpinner message="Initializing application..." />
       </div>
     );
   }
@@ -131,7 +130,7 @@ function AppContent() {
             <Route path="/directory" element={<AlumniDirectory />} />
             <Route path="/directory/:id" element={<AlumniProfile />} />
             <Route path="/events/*" element={<EventsPage />} />
-            <Route path="/jobs" element={<Jobs />} />
+                        <Route path="/jobs" element={<JobListingsPage />} />
             <Route path="/jobs/alerts" element={<JobAlerts />} />
                         <Route path="/jobs/post" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><PostJob /></ProtectedRoute>} />
             <Route path="/jobs/post/select" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><PostJobSelection /></ProtectedRoute>} />
@@ -142,12 +141,19 @@ function AppContent() {
             <Route path="/jobs/:jobId/apply" element={<JobApplication />} />
             <Route path="/jobs/:jobId/application-success" element={<Navigate to="/jobs/applications" />} />
             <Route path="/jobs/:id" element={<JobDetails />} />
+            <Route path="/jobs/:jobId/manage" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><ManageJobApplications /></ProtectedRoute>} />
+            <Route path="/my-applications" element={<ProtectedRoute><JobApplicationStatus /></ProtectedRoute>} />
             <Route path="/profile/:userId" element={<UserProfilePage />} />
             
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/mentorship/become-mentor" element={<MentorRegistrationForm />} />
             <Route path="/mentorship/become-mentee" element={<MenteeRegistrationForm />} />
             <Route path="/mentorship" element={<Mentorship />} />
+            <Route path="/mentorship/dashboard" element={<ProtectedRoute><MentorshipDashboard /></ProtectedRoute>} />
+            <Route path="/mentorship/directory" element={<ProtectedRoute><MentorDirectory /></ProtectedRoute>} />
+            <Route path="/mentorship/requests" element={<ProtectedRoute><MentorshipStatus /></ProtectedRoute>} />
+            <Route path="/mentorship/chat/:requestId" element={<ProtectedRoute><MentorshipChat /></ProtectedRoute>} />
+            <Route path="/mentorship/matching" element={<ProtectedRoute><MentorMatching /></ProtectedRoute>} />
             <Route path="/mentorship/mentor/:id" element={<MentorProfile />} />
             <Route path="/mentorship/mentor-settings" element={<MentorRegistrationForm />} />
             <Route path="/networking" element={<NetworkingGroups />} />
@@ -176,7 +182,7 @@ function AppContent() {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/update-password" element={<UpdatePassword />} />
       <Route path="/directory" element={<HomePage />} />
-      <Route path="/events" element={<EventsPage />} />
+      <Route path="/events" element={<HomePage />} />
       <Route path="/jobs" element={<HomePage />} />
       <Route path="/mentorship" element={<HomePage />} />
       <Route path="/about" element={<HomePage />} />
@@ -191,6 +197,7 @@ function App() {
       <NotificationProvider>
         <Router>
           <AppContent />
+          <FeedbackWidget />
         </Router>
       </NotificationProvider>
     </QueryClientProvider>

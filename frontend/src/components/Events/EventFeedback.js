@@ -16,9 +16,9 @@ import {
   RadioGroup,
   Snackbar,
   Alert,
-  CircularProgress,
   Divider
 } from '@mui/material';
+import LoadingSpinner from '../common/LoadingSpinner';
 import {
   SentimentVerySatisfied as HappyIcon,
   SentimentVeryDissatisfied as SadIcon,
@@ -40,7 +40,6 @@ const EventFeedback = () => {
   
   // Form state
   const [rating, setRating] = useState(0);
-  const [wouldRecommend, setWouldRecommend] = useState('');
   const [comments, setComments] = useState('');
 
   useEffect(() => {
@@ -66,21 +65,24 @@ const EventFeedback = () => {
 
   const fetchUserFeedback = async (userId) => {
     try {
+      // Use explicit field selection instead of '*' and avoid .single()
       const { data, error } = await supabase
         .from('event_feedback')
-        .select('*')
+        .select('id,event_id,user_id,rating,comments,submitted_at')
         .eq('event_id', id)
-        .eq('user_id', userId)
-        .single();
+        .eq('user_id', userId);
 
-      if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "no rows returned"
+      if (error) {
+        console.error('Error fetching user feedback:', error);
+        return;
+      }
       
-      if (data) {
+      // If we have results, use the first one
+      if (data && data.length > 0) {
         // Pre-fill form with existing feedback
-        setUserFeedback(data);
-        setRating(data.rating);
-        setWouldRecommend(data.would_recommend);
-        setComments(data.comments);
+        setUserFeedback(data[0]);
+        setRating(data[0].rating);
+        setComments(data[0].comments);
       }
     } catch (err) {
       console.error('Error fetching user feedback:', err);
@@ -121,55 +123,64 @@ const EventFeedback = () => {
     
     try {
       setSubmitting(true);
+      setError(''); // Clear any previous errors
       
+      // Always ensure rating is an integer
+      const intRating = Math.round(Number(rating));
+      console.log('Submitting rating as integer:', intRating);
+      
+      // Create a feedback object with explicit fields only
       const feedbackData = {
         event_id: id,
         user_id: currentUserId,
-        rating,
-        would_recommend: wouldRecommend,
+        rating: intRating, // Integer rating
         comments,
-        created_at: new Date().toISOString()
+        submitted_at: new Date().toISOString()
       };
       
       if (userFeedback) {
-        // Update existing feedback
+        // Update existing feedback - only include fields that exist in the database
         const { error } = await supabase
           .from('event_feedback')
           .update({
-            ...feedbackData,
-            updated_at: new Date().toISOString()
+            rating: intRating, // Integer rating
+            comments,
+            submitted_at: new Date().toISOString()
           })
           .eq('id', userFeedback.id);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error updating feedback:', error);
+          throw error;
+        }
         setSuccess('Your feedback has been updated!');
       } else {
-        // Create new feedback
+        // Insert new feedback
         const { error } = await supabase
           .from('event_feedback')
           .insert([feedbackData]);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error inserting feedback:', error);
+          throw error;
+        }
         setSuccess('Thank you for your feedback!');
       }
-      
-      // Refresh user feedback
-      fetchUserFeedback(currentUserId);
-      
+
+      // Redirect back to event page after short delay
+      setTimeout(() => {
+        navigate(`/events/${id}`);
+      }, 2000);
     } catch (err) {
       console.error('Error submitting feedback:', err);
-      setError('Failed to submit feedback');
+      setError('Failed to submit feedback. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
   if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="300px">
-        <CircularProgress />
-      </Box>
-    );
+    return <LoadingSpinner message="Loading event feedback..." />;
   }
 
   if (error && !event) {
@@ -224,44 +235,15 @@ const EventFeedback = () => {
               </FormLabel>
               <Rating
                 name="event-rating"
-                value={rating}
-                onChange={(_, newValue) => setRating(newValue)}
+                value={Math.round(rating)} // Ensure integer display
+                onChange={(_, newValue) => setRating(Math.round(newValue))} // Force integer values
                 size="large"
-                precision={0.5}
+                // Removed precision={0.5} to only allow whole numbers
                 sx={{ fontSize: '2rem' }}
               />
             </Box>
             
-            <FormControl component="fieldset" sx={{ mb: 4 }}>
-              <FormLabel component="legend">Would you recommend this event to others?</FormLabel>
-              <RadioGroup
-                row
-                name="would-recommend"
-                value={wouldRecommend}
-                onChange={(e) => setWouldRecommend(e.target.value)}
-              >
-                <FormControlLabel 
-                  value="yes" 
-                  control={<Radio />} 
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <HappyIcon color="success" sx={{ mr: 0.5 }} />
-                      Yes
-                    </Box>
-                  } 
-                />
-                <FormControlLabel 
-                  value="no" 
-                  control={<Radio />} 
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <SadIcon color="error" sx={{ mr: 0.5 }} />
-                      No
-                    </Box>
-                  } 
-                />
-              </RadioGroup>
-            </FormControl>
+
             
             <TextField
               label="Additional Comments"

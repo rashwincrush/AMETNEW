@@ -1,3 +1,6 @@
+// Version check to confirm code changes are loaded
+console.log('EventDetail.js loaded with event_attendees table fix - version 1.0.1');
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
@@ -9,7 +12,6 @@ import {
   Chip, 
   Divider, 
   Grid, 
-  CircularProgress,
   IconButton,
   Dialog,
   DialogTitle,
@@ -26,6 +28,7 @@ import {
   ListItemSecondaryAction,
   Container
 } from '@mui/material';
+import LoadingSpinner from '../common/LoadingSpinner';
 import { 
   Event as EventIcon, 
   LocationOn as LocationIcon, 
@@ -46,6 +49,7 @@ import TwitterIcon from '@mui/icons-material/Twitter';
 import LinkedInIcon from '@mui/icons-material/LinkedIn';
 import EmailIcon from '@mui/icons-material/Email';
 import { format, parseISO, isPast, isFuture } from 'date-fns';
+import SocialShareButtons from '../common/SocialShareButtons';
 
 const EventDetail = ({ isAdmin = false }) => {
   const { id } = useParams();
@@ -108,16 +112,20 @@ const EventDetail = ({ isAdmin = false }) => {
 
   const fetchUserRsvp = async (userId) => {
     try {
+      // Use a basic query with minimal fields and proper string formatting
       const { data, error } = await supabase
-        .from('event_rsvps')
-        .select('*')
+        .from('event_attendees')
+        .select('id,attendance_status,registration_date') // Use correct column names
         .eq('event_id', id)
-        .eq('user_id', userId)
-        .single();
+        .eq('attendee_id', userId);
 
-      if (error && error.code !== 'PGRST116') throw error; // PGRST116 is "no rows returned"
-      
-      setUserRsvp(data || null);
+      if (error) {
+        console.error('Error fetching user RSVP:', error);
+        return;
+      }
+
+      // If we have results, take the first one
+      setUserRsvp(data && data.length > 0 ? data[0] : null);
     } catch (err) {
       console.error('Error fetching user RSVP:', err);
     }
@@ -152,40 +160,49 @@ const EventDetail = ({ isAdmin = false }) => {
 
   const fetchAttendees = async (eventId) => {
     try {
-      // First, get the event RSVPs
+      // Step 1: Get RSVPs with attendance_status 'registered' for this event
       const { data: rsvpData, error: rsvpError } = await supabase
-        .from('event_rsvps')
-        .select('id, status, created_at, user_id')
+        .from('event_attendees')
+        .select('id,attendance_status,registration_date,attendee_id') // Use correct column names
         .eq('event_id', eventId)
-        .eq('status', 'going');
+        .eq('attendance_status', 'registered');
 
-      if (rsvpError) throw rsvpError;
-      
-      if (rsvpData && rsvpData.length > 0) {
-        // Get user profiles for the RSVPs
-        const userIds = rsvpData.map(rsvp => rsvp.user_id);
-        const { data: profilesData, error: profilesError } = await supabase
-          .from('profiles')
-          .select('id, full_name, avatar_url, current_position, current_company')
-          .in('id', userIds);
-
-        if (profilesError) throw profilesError;
-
-        // Combine the data
-        const attendeesWithProfiles = rsvpData.map(rsvp => {
-          const profile = profilesData.find(p => p.id === rsvp.user_id) || {};
-          return {
-            ...rsvp,
-            profiles: profile
-          };
-        });
-
-        setAttendees(attendeesWithProfiles || []);
-      } else {
-        setAttendees([]);
+      if (rsvpError) {
+        console.error('Error fetching RSVPs:', rsvpError);
+        throw rsvpError;
       }
+
+      if (!rsvpData || rsvpData.length === 0) {
+        setAttendees([]);
+        return;
+      }
+
+      // Step 2: Get profiles for the users who RSVP'd
+      const attendeeIds = rsvpData.map(rsvp => rsvp.attendee_id);
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('id,full_name,avatar_url,job_title,company')
+        .in('id', attendeeIds);
+
+      if (profileError) {
+        console.error('Error fetching profiles:', profileError);
+        throw profileError;
+      }
+
+      // Step 3: Combine the data
+      const attendeesWithProfiles = rsvpData.map(rsvp => {
+        const profile = profileData.find(p => p.id === rsvp.attendee_id);
+        return {
+          ...rsvp,
+          profiles: profile || null
+        };
+      }).filter(a => a.profiles); // Only include attendees with valid profiles
+
+      setAttendees(attendeesWithProfiles);
+
     } catch (err) {
-      console.error('Error fetching attendees:', err);
+      console.error('Error in fetchAttendees function:', err);
+      setError('Failed to load attendee information. Please try again later.');
     }
   };
 
@@ -195,7 +212,7 @@ const EventDetail = ({ isAdmin = false }) => {
       
       // First delete all RSVPs for this event
       const { error: rsvpError } = await supabase
-        .from('event_rsvps')
+        .from('event_attendees')
         .delete()
         .eq('event_id', id);
 
@@ -217,7 +234,7 @@ const EventDetail = ({ isAdmin = false }) => {
     }
   };
 
-  const handleRsvp = async (status) => {
+  const handleRsvp = async (attendance_status) => {
     try {
       if (!currentUserId) {
         navigate('/login', { state: { from: `/events/${id}` } });
@@ -229,10 +246,10 @@ const EventDetail = ({ isAdmin = false }) => {
       if (userRsvp) {
         // Update existing RSVP
         const { error } = await supabase
-          .from('event_rsvps')
+          .from('event_attendees')
           .update({ 
-            status,
-            updated_at: new Date().toISOString() 
+            attendance_status: attendance_status === 'going' ? 'registered' : 'canceled',
+            registration_date: new Date().toISOString() 
           })
           .eq('id', userRsvp.id);
 
@@ -240,18 +257,18 @@ const EventDetail = ({ isAdmin = false }) => {
       } else {
         // Create new RSVP
         const { error } = await supabase
-          .from('event_rsvps')
+          .from('event_attendees')
           .insert([{ 
             event_id: id, 
-            user_id: currentUserId, 
-            status,
-            created_at: new Date().toISOString()
+            attendee_id: currentUserId, 
+            attendance_status: attendance_status === 'going' ? 'registered' : 'canceled',
+            registration_date: new Date().toISOString()
           }]);
 
         if (error) throw error;
       }
 
-      setRsvpSuccess(`Successfully ${status === 'going' ? 'RSVPed' : 'marked as not going'}!`);
+      setRsvpSuccess(`Successfully ${attendance_status === 'going' ? 'registered for this event' : 'canceled your registration'}!`);
       fetchUserRsvp(currentUserId);
       fetchAttendees(id);
       
@@ -274,11 +291,7 @@ const EventDetail = ({ isAdmin = false }) => {
   };
 
   if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="300px">
-        <CircularProgress />
-      </Box>
-    );
+    return <LoadingSpinner message="Loading event details..." />;
   }
 
   if (error) {
@@ -316,7 +329,7 @@ const EventDetail = ({ isAdmin = false }) => {
     );
   }
 
-  const status = getEventStatus(event.start_date, event.end_date);
+  const attendance_status = getEventStatus(event.start_date, event.end_date);
   const isPastEvent = isPast(new Date(event.end_date));
   const registrationOpen = !isPastEvent && 
     (!event.registration_deadline || new Date() < new Date(event.registration_deadline));
@@ -347,8 +360,8 @@ const EventDetail = ({ isAdmin = false }) => {
         >
           <Box sx={{ position: 'absolute', top: 16, right: 16, zIndex: 1 }}>
             <Chip 
-              label={status.text} 
-              color={status.color} 
+              label={attendance_status.text} 
+              color={attendance_status.color} 
               size="small"
               sx={{ color: 'white', fontWeight: 'medium' }}
             />
@@ -389,6 +402,7 @@ const EventDetail = ({ isAdmin = false }) => {
                 <Typography variant="body1" paragraph sx={{ whiteSpace: 'pre-line' }}>
                   {event.description}
                 </Typography>
+                <SocialShareButtons shareUrl={window.location.href} title={event.title} />
               </Box>
 
               <Box sx={{ mb: 4 }}>
@@ -489,10 +503,10 @@ const EventDetail = ({ isAdmin = false }) => {
                 ) : userRsvp ? (
                   <Box>
                     <Alert 
-                      severity={userRsvp.status === 'going' ? 'success' : 'info'}
+                      severity={userRsvp.attendance_status === 'going' ? 'success' : 'info'}
                       sx={{ mb: 2 }}
                     >
-                      You've marked yourself as <strong>{userRsvp.status}</strong> for this event.
+                      You've marked yourself as <strong>{userRsvp.attendance_status}</strong> for this event.
                     </Alert>
                     <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
                       Change your response:
@@ -507,25 +521,25 @@ const EventDetail = ({ isAdmin = false }) => {
                 {!isPastEvent && registrationOpen && (
                   <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                     <Button
-                      variant={userRsvp?.status === 'going' ? 'contained' : 'outlined'}
+                      variant={userRsvp?.attendance_status === 'going' ? 'contained' : 'outlined'}
                       color="primary"
                       fullWidth
                       onClick={() => handleRsvp('going')}
                       disabled={rsvpLoading}
-                      startIcon={userRsvp?.status === 'going' ? <CheckCircleIcon /> : null}
+                      startIcon={userRsvp?.attendance_status === 'going' ? <CheckCircleIcon /> : null}
                     >
-                      {rsvpLoading && userRsvp?.status !== 'going' ? 'Updating...' : 'Going'}
+                      {rsvpLoading && userRsvp?.attendance_status !== 'going' ? 'Updating...' : 'Going'}
                     </Button>
                     
                     <Button
-                      variant={userRsvp?.status === 'not_going' ? 'contained' : 'outlined'}
+                      variant={userRsvp?.attendance_status === 'not_going' ? 'contained' : 'outlined'}
                       color="secondary"
                       fullWidth
                       onClick={() => handleRsvp('not_going')}
                       disabled={rsvpLoading}
-                      startIcon={userRsvp?.status === 'not_going' ? <CancelIcon /> : null}
+                      startIcon={userRsvp?.attendance_status === 'not_going' ? <CancelIcon /> : null}
                     >
-                      {rsvpLoading && userRsvp?.status !== 'not_going' ? 'Updating...' : 'Not Going'}
+                      {rsvpLoading && userRsvp?.attendance_status !== 'not_going' ? 'Updating...' : 'Not Going'}
                     </Button>
                   </Box>
                 )}
@@ -608,7 +622,6 @@ const EventDetail = ({ isAdmin = false }) => {
                       >
                         Delete Event
                       </Button>
-                      {isPast(new Date(event.end_date || event.event_date)) && (
                         <Button
                           component={Link}
                           to={`/events/${event.id}/feedback-dashboard`}
@@ -619,7 +632,6 @@ const EventDetail = ({ isAdmin = false }) => {
                         >
                           View Feedback
                         </Button>
-                      )}
                     </Box>
                   </Box>
                 )}
@@ -645,7 +657,7 @@ const EventDetail = ({ isAdmin = false }) => {
                           primary={rsvp.profiles.full_name || 'Anonymous User'} 
                           secondary={rsvp.profiles.current_position || ''}
                         />
-                        {rsvp.status === 'going' && (
+                        {rsvp.attendance_status === 'going' && (
                           <CheckCircleIcon color="success" fontSize="small" />
                         )}
                       </ListItem>
