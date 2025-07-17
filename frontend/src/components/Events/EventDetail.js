@@ -24,6 +24,11 @@ const EventDetail = () => {
   const [userRsvp, setUserRsvp] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [hasSubmittedFeedback, setHasSubmittedFeedback] = useState(false);
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState(0);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 
   const fetchEventData = useCallback(async () => {
     try {
@@ -53,8 +58,11 @@ const EventDetail = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       setCurrentUserId(user.id);
-      const { data } = await supabase.from('event_attendees').select('*').eq('event_id', id).eq('attendee_id', user.id).single();
-      setUserRsvp(data);
+      const { data: rsvpData } = await supabase.from('event_attendees').select('*').eq('event_id', id).eq('attendee_id', user.id).single();
+      setUserRsvp(rsvpData);
+
+      const { data: feedbackData } = await supabase.from('event_feedback').select('id').eq('event_id', id).eq('user_id', user.id).single();
+      setHasSubmittedFeedback(!!feedbackData);
 
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
       if (profile && profile.role === 'admin') {
@@ -100,6 +108,39 @@ const EventDetail = () => {
       setError('Failed to process your RSVP.');
     } finally {
       setRsvpLoading(false);
+    }
+  };
+
+  const handleFeedbackSubmit = async (e) => {
+    e.preventDefault();
+    if (feedbackRating === 0) {
+      setError('Please provide a rating.');
+      return;
+    }
+    setIsSubmittingFeedback(true);
+    setError('');
+
+    try {
+      const { error } = await supabase.from('event_feedback').insert([
+        {
+          event_id: id,
+          user_id: currentUserId,
+          rating: feedbackRating,
+          comments: feedbackComment,
+        }
+      ]);
+
+      if (error) throw error;
+
+      setHasSubmittedFeedback(true);
+      setShowFeedbackForm(false);
+      setRsvpSuccess('Thank you for your feedback!'); // Re-using success message state
+      setTimeout(() => setRsvpSuccess(''), 3000);
+    } catch (err) {
+      console.error('Error submitting feedback:', err);
+      setError('Failed to submit your feedback.');
+    } finally {
+      setIsSubmittingFeedback(false);
     }
   };
 
@@ -154,12 +195,37 @@ const EventDetail = () => {
                       <div className="flex items-center justify-center text-green-600 font-semibold mb-2"><CheckCircle className="w-5 h-5 mr-2"/> You are going!</div>
                       <button onClick={() => handleRsvp('not_going')} disabled={rsvpLoading} className="text-sm text-red-500 hover:underline">Cancel RSVP</button>
                     </div>
+                  ) : isPast(parseISO(event.end_time)) && !hasSubmittedFeedback ? (
+                    <div className="text-center">
+                      <button onClick={() => setShowFeedbackForm(true)} className="w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700 transition duration-200">
+                        Leave Feedback
+                      </button>
+                    </div>
                   ) : (
                     <button onClick={() => handleRsvp('going')} disabled={rsvpLoading || isPast(parseISO(event.end_time))} className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 disabled:bg-gray-400 transition duration-200">
                       {rsvpLoading ? 'Processing...' : 'Attend Event'}
                     </button>
                   )}
                 </div>
+
+                {showFeedbackForm && (
+                  <div className="bg-gray-50 p-4 rounded-lg border mt-4">
+                    <h3 className="font-bold text-lg mb-3 text-center">Event Feedback</h3>
+                    <form onSubmit={handleFeedbackSubmit}>
+                      <div className="mb-4 text-center">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Your Rating</label>
+                        <input type="number" value={feedbackRating} onChange={(e) => setFeedbackRating(Number(e.target.value))} min="1" max="5" className="w-full p-2 border rounded" required />
+                      </div>
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Comments</label>
+                        <textarea value={feedbackComment} onChange={(e) => setFeedbackComment(e.target.value)} rows="4" className="w-full p-2 border rounded" />
+                      </div>
+                      <button type="submit" disabled={isSubmittingFeedback} className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 disabled:bg-gray-400">
+                        {isSubmittingFeedback ? 'Submitting...' : 'Submit Feedback'}
+                      </button>
+                    </form>
+                  </div>
+                )}
 
                 {isAdmin && (
                   <div className="bg-gray-50 p-4 rounded-lg border">

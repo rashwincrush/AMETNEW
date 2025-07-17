@@ -116,7 +116,7 @@ const AlumniDashboard = () => {
 
   const fetchDashboardData = useCallback(async () => {
     if (!user?.id) return;
-    console.log('AlumniDashboard: fetchDashboardData started.');
+
     setLoading(true);
     try {
       const todayStart = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();

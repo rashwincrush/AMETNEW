@@ -49,7 +49,7 @@ const AlumniProfile = () => {
           return;
         }
 
-        console.log('Fetched alumni from Supabase:', data);
+
 
         const transformedAlumnus = {
           id: data.id,

@@ -67,7 +67,7 @@ const EventsList = ({ isAdmin = false }) => {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'events' },
         (payload) => {
-          console.log('Real-time change received:', payload);
+
           fetchEvents();
         }
       )

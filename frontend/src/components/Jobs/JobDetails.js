@@ -82,7 +82,7 @@ const JobDetails = () => {
           };
           
           setJob(processedData);
-          console.log('Fetched job data:', processedData);
+
         } else {
           setError('Job not found');
           toast.error('Job not found');
@@ -113,7 +113,7 @@ const JobDetails = () => {
           return;
         }
         setIsBookmarked(!!bookmark); // Set to true if bookmark exists, false otherwise
-        // console.log('Bookmark status:', !!bookmark, 'for job:', currentJobId, 'user:', currentUserId); // For debugging
+
       } catch (err) {
         console.error('Exception fetching bookmark status:', err.message);
       }
@@ -132,7 +132,7 @@ const JobDetails = () => {
   useEffect(() => {
     const fetchBookmarkStatus = async () => {
       if (job && job.id && user && user.id) {
-        // console.log(`Fetching bookmark status for job ${job.id} and user ${user.id}`); // For debugging
+
         try {
           const { data: bookmark, error } = await supabase
             .from('bookmarked_jobs')
@@ -147,7 +147,7 @@ const JobDetails = () => {
             return;
           }
           setIsBookmarked(!!bookmark);
-          // console.log('Bookmark status set to:', !!bookmark); // For debugging
+
         } catch (err) {
           console.error('Exception fetching bookmark status:', err.message);
         }
@@ -213,10 +213,10 @@ const JobDetails = () => {
           text: `Check out this job opportunity: ${job.title} at ${job.company || 'our company'}`,
           url: window.location.href
         });
-        // console.log('Shared successfully'); // Optional: log success
+
       } catch (error) {
         if (error.name === 'AbortError') {
-          console.log('Share canceled by user.'); // Not an actual error, user dismissed UI
+
           // toast.info('Share canceled.'); // Optional: inform user
         } else {
           console.error('Error sharing:', error);

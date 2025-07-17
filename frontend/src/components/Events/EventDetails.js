@@ -126,7 +126,7 @@ const EventDetails = () => {
   const handleRSVP = () => {
     setIsRSVPed(!isRSVPed);
     // Mock RSVP logic
-    console.log(isRSVPed ? 'Cancelled RSVP' : 'Registered for event');
+
   };
 
   const handleShare = () => {

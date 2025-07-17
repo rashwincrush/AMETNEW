@@ -90,12 +90,7 @@ function AppContent() {
   const { user, profile, loading, getUserRole } = useAuth();
 
   useEffect(() => {
-    console.log('App state:', { 
-      loading, 
-      hasUser: !!user, 
-      hasProfile: !!profile,
-      userRole: getUserRole()
-    });
+
   }, [loading, user, profile]);
 
   if (loading) {

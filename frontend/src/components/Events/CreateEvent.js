@@ -127,7 +127,7 @@ const CreateEvent = () => {
   };
 
   const validateForm = () => {
-    console.log('Entering validateForm...');
+
     try {
       const newErrors = {};
 
@@ -173,45 +173,45 @@ const CreateEvent = () => {
 
       setErrors(newErrors);
       const isValid = Object.keys(newErrors).length === 0;
-      console.log('validateForm - newErrors (inside try):', JSON.stringify(newErrors));
-      console.log('validateForm - isValid (inside try):', isValid);
+
+
       return isValid;
     } catch (error) {
       console.error('Error caught inside validateForm:', error);
       setErrors(prevErrors => ({ ...prevErrors, form: 'An unexpected error occurred during validation.' }));
-      console.log('validateForm - returning false due to internal error');
+
       return false; // Ensure it returns false if an error happens
     }
   };
 
   const handleSubmit = async (e) => {
     try {
-      console.log('Submit button clicked - starting event creation');
+
       e.preventDefault();
       if (!user) {
         toast.error("You must be logged in to create an event.");
         return;
       }
-      console.log('Form validation starting...');
+
       const isFormValid = validateForm();
       if (!isFormValid) {
-        console.log('handleSubmit: Form validation failed. Errors:', JSON.stringify(errors)); // Log current errors state
+
         toast.error('Please fix the errors before submitting.');
         return;
       }
-      console.log('Form validation passed');
+
       setIsSubmitting(true);
-      console.log('Starting image processing');
+
       let imageUrl = null;
       if (formData.image) {
-        console.log('Image found, processing upload...');
+
         const fileExt = formData.image.name.split('.').pop();
         const fileName = `${user.id}_${Date.now()}.${fileExt}`;
         // Corrected filePath to be just the fileName, as Supabase storage policies might be set at the bucket level
         // and prepending 'event-images/' here might conflict if the bucket policy already implies this path.
         // The .from('event-images') already specifies the bucket.
         const filePath = `${fileName}`;
-        console.log('Uploading image to Supabase storage bucket: event-images, filePath:', filePath);
+
         const { error: uploadError } = await supabase.storage
           .from('event-images') // Corrected bucket name
           .upload(filePath, formData.image);
@@ -219,7 +219,7 @@ const CreateEvent = () => {
           console.error('Image upload error:', uploadError);
           throw new Error(`Image upload failed: ${uploadError.message}`);
         }
-        console.log('Image uploaded successfully, getting URL');
+
         const { data: urlData } = supabase.storage
           .from('event-images') // Corrected bucket name
           .getPublicUrl(filePath);
@@ -227,12 +227,12 @@ const CreateEvent = () => {
           console.error('Failed to get URL data or publicUrl is missing', urlData);
           throw new Error('Could not get public URL for the image.');
         }
-        console.log('Got image URL:', urlData.publicUrl);
+
         imageUrl = urlData.publicUrl;
       }
 
-      console.log('Image processing complete');
-      console.log('Creating event data object');
+
+
       const eventData = {
         title: formData.title,
         description: formData.description,
@@ -252,18 +252,18 @@ const CreateEvent = () => {
         organizer_id: user.id // Required field according to schema
       };
       
-      console.log('Submitting event data to Supabase:', eventData);
+
       const { data: insertedData, error: insertError } = await supabase
         .from('events')
         .insert([eventData])
         .select();
-      console.log('Response from insert:', { data: insertedData, error: insertError });
+
       
       // Debug: Immediately query for events to see what's in the DB
       const { data: allEvents } = await supabase
         .from('events')
         .select('*');
-      console.log('All events in database after insertion:', allEvents);
+
 
       // Debug: Specifically check our newly created event
       if (insertedData && insertedData.length > 0) {
@@ -273,7 +273,7 @@ const CreateEvent = () => {
           .select('*')
           .eq('id', newEventId)
           .single();
-        console.log('Verification of newly created event:', verifyEvent);
+
       }
 
       if (insertError) {
@@ -293,7 +293,7 @@ const CreateEvent = () => {
       console.error('Error creating event:', error);
       toast.error(`Error creating event: ${error.message}`);
     } finally {
-      console.log('Finishing event submission process');
+
       setIsSubmitting(false);
     }
   };

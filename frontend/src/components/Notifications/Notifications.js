@@ -25,7 +25,7 @@ const Notifications = () => {
   useEffect(() => {
     // Simulating API call to fetch notifications
     // In production, replace this with a real API call
-    console.log('Fetching notifications for user:', user?.id);
+
   }, [user]);
 
   const handleNotificationClick = (notification) => {
@@ -53,7 +53,7 @@ const Notifications = () => {
         navigate(`/mentorship`);
         break;
       default:
-        console.log('Unknown notification type');
+
     }
   };
 

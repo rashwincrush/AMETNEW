@@ -40,7 +40,7 @@ const Mentorship = () => {
   
   // Fetch mentors on component mount
   useEffect(() => {
-    console.log('Mentorship component mounted, user:', user);
+
     fetchApprovedMentors();
   }, [location]); // Removed user from the dependency array to avoid re-fetching
   
@@ -50,7 +50,7 @@ const Mentorship = () => {
       setLoading(true);
       setError(null);
       
-      console.log('Fetching approved mentors from Supabase...');
+
       
       // Only add user condition if user exists
       let query = supabase
@@ -70,13 +70,13 @@ const Mentorship = () => {
       // Execute the query
       const { data: mentorsData, error: mentorsError } = await query;
       
-      console.log('Supabase query result:', mentorsData, mentorsError);
+
       
       if (mentorsError) {
         throw mentorsError;
       }
       
-      console.log('Fetched mentors:', mentorsData);
+
       
       // Transform data to match the expected structure for rendering
       const transformedMentors = mentorsData.map(mentor => ({
@@ -98,7 +98,7 @@ const Mentorship = () => {
         isBookmarked: false // You can add logic to check if bookmarked by current user
       }));
       
-      console.log('Transformed mentors:', transformedMentors);
+
       
       setMentors(transformedMentors);
     } catch (err) {
@@ -123,11 +123,11 @@ const Mentorship = () => {
   ];
 
   const handleBookmark = (mentorId) => {
-    console.log('Bookmark mentor:', mentorId);
+
   };
 
   const handleSendRequest = (mentorId) => {
-    console.log('Send mentorship request to:', mentorId);
+
   };
 
   const getStatusBadge = (status) => {

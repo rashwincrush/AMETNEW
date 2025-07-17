@@ -241,7 +241,7 @@ const PostJob = () => {
     setIsSubmitting(true);
 
     try {
-      console.log('Starting job submission process...');
+
       
       // Format the deadline date as ISO string if present
       const deadline = formData.applicationDeadline ? 
@@ -270,7 +270,7 @@ const PostJob = () => {
         experience_required: `${formData.experienceLevel} (${formData.experienceYears} years)`,
       };
       
-      console.log('Submitting job data to Supabase:', jobData);
+
       
       // Insert the job into Supabase
       const { data: insertedData, error: insertError } = await supabase
@@ -283,7 +283,7 @@ const PostJob = () => {
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
       
-      console.log('Job posted successfully:', insertedData);
+
       
       // Show success message and redirect
       toast.success('Job posted successfully! It will be reviewed by our team.');

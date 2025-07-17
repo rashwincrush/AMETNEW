@@ -196,7 +196,7 @@ const JobApplication = () => {
         throw error;
       }
 
-      console.log('Job application submitted successfully:', data);
+
       toast.success('Your application has been submitted successfully!');
       navigate(`/jobs/${jobId}/application-success`);
     } catch (error) {

@@ -166,7 +166,7 @@ const UserManagement = () => {
       case 'delete':
         if (window.confirm(`Are you sure you want to delete ${user.full_name || user.email}? This action is irreversible.`)) {
           toast.error('User deletion from the client is not secure. This requires a backend function.');
-          console.log(`Attempted to delete user: ${userId}`);
+
         }
         break;
       default:
@@ -192,7 +192,7 @@ const UserManagement = () => {
   };
 
   const handleBulkAction = (action) => {
-    console.log(`Bulk Action: ${action}, Selected Users:`, selectedUsers);
+
     toast.success(`Bulk action ${action} will be implemented soon!`);
   };
 

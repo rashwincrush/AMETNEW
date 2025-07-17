@@ -23,11 +23,11 @@ export const AuthProvider = ({ children }) => {
   const initializedRef = useRef(false);
 
   useEffect(() => {
-    console.log('AuthProvider useEffect started.');
+
 
     // Prevent duplicate initialization in development
     if (initializedRef.current) {
-      console.log('Auth already initialized, skipping duplicate init');
+
       return;
     }
     initializedRef.current = true;
@@ -39,7 +39,7 @@ export const AuthProvider = ({ children }) => {
     }, 8000);
 
     const initializeAuth = async () => {
-      console.log('1. Initializing authentication...');
+
       try {
         const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
         const supabaseKey = process.env.REACT_APP_SUPABASE_KEY;
@@ -50,7 +50,7 @@ export const AuthProvider = ({ children }) => {
           clearTimeout(loadingTimeout);
           return;
         }
-        console.log('2. Supabase credentials found.');
+
 
         if (!supabase?.auth) {
           console.error('CRITICAL: Supabase auth module is not available.');
@@ -58,22 +58,22 @@ export const AuthProvider = ({ children }) => {
           clearTimeout(loadingTimeout);
           return;
         }
-        console.log('3. Supabase client is available.');
+
 
         // Check for existing session first
         const { data: { session: existingSession } } = await supabase.auth.getSession();
         if (existingSession) {
-          console.log('3.5. Found existing session');
+
           setUser(existingSession.user);
           setSession(existingSession);
           await fetchUserProfile(existingSession.user.id);
         }
 
         // Set up auth state change listener
-        console.log('4. Setting up onAuthStateChange listener...');
+
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
           clearTimeout(loadingTimeout);
-          console.log(`5. Auth state change event: ${event}`, { hasSession: !!session });
+
           
           const currentUser = session?.user || null;
           setUser(currentUser);
@@ -81,20 +81,20 @@ export const AuthProvider = ({ children }) => {
 
           try {
             if (currentUser) {
-              console.log('6a. User found, checking if profile needs update...');
+
               // Only fetch profile if we don't have one or if user changed
               if (!profile || profile.id !== currentUser.id) {
                 await fetchUserProfile(currentUser.id);
               }
             } else {
-              console.log('6b. No user session, resetting profile.');
+
               setProfile(null);
             }
           } catch (e) {
             console.error("Error during profile fetch on auth change:", e);
             setProfile(null);
           } finally {
-            console.log('7. Auth process finished. Setting loading to false.');
+
             setLoading(false);
           }
         });
@@ -112,10 +112,10 @@ export const AuthProvider = ({ children }) => {
 
     // Cleanup function
     return () => {
-      console.log('AuthProvider cleanup function called.');
+
       clearTimeout(loadingTimeout);
       if (listenerRef.current) {
-        console.log('Unsubscribing auth listener');
+
         listenerRef.current.unsubscribe();
         listenerRef.current = null;
       }
@@ -124,7 +124,7 @@ export const AuthProvider = ({ children }) => {
   }, [profile?.id]); // Only re-run if profile ID changes
 
   const fetchUserProfile = async (userId) => {
-    console.log(`Fetching profile for userId: ${userId}`);
+
     if (!userId) {
       console.error("fetchUserProfile called with no userId.");
       setProfile(null);
@@ -196,7 +196,7 @@ export const AuthProvider = ({ children }) => {
       // Always include updated_at
       updatesToApply.updated_at = new Date().toISOString();
       
-      console.log('Applying profile updates:', updatesToApply);
+
       
       let result;
       
@@ -222,7 +222,7 @@ export const AuthProvider = ({ children }) => {
           created_at: new Date().toISOString()
         };
         
-        console.log('Creating new profile with data:', newProfileData);
+
         
         const { data, error } = await supabase
           .from('profiles')
@@ -243,7 +243,7 @@ export const AuthProvider = ({ children }) => {
         await fetchUserProfile(user.id);
       }
       
-      console.log('Profile updated successfully:', result);
+
       return result;
     } catch (error) {
       console.error('Error in updateProfile:', error);

@@ -284,10 +284,10 @@ const JobListingsPage = () => {
   const fetchJobs = useCallback(async () => {
     setLoading(true);
     try {
-      console.log('Fetching jobs with filters:', filters);
-      console.log('Search query:', searchQuery);
-      console.log('Sort by:', sortBy);
-      console.log('Page:', currentPage, 'of size', pageSize);
+
+
+
+
       
       // Start building query
       let query = supabase
@@ -362,7 +362,7 @@ const JobListingsPage = () => {
         throw error;
       }
 
-      console.log(`Found ${totalJobs} total jobs, displaying ${data?.length || 0}`);
+
       setJobs(data || []);
       setTotalJobs(count || 0);
       setTotalPages(Math.ceil((count || 0) / pageSize));
