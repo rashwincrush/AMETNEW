@@ -4,8 +4,6 @@
     "es6": true
   },
   "extends": [
-    "react-app",
-    "react-app/jest",
     "eslint:recommended"
   ],
   "parserOptions": {
@@ -19,6 +17,8 @@
     "react"
   ],
   "rules": {
-    "no-unused-vars": "warn"
+    "no-unused-vars": "warn",
+    "react/prop-types": "off",
+    "no-undef": "off"
   }
 }
