@@ -494,7 +494,7 @@ const AlumniDirectory = () => {
               </Grid>
               <Grid item xs={12} md={4}>
                 <TextField
-                  label="Batch Year"
+                  label="Batch"
                   name="batchYear"
                   value={filters.batchYear}
                   onChange={handleFilterChange}

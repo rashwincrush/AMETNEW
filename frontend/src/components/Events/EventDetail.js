@@ -2,6 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { format, parseISO, isPast, isFuture } from 'date-fns';
+
+// Helper to check if a string is a valid ISO date
+function isValidDateString(dateString) {
+  if (!dateString) return false;
+  const date = parseISO(dateString);
+  return date instanceof Date && !isNaN(date);
+}
 import { ArrowLeft, Edit, Trash2, Calendar, Clock, MapPin, Tag, Users, CheckCircle, BarChart2 } from 'lucide-react';
 import SocialShareButtons from '../common/SocialShareButtons';
 
@@ -131,8 +138,8 @@ const EventDetail = () => {
               {/* Event Info */}
               <div className="md:col-span-2 space-y-4">
                 <p className="text-gray-600 whitespace-pre-wrap">{event.description}</p>
-                <div className="flex items-center"><Calendar className="w-5 h-5 mr-3 text-gray-500"/><span>{format(parseISO(event.start_time), 'EEEE, MMMM d, yyyy')}</span></div>
-                <div className="flex items-center"><Clock className="w-5 h-5 mr-3 text-gray-500"/><span>{format(parseISO(event.start_time), 'h:mm a')} - {format(parseISO(event.end_time), 'h:mm a')}</span></div>
+                <div className="flex items-center"><Calendar className="w-5 h-5 mr-3 text-gray-500"/><span>{isValidDateString(event.start_time) ? format(parseISO(event.start_time), 'EEEE, MMMM d, yyyy') : 'N/A'}</span></div>
+                <div className="flex items-center"><Clock className="w-5 h-5 mr-3 text-gray-500"/><span>{isValidDateString(event.start_time) ? format(parseISO(event.start_time), 'h:mm a') : 'N/A'} - {isValidDateString(event.end_time) ? format(parseISO(event.end_time), 'h:mm a') : 'N/A'}</span></div>
                 <div className="flex items-center"><MapPin className="w-5 h-5 mr-3 text-gray-500"/><span>{event.location}</span></div>
                 <div className="flex items-center"><Tag className="w-5 h-5 mr-3 text-gray-500"/><span>{event.type}</span></div>
               </div>
