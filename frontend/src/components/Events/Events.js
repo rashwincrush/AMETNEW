@@ -48,7 +48,9 @@ const Events = () => {
         }
 
         if (selectedFilter === 'upcoming') {
-          query = query.gt('start_date', new Date().toISOString());
+          const now = new Date();
+          const utcNow = new Date(now.getTime() + now.getTimezoneOffset() * 60000).toISOString();
+          query = query.gt('start_date', utcNow);
         } else if (selectedFilter !== 'all') {
           query = query.eq('category', selectedFilter);
         }
