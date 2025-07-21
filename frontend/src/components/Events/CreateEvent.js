@@ -76,13 +76,104 @@ const CreateEvent = () => {
     }
   };
 
-  const handleImageChange = (e) => {
+  // Compress image before upload
+  const compressImage = (file) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxWidth = 1200;
+          const maxHeight = 800;
+          let width = img.width;
+          let height = img.height;
+
+          // Calculate new dimensions while maintaining aspect ratio
+          if (width > height) {
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+
+          // Draw image on canvas with new dimensions
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Convert to blob with quality 0.8 (80%)
+          canvas.toBlob(
+            (blob) => {
+              resolve(new File([blob], file.name, {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+              }));
+            },
+            'image/jpeg',
+            0.8 // Quality (0.0 to 1.0)
+          );
+        };
+      };
+    });
+  };
+
+  const handleImageChange = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      setFormData(prev => ({ ...prev, image: file }));
+    if (!file) return;
+
+    // Validate file type
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      toast.error('Please upload a valid image file (JPEG, PNG, or WebP)');
+      e.target.value = ''; // Clear the file input
+      return;
+    }
+
+    // Validate file size (1MB max after compression)
+    const maxSize = 1 * 1024 * 1024; // 1MB in bytes (Supabase default)
+    
+    try {
+      let processedFile = file;
+      
+      // Only compress if the file is larger than 500KB
+      if (file.size > 500 * 1024) {
+        processedFile = await compressImage(file);
+      }
+      
+      // Final size check after compression
+      if (processedFile.size > maxSize) {
+        throw new Error('Image is too large. Please choose a smaller image.');
+      }
+
+      // If validations pass, process the image
+      setFormData(prev => ({
+        ...prev,
+        image: processedFile,
+        imageError: ''
+      }));
+      
+      // Create preview
       const reader = new FileReader();
       reader.onload = (e) => setPreviewImage(e.target.result);
-      reader.readAsDataURL(file);
+      reader.onerror = () => {
+        toast.error('Error reading the image file');
+        e.target.value = ''; // Clear the file input
+      };
+      reader.readAsDataURL(processedFile);
+      
+    } catch (error) {
+      console.error('Error processing image:', error);
+      toast.error(error.message || 'Error processing image. Please try another image.');
+      e.target.value = ''; // Clear the file input
     }
   };
 
@@ -204,42 +295,75 @@ const CreateEvent = () => {
 
       let imageUrl = null;
       if (formData.image) {
+        try {
+          const fileExt = formData.image.name.split('.').pop();
+          const fileName = `${user.id}_${Date.now()}.${fileExt}`;
+          const filePath = fileName;
+          
+          // Show upload progress
+          toast.loading('Uploading image...', { id: 'image-upload' });
+          
+          // Upload with error handling
+          const { error: uploadError } = await supabase.storage
+            .from('event-images')
+            .upload(filePath, formData.image, {
+              cacheControl: '3600',
+              upsert: false
+            });
+            
+          if (uploadError) {
+            console.error('Image upload error:', uploadError);
+            // More specific error messages based on error code
+            if (uploadError.statusCode === 413) {
+              throw new Error('Image is too large. Please use an image smaller than 1MB.');
+            } else if (uploadError.error === 'Duplicate' || uploadError.code === '23505') {
+              // Handle duplicate file name (should be rare with timestamp in filename)
+              throw new Error('A file with this name already exists. Please try again.');
+            } else {
+              throw new Error(`Upload failed: ${uploadError.message || 'Unknown error'}`);
+            }
+          }
 
-        const fileExt = formData.image.name.split('.').pop();
-        const fileName = `${user.id}_${Date.now()}.${fileExt}`;
-        // Corrected filePath to be just the fileName, as Supabase storage policies might be set at the bucket level
-        // and prepending 'event-images/' here might conflict if the bucket policy already implies this path.
-        // The .from('event-images') already specifies the bucket.
-        const filePath = `${fileName}`;
+          // Get public URL
+          const { data: urlData, error: urlError } = supabase.storage
+            .from('event-images')
+            .getPublicUrl(filePath);
+            
+          if (urlError || !urlData?.publicUrl) {
+            console.error('Failed to get public URL:', urlError);
+            // Attempt to clean up the uploaded file if we can't get a public URL
+            try {
+              await supabase.storage
+                .from('event-images')
+                .remove([filePath]);
+            } catch (cleanupError) {
+              console.error('Error cleaning up failed upload:', cleanupError);
+            }
+            throw new Error('Could not generate a public URL for your image. Please try again.');
+          }
 
-        const { error: uploadError } = await supabase.storage
-          .from('event-images') // Corrected bucket name
-          .upload(filePath, formData.image);
-        if (uploadError) {
-          console.error('Image upload error:', uploadError);
-          throw new Error(`Image upload failed: ${uploadError.message}`);
+          imageUrl = urlData.publicUrl;
+          toast.success('Image uploaded successfully!', { id: 'image-upload' });
+          
+        } catch (error) {
+          toast.dismiss('image-upload');
+          console.error('Image upload failed:', error);
+          throw new Error(`Image upload failed: ${error.message}`);
         }
-
-        const { data: urlData } = supabase.storage
-          .from('event-images') // Corrected bucket name
-          .getPublicUrl(filePath);
-        if (!urlData || !urlData.publicUrl) { // Check for publicUrl specifically
-          console.error('Failed to get URL data or publicUrl is missing', urlData);
-          throw new Error('Could not get public URL for the image.');
-        }
-
-        imageUrl = urlData.publicUrl;
       }
 
 
+
+      const startDate = new Date(`${formData.date}T${formData.startTime}`);
+      const endDate = new Date(`${formData.date}T${formData.endTime}`);
 
       const eventData = {
         title: formData.title,
         description: formData.description,
         category: formData.category,
         event_type: formData.type,
-        start_date: `${formData.date}T${formData.startTime}`,
-        end_date: `${formData.date}T${formData.endTime}`,
+        start_date: startDate.toISOString(),
+        end_date: endDate.toISOString(),
         location: formData.location,
         virtual_link: formData.virtualLink,
         max_attendees: !isNaN(parseInt(formData.maxAttendees, 10)) ? parseInt(formData.maxAttendees, 10) : null,
@@ -610,12 +734,15 @@ const CreateEvent = () => {
           <div className="space-y-4">
             <div className="flex items-center justify-center w-full">
               <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                <div className="flex flex-col items-center justify-center pt-5 pb-6 px-4 text-center">
                   <PhotoIcon className="w-8 h-8 mb-2 text-gray-400" />
                   <p className="mb-2 text-sm text-gray-500">
                     <span className="font-semibold">Click to upload</span> event cover image
                   </p>
-                  <p className="text-xs text-gray-500">PNG, JPG or JPEG (MAX. 5MB)</p>
+                  <p className="text-xs text-gray-500">
+                    <span className="block">Accepted formats: JPG, PNG, WebP</span>
+                    <span className="block font-medium text-amber-600">Max size: 5MB</span>
+                  </p>
                 </div>
                 <input
                   type="file"

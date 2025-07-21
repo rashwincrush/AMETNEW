@@ -83,6 +83,17 @@ const EventDetails = () => {
     );
   }
 
+  const formatEventDateTime = (dateString) => {
+    if (!dateString) return { date: '', time: '' };
+    const date = new Date(dateString);
+    const optionsDate = { year: 'numeric', month: 'long', day: 'numeric' };
+    const optionsTime = { hour: 'numeric', minute: 'numeric', hour12: true };
+    return {
+      date: date.toLocaleDateString(undefined, optionsDate),
+      time: date.toLocaleTimeString(undefined, optionsTime),
+    };
+  };
+
   if (!event) {
     return (
       <div className="text-center py-20">
@@ -202,14 +213,9 @@ const EventDetails = () => {
                   <CalendarIcon className="w-5 h-5 text-ocean-500 mr-3" />
                   <div>
                     <p className="font-medium text-gray-900">
-                      {new Date(event.date).toLocaleDateString('en-US', { 
-                        weekday: 'long', 
-                        year: 'numeric', 
-                        month: 'long', 
-                        day: 'numeric' 
-                      })}
+                      {formatEventDateTime(event.start_date).date}
                     </p>
-                    <p className="text-sm text-gray-600">{event.time} - {event.endTime}</p>
+                    <p className="text-sm text-gray-600">{formatEventDateTime(event.start_date).time} - {formatEventDateTime(event.end_date).time}</p>
                   </div>
                 </div>
 
