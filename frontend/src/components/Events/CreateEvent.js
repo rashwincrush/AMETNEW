@@ -76,22 +76,25 @@ const CreateEvent = () => {
     }
   };
 
-  // Compress image before upload
+  // Compress image before upload with better quality and size control
   const compressImage = (file) => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
+      reader.onerror = () => reject(new Error('Failed to read the image file'));
       reader.onload = (event) => {
         const img = new Image();
-        img.src = event.target.result;
+        img.onerror = () => reject(new Error('Failed to load the image'));
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const maxWidth = 1200;
-          const maxHeight = 800;
+          
+          // Set maximum dimensions (reduced from 1200x800 to 800x600)
+          const maxWidth = 800;
+          const maxHeight = 600;
+          
+          // Calculate new dimensions while maintaining aspect ratio
           let width = img.width;
           let height = img.height;
 
-          // Calculate new dimensions while maintaining aspect ratio
           if (width > height) {
             if (width > maxWidth) {
               height = Math.round((height * maxWidth) / width);
@@ -104,25 +107,61 @@ const CreateEvent = () => {
             }
           }
 
-          // Draw image on canvas with new dimensions
+          // Set canvas dimensions
           canvas.width = width;
           canvas.height = height;
-          const ctx = canvas.getContext('2d');
+          
+          // Draw image on canvas with new dimensions
+          const ctx = canvas.getContext('2d', { alpha: false });
+          ctx.fillStyle = '#FFFFFF'; // White background for transparent PNGs
+          ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Convert to blob with quality 0.8 (80%)
-          canvas.toBlob(
-            (blob) => {
-              resolve(new File([blob], file.name, {
-                type: 'image/jpeg',
-                lastModified: Date.now(),
-              }));
-            },
-            'image/jpeg',
-            0.8 // Quality (0.0 to 1.0)
-          );
+          // Convert to blob with adaptive quality
+          let quality = 0.8;
+          const MAX_ATTEMPTS = 5;
+          const TARGET_SIZE = 500 * 1024; // 500KB target size
+          
+          const attemptCompression = (attempt = 1) => {
+            return new Promise((resolveBlob) => {
+              canvas.toBlob(
+                (blob) => {
+                  if (!blob) {
+                    reject(new Error('Failed to compress image'));
+                    return;
+                  }
+                  
+                  // If file is still too large and we can reduce quality more
+                  if (blob.size > TARGET_SIZE && quality > 0.4 && attempt < MAX_ATTEMPTS) {
+                    quality -= 0.1; // Reduce quality by 10%
+                    attempt++;
+                    attemptCompression(attempt).then(resolveBlob);
+                  } else {
+                    resolveBlob(blob);
+                  }
+                },
+                'image/jpeg',
+                quality
+              );
+            });
+          };
+
+          attemptCompression().then((blob) => {
+            const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), {
+              type: 'image/jpeg',
+              lastModified: Date.now(),
+            });
+            
+            if (compressedFile.size > 1 * 1024 * 1024) { // 1MB
+              reject(new Error('Image is too large after compression. Please choose a smaller image.'));
+            } else {
+              resolve(compressedFile);
+            }
+          }).catch(reject);
         };
+        img.src = event.target.result;
       };
+      reader.readAsDataURL(file);
     });
   };
 
@@ -138,42 +177,52 @@ const CreateEvent = () => {
       return;
     }
 
-    // Validate file size (1MB max after compression)
-    const maxSize = 1 * 1024 * 1024; // 1MB in bytes (Supabase default)
+    // Initial size check (10MB hard limit)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Image is too large. Maximum size is 10MB.');
+      e.target.value = '';
+      return;
+    }
+
+    // Show loading state
+    const toastId = toast.loading('Processing image...');
     
     try {
-      let processedFile = file;
+      // Always compress images larger than 500KB
+      const shouldCompress = file.size > 500 * 1024;
+      const processedFile = shouldCompress 
+        ? await compressImage(file)
+        : file;
       
-      // Only compress if the file is larger than 500KB
-      if (file.size > 500 * 1024) {
-        processedFile = await compressImage(file);
-      }
-      
-      // Final size check after compression
-      if (processedFile.size > maxSize) {
-        throw new Error('Image is too large. Please choose a smaller image.');
+      // Final size check (1MB limit after compression)
+      if (processedFile.size > 1 * 1024 * 1024) {
+        throw new Error('Image is too large after compression. Please choose a smaller image.');
       }
 
-      // If validations pass, process the image
+      // Update form data with processed image
       setFormData(prev => ({
         ...prev,
         image: processedFile,
         imageError: ''
       }));
       
-      // Create preview
+      // Create and set preview
       const reader = new FileReader();
-      reader.onload = (e) => setPreviewImage(e.target.result);
+      reader.onload = (e) => {
+        setPreviewImage(e.target.result);
+        toast.success('Image processed successfully!', { id: toastId });
+      };
       reader.onerror = () => {
-        toast.error('Error reading the image file');
-        e.target.value = ''; // Clear the file input
+        throw new Error('Error reading the image file');
       };
       reader.readAsDataURL(processedFile);
       
     } catch (error) {
-      console.error('Error processing image:', error);
-      toast.error(error.message || 'Error processing image. Please try another image.');
+      console.error('Image processing error:', error);
+      toast.error(error.message || 'Error processing image. Please try another image.', { id: toastId });
       e.target.value = ''; // Clear the file input
+      setFormData(prev => ({ ...prev, image: null, imageError: error.message }));
+      setPreviewImage(null);
     }
   };
 
@@ -276,62 +325,101 @@ const CreateEvent = () => {
   };
 
   const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!user) {
+      toast.error("You must be logged in to create an event.");
+      return;
+    }
+    
+    // Validate form
+    const validationErrors = validateForm();
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    
+    setIsSubmitting(true);
+    
     try {
-
-      e.preventDefault();
-      if (!user) {
-        toast.error("You must be logged in to create an event.");
-        return;
-      }
-
-      const isFormValid = validateForm();
-      if (!isFormValid) {
-
-        toast.error('Please fix the errors before submitting.');
-        return;
-      }
-
-      setIsSubmitting(true);
-
       let imageUrl = null;
+      
+      // Upload image if present
       if (formData.image) {
         try {
-          const fileExt = formData.image.name.split('.').pop();
-          const fileName = `${user.id}_${Date.now()}.${fileExt}`;
-          const filePath = fileName;
+          // Generate a unique filename with .jpg extension (we convert all to jpg)
+          const fileName = `${user.id}_${Date.now()}.jpg`;
+          const filePath = `events/${user.id}/${fileName}`;
           
           // Show upload progress
-          toast.loading('Uploading image...', { id: 'image-upload' });
+          const toastId = toast.loading('Uploading image...');
           
-          // Upload with error handling
-          const { error: uploadError } = await supabase.storage
-            .from('event-images')
-            .upload(filePath, formData.image, {
-              cacheControl: '3600',
-              upsert: false
-            });
-            
+          // Upload with error handling and retry logic
+          let uploadError = null;
+          let uploadAttempts = 0;
+          const MAX_UPLOAD_ATTEMPTS = 3;
+          
+          while (uploadAttempts < MAX_UPLOAD_ATTEMPTS) {
+            try {
+              const { error } = await supabase.storage
+                .from('event-images')
+                .upload(filePath, formData.image, {
+                  cacheControl: '3600',
+                  upsert: false,
+                  contentType: 'image/jpeg'
+                });
+                
+              if (error) throw error;
+              uploadError = null;
+              break; // Success, exit retry loop
+              
+            } catch (error) {
+              uploadError = error;
+              uploadAttempts++;
+              
+              if (uploadAttempts < MAX_UPLOAD_ATTEMPTS) {
+                // Wait before retrying (exponential backoff)
+                await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, uploadAttempts)));
+                toast.update(toastId, { 
+                  render: `Upload attempt ${uploadAttempts + 1} of ${MAX_UPLOAD_ATTEMPTS}...` 
+                });
+              }
+            }
+          }
+          
+          // If we still have an error after retries
           if (uploadError) {
-            console.error('Image upload error:', uploadError);
+            console.error('Image upload error after retries:', uploadError);
+            
             // More specific error messages based on error code
             if (uploadError.statusCode === 413) {
               throw new Error('Image is too large. Please use an image smaller than 1MB.');
-            } else if (uploadError.error === 'Duplicate' || uploadError.code === '23505') {
-              // Handle duplicate file name (should be rare with timestamp in filename)
+            } else if (uploadError.message?.includes('already exists')) {
               throw new Error('A file with this name already exists. Please try again.');
+            } else if (uploadError.message?.includes('not found')) {
+              throw new Error('Storage bucket not found. Please contact support.');
             } else {
               throw new Error(`Upload failed: ${uploadError.message || 'Unknown error'}`);
             }
           }
 
-          // Get public URL
-          const { data: urlData, error: urlError } = supabase.storage
+          // Get public URL with cache busting
+          const { data: urlData } = supabase.storage
             .from('event-images')
-            .getPublicUrl(filePath);
+            .getPublicUrl(filePath, { 
+              download: false,
+              transform: {
+                width: 1200,
+                height: 630,
+                quality: 80,
+                resize: 'cover'
+              }
+            });
             
-          if (urlError || !urlData?.publicUrl) {
-            console.error('Failed to get public URL:', urlError);
-            // Attempt to clean up the uploaded file if we can't get a public URL
+          if (!urlData?.publicUrl) {
+            console.error('Failed to generate public URL');
+            // Attempt to clean up the uploaded file
             try {
               await supabase.storage
                 .from('event-images')
@@ -342,76 +430,110 @@ const CreateEvent = () => {
             throw new Error('Could not generate a public URL for your image. Please try again.');
           }
 
-          imageUrl = urlData.publicUrl;
-          toast.success('Image uploaded successfully!', { id: 'image-upload' });
+          imageUrl = `${urlData.publicUrl}?t=${Date.now()}`; // Cache busting
+          toast.success('Image uploaded successfully!', { id: toastId });
           
         } catch (error) {
-          toast.dismiss('image-upload');
           console.error('Image upload failed:', error);
-          throw new Error(`Image upload failed: ${error.message}`);
+          toast.dismiss();
+          toast.error(`Image upload failed: ${error.message}`);
+          setIsSubmitting(false);
+          return; // Stop form submission on image upload failure
         }
       }
 
 
 
+      // Prepare event data
       const startDate = new Date(`${formData.date}T${formData.startTime}`);
       const endDate = new Date(`${formData.date}T${formData.endTime}`);
 
+      // Validate dates
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        throw new Error('Invalid date or time format. Please check your input.');
+      }
+
+      if (endDate <= startDate) {
+        throw new Error('End time must be after start time.');
+      }
+
+      // Prepare event data with proper validation
       const eventData = {
-        title: formData.title,
-        description: formData.description,
+        title: formData.title.trim(),
+        description: formData.description.trim(),
         category: formData.category,
         event_type: formData.type,
         start_date: startDate.toISOString(),
         end_date: endDate.toISOString(),
-        location: formData.location,
-        virtual_link: formData.virtualLink,
-        max_attendees: !isNaN(parseInt(formData.maxAttendees, 10)) ? parseInt(formData.maxAttendees, 10) : null,
-        cost: formData.priceType === 'free' ? '0' : (!isNaN(parseFloat(formData.price)) ? formData.price.toString() : '0'),
-        tags: formData.tags.split(',').map(tag => tag.trim()).filter(t => t),
-        featured_image_url: imageUrl, // Changed from image_url to featured_image_url to match DB schema
+        location: formData.location.trim(),
+        virtual_link: formData.virtualLink?.trim() || null,
+        max_attendees: formData.maxAttendees && !isNaN(parseInt(formData.maxAttendees, 10)) 
+          ? parseInt(formData.maxAttendees, 10) 
+          : null,
+        cost: formData.priceType === 'free' 
+          ? '0' 
+          : (!isNaN(parseFloat(formData.price)) ? formData.price.toString() : '0'),
+        tags: formData.tags 
+          ? formData.tags.split(',').map(tag => tag.trim()).filter(t => t)
+          : [],
+        featured_image_url: imageUrl,
         agenda: JSON.stringify(formData.agenda.filter(item => item.time && item.activity)),
         is_published: true,
         user_id: user.id,
-        organizer_id: user.id // Required field according to schema
+        organizer_id: user.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       };
+
+      // Show loading state for event creation
+      const toastId = toast.loading('Creating your event...');
       
-
-      const { data: insertedData, error: insertError } = await supabase
-        .from('events')
-        .insert([eventData])
-        .select();
-
-      
-      // Debug: Immediately query for events to see what's in the DB
-      const { data: allEvents } = await supabase
-        .from('events')
-        .select('*');
-
-
-      // Debug: Specifically check our newly created event
-      if (insertedData && insertedData.length > 0) {
-        const newEventId = insertedData[0].id;
-        const { data: verifyEvent } = await supabase
+      try {
+        // Insert event into database
+        const { data: insertedData, error: insertError } = await supabase
           .from('events')
-          .select('*')
-          .eq('id', newEventId)
-          .single();
+          .insert([eventData])
+          .select();
 
-      }
+        if (insertError) {
+          console.error('Error inserting event:', insertError);
+          
+          // Attempt to clean up uploaded image if event creation fails
+          if (imageUrl) {
+            try {
+              const fileName = imageUrl.split('/').pop().split('?')[0];
+              await supabase.storage
+                .from('event-images')
+                .remove([`events/${user.id}/${fileName}`]);
+            } catch (cleanupError) {
+              console.error('Error cleaning up image after failed event creation:', cleanupError);
+            }
+          }
+          
+          throw new Error(insertError.message || 'Failed to create event. Please try again.');
+        }
 
-      if (insertError) {
-        console.error('Supabase insert error:', insertError);
-        throw new Error(`Database insert failed: ${insertError.message}`);
-      }
+        // Verify the event was created
+        if (!insertedData || insertedData.length === 0) {
+          throw new Error('Failed to verify event creation. Please check your events list.');
+        }
 
-      if (!insertedData || insertedData.length === 0) {
-        console.error('Event created but no data returned. Check RLS policies.');
-        throw new Error('Event was not created successfully. You may not have permission to view it.');
-      }
-      
-      toast.success('Event created successfully!');
-      navigate('/events');
+        const newEventId = insertedData[0].id;
+        
+        // Log successful event creation
+        console.log('Event created successfully with ID:', newEventId);
+        
+        // Show success message
+        toast.success('Event created successfully!', { id: toastId });
+        
+        // Navigate to the new event's page or events list
+        navigate(`/events/${newEventId}`);
+        
+      } catch (error) {
+        console.error('Error in event creation process:', error);
+        toast.error(error.message || 'An error occurred while creating the event.', { id: toastId });
+        throw error; // Re-throw to be caught by outer try-catch
+      } 
     } catch (error) {
       console.error('Top level error caught in handleSubmit:', error);
       console.error('Error creating event:', error);

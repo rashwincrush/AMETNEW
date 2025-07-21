@@ -48,9 +48,13 @@ const FeedbackWidget = () => {
         sx={{
           position: 'fixed',
           bottom: 20,
-          right: 20,
+          left: 20,
           borderRadius: '50px',
           zIndex: 1000,
+          backgroundColor: '#1a365d',
+          '&:hover': {
+            backgroundColor: '#2c5282',
+          },
         }}
       >
         Feedback

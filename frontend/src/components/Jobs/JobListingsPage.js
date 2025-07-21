@@ -471,7 +471,7 @@ const JobListingsPage = () => {
             <BellIcon className="w-4 h-4 mr-2" />
             My Job Alerts
           </Link>
-          <Link to="/jobs/post" className="btn-primary text-sm">
+          <Link to="/jobs/post/select" className="btn-primary text-sm">
             <PlusIcon className="w-4 h-4 mr-2" />
             Post a Job
           </Link>

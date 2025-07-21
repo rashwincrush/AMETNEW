@@ -12,7 +12,8 @@ import {
   CogIcon,
   UserGroupIcon,
   BuildingOfficeIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  PlusIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -40,9 +41,6 @@ const Navigation = () => {
     { path: '/mentorship', label: 'Mentorship', icon: AcademicCapIcon },
     { path: '/groups', label: 'Groups', icon: UserGroupIcon },
     { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon },
-    { path: '/admin/approvals', label: 'User Approvals', icon: CogIcon },
-    { path: '/admin/analytics', label: 'Analytics', icon: ChartBarIcon },
-    { path: '/admin/users', label: 'User Management', icon: BuildingOfficeIcon },
   ];
 
   const employerMenuItems = [
@@ -54,15 +52,17 @@ const Navigation = () => {
   ];
 
     const getMenuItems = () => {
-        const role = profile?.role || 'alumni';
-    switch (role) {
-      case 'admin':
-        return adminMenuItems;
-      case 'employer':
-        return employerMenuItems;
-      default:
-        return alumniMenuItems;
-    }
+        const role = getUserRole();
+        console.log('Current user role:', role); // Debug log
+        switch (role) {
+          case 'admin':
+          case 'super_admin':
+            return adminMenuItems;
+          case 'employer':
+            return employerMenuItems;
+          default:
+            return alumniMenuItems;
+        }
   };
 
   const handleLogout = async () => {
@@ -88,7 +88,7 @@ const Navigation = () => {
 
 
       {/* Navigation Menu */}
-      <nav className="flex-1 px-4 py-6 space-y-1">
+      <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
         {getMenuItems().map((item) => {
           const Icon = item.icon;
           return (
@@ -96,7 +96,7 @@ const Navigation = () => {
               key={item.path}
               to={item.path}
               className={`
-                group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 relative
+                group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200
                 ${isActive(item.path) 
                   ? 'nav-active text-white' 
                   : 'text-gray-700 hover:bg-ocean-50 hover:text-ocean-700'
