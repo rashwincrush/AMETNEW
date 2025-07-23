@@ -16,6 +16,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { mergeAndConvertToUTC, formatInIST } from '../../utils/timezone';
 
 const EditEvent = () => {
   const { id } = useParams();
@@ -32,22 +33,19 @@ const EditEvent = () => {
     date: '',
     startTime: '',
     endTime: '',
-    location: '',
+    venue: '',
     address: '',
     virtualLink: '',
     maxAttendees: '',
     price: '',
     priceType: 'free',
     requiresApproval: false,
-    allowWaitingList: true,
     tags: '',
     organizerName: '',
     organizerEmail: '',
     organizerPhone: '',
     image: null,
-    agenda: [{ time: '', activity: '' }],
-    requirements: [''],
-    amenities: ['']
+    agenda: [{ time: '', activity: '' }]
   });
 
   const [errors, setErrors] = useState({});
@@ -92,37 +90,54 @@ const EditEvent = () => {
       if (!data) throw new Error('Event not found');
 
       // Format the data to match our form structure
+      // Parse the description field into short and detailed descriptions for UI purposes
+      let shortDesc = '';
+      let longDesc = '';
+      
+      if (data.description) {
+        // Split by double newline to separate short and long descriptions
+        const parts = data.description.split(/\n\s*\n/);
+        if (parts.length > 1) {
+          shortDesc = parts[0];
+          longDesc = parts.slice(1).join('\n\n');
+        } else {
+          // If there's only one part, use it as the short description
+          shortDesc = data.description;
+        }
+      }
+      
       const eventData = {
         title: data.title || '',
-        description: data.description || '',
-        longDescription: data.long_description || '',
+        description: shortDesc, // Short description for the form field
+        longDescription: longDesc, // Long description for the form field
         category: data.category || 'networking',
         type: data.event_type || 'in-person',
-        date: data.start_date ? data.start_date.split('T')[0] : '',
-        startTime: data.start_date ? data.start_date.split('T')[1].substring(0, 5) : '',
-        endTime: data.end_date ? data.end_date.split('T')[1].substring(0, 5) : '',
-        location: data.location || '',
+        // Convert UTC database times to IST for form display
+        date: data.start_date ? new Date(data.start_date).toISOString().split('T')[0] : '',
+        startTime: data.start_date ? formatInIST(new Date(data.start_date), 'HH:mm') : '',
+        endTime: data.end_date ? formatInIST(new Date(data.end_date), 'HH:mm') : '',
+        venue: data.venue || '',
         address: data.address || '',
         virtualLink: data.virtual_link || '',
         maxAttendees: data.max_attendees || '',
         price: data.price || '',
         priceType: data.price > 0 ? 'paid' : 'free',
         requiresApproval: data.requires_approval || false,
-        allowWaitingList: data.allow_waiting_list !== false,
-        tags: data.tags || '',
+        tags: Array.isArray(data.tags) ? data.tags.join(', ') : (data.tags || ''),
         organizerName: data.organizer_name || '',
         organizerEmail: data.organizer_email || '',
         organizerPhone: data.organizer_phone || '',
-        agenda: data.agenda && data.agenda.length > 0 ? data.agenda : [{ time: '', activity: '' }],
-        requirements: data.requirements && data.requirements.length > 0 ? data.requirements : [''],
-        amenities: data.amenities && data.amenities.length > 0 ? data.amenities : ['']
+        agenda: data.agenda && data.agenda.length > 0 ? data.agenda : [{ time: '', activity: '' }]
       };
+      
+      console.log('Formatted event data:', eventData); // Debug log
 
       setFormData(eventData);
       
       // If there's an image, set the preview
-      if (data.image_url) {
-        setPreviewImage(data.image_url);
+      if (data.featured_image_url) {
+        setPreviewImage(data.featured_image_url);
+        console.log('Setting preview image:', data.featured_image_url); // Debug log
       }
     } catch (err) {
       console.error('Error fetching event:', err);
@@ -175,35 +190,19 @@ const EditEvent = () => {
     }
   };
 
-  const handleListChange = (field, index, value) => {
-    const newList = [...formData[field]];
-    newList[index] = value;
-    setFormData(prev => ({ ...prev, [field]: newList }));
-  };
-
-  const addListItem = (field) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: [...prev[field], '']
-    }));
-  };
-
-  const removeListItem = (field, index) => {
-    if (formData[field].length > 1) {
-      const newList = formData[field].filter((_, i) => i !== index);
-      setFormData(prev => ({ ...prev, [field]: newList }));
-    }
-  };
-
   const validateForm = () => {
     const newErrors = {};
+    
+    if (formData.type === 'in-person') {
+      if (!formData.venue.trim()) newErrors.venue = 'Venue name is required';
+      if (!formData.address.trim()) newErrors.address = 'Address is required';
+    }
 
     if (!formData.title.trim()) newErrors.title = 'Event title is required';
     if (!formData.description.trim()) newErrors.description = 'Description is required';
     if (!formData.date) newErrors.date = 'Date is required';
     if (!formData.startTime) newErrors.startTime = 'Start time is required';
     if (!formData.endTime) newErrors.endTime = 'End time is required';
-    if (!formData.location.trim()) newErrors.location = 'Location is required';
     
     if (formData.type === 'in-person' && !formData.address.trim()) {
       newErrors.address = 'Address is required for in-person events';
@@ -229,6 +228,18 @@ const EditEvent = () => {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Function to filter out fields that don't exist in Supabase schema
+  const filterValidFields = (data) => {
+    // Updated allowed fields based on actual schema
+    const allowed = [
+      'title', 'description', 'start_date', 'end_date', 'venue', 'address',
+      'virtual_link', 'max_attendees', 'price', 'requires_approval',
+      'tags', 'category', 'event_type', 'organizer_name', 'organizer_email', 'organizer_phone',
+      'agenda', 'featured_image_url', 'updated_at', 'updated_by'
+    ];
+    return Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -240,37 +251,55 @@ const EditEvent = () => {
     setIsSubmitting(true);
     
     try {
-      // Prepare event data for update
+      // Only save the description field since short_description doesn't exist in the database
+      // We'll format the description to include both short and long descriptions if needed
+      
+      // Prepare data for Supabase
+      let finalDescription = '';
+      
+      // If both descriptions exist, format them together
+      if (formData.description.trim() && formData.longDescription.trim()) {
+        finalDescription = `${formData.description.trim()}\n\n${formData.longDescription.trim()}`;
+      } else if (formData.longDescription.trim()) {
+        // If only long description exists
+        finalDescription = formData.longDescription.trim();
+      } else {
+        // If only short description exists or both are empty
+        finalDescription = formData.description.trim();
+      }
+      
       const eventData = {
         title: formData.title,
-        description: formData.description,
-        long_description: formData.longDescription,
+        description: finalDescription, // Save combined description
         category: formData.category,
         event_type: formData.type,
-        start_date: `${formData.date}T${formData.startTime}:00`,
-        end_date: `${formData.date}T${formData.endTime}:00`,
-        location: formData.location,
+        // Use mergeAndConvertToUTC to properly convert dates to UTC
+        // Use the corrected mergeAndConvertToUTC to properly handle timezone conversion
+        start_date: mergeAndConvertToUTC(new Date(formData.date), new Date(`2000-01-01T${formData.startTime}`)),
+        end_date: formData.endTime ? mergeAndConvertToUTC(new Date(formData.date), new Date(`2000-01-01T${formData.endTime}`)) : null,
+        venue: formData.venue,
         address: formData.address,
         virtual_link: formData.virtualLink,
         max_attendees: formData.maxAttendees ? parseInt(formData.maxAttendees) : null,
-        price: formData.priceType === 'paid' ? parseFloat(formData.price) : 0,
+        price: formData.priceType === 'paid' && formData.price ? parseFloat(formData.price) : 0,
         requires_approval: formData.requiresApproval,
-        allow_waiting_list: formData.allowWaitingList,
-        tags: formData.tags,
+        tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
         organizer_name: formData.organizerName,
         organizer_email: formData.organizerEmail,
         organizer_phone: formData.organizerPhone,
-        agenda: formData.agenda.filter(item => item.time || item.activity),
-        requirements: formData.requirements.filter(item => item),
-        amenities: formData.amenities.filter(item => item),
+        agenda: Array.isArray(formData.agenda) ? formData.agenda.filter(item => item.time.trim() !== '' || item.activity.trim() !== '') : [],
         updated_at: new Date().toISOString(),
         updated_by: user?.id
       };
       
+      // Filter out any fields that don't exist in the Supabase schema
+      const validEventData = filterValidFields(eventData);
+      console.log('Submitting filtered event data:', validEventData); // Debug log
+      
       // Update event in database
       const { error: updateError } = await supabase
         .from('events')
-        .update(eventData)
+        .update(validEventData)
         .eq('id', id);
       
       if (updateError) throw updateError;
@@ -295,7 +324,7 @@ const EditEvent = () => {
         // Update the event with the new image URL
         const { error: imageUpdateError } = await supabase
           .from('events')
-          .update({ image_url: publicUrl })
+          .update({ featured_image_url: publicUrl })
           .eq('id', id);
         
         if (imageUpdateError) throw imageUpdateError;
@@ -375,6 +404,9 @@ const EditEvent = () => {
                 className="form-textarea w-full px-3 py-2 rounded-lg"
                 placeholder="Provide more details about your event"
               ></textarea>
+              <p className="text-sm text-gray-500 mt-1">
+                Note: This will be combined with the short description when saving.
+              </p>
             </div>
             
             <div>
@@ -407,6 +439,23 @@ const EditEvent = () => {
                 <option value="virtual">Virtual</option>
                 <option value="hybrid">Hybrid</option>
               </select>
+            </div>
+
+            <div className="md:col-span-3">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Tags
+              </label>
+              <input
+                type="text"
+                name="tags"
+                value={formData.tags}
+                onChange={handleInputChange}
+                className="form-input w-full px-3 py-2 rounded-lg"
+                placeholder="e.g., tech, networking, workshop"
+              />
+              <p className="text-sm text-gray-500 mt-1">
+                Use commas to separate tags.
+              </p>
             </div>
           </div>
         </div>
@@ -458,20 +507,39 @@ const EditEvent = () => {
               {errors.endTime && <p className="text-red-500 text-sm mt-1">{errors.endTime}</p>}
             </div>
             
-            <div className="md:col-span-3">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Location Name *
-              </label>
-              <input
-                type="text"
-                name="location"
-                value={formData.location}
-                onChange={handleInputChange}
-                className={`form-input w-full px-3 py-2 rounded-lg ${errors.location ? 'border-red-500' : ''}`}
-                placeholder="e.g., Conference Center, Zoom"
-              />
-              {errors.location && <p className="text-red-500 text-sm mt-1">{errors.location}</p>}
-            </div>
+            {formData.type === 'in-person' && (
+              <div className="md:col-span-3">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Venue Name *
+                </label>
+                <input
+                  type="text"
+                  name="venue"
+                  value={formData.venue || ''}
+                  onChange={handleInputChange}
+                  className={`form-input w-full px-3 py-2 rounded-lg ${errors.venue ? 'border-red-500' : ''}`}
+                  placeholder="e.g., AMET Campus Auditorium"
+                />
+                {errors.venue && <p className="text-red-500 text-sm mt-1">{errors.venue}</p>}
+              </div>
+            )}
+            
+            {formData.type === 'virtual' && (
+              <div className="md:col-span-3">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Virtual Meeting Link *
+                </label>
+                <input
+                  type="url"
+                  name="virtualLink"
+                  value={formData.virtualLink || ''}
+                  onChange={handleInputChange}
+                  className={`form-input w-full px-3 py-2 rounded-lg ${errors.virtualLink ? 'border-red-500' : ''}`}
+                  placeholder="https://zoom.us/j/123456789"
+                />
+                {errors.virtualLink && <p className="text-red-500 text-sm mt-1">{errors.virtualLink}</p>}
+              </div>
+            )}
             
             {(formData.type === 'in-person' || formData.type === 'hybrid') && (
               <div className="md:col-span-3">
