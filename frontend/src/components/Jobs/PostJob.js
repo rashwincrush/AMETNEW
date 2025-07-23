@@ -13,8 +13,7 @@ import {
   DocumentTextIcon,
   PhotoIcon,
   ExclamationTriangleIcon,
-  CheckCircleIcon,
-  ArrowLeftIcon
+  CheckCircleIcon
 } from '@heroicons/react/24/outline';
 
 const PostJob = () => {
@@ -242,7 +241,7 @@ const PostJob = () => {
     setIsSubmitting(true);
 
     try {
-
+      console.log('Starting job submission process...');
       
       // Format the deadline date as ISO string if present
       const deadline = formData.applicationDeadline ? 
@@ -251,7 +250,7 @@ const PostJob = () => {
       // Prepare job data with correct column names based on database schema
       const jobData = {
         title: formData.title,
-        company: formData.companyName, // Use 'company' to match DB schema
+        company_name: formData.companyName,
         location: formData.location,
         job_type: formData.jobType,
         description: formData.description,
@@ -271,7 +270,7 @@ const PostJob = () => {
         experience_required: `${formData.experienceLevel} (${formData.experienceYears} years)`,
       };
       
-
+      console.log('Submitting job data to Supabase:', jobData);
       
       // Insert the job into Supabase
       const { data: insertedData, error: insertError } = await supabase
@@ -284,7 +283,7 @@ const PostJob = () => {
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
       
-
+      console.log('Job posted successfully:', insertedData);
       
       // Show success message and redirect
       toast.success('Job posted successfully! It will be reviewed by our team.');
@@ -305,25 +304,8 @@ const PostJob = () => {
     { number: 5, title: 'Company & Contact', description: 'Company information and contact' }
   ];
 
-  const handleBack = () => {
-    if (currentStep > 1) {
-      setCurrentStep(prev => prev - 1);
-    } else {
-      navigate(-1);
-    }
-  };
-
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* Back Button */}
-      <button
-        onClick={handleBack}
-        className="flex items-center text-ocean-600 hover:text-ocean-800 transition-colors mb-2"
-      >
-        <ArrowLeftIcon className="h-5 w-5 mr-1" />
-        <span>Back</span>
-      </button>
-      
       {/* Header */}
       <div className="glass-card rounded-lg p-6">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Post a Job</h1>
@@ -332,31 +314,35 @@ const PostJob = () => {
 
       {/* Progress Steps */}
       <div className="glass-card rounded-lg p-6">
-        <div className="overflow-x-auto">
-          <div className="flex items-center w-full justify-between whitespace-nowrap gap-4">
-            {steps.map((step, index) => (
-              <div key={step.number} className="flex items-center">
-                <div
-                  className={`flex items-center justify-center w-8 h-8 rounded-full font-bold border-2
-                    ${currentStep === step.number
-                      ? 'bg-ocean-600 text-white border-ocean-600'
-                      : currentStep > step.number
-                      ? 'bg-ocean-100 text-ocean-600 border-ocean-400'
-                      : 'bg-gray-200 text-gray-500 border-gray-300'}
-                  `}
-                >
-                  {step.number}
-                </div>
-                <div className="ml-2 mr-4 text-xs md:text-sm text-gray-700 font-semibold">
-                  <div>{step.title}</div>
-                  <div className="font-normal text-gray-400 hidden md:block">{step.description}</div>
-                </div>
-                {index < steps.length - 1 && (
-                  <div className="w-8 h-1 bg-gray-300 rounded-full mx-1 md:mx-2"></div>
+        <div className="flex items-center justify-between">
+          {steps.map((step, index) => (
+            <div key={step.number} className="flex items-center">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
+                currentStep >= step.number 
+                  ? 'bg-ocean-500 border-ocean-500 text-white' 
+                  : 'border-gray-300 text-gray-500'
+              }`}>
+                {currentStep > step.number ? (
+                  <CheckCircleIcon className="w-6 h-6" />
+                ) : (
+                  <span className="font-medium">{step.number}</span>
                 )}
               </div>
-            ))}
-          </div>
+              <div className="ml-3">
+                <p className={`text-sm font-medium ${
+                  currentStep >= step.number ? 'text-ocean-600' : 'text-gray-500'
+                }`}>
+                  {step.title}
+                </p>
+                <p className="text-xs text-gray-400">{step.description}</p>
+              </div>
+              {index < steps.length - 1 && (
+                <div className={`w-16 h-0.5 mx-4 ${
+                  currentStep > step.number ? 'bg-ocean-500' : 'bg-gray-300'
+                }`} />
+              )}
+            </div>
+          ))}
         </div>
       </div>
 

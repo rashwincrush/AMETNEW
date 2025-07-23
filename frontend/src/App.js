@@ -20,6 +20,9 @@ import FeedbackWidget from './components/common/FeedbackWidget';
 // Layout Components
 import Navigation from './components/Layout/Navigation';
 import Header from './components/Layout/Header';
+import EditEvent from './components/Events/EditEvent';
+import CreateEvent from './components/Events/CreateEvent';
+import EventFeedbackReport from './components/Admin/EventFeedbackReport';
 
 // Auth Components
 import Login from './components/Auth/Login';
@@ -41,14 +44,13 @@ import AlumniProfile from './components/Directory/AlumniProfile';
 import EventsPage from './pages/EventsPage';
 import GroupsPage from './pages/GroupsPage';
 import JobListingsPage from './components/Jobs/JobListingsPage';
-import JobsLayout from './components/Jobs/JobsLayout';
-import JobAlerts from './components/Jobs/JobAlerts';
 import JobDetails from './components/Jobs/JobDetails';
 import UserProfilePage from './pages/UserProfilePage';
 import MentorRegistrationForm from './components/Mentorship/MentorRegistrationForm';
 import PostJob from './components/Jobs/PostJob';
 import PostJobSelection from './components/Jobs/PostJobSelection';
 import PostJobWithLink from './components/Jobs/PostJobWithLink';
+import JobAlerts from './components/Jobs/JobAlerts';
 import MessagesPage from './pages/MessagesPage';
 import JobPostingForm from './components/Jobs/JobPostingForm';
 import ResumeUploadForm from './components/Jobs/ResumeUploadForm';
@@ -91,7 +93,12 @@ function AppContent() {
   const { user, profile, loading, getUserRole } = useAuth();
 
   useEffect(() => {
-
+    console.log('App state:', { 
+      loading, 
+      hasUser: !!user, 
+      hasProfile: !!profile,
+      userRole: getUserRole()
+    });
   }, [loading, user, profile]);
 
   if (loading) {
@@ -127,43 +134,21 @@ function AppContent() {
             <Route path="/directory" element={<AlumniDirectory />} />
             <Route path="/directory/:id" element={<AlumniProfile />} />
             <Route path="/events/*" element={<EventsPage />} />
-            {/* Jobs Routes */}
-            <Route path="/jobs" element={<JobsLayout />}>
-              <Route index element={<JobListingsPage />} />
-              <Route path="alerts" element={<JobAlerts />} />
-              <Route path="applications" element={<ApplicationTracking />} />
-              <Route path="applications/:id" element={<ApplicationTracking />} />
-              <Route path=":jobId/apply" element={<JobApplication />} />
-              <Route path=":jobId/application-success" element={<Navigate to="../applications" />} />
-              <Route path=":id" element={<JobDetails />} />
-              <Route path=":jobId/manage" element={
-                <ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}>
-                  <ManageJobApplications />
-                </ProtectedRoute>
-              } />
-            </Route>
-
-            {/* Job Posting Routes */}
-            <Route path="/jobs/post" element={
-              <ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}>
-                <Navigate to="/jobs/post/select" replace />
-              </ProtectedRoute>
-            } />
-            <Route path="/jobs/post/select" element={
-              <ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}>
-                <PostJobSelection />
-              </ProtectedRoute>
-            } />
-            <Route path="/jobs/post/form" element={
-              <ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}>
-                <PostJob />
-              </ProtectedRoute>
-            } />
-            <Route path="/jobs/post/link" element={
-              <ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}>
-                <PostJobWithLink />
-              </ProtectedRoute>
-            } />
+            <Route path="/events/edit/:id" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><EditEvent /></ProtectedRoute>} />
+            <Route path="/events/create" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><CreateEvent /></ProtectedRoute>} />
+            <Route path="/admin/events/:id/feedback" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><EventFeedbackReport /></ProtectedRoute>} />
+            <Route path="/jobs" element={<JobListingsPage />} />
+            <Route path="/jobs/alerts" element={<JobAlerts />} />
+            <Route path="/jobs/post" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><PostJob /></ProtectedRoute>} />
+            <Route path="/jobs/post/select" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><PostJobSelection /></ProtectedRoute>} />
+            <Route path="/jobs/post/link" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><PostJobWithLink /></ProtectedRoute>} />
+            <Route path="/jobs/create" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><JobPostingForm /></ProtectedRoute>} />
+            <Route path="/jobs/applications" element={<ApplicationTracking />} />
+            <Route path="/jobs/applications/:id" element={<ApplicationTracking />} />
+            <Route path="/jobs/:jobId/apply" element={<JobApplication />} />
+            <Route path="/jobs/:jobId/application-success" element={<Navigate to="/jobs/applications" />} />
+            <Route path="/jobs/:id" element={<JobDetails />} />
+            <Route path="/jobs/:jobId/manage" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><ManageJobApplications /></ProtectedRoute>} />
             <Route path="/my-applications" element={<ProtectedRoute><JobApplicationStatus /></ProtectedRoute>} />
             <Route path="/profile/:userId" element={<UserProfilePage />} />
             
@@ -184,6 +169,7 @@ function AppContent() {
             <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><Analytics /></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><UserManagement /></ProtectedRoute>} />
             <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AdminSettings /></ProtectedRoute>} />
+            <Route path="/admin/events/:id/feedback" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><EventFeedbackReport /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/dashboard" />} />
           </Routes>
         </main>

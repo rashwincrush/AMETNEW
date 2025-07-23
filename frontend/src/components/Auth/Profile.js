@@ -171,7 +171,7 @@ const Profile = ({ user }) => {
     e.preventDefault();
     if (isSubmitting) return;
 
-
+    console.log('Starting form submission...');
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort('Request timed out');
@@ -232,7 +232,7 @@ const Profile = ({ user }) => {
       }
 
       if (imageFile) {
-
+        console.log('Uploading new avatar...');
         try {
           const publicUrl = await Promise.race([
             uploadAvatar(imageFile),
@@ -241,7 +241,7 @@ const Profile = ({ user }) => {
             ),
           ]);
 
-
+          console.log('Avatar uploaded successfully:', publicUrl);
           profileUpdates.avatar_url = publicUrl;
           setImageUrl(publicUrl);
         } catch (error) {
@@ -251,7 +251,7 @@ const Profile = ({ user }) => {
         }
       }
 
-
+      console.log('Updating profile in database...');
       const { data, error } = await Promise.race([
         supabase.from('profiles').update(profileUpdates).eq('id', user.id).select().single(),
         new Promise((_, reject) =>
@@ -268,9 +268,9 @@ const Profile = ({ user }) => {
         throw new Error('No data returned from database update');
       }
 
+      console.log('Profile updated in database:', data);
 
-
-
+      console.log('Updating auth context...');
       try {
         await Promise.race([
           updateProfile(profileUpdates),
@@ -278,14 +278,14 @@ const Profile = ({ user }) => {
             setTimeout(() => reject(new Error('Auth context update timed out')), 5000)
           ),
         ]);
-
+        console.log('Auth context updated successfully');
       } catch (updateError) {
         console.error('Error updating auth context (non-critical):', updateError);
       }
 
       toast.success('Profile updated successfully!');
       setIsEditing(false);
-
+      console.log('Form submission completed successfully');
     } catch (error) {
       console.error('Profile update error:', error);
       toast.error(
@@ -295,7 +295,7 @@ const Profile = ({ user }) => {
       );
     } finally {
       clearTimeout(timeoutId);
-
+      console.log('Setting isSubmitting to false');
       setIsSubmitting(false);
     }
   };

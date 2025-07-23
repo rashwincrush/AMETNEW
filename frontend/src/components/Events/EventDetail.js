@@ -2,13 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { format, parseISO, isPast, isFuture } from 'date-fns';
-
-// Helper to check if a string is a valid ISO date
-function isValidDateString(dateString) {
-  if (!dateString) return false;
-  const date = parseISO(dateString);
-  return date instanceof Date && !isNaN(date);
-}
+import { formatInTimeZone, utcToZonedTime } from 'date-fns-tz';
 import { ArrowLeft, Edit, Trash2, Calendar, Clock, MapPin, Tag, Users, CheckCircle, BarChart2 } from 'lucide-react';
 import SocialShareButtons from '../common/SocialShareButtons';
 
@@ -24,11 +18,10 @@ const EventDetail = () => {
   const [userRsvp, setUserRsvp] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [hasSubmittedFeedback, setHasSubmittedFeedback] = useState(false);
-  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [feedbackRating, setFeedbackRating] = useState(0);
   const [feedbackComment, setFeedbackComment] = useState('');
-  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 
   const fetchEventData = useCallback(async () => {
     try {
@@ -58,14 +51,21 @@ const EventDetail = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       setCurrentUserId(user.id);
-      const { data: rsvpData } = await supabase.from('event_attendees').select('*').eq('event_id', id).eq('attendee_id', user.id).single();
-      setUserRsvp(rsvpData);
+      const { data: rsvpData, error: rsvpError } = await supabase
+        .from('event_rsvps')
+        .select('*')
+        .eq('event_id', id)
+        .eq('user_id', user.id);
 
-      const { data: feedbackData } = await supabase.from('event_feedback').select('id').eq('event_id', id).eq('user_id', user.id).single();
-      setHasSubmittedFeedback(!!feedbackData);
+      if (rsvpError) {
+        console.error('Error fetching user RSVP:', rsvpError);
+        setUserRsvp(null);
+      } else {
+        setUserRsvp(rsvpData.length > 0 ? rsvpData[0] : null);
+      }
 
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-      if (profile && profile.role === 'admin') {
+      if (profile && ['admin', 'super_admin'].includes(profile.role)) {
         setIsAdmin(true);
       }
     }
@@ -95,12 +95,14 @@ const EventDetail = () => {
       const { error } = await supabase.rpc('rsvp_to_event', { 
         p_event_id: id, 
         p_attendee_id: currentUserId, 
-        p_attendance_status: attendance_status 
+        p_attendance_status_text: attendance_status 
       });
 
       if (error) throw error;
 
-      setRsvpSuccess(`Successfully RSVP'd as ${attendance_status}!`)
+      setRsvpSuccess(`Successfully RSVP'd as ${attendance_status}!`);
+      setShowFeedback(true);
+      setFeedbackSubmitted(false);
       await Promise.all([fetchEventData(), fetchCurrentUser()]);
       setTimeout(() => setRsvpSuccess(''), 3000);
     } catch (err) {
@@ -111,51 +113,47 @@ const EventDetail = () => {
     }
   };
 
-  const handleFeedbackSubmit = async (e) => {
-    e.preventDefault();
-    if (feedbackRating === 0) {
-      setError('Please provide a rating.');
-      return;
-    }
-    setIsSubmittingFeedback(true);
-    setError('');
-
-    try {
-      const { error } = await supabase.from('event_feedback').insert([
-        {
-          event_id: id,
-          user_id: currentUserId,
-          rating: feedbackRating,
-          comments: feedbackComment,
-        }
-      ]);
-
-      if (error) throw error;
-
-      setHasSubmittedFeedback(true);
-      setShowFeedbackForm(false);
-      setRsvpSuccess('Thank you for your feedback!'); // Re-using success message state
-      setTimeout(() => setRsvpSuccess(''), 3000);
-    } catch (err) {
-      console.error('Error submitting feedback:', err);
-      setError('Failed to submit your feedback.');
-    } finally {
-      setIsSubmittingFeedback(false);
-    }
-  };
-
   const getEventStatus = (startDate, endDate) => {
+    if (!startDate || !endDate) return { text: 'Date TBD', color: 'bg-gray-400' };
     const now = new Date();
     if (isPast(parseISO(endDate))) return { text: 'Past', color: 'bg-red-500' };
     if (isFuture(parseISO(startDate))) return { text: 'Upcoming', color: 'bg-blue-500' };
     return { text: 'Ongoing', color: 'bg-green-500' };
   };
 
+  const handleFeedbackSubmit = async (e) => {
+    e.preventDefault();
+    if (feedbackRating === 0) {
+      setError('Please provide a rating.');
+      return;
+    }
+    setRsvpLoading(true);
+    try {
+      const { error } = await supabase.from('event_feedback').insert([
+        {
+          event_id: id,
+          user_id: currentUserId,
+          rsvp_status: userRsvp?.attendance_status || 'unknown',
+          rating: feedbackRating,
+          comment: feedbackComment,
+        },
+      ]);
+      if (error) throw error;
+      setFeedbackSubmitted(true);
+      setShowFeedback(false);
+    } catch (err) {
+      console.error('Error submitting feedback:', err);
+      setError('Failed to submit your feedback.');
+    } finally {
+      setRsvpLoading(false);
+    }
+  };
+
   if (loading && !event) return <div className="flex justify-center items-center h-screen"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div></div>;
   if (error) return <div className="text-center p-4 text-red-500 bg-red-100 rounded-md">Error: {error}</div>;
   if (!event) return <div className="text-center p-4">Event not found.</div>;
 
-  const eventStatus = getEventStatus(event.start_time, event.end_time);
+  const eventStatus = getEventStatus(event.start_date, event.end_date);
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -166,11 +164,15 @@ const EventDetail = () => {
         </Link>
 
         <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-          {event.image_url && <img src={event.image_url} alt={event.name} className="w-full h-48 md:h-64 object-cover" />}
+          {event.featured_image_url && <img src={event.featured_image_url} alt={event.title} className="w-full h-48 md:h-64 object-cover" />}
           <div className="p-6">
             <div className="flex flex-col sm:flex-row justify-between items-start mb-2">
-              <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mb-2 sm:mb-0">{event.name}</h1>
-              <span className={`px-3 py-1 text-sm font-semibold text-white rounded-full ${eventStatus.color}`}>
+              <div>
+                <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mb-2 sm:mb-0">{event.title}</h1>
+                <p className="text-lg text-gray-500 mt-1">{event.short_description}</p>
+                {event.organizer_name && <p className="text-md text-gray-600 mt-2">by {event.organizer_name}</p>}
+              </div>
+              <span className={`px-3 py-1 text-sm font-semibold text-white rounded-full ${eventStatus.color} flex-shrink-0 mt-2 sm:mt-0`}>
                 {eventStatus.text}
               </span>
             </div>
@@ -179,53 +181,126 @@ const EventDetail = () => {
               {/* Event Info */}
               <div className="md:col-span-2 space-y-4">
                 <p className="text-gray-600 whitespace-pre-wrap">{event.description}</p>
-                <div className="flex items-center"><Calendar className="w-5 h-5 mr-3 text-gray-500"/><span>{isValidDateString(event.start_time) ? format(parseISO(event.start_time), 'EEEE, MMMM d, yyyy') : 'N/A'}</span></div>
-                <div className="flex items-center"><Clock className="w-5 h-5 mr-3 text-gray-500"/><span>{isValidDateString(event.start_time) ? format(parseISO(event.start_time), 'h:mm a') : 'N/A'} - {isValidDateString(event.end_time) ? format(parseISO(event.end_time), 'h:mm a') : 'N/A'}</span></div>
-                <div className="flex items-center"><MapPin className="w-5 h-5 mr-3 text-gray-500"/><span>{event.location}</span></div>
-                <div className="flex items-center"><Tag className="w-5 h-5 mr-3 text-gray-500"/><span>{event.type}</span></div>
+                <div className="flex items-center text-gray-600 mb-2">
+                  <Calendar className="w-5 h-5 mr-3 text-blue-500"/>
+                  <span>
+                    {event.start_date ? 
+                      (() => {
+                        // Convert UTC date from Supabase to IST for display
+                        const istZone = 'Asia/Kolkata';
+                        const startDateIST = utcToZonedTime(parseISO(event.start_date), istZone);
+                        return format(startDateIST, 'EEEE, MMMM d, yyyy');
+                      })() : 'Date not available'
+                    }
+                  </span>
+                </div>
+                <div className="flex items-center text-gray-600 mb-2">
+                  <Clock className="w-5 h-5 mr-3 text-blue-500"/>
+                  <span>
+                    {event.start_date ? 
+                      (() => {
+                        const istZone = 'Asia/Kolkata';
+                        const startDateIST = utcToZonedTime(parseISO(event.start_date), istZone);
+                        return format(startDateIST, 'h:mm a');
+                      })() : 'Time not available'
+                    }
+                    {event.end_date && 
+                      (() => {
+                        const istZone = 'Asia/Kolkata';
+                        const endDateIST = utcToZonedTime(parseISO(event.end_date), istZone);
+                        return ` - ${format(endDateIST, 'h:mm a')}`;
+                      })()
+                    }
+                  </span>
+                </div>
+
+                {event.is_virtual ? (
+                  <div className="flex items-center text-gray-600 mb-2">
+                    <MapPin className="w-5 h-5 mr-3 text-green-500"/>
+                    <a href={event.virtual_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Join Virtual Event</a>
+                  </div>
+                ) : (
+                  <>
+                    {event.venue_name && <div className="flex items-center text-gray-600 mb-1"><MapPin className="w-5 h-5 mr-3 text-red-500"/><span>{event.venue_name}</span></div>}
+                    {event.address && <div className="flex items-center text-gray-600 mb-2 pl-8"><span>{event.address}</span></div>}
+                  </>
+                )}
+
+                {event.category && <div className="flex items-center text-gray-600 mb-2"><BarChart2 className="w-5 h-5 mr-3 text-purple-500"/><span>Category: {event.category}</span></div>}
+
+                {event.tags && event.tags.length > 0 && (
+                  <div className="flex items-center text-gray-600 flex-wrap">
+                    <Tag className="w-5 h-5 mr-3 text-gray-500"/>
+                    {event.tags.map(tag => (
+                      <Link 
+                        to={`/events?tag=${encodeURIComponent(tag)}`} 
+                        key={tag} 
+                        className="bg-gray-200 text-gray-800 text-xs font-semibold mr-2 px-2.5 py-0.5 rounded-full hover:bg-blue-100 hover:text-blue-800 cursor-pointer transition-colors"
+                      >
+                        {tag}
+                      </Link>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* RSVP & Admin */}
               <div className="md:col-span-1 space-y-4">
+                {(event.organizer_email || event.organizer_phone) && (
+                  <div className="bg-gray-50 p-4 rounded-lg border">
+                    <h3 className="font-bold text-lg mb-3">Contact Organizer</h3>
+                    {event.organizer_email && <p className="text-sm text-gray-600 break-all"><strong>Email:</strong> {event.organizer_email}</p>}
+                    {event.organizer_phone && <p className="text-sm text-gray-600 mt-1"><strong>Phone:</strong> {event.organizer_phone}</p>}
+                  </div>
+                )}
+
                 <div className="bg-gray-50 p-4 rounded-lg border">
                   <h3 className="font-bold text-lg mb-3 text-center">RSVP Here</h3>
+                  {error && <div className="text-center p-2 mb-3 bg-red-100 text-red-700 rounded">{error}</div>}
                   {rsvpSuccess && <div className="text-center p-2 mb-3 bg-green-100 text-green-700 rounded">{rsvpSuccess}</div>}
                   {userRsvp?.attendance_status === 'going' ? (
                     <div className="text-center">
                       <div className="flex items-center justify-center text-green-600 font-semibold mb-2"><CheckCircle className="w-5 h-5 mr-2"/> You are going!</div>
                       <button onClick={() => handleRsvp('not_going')} disabled={rsvpLoading} className="text-sm text-red-500 hover:underline">Cancel RSVP</button>
                     </div>
-                  ) : isPast(parseISO(event.end_time)) && !hasSubmittedFeedback ? (
-                    <div className="text-center">
-                      <button onClick={() => setShowFeedbackForm(true)} className="w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700 transition duration-200">
-                        Leave Feedback
-                      </button>
-                    </div>
                   ) : (
-                    <button onClick={() => handleRsvp('going')} disabled={rsvpLoading || isPast(parseISO(event.end_time))} className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 disabled:bg-gray-400 transition duration-200">
+                    <button onClick={() => handleRsvp('going')} disabled={rsvpLoading || (event.end_time && isPast(parseISO(event.end_time)))} className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 disabled:bg-gray-400 transition duration-200">
                       {rsvpLoading ? 'Processing...' : 'Attend Event'}
                     </button>
                   )}
-                </div>
-
-                {showFeedbackForm && (
-                  <div className="bg-gray-50 p-4 rounded-lg border mt-4">
-                    <h3 className="font-bold text-lg mb-3 text-center">Event Feedback</h3>
-                    <form onSubmit={handleFeedbackSubmit}>
-                      <div className="mb-4 text-center">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Your Rating</label>
-                        <input type="number" value={feedbackRating} onChange={(e) => setFeedbackRating(Number(e.target.value))} min="1" max="5" className="w-full p-2 border rounded" required />
+                  {showFeedback && !feedbackSubmitted && (
+                    <form onSubmit={handleFeedbackSubmit} className="mt-4 pt-4 border-t">
+                      <h4 className="font-bold text-md mb-2 text-center">How was your experience?</h4>
+                      <div className="flex justify-center items-center mb-3">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            onClick={() => setFeedbackRating(star)}
+                            className={`text-2xl ${feedbackRating >= star ? 'text-yellow-400' : 'text-gray-300'}`}
+                          >
+                            ★
+                          </button>
+                        ))}
                       </div>
-                      <div className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Comments</label>
-                        <textarea value={feedbackComment} onChange={(e) => setFeedbackComment(e.target.value)} rows="4" className="w-full p-2 border rounded" />
-                      </div>
-                      <button type="submit" disabled={isSubmittingFeedback} className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 disabled:bg-gray-400">
-                        {isSubmittingFeedback ? 'Submitting...' : 'Submit Feedback'}
+                      <textarea
+                        value={feedbackComment}
+                        onChange={(e) => setFeedbackComment(e.target.value)}
+                        placeholder="Any additional comments?"
+                        className="w-full p-2 border rounded mb-3"
+                        rows="3"
+                      ></textarea>
+                      <button type="submit" disabled={rsvpLoading} className="w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700 disabled:bg-gray-400 transition duration-200">
+                        {rsvpLoading ? 'Submitting...' : 'Submit Feedback'}
                       </button>
                     </form>
-                  </div>
-                )}
+                  )}
+                  {feedbackSubmitted && (
+                    <div className="text-center mt-4 pt-4 border-t text-green-600 font-semibold">
+                      Thank you for your feedback!
+                    </div>
+                  )}
+                </div>
 
                 {isAdmin && (
                   <div className="bg-gray-50 p-4 rounded-lg border">

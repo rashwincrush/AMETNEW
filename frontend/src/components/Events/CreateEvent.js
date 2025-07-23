@@ -30,7 +30,7 @@ const CreateEvent = () => {
     date: '',
     startTime: '',
     endTime: '',
-    location: '',
+    venue: '',
     address: '',
     virtualLink: '',
     maxAttendees: '',
@@ -76,153 +76,13 @@ const CreateEvent = () => {
     }
   };
 
-  // Compress image before upload with better quality and size control
-  const compressImage = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(new Error('Failed to read the image file'));
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onerror = () => reject(new Error('Failed to load the image'));
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          
-          // Set maximum dimensions (reduced from 1200x800 to 800x600)
-          const maxWidth = 800;
-          const maxHeight = 600;
-          
-          // Calculate new dimensions while maintaining aspect ratio
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height) {
-            if (width > maxWidth) {
-              height = Math.round((height * maxWidth) / width);
-              width = maxWidth;
-            }
-          } else {
-            if (height > maxHeight) {
-              width = Math.round((width * maxHeight) / height);
-              height = maxHeight;
-            }
-          }
-
-          // Set canvas dimensions
-          canvas.width = width;
-          canvas.height = height;
-          
-          // Draw image on canvas with new dimensions
-          const ctx = canvas.getContext('2d', { alpha: false });
-          ctx.fillStyle = '#FFFFFF'; // White background for transparent PNGs
-          ctx.fillRect(0, 0, width, height);
-          ctx.drawImage(img, 0, 0, width, height);
-
-          // Convert to blob with adaptive quality
-          let quality = 0.8;
-          const MAX_ATTEMPTS = 5;
-          const TARGET_SIZE = 500 * 1024; // 500KB target size
-          
-          const attemptCompression = (attempt = 1) => {
-            return new Promise((resolveBlob) => {
-              canvas.toBlob(
-                (blob) => {
-                  if (!blob) {
-                    reject(new Error('Failed to compress image'));
-                    return;
-                  }
-                  
-                  // If file is still too large and we can reduce quality more
-                  if (blob.size > TARGET_SIZE && quality > 0.4 && attempt < MAX_ATTEMPTS) {
-                    quality -= 0.1; // Reduce quality by 10%
-                    attempt++;
-                    attemptCompression(attempt).then(resolveBlob);
-                  } else {
-                    resolveBlob(blob);
-                  }
-                },
-                'image/jpeg',
-                quality
-              );
-            });
-          };
-
-          attemptCompression().then((blob) => {
-            const compressedFile = new File([blob], file.name.replace(/\.[^/.]+$/, '.jpg'), {
-              type: 'image/jpeg',
-              lastModified: Date.now(),
-            });
-            
-            if (compressedFile.size > 1 * 1024 * 1024) { // 1MB
-              reject(new Error('Image is too large after compression. Please choose a smaller image.'));
-            } else {
-              resolve(compressedFile);
-            }
-          }).catch(reject);
-        };
-        img.src = event.target.result;
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const handleImageChange = async (e) => {
+  const handleImageChange = (e) => {
     const file = e.target.files[0];
-    if (!file) return;
-
-    // Validate file type
-    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!validTypes.includes(file.type)) {
-      toast.error('Please upload a valid image file (JPEG, PNG, or WebP)');
-      e.target.value = ''; // Clear the file input
-      return;
-    }
-
-    // Initial size check (10MB hard limit)
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error('Image is too large. Maximum size is 10MB.');
-      e.target.value = '';
-      return;
-    }
-
-    // Show loading state
-    const toastId = toast.loading('Processing image...');
-    
-    try {
-      // Always compress images larger than 500KB
-      const shouldCompress = file.size > 500 * 1024;
-      const processedFile = shouldCompress 
-        ? await compressImage(file)
-        : file;
-      
-      // Final size check (1MB limit after compression)
-      if (processedFile.size > 1 * 1024 * 1024) {
-        throw new Error('Image is too large after compression. Please choose a smaller image.');
-      }
-
-      // Update form data with processed image
-      setFormData(prev => ({
-        ...prev,
-        image: processedFile,
-        imageError: ''
-      }));
-      
-      // Create and set preview
+    if (file) {
+      setFormData(prev => ({ ...prev, image: file }));
       const reader = new FileReader();
-      reader.onload = (e) => {
-        setPreviewImage(e.target.result);
-        toast.success('Image processed successfully!', { id: toastId });
-      };
-      reader.onerror = () => {
-        throw new Error('Error reading the image file');
-      };
-      reader.readAsDataURL(processedFile);
-      
-    } catch (error) {
-      console.error('Image processing error:', error);
-      toast.error(error.message || 'Error processing image. Please try another image.', { id: toastId });
-      e.target.value = ''; // Clear the file input
-      setFormData(prev => ({ ...prev, image: null, imageError: error.message }));
-      setPreviewImage(null);
+      reader.onload = (e) => setPreviewImage(e.target.result);
+      reader.readAsDataURL(file);
     }
   };
 
@@ -267,7 +127,7 @@ const CreateEvent = () => {
   };
 
   const validateForm = () => {
-
+    console.log('Entering validateForm...');
     try {
       const newErrors = {};
 
@@ -276,7 +136,10 @@ const CreateEvent = () => {
       if (!formData.date) newErrors.date = 'Date is required';
       if (!formData.startTime) newErrors.startTime = 'Start time is required';
       if (!formData.endTime) newErrors.endTime = 'End time is required';
-      if (!formData.location.trim()) newErrors.location = 'Location is required';
+      if (formData.type === 'in-person') {
+        if (!formData.venue.trim()) newErrors.venue = 'Venue name is required';
+        if (!formData.address.trim()) newErrors.address = 'Address is required';
+      }
       if (formData.type === 'virtual' && !formData.virtualLink.trim()) {
         newErrors.virtualLink = 'Virtual meeting link is required';
       }
@@ -313,233 +176,128 @@ const CreateEvent = () => {
 
       setErrors(newErrors);
       const isValid = Object.keys(newErrors).length === 0;
-
-
+      console.log('validateForm - newErrors (inside try):', JSON.stringify(newErrors));
+      console.log('validateForm - isValid (inside try):', isValid);
       return isValid;
     } catch (error) {
       console.error('Error caught inside validateForm:', error);
       setErrors(prevErrors => ({ ...prevErrors, form: 'An unexpected error occurred during validation.' }));
-
+      console.log('validateForm - returning false due to internal error');
       return false; // Ensure it returns false if an error happens
     }
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!user) {
-      toast.error("You must be logged in to create an event.");
-      return;
-    }
-    
-    // Validate form
-    const validationErrors = validateForm();
-    if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-    
-    setIsSubmitting(true);
-    
     try {
+      console.log('Submit button clicked - starting event creation');
+      e.preventDefault();
+      if (!user) {
+        toast.error("You must be logged in to create an event.");
+        return;
+      }
+      console.log('Form validation starting...');
+      const isFormValid = validateForm();
+      if (!isFormValid) {
+        console.log('handleSubmit: Form validation failed. Errors:', JSON.stringify(errors)); // Log current errors state
+        toast.error('Please fix the errors before submitting.');
+        return;
+      }
+      console.log('Form validation passed');
+      setIsSubmitting(true);
+      console.log('Starting image processing');
       let imageUrl = null;
-      
-      // Upload image if present
       if (formData.image) {
-        try {
-          // Generate a unique filename with .jpg extension (we convert all to jpg)
-          const fileName = `${user.id}_${Date.now()}.jpg`;
-          const filePath = `events/${user.id}/${fileName}`;
-          
-          // Show upload progress
-          const toastId = toast.loading('Uploading image...');
-          
-          // Upload with error handling and retry logic
-          let uploadError = null;
-          let uploadAttempts = 0;
-          const MAX_UPLOAD_ATTEMPTS = 3;
-          
-          while (uploadAttempts < MAX_UPLOAD_ATTEMPTS) {
-            try {
-              const { error } = await supabase.storage
-                .from('event-images')
-                .upload(filePath, formData.image, {
-                  cacheControl: '3600',
-                  upsert: false,
-                  contentType: 'image/jpeg'
-                });
-                
-              if (error) throw error;
-              uploadError = null;
-              break; // Success, exit retry loop
-              
-            } catch (error) {
-              uploadError = error;
-              uploadAttempts++;
-              
-              if (uploadAttempts < MAX_UPLOAD_ATTEMPTS) {
-                // Wait before retrying (exponential backoff)
-                await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, uploadAttempts)));
-                toast.update(toastId, { 
-                  render: `Upload attempt ${uploadAttempts + 1} of ${MAX_UPLOAD_ATTEMPTS}...` 
-                });
-              }
-            }
-          }
-          
-          // If we still have an error after retries
-          if (uploadError) {
-            console.error('Image upload error after retries:', uploadError);
-            
-            // More specific error messages based on error code
-            if (uploadError.statusCode === 413) {
-              throw new Error('Image is too large. Please use an image smaller than 1MB.');
-            } else if (uploadError.message?.includes('already exists')) {
-              throw new Error('A file with this name already exists. Please try again.');
-            } else if (uploadError.message?.includes('not found')) {
-              throw new Error('Storage bucket not found. Please contact support.');
-            } else {
-              throw new Error(`Upload failed: ${uploadError.message || 'Unknown error'}`);
-            }
-          }
-
-          // Get public URL with cache busting
-          const { data: urlData } = supabase.storage
-            .from('event-images')
-            .getPublicUrl(filePath, { 
-              download: false,
-              transform: {
-                width: 1200,
-                height: 630,
-                quality: 80,
-                resize: 'cover'
-              }
-            });
-            
-          if (!urlData?.publicUrl) {
-            console.error('Failed to generate public URL');
-            // Attempt to clean up the uploaded file
-            try {
-              await supabase.storage
-                .from('event-images')
-                .remove([filePath]);
-            } catch (cleanupError) {
-              console.error('Error cleaning up failed upload:', cleanupError);
-            }
-            throw new Error('Could not generate a public URL for your image. Please try again.');
-          }
-
-          imageUrl = `${urlData.publicUrl}?t=${Date.now()}`; // Cache busting
-          toast.success('Image uploaded successfully!', { id: toastId });
-          
-        } catch (error) {
-          console.error('Image upload failed:', error);
-          toast.dismiss();
-          toast.error(`Image upload failed: ${error.message}`);
-          setIsSubmitting(false);
-          return; // Stop form submission on image upload failure
+        console.log('Image found, processing upload...');
+        const fileExt = formData.image.name.split('.').pop();
+        const fileName = `${user.id}_${Date.now()}.${fileExt}`;
+        // Corrected filePath to be just the fileName, as Supabase storage policies might be set at the bucket level
+        // and prepending 'event-images/' here might conflict if the bucket policy already implies this path.
+        // The .from('event-images') already specifies the bucket.
+        const filePath = `${fileName}`;
+        console.log('Uploading image to Supabase storage bucket: event-images, filePath:', filePath);
+        const { error: uploadError } = await supabase.storage
+          .from('event-images') // Corrected bucket name
+          .upload(filePath, formData.image);
+        if (uploadError) {
+          console.error('Image upload error:', uploadError);
+          throw new Error(`Image upload failed: ${uploadError.message}`);
         }
+        console.log('Image uploaded successfully, getting URL');
+        const { data: urlData } = supabase.storage
+          .from('event-images') // Corrected bucket name
+          .getPublicUrl(filePath);
+        if (!urlData || !urlData.publicUrl) { // Check for publicUrl specifically
+          console.error('Failed to get URL data or publicUrl is missing', urlData);
+          throw new Error('Could not get public URL for the image.');
+        }
+        console.log('Got image URL:', urlData.publicUrl);
+        imageUrl = urlData.publicUrl;
       }
 
-
-
-      // Prepare event data
-      const startDate = new Date(`${formData.date}T${formData.startTime}`);
-      const endDate = new Date(`${formData.date}T${formData.endTime}`);
-
-      // Validate dates
-      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-        throw new Error('Invalid date or time format. Please check your input.');
-      }
-
-      if (endDate <= startDate) {
-        throw new Error('End time must be after start time.');
-      }
-
-      // Prepare event data with proper validation
+      console.log('Image processing complete');
+      console.log('Creating event data object');
       const eventData = {
-        title: formData.title.trim(),
-        description: formData.description.trim(),
+        title: formData.title,
+        description: formData.description,
         category: formData.category,
         event_type: formData.type,
-        start_date: startDate.toISOString(),
-        end_date: endDate.toISOString(),
-        location: formData.location.trim(),
-        virtual_link: formData.virtualLink?.trim() || null,
-        max_attendees: formData.maxAttendees && !isNaN(parseInt(formData.maxAttendees, 10)) 
-          ? parseInt(formData.maxAttendees, 10) 
-          : null,
-        cost: formData.priceType === 'free' 
-          ? '0' 
-          : (!isNaN(parseFloat(formData.price)) ? formData.price.toString() : '0'),
-        tags: formData.tags 
-          ? formData.tags.split(',').map(tag => tag.trim()).filter(t => t)
-          : [],
-        featured_image_url: imageUrl,
+        start_date: `${formData.date}T${formData.startTime}`,
+        end_date: `${formData.date}T${formData.endTime}`,
+        venue: formData.venue,
+        address: formData.address,
+        virtual_link: formData.virtualLink,
+        max_attendees: !isNaN(parseInt(formData.maxAttendees, 10)) ? parseInt(formData.maxAttendees, 10) : null,
+        cost: formData.priceType === 'free' ? '0' : (!isNaN(parseFloat(formData.price)) ? formData.price.toString() : '0'),
+        tags: formData.tags.split(',').map(tag => tag.trim()).filter(t => t),
+        featured_image_url: imageUrl, // Changed from image_url to featured_image_url to match DB schema
         agenda: JSON.stringify(formData.agenda.filter(item => item.time && item.activity)),
         is_published: true,
         user_id: user.id,
-        organizer_id: user.id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        organizer_id: user.id // Required field according to schema
       };
-
-      // Show loading state for event creation
-      const toastId = toast.loading('Creating your event...');
       
-      try {
-        // Insert event into database
-        const { data: insertedData, error: insertError } = await supabase
-          .from('events')
-          .insert([eventData])
-          .select();
+      console.log('Submitting event data to Supabase:', eventData);
+      const { data: insertedData, error: insertError } = await supabase
+        .from('events')
+        .insert([eventData])
+        .select();
+      console.log('Response from insert:', { data: insertedData, error: insertError });
+      
+      // Debug: Immediately query for events to see what's in the DB
+      const { data: allEvents } = await supabase
+        .from('events')
+        .select('*');
+      console.log('All events in database after insertion:', allEvents);
 
-        if (insertError) {
-          console.error('Error inserting event:', insertError);
-          
-          // Attempt to clean up uploaded image if event creation fails
-          if (imageUrl) {
-            try {
-              const fileName = imageUrl.split('/').pop().split('?')[0];
-              await supabase.storage
-                .from('event-images')
-                .remove([`events/${user.id}/${fileName}`]);
-            } catch (cleanupError) {
-              console.error('Error cleaning up image after failed event creation:', cleanupError);
-            }
-          }
-          
-          throw new Error(insertError.message || 'Failed to create event. Please try again.');
-        }
-
-        // Verify the event was created
-        if (!insertedData || insertedData.length === 0) {
-          throw new Error('Failed to verify event creation. Please check your events list.');
-        }
-
+      // Debug: Specifically check our newly created event
+      if (insertedData && insertedData.length > 0) {
         const newEventId = insertedData[0].id;
-        
-        // Log successful event creation
-        console.log('Event created successfully with ID:', newEventId);
-        
-        // Show success message
-        toast.success('Event created successfully!', { id: toastId });
-        
-        // Navigate to the new event's page or events list
-        navigate(`/events/${newEventId}`);
-        
-      } catch (error) {
-        console.error('Error in event creation process:', error);
-        toast.error(error.message || 'An error occurred while creating the event.', { id: toastId });
-        throw error; // Re-throw to be caught by outer try-catch
-      } 
+        const { data: verifyEvent } = await supabase
+          .from('events')
+          .select('*')
+          .eq('id', newEventId)
+          .single();
+        console.log('Verification of newly created event:', verifyEvent);
+      }
+
+      if (insertError) {
+        console.error('Supabase insert error:', insertError);
+        throw new Error(`Database insert failed: ${insertError.message}`);
+      }
+
+      if (!insertedData || insertedData.length === 0) {
+        console.error('Event created but no data returned. Check RLS policies.');
+        throw new Error('Event was not created successfully. You may not have permission to view it.');
+      }
+      
+      toast.success('Event created successfully!');
+      navigate('/events');
     } catch (error) {
       console.error('Top level error caught in handleSubmit:', error);
       console.error('Error creating event:', error);
       toast.error(`Error creating event: ${error.message}`);
     } finally {
-
+      console.log('Finishing event submission process');
       setIsSubmitting(false);
     }
   };
@@ -722,38 +480,39 @@ const CreateEvent = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                {formData.type === 'virtual' ? 'Platform/Meeting Name' : 'Venue Name'} *
+                Venue Name *
               </label>
               <input
                 type="text"
-                name="location"
-                value={formData.location}
+                name="venue"
+                value={formData.venue}
                 onChange={handleInputChange}
-                className={`form-input w-full px-3 py-2 rounded-lg ${errors.location ? 'border-red-500' : ''}`}
-                placeholder={formData.type === 'virtual' ? 'e.g., Zoom, Google Meet' : 'e.g., AMET Campus Auditorium'}
+                className={`form-input w-full px-3 py-2 rounded-lg ${errors.venue ? 'border-red-500' : ''}`}
+                placeholder="e.g., AMET Campus Auditorium"
               />
-              {errors.location && <p className="text-red-500 text-sm mt-1">{errors.location}</p>}
+              {errors.venue && <p className="text-red-500 text-sm mt-1">{errors.venue}</p>}
             </div>
 
-            {formData.type === 'in-person' ? (
+            {formData.type === 'in-person' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Full Address *
                 </label>
-                <textarea
+                <input
+                  type="text"
                   name="address"
                   value={formData.address}
                   onChange={handleInputChange}
-                  rows={2}
                   className={`form-input w-full px-3 py-2 rounded-lg ${errors.address ? 'border-red-500' : ''}`}
-                  placeholder="Complete address with landmark"
+                  placeholder="Full address of the venue"
                 />
                 {errors.address && <p className="text-red-500 text-sm mt-1">{errors.address}</p>}
               </div>
-            ) : (
+            )}
+            {formData.type === 'virtual' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Meeting Link *
+                  Virtual Meeting Link *
                 </label>
                 <input
                   type="url"
@@ -761,7 +520,7 @@ const CreateEvent = () => {
                   value={formData.virtualLink}
                   onChange={handleInputChange}
                   className={`form-input w-full px-3 py-2 rounded-lg ${errors.virtualLink ? 'border-red-500' : ''}`}
-                  placeholder="https://zoom.us/j/..."
+                  placeholder="https://zoom.us/j/123456789"
                 />
                 {errors.virtualLink && <p className="text-red-500 text-sm mt-1">{errors.virtualLink}</p>}
               </div>
@@ -856,15 +615,12 @@ const CreateEvent = () => {
           <div className="space-y-4">
             <div className="flex items-center justify-center w-full">
               <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                <div className="flex flex-col items-center justify-center pt-5 pb-6 px-4 text-center">
+                <div className="flex flex-col items-center justify-center pt-5 pb-6">
                   <PhotoIcon className="w-8 h-8 mb-2 text-gray-400" />
                   <p className="mb-2 text-sm text-gray-500">
                     <span className="font-semibold">Click to upload</span> event cover image
                   </p>
-                  <p className="text-xs text-gray-500">
-                    <span className="block">Accepted formats: JPG, PNG, WebP</span>
-                    <span className="block font-medium text-amber-600">Max size: 5MB</span>
-                  </p>
+                  <p className="text-xs text-gray-500">PNG, JPG or JPEG (MAX. 5MB)</p>
                 </div>
                 <input
                   type="file"

@@ -13,7 +13,8 @@ import {
   UserPlusIcon,
   ChatBubbleLeftRightIcon,
   PhoneIcon,
-  EnvelopeIcon
+  EnvelopeIcon,
+  TagIcon
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
@@ -83,17 +84,6 @@ const EventDetails = () => {
     );
   }
 
-  const formatEventDateTime = (dateString) => {
-    if (!dateString) return { date: '', time: '' };
-    const date = new Date(dateString);
-    const optionsDate = { year: 'numeric', month: 'long', day: 'numeric' };
-    const optionsTime = { hour: 'numeric', minute: 'numeric', hour12: true };
-    return {
-      date: date.toLocaleDateString(undefined, optionsDate),
-      time: date.toLocaleTimeString(undefined, optionsTime),
-    };
-  };
-
   if (!event) {
     return (
       <div className="text-center py-20">
@@ -137,7 +127,7 @@ const EventDetails = () => {
   const handleRSVP = () => {
     setIsRSVPed(!isRSVPed);
     // Mock RSVP logic
-
+    console.log(isRSVPed ? 'Cancelled RSVP' : 'Registered for event');
   };
 
   const handleShare = () => {
@@ -213,23 +203,47 @@ const EventDetails = () => {
                   <CalendarIcon className="w-5 h-5 text-ocean-500 mr-3" />
                   <div>
                     <p className="font-medium text-gray-900">
-                      {formatEventDateTime(event.start_date).date}
+                      {event.start_date ? new Date(event.start_date).toLocaleDateString('en-US', { 
+                        weekday: 'long', 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric' 
+                      }) : 'Date not available'}
                     </p>
-                    <p className="text-sm text-gray-600">{formatEventDateTime(event.start_date).time} - {formatEventDateTime(event.end_date).time}</p>
+                    <p className="text-sm text-gray-600">
+                      {event.start_date ? new Date(event.start_date).toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      }) : ''}
+                      {event.end_date ? ` - ${new Date(event.end_date).toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}` : ''}
+                    </p>
                   </div>
                 </div>
 
-                <div className="flex items-center">
-                  {event.type === 'virtual' ? (
-                    <VideoCameraIcon className="w-5 h-5 text-ocean-500 mr-3" />
-                  ) : (
+                {(event.event_type === 'in-person' || event.event_type === 'hybrid') && event.venue && (
+                  <div className="flex items-center">
                     <MapPinIcon className="w-5 h-5 text-ocean-500 mr-3" />
-                  )}
-                  <div>
-                    <p className="font-medium text-gray-900">{event.location}</p>
-                    <p className="text-sm text-gray-600">{event.address}</p>
+                    <div>
+                      <p className="font-medium text-gray-900">{event.venue}</p>
+                      {event.address && <p className="text-sm text-gray-600">{event.address}</p>}
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {(event.event_type === 'virtual' || event.event_type === 'hybrid') && event.virtual_link && (
+                  <div className="flex items-center">
+                    <VideoCameraIcon className="w-5 h-5 text-ocean-500 mr-3" />
+                    <div>
+                      <p className="font-medium text-gray-900">Virtual Event</p>
+                      <a href={event.virtual_link} target="_blank" rel="noopener noreferrer" className="text-sm text-ocean-600 hover:underline">
+                        Join Meeting
+                      </a>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center">
                   <UserGroupIcon className="w-5 h-5 text-ocean-500 mr-3" />
@@ -253,16 +267,30 @@ const EventDetails = () => {
               </div>
 
               {/* Tags */}
-              <div className="flex flex-wrap gap-2 mb-6">
-                {Array.isArray(event.tags) && event.tags.map((tag, index) => (
-                  <span 
-                    key={index}
-                    className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm font-medium"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
+              {event.tags && (
+                <div className="flex flex-wrap items-center gap-2 mb-6">
+                  <TagIcon className="w-5 h-5 text-ocean-500" />
+                  {Array.isArray(event.tags) ? 
+                    event.tags.map((tag, index) => (
+                      <span 
+                        key={index}
+                        className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm font-medium"
+                      >
+                        {tag}
+                      </span>
+                    ))
+                  : typeof event.tags === 'string' ? 
+                    event.tags.split(',').map((tag, index) => (
+                      <span 
+                        key={index}
+                        className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm font-medium"
+                      >
+                        {tag.trim()}
+                      </span>
+                    ))
+                  : null}
+                </div>
+              )}
             </div>
 
             {/* RSVP Section */}

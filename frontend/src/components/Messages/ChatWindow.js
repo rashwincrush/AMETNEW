@@ -96,7 +96,7 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
             msg => msg.sender_id !== currentUser.id && msg.read_at === null
           );
           
-
+          console.log(`Manually marking ${unreadMessages.length} messages as read`);
           
           if (unreadMessages.length > 0) {
             const now = new Date().toISOString();
@@ -135,7 +135,9 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
         (payload) => handleNewMessage(payload)
       )
       .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') {
+        if (status === 'SUBSCRIBED') {
+          console.log(`Successfully subscribed to messages for conversation ${conversationId}`);
+        } else if (status === 'CHANNEL_ERROR') {
           console.error(`Error subscribing to messages for conversation ${conversationId}`);
           // Set up a polling fallback if realtime fails
           setupPollingFallback();
@@ -173,7 +175,7 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
       }, 5000);
     };
     
-
+    console.log(`Setting up subscription for conversation ${conversationId}`);
       
     return () => {
       // Clean up realtime subscription

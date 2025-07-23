@@ -4,7 +4,8 @@ import { supabase } from '../../utils/supabase';
 import { 
   Box, 
   Button, 
-  Card, 
+  Card,
+  CardMedia,
   CardContent, 
   CardActions, 
   Typography, 
@@ -41,7 +42,8 @@ import {
   People as PeopleIcon
 } from '@mui/icons-material';
 import EventCalendar from './EventCalendar';
-import { format, parseISO, isPast, isToday, isFuture, isThisWeek } from 'date-fns';
+import { parseISO, isPast, isToday, isFuture, isThisWeek, format } from 'date-fns';
+import { formatInTimeZone, utcToZonedTime } from 'date-fns-tz';
 
 const EventsList = ({ isAdmin = false }) => {
   const [events, setEvents] = useState([]);
@@ -67,7 +69,7 @@ const EventsList = ({ isAdmin = false }) => {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'events' },
         (payload) => {
-
+          console.log('Real-time change received:', payload);
           fetchEvents();
         }
       )
@@ -314,93 +316,39 @@ const EventsList = ({ isAdmin = false }) => {
                         },
                       }}
                     >
-                      {/* Card Media - Event Image */}
-                      <Box 
-                        sx={{
-                          position: 'relative',
-                          height: 180,
-                          bgcolor: 'grey.200',
-                          backgroundImage: event.image_url ? 
-                            `url(${event.image_url})` : 
-                            `url(https://source.unsplash.com/featured/?${event.event_type || 'event'})`,
-                          backgroundSize: 'cover',
-                          backgroundPosition: 'center',
-                        }}
-                      >
-                        {/* Event Type Badge */}
-                        <Chip 
-                          label={event.event_type || 'Event'} 
-                          size="small" 
-                          sx={{
-                            position: 'absolute',
-                            top: 10,
-                            left: 10,
-                            bgcolor: 'rgba(0,0,0,0.6)',
-                            color: 'white',
-                            fontWeight: 'bold',
-                            textTransform: 'capitalize'
-                          }}
+                      {event.featured_image_url && (
+                        <CardMedia
+                          component="img"
+                          height="140"
+                          image={event.featured_image_url}
+                          alt={event.title}
                         />
-                        
-                        {/* Status Badge */}
-                        <Chip 
-                          label={status} 
-                          color={statusColor} 
-                          size="small" 
-                          sx={{
-                            position: 'absolute',
-                            top: 10,
-                            right: 10,
-                            fontWeight: 'bold'
-                          }}
-                        />
-                        
-                        {/* Date Badge */}
-                        <Box sx={{
-                          position: 'absolute',
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          bgcolor: 'rgba(0,0,0,0.7)',
-                          color: 'white',
-                          p: 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between'
-                        }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <CalendarIcon fontSize="small" sx={{ mr: 1 }} />
-                            <Typography variant="body2">
-                              {format(parseISO(event.start_date), 'MMM d, yyyy')}
-                            </Typography>
-                          </Box>
+                      )}
+                      <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                        <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Chip label={event.event_type || 'General'} size="small" sx={{ bgcolor: 'secondary.light', color: 'white' }} />
+                          <Chip label={status} color={statusColor} size="small" />
+                        </Box>
+                        <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary', mb: 1 }}>
+                          <CalendarIcon sx={{ mr: 1, fontSize: '1rem' }} />
                           <Typography variant="body2">
-                            {format(parseISO(event.start_date), 'h:mm a')}
+                            {(() => {
+                              const istZone = 'Asia/Kolkata';
+                              const startDateIST = utcToZonedTime(parseISO(event.start_date), istZone);
+                              return `${format(startDateIST, 'MMM d, yyyy')} at ${format(startDateIST, 'h:mm a')}`;
+                            })()}
                           </Typography>
                         </Box>
-                      </Box>
-                      
-                      <CardContent sx={{ flexGrow: 1, pt: 2 }}>
-                        <Typography variant="h6" component="h3" gutterBottom>
+                        <Typography variant="h5" component="div" sx={{ fontWeight: 'bold', mb: 1, flexGrow: 1 }}>
                           {event.title}
                         </Typography>
-                        
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, height: 60, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
-                          {event.description}
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, flexGrow: 1 }}>
+                          {event.short_description ? event.short_description.substring(0, 100) + '...' : (event.description ? event.description.substring(0, 100) + '...' : 'No description available.')}
                         </Typography>
-                        
-                        <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary', mb: 1 }}>
-                          <LocationIcon fontSize="small" sx={{ mr: 1 }} />
-                          <Typography variant="body2" noWrap>
-                            {event.location}
-                          </Typography>
-                        </Box>
-                        
-                        {/* Attendees indicator */}
                         <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary' }}>
-                          <PeopleIcon fontSize="small" sx={{ mr: 1 }} />
+                          <PeopleIcon sx={{ mr: 1, fontSize: '1rem' }} />
                           <Typography variant="body2">
-                            {event.attendees || Math.floor(Math.random() * 50) + 10} Attendees
+                            {event.attendees_count || 0} Attendees
                           </Typography>
                         </Box>
                       </CardContent>

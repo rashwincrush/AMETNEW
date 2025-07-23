@@ -141,7 +141,7 @@ const ResumeUploadForm = () => {
     setIsSubmitting(true);
     
     try {
-
+      console.log('Starting resume profile submission...');
       
       // Upload resume if provided
       let resumeUrl = existingProfile?.resume_url || null;
@@ -212,7 +212,7 @@ const ResumeUploadForm = () => {
         throw error;
       }
       
-
+      console.log('Resume profile saved successfully:', data);
       toast.success(`Resume profile ${existingProfile ? 'updated' : 'created'} successfully!`);
       navigate('/jobs');
     } catch (error) {

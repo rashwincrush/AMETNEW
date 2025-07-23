@@ -1,23 +1,11 @@
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRightIcon, LinkIcon, DocumentTextIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
+import { Link } from 'react-router-dom';
+import { ArrowRightIcon, LinkIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
 
 const PostJobSelection = () => {
-  const navigate = useNavigate();
-  
-  const handleBack = () => {
-    navigate(-1);
-  };
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-xl shadow-lg relative">
-        <button
-          onClick={handleBack}
-          className="absolute top-4 left-4 text-gray-500 hover:text-gray-700 focus:outline-none"
-          aria-label="Go back"
-        >
-          <ArrowLeftIcon className="h-6 w-6" />
-        </button>
+      <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-xl shadow-lg">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">How would you like to post a job?</h2>
           <p className="mt-2 text-center text-sm text-gray-600">
@@ -30,7 +18,7 @@ const PostJobSelection = () => {
             Post with a Link
             <ArrowRightIcon className="h-5 w-5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
           </Link>
-          <Link to="/jobs/post/form" className="group relative w-full flex justify-center items-center px-4 py-4 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ocean-500 transition-all duration-300 ease-in-out transform hover:-translate-y-1">
+          <Link to="/jobs/post" className="group relative w-full flex justify-center items-center px-4 py-4 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ocean-500 transition-all duration-300 ease-in-out transform hover:-translate-y-1">
             <DocumentTextIcon className="h-6 w-6 mr-3" />
             Fill Out Form Manually
             <ArrowRightIcon className="h-5 w-5 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />

@@ -151,6 +151,7 @@ const EnhancedRegister = () => {
       } else if (formData.primaryRole === 'student') {
         if (!formData.expectedGraduationYear) newErrors.expectedGraduationYear = 'Expected graduation year is required.';
         else if (isNaN(parseInt(formData.expectedGraduationYear)) || parseInt(formData.expectedGraduationYear) < new Date().getFullYear() || parseInt(formData.expectedGraduationYear) > new Date().getFullYear() + 10) newErrors.expectedGraduationYear = 'Please enter a valid year.';
+        if (!formData.studentId.trim()) newErrors.studentId = 'Student ID is required.';
         if (!formData.degree.trim()) newErrors.degree = 'Degree program is required.';
       } else if (formData.primaryRole === 'employer') {
         if (!formData.companyName.trim()) newErrors.companyName = 'Company name is required.';

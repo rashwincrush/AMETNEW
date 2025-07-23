@@ -290,10 +290,10 @@ This document lists all the **remaining features** yet to be built for the AMET 
   * Pre-filled share URLs on content pages.
   * Use standard share URL formats (e.g., `https://www.linkedin.com/shareArticle?url=...`).
 
-
 ---
 
 **Note:** All features must be implemented using only the current stack: React (Create React App), Supabase (DB, Auth, Storage, Functions), and Vercel.
+
 
 
 

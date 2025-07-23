@@ -5,27 +5,30 @@
       "src": "frontend/package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "build",
-        "buildCommand": "cd frontend && CI=false npm run build"
+        "distDir": "build"
       }
     }
   ],
   "routes": [
-    { "src": "/static/(.*)", "dest": "/static/$1" },
-    { "src": "/favicon.ico", "dest": "/favicon.ico" },
-    { "src": "/manifest.json", "dest": "/manifest.json" },
-    { "src": "/logo(.*).png", "dest": "/logo$1.png" },
-    { "src": "/(.*).png", "dest": "/$1.png" },
-    { "src": "/(.*).jpg", "dest": "/$1.jpg" },
-    { "src": "/(.*).json", "dest": "/$1.json" },
-    { "src": "/(.*)", "dest": "/index.html" }
+    {
+      "src": "/static/(.*)",
+      "dest": "/frontend/build/static/$1"
+    },
+    {
+      "src": "/favicon.ico",
+      "dest": "/frontend/build/favicon.ico"
+    },
+    {
+      "src": "/manifest.json",
+      "dest": "/frontend/build/manifest.json"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/build/index.html"
+    }
   ],
   "env": {
-    "REACT_APP_SUPABASE_URL": "${NEXT_PUBLIC_SUPABASE_URL}",
-    "REACT_APP_SUPABASE_KEY": "${NEXT_PUBLIC_SUPABASE_ANON_KEY}",
-    "SUPABASE_URL": "${NEXT_PUBLIC_SUPABASE_URL}",
-    "SUPABASE_KEY": "${NEXT_PUBLIC_SUPABASE_ANON_KEY}",
-    "SUPABASE_SERVICE_KEY": "${SUPABASE_SERVICE_ROLE_KEY}",
-    "JWT_SECRET": "${JWT_SECRET}"
+    "REACT_APP_SUPABASE_URL": "https://gvbtfolcizkzihforqte.supabase.co",
+    "REACT_APP_SUPABASE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2YnRmb2xjaXpremloZm9ycXRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2MTMzMDksImV4cCI6MjA1OTE4OTMwOX0.vhqGWSgmMcUNXnPtH2AXdJ9DQ6Thw_l1TX3tsr3ns70"
   }
 }

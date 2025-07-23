@@ -11,11 +11,7 @@ if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey, {
-  functions: {
-    region: 'us-west-2',
-  },
-});
+export const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Auth helper functions
 export const signInWithEmail = async (email, password, otpCode = null) => {

@@ -93,8 +93,10 @@ const AlumniDirectory = () => {
       const from = (currentPage - 1) * itemsPerPage;
       const to = from + itemsPerPage - 1;
       
-
-
+      console.log(`Fetching alumni data: page ${currentPage}, items ${from}-${to}`);
+      if (Object.values(filters).some(v => v)) {
+        console.log('Active filters:', filters);
+      }
 
       const columnMap = {
         graduationYear: 'graduation_year',
@@ -143,12 +145,12 @@ const AlumniDirectory = () => {
           } 
           // Handle batch_year as an exact match if it's a number
           else if (key === 'batchYear' && !isNaN(filters[key])) {
-
+            console.log(`Applying batch_year filter: ${filters[key]}`);
             query = query.eq(columnName, parseInt(filters[key]));
           }
           // Handle company with special case for both current_company and company_name fields
           else if (key === 'company') {
-
+            console.log(`Applying company filter: ${filters[key]}`);
             query = query.or(`current_company.ilike.%${filters[key]}%,company_name.ilike.%${filters[key]}%`);
           }
           else {
@@ -200,6 +202,7 @@ const AlumniDirectory = () => {
         location: profile.location || 'Not specified',
         avatar: profile.avatar_url || '/static/Logo.png',
         skills: profile.skills || [],
+        achievements: profile.achievements || [],
         bio: profile.bio || '',
         verified: profile.is_verified || false,
         role: 'alumni',
@@ -216,7 +219,7 @@ const AlumniDirectory = () => {
       // Log performance metrics
       const endTime = performance.now();
       const queryTime = endTime - startTime;
-
+      console.log(`Alumni query completed in ${queryTime.toFixed(2)}ms, found ${count || 0} results`);
       
     } catch (err) {
       console.error('An unexpected error occurred:', err);
@@ -491,7 +494,7 @@ const AlumniDirectory = () => {
               </Grid>
               <Grid item xs={12} md={4}>
                 <TextField
-                  label="Batch"
+                  label="Batch Year"
                   name="batchYear"
                   value={filters.batchYear}
                   onChange={handleFilterChange}

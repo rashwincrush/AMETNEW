@@ -95,7 +95,7 @@ const JobPostingForm = () => {
     setIsSubmitting(true);
     
     try {
-
+      console.log('Starting job submission process...');
       
       // Format the deadline date as ISO string
       const deadline = formData.applicationDeadline ? 
@@ -135,7 +135,7 @@ const JobPostingForm = () => {
         is_active: true
       };
       
-
+      console.log('Submitting job data to Supabase:', jobData);
       
       const { data, error } = await supabase.from('jobs').insert(jobData);
       

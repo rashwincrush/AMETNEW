@@ -127,7 +127,7 @@ const EventFeedback = () => {
       
       // Always ensure rating is an integer
       const intRating = Math.round(Number(rating));
-
+      console.log('Submitting rating as integer:', intRating);
       
       // Create a feedback object with explicit fields only
       const feedbackData = {

@@ -91,7 +91,7 @@ const ProfileResume = () => {
       };
       
       // Log the structure we're trying to insert
-
+      console.log("Inserting resume data:", resumeData);
 
       const { data: insertData, error: insertError } = await supabase
         .from('user_resumes')

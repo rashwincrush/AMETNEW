@@ -11,7 +11,7 @@ const MentorRegistrationForm = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-
+  const [showExistingMentorModal, setShowExistingMentorModal] = useState(false);
   const [existingMentorStatus, setExistingMentorStatus] = useState(null);
   const modalRef = useRef(null);
   const [currentTag, setCurrentTag] = useState('');
@@ -27,6 +27,23 @@ const MentorRegistrationForm = () => {
   };
 
   const [formData, setFormData] = useState(initialFormData);
+
+  // Close modal when clicking outside of it
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (modalRef.current && !modalRef.current.contains(event.target)) {
+        setShowExistingMentorModal(false);
+      }
+    };
+    if (showExistingMentorModal) {
+      document.addEventListener('mousedown', handleClickOutside);
+    } else {
+      document.removeEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showExistingMentorModal]);
 
   useEffect(() => {
     const fetchUserAndProfile = async () => {
@@ -55,7 +72,7 @@ const MentorRegistrationForm = () => {
         if (mentorProfile) {
           setExistingMentorStatus(mentorProfile.status);
           if (mentorProfile.status === 'approved') {
-            notification.showInfo('You are already a mentor. You can edit your profile below.');
+            setShowExistingMentorModal(true);
           }
           setFormData({
             mentoring_capacity_hours_per_month: mentorProfile.mentoring_capacity_hours_per_month || '',
@@ -66,6 +83,7 @@ const MentorRegistrationForm = () => {
             max_mentees: mentorProfile.max_mentees || '',
             mentoring_experience_description: mentorProfile.mentoring_experience_description || '',
           });
+          notification.showSuccess('Existing mentor profile loaded for editing.');
         }
       } catch (error) {
         notification.showError(`Failed to initialize form: ${error.message}`);
@@ -75,7 +93,7 @@ const MentorRegistrationForm = () => {
       }
     };
     fetchUserAndProfile();
-  }, [navigate]);
+  }, [navigate, notification]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -184,134 +202,147 @@ const MentorRegistrationForm = () => {
   }
 
   return (
-    <div className="bg-gray-50 min-h-screen">
-      <div className="max-w-4xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight sm:text-5xl">Mentor Registration</h1>
-          <p className="mt-4 text-xl text-gray-600">Become a mentor and help shape the next generation of professionals.</p>
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl w-full space-y-8 bg-white p-10 rounded-xl shadow-lg">
+        <div className="text-center">
+          <h2 className="text-3xl font-extrabold text-gray-900">Mentor Registration</h2>
+          <p className="mt-2 text-sm text-gray-600">
+            Become a mentor and help shape the next generation of professionals.
+          </p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-xl p-8">
-          <form onSubmit={handleSubmit} className="space-y-8">
-            {/* Your Commitment Section */}
-            <fieldset>
-              <legend className="text-xl font-semibold text-gray-900">Your Commitment</legend>
-              <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label htmlFor="mentoring_capacity_hours_per_month" className="form-label">Mentoring Capacity (Hours/Month) <span className="text-red-500">*</span></label>
-                  <input type="number" name="mentoring_capacity_hours_per_month" id="mentoring_capacity_hours_per_month" value={formData.mentoring_capacity_hours_per_month} onChange={handleChange} required className="form-input" min="1" placeholder="e.g., 5" />
-                </div>
-                <div>
-                  <label htmlFor="max_mentees" className="form-label">Maximum Number of Mentees <span className="text-red-500">*</span></label>
-                  <input type="number" name="max_mentees" id="max_mentees" value={formData.max_mentees} onChange={handleChange} required className="form-input" min="1" placeholder="e.g., 3" />
-                </div>
-              </div>
-            </fieldset>
-
-            <div className="border-t border-gray-200"></div>
-
-            {/* Your Expertise Section */}
-            <fieldset>
-              <legend className="text-xl font-semibold text-gray-900">Your Expertise</legend>
-              <div className="mt-6">
-                <label htmlFor="expertise" className="form-label">Areas of Expertise <span className="text-red-500">*</span></label>
-                <div className="flex items-center">
-                  <input
-                    type="text"
-                    id="expertise"
-                    value={currentTag}
-                    onChange={handleTagChange}
-                    onKeyDown={handleTagKeyDown}
-                    className="form-input flex-grow"
-                    placeholder="Type an expertise and press Enter..."
-                  />
-                  <button type="button" onClick={addTag} className="ml-3 btn-primary p-3">
-                    <PlusIcon className="h-6 w-6" />
-                  </button>
-                </div>
-                {formData.expertise.length > 0 && (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {formData.expertise.map((tag, index) => (
-                      <span key={index} className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-800 text-sm font-medium rounded-full">
-                        {tag}
-                        <button type="button" onClick={() => removeTag(tag)} className="ml-2 -mr-1 flex-shrink-0 h-4 w-4 rounded-full inline-flex items-center justify-center text-blue-500 hover:bg-blue-200 hover:text-blue-600 focus:outline-none focus:bg-blue-500 focus:text-white">
-                          <span className="sr-only">Remove {tag}</span>
-                          <XMarkIcon className="h-3 w-3" />
-                        </button>
-                      </span>
-                    ))}
+        {showExistingMentorModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 transition-opacity duration-300" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+            <div ref={modalRef} className="bg-white rounded-2xl shadow-2xl transform transition-all sm:max-w-lg sm:w-full p-8">
+              <div className="flex justify-between items-start">
+                <div className="flex items-center gap-4">
+                  <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-green-100 sm:mx-0 sm:h-10 sm:w-10">
+                    <CheckCircleIcon className="h-6 w-6 text-green-600" aria-hidden="true" />
                   </div>
-                )}
+                  <div>
+                    <h3 className="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+                      Welcome Back, Mentor!
+                    </h3>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Your profile status is: <span className={`font-semibold ${existingMentorStatus === 'approved' ? 'text-green-600' : 'text-yellow-600'}`}>{existingMentorStatus}</span>
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => setShowExistingMentorModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <XMarkIcon className="h-6 w-6" />
+                </button>
               </div>
-            </fieldset>
-
-            <div className="border-t border-gray-200"></div>
-
-            {/* Your Story Section */}
-            <fieldset>
-              <legend className="text-xl font-semibold text-gray-900">Your Story</legend>
-              <div className="mt-6 space-y-6">
-                <div>
-                  <label htmlFor="mentoring_experience_years" className="form-label">Years of Mentoring Experience <span className="text-red-500">*</span></label>
-                  <input type="number" name="mentoring_experience_years" id="mentoring_experience_years" value={formData.mentoring_experience_years} onChange={handleChange} required className="form-input" min="0" placeholder="e.g., 10" />
-                </div>
-                <div>
-                  <label htmlFor="mentoring_statement" className="form-label">Brief Mentoring Statement <span className="text-red-500">*</span></label>
-                  <textarea name="mentoring_statement" id="mentoring_statement" rows="4" value={formData.mentoring_statement} onChange={handleChange} required className="form-input" placeholder="What can mentees expect from you? What's your mentoring philosophy?"></textarea>
-                </div>
-                <div>
-                  <label htmlFor="mentoring_experience_description" className="form-label">Describe Your Mentoring Experience (Optional)</label>
-                  <textarea name="mentoring_experience_description" id="mentoring_experience_description" rows="4" value={formData.mentoring_experience_description} onChange={handleChange} className="form-input" placeholder="Briefly describe your past mentoring roles, successes, or what you've learned."></textarea>
-                </div>
+              <div className="mt-4 text-sm text-gray-600">
+                <p>You can edit and update your mentoring profile at any time using the form below.</p>
               </div>
-            </fieldset>
-
-            <div className="border-t border-gray-200"></div>
-
-            {/* Mentoring Preferences Section */}
-            <fieldset>
-              <legend className="text-xl font-semibold text-gray-900">Mentoring Preferences</legend>
-              <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <label htmlFor="communication" className="form-label">Preferred Communication <span className="text-red-500">*</span></label>
-                  <select name="communication" id="communication" value={formData.mentoring_preferences.communication} onChange={handlePreferenceChange} required className="form-input">
-                    <option value="">Select a method</option>
-                    <option value="Email">Email</option>
-                    <option value="Slack/Teams">Slack/Teams</option>
-                    <option value="Video Call">Video Call</option>
-                    <option value="Phone Call">Phone Call</option>
-                    <option value="In-person">In-person</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="format" className="form-label">Preferred Format <span className="text-red-500">*</span></label>
-                  <select name="format" id="format" value={formData.mentoring_preferences.format} onChange={handlePreferenceChange} required className="form-input">
-                    <option value="">Select a format</option>
-                    <option value="1-on-1 Sessions">1-on-1 Sessions</option>
-                    <option value="Group Mentoring">Group Mentoring</option>
-                    <option value="Project Collaboration">Project Collaboration</option>
-                    <option value="Informal Check-ins">Informal Check-ins</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="duration" className="form-label">Preferred Duration <span className="text-red-500">*</span></label>
-                  <select name="duration" id="duration" value={formData.mentoring_preferences.duration} onChange={handlePreferenceChange} required className="form-input">
-                    <option value="">Select a duration</option>
-                    <option value="1-3 Months">1-3 Months</option>
-                    <option value="3-6 Months">3-6 Months</option>
-                    <option value="6-12 Months">6-12 Months</option>
-                    <option value="Ongoing">Ongoing</option>
-                  </select>
-                </div>
+              <div className="mt-6 flex justify-end gap-3">
+                <Link to="/dashboard" className="btn-secondary-outline">Go to Dashboard</Link>
+                <button onClick={() => setShowExistingMentorModal(false)} className="btn-primary">Continue Editing</button>
               </div>
-            </fieldset>
-
-            <div className="pt-8 flex justify-end gap-4">
-              <button type="button" onClick={clearForm} disabled={saving || loading} className="btn-secondary-outline">Clear Form</button>
-              <button type="submit" disabled={saving || loading} className="btn-primary">{saving ? 'Saving...' : 'Save Mentor Profile'}</button>
             </div>
-          </form>
-        </div>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="md:col-span-1">
+              <label htmlFor="mentoring_capacity_hours_per_month" className="form-label">Mentoring Capacity (Hours/Month) <span className="text-red-500">*</span></label>
+              <input type="number" name="mentoring_capacity_hours_per_month" id="mentoring_capacity_hours_per_month" value={formData.mentoring_capacity_hours_per_month} onChange={handleChange} required className="form-input" placeholder="e.g., 5"/>
+            </div>
+            <div className="md:col-span-1">
+              <label htmlFor="max_mentees" className="form-label">Maximum Number of Mentees <span className="text-red-500">*</span></label>
+              <input type="number" name="max_mentees" id="max_mentees" value={formData.max_mentees} onChange={handleChange} required className="form-input" placeholder="e.g., 2"/>
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="expertise_tags" className="form-label">Areas of Expertise <span className="text-red-500">*</span></label>
+            <div className="flex items-center gap-2 mt-1">
+              <input
+                type="text"
+                id="expertise_tags"
+                value={currentTag}
+                onChange={handleTagChange}
+                onKeyDown={handleTagKeyDown}
+                className="form-input flex-grow"
+                placeholder="Type a skill and press Enter"
+              />
+              <button type="button" onClick={addTag} className="btn-secondary p-2.5">
+                <PlusIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {formData.expertise.map((tag, index) => (
+                <span key={index} className="flex items-center gap-2 bg-indigo-100 text-indigo-800 text-sm font-medium px-3 py-1 rounded-full">
+                  {tag}
+                  <button type="button" onClick={() => removeTag(tag)} className="text-indigo-500 hover:text-indigo-700">
+                    <XMarkIcon className="h-4 w-4" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            {formData.expertise.length === 0 && (
+              <p className="text-xs text-gray-500 mt-2">Please add at least one area of expertise.</p>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor="mentoring_experience_years" className="form-label">Years of Mentoring Experience <span className="text-red-500">*</span></label>
+            <input type="number" name="mentoring_experience_years" id="mentoring_experience_years" value={formData.mentoring_experience_years} onChange={handleChange} required className="form-input" placeholder="e.g., 3"/>
+          </div>
+
+          <div>
+            <label htmlFor="mentoring_statement" className="form-label">Brief Mentoring Statement <span className="text-red-500">*</span></label>
+            <textarea name="mentoring_statement" id="mentoring_statement" rows="4" value={formData.mentoring_statement} onChange={handleChange} required className="form-input" placeholder="What can mentees expect from you?"></textarea>
+          </div>
+
+          <div>
+            <label htmlFor="mentoring_experience_description" className="form-label">Describe Your Mentoring Experience (Optional)</label>
+            <textarea name="mentoring_experience_description" id="mentoring_experience_description" rows="4" value={formData.mentoring_experience_description} onChange={handleChange} className="form-input" placeholder="Briefly describe your past mentoring roles..."></textarea>
+          </div>
+
+          <fieldset className="border border-gray-300 p-4 rounded-md">
+            <legend className="text-base font-medium text-gray-900 px-2">Mentoring Preferences</legend>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+              <div>
+                <label htmlFor="communication" className="form-label">Preferred Communication <span className="text-red-500">*</span></label>
+                <select name="communication" id="communication" value={formData.mentoring_preferences.communication} onChange={handlePreferenceChange} required className="form-input">
+                  <option value="">Select a method</option>
+                  <option value="Email">Email</option>
+                  <option value="Slack/Teams">Slack/Teams</option>
+                  <option value="Video Call">Video Call</option>
+                  <option value="Phone Call">Phone Call</option>
+                  <option value="In-person">In-person</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="format" className="form-label">Preferred Format <span className="text-red-500">*</span></label>
+                <select name="format" id="format" value={formData.mentoring_preferences.format} onChange={handlePreferenceChange} required className="form-input">
+                  <option value="">Select a format</option>
+                  <option value="1-on-1 Sessions">1-on-1 Sessions</option>
+                  <option value="Group Mentoring">Group Mentoring</option>
+                  <option value="Project Collaboration">Project Collaboration</option>
+                  <option value="Informal Check-ins">Informal Check-ins</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="duration" className="form-label">Preferred Duration <span className="text-red-500">*</span></label>
+                <select name="duration" id="duration" value={formData.mentoring_preferences.duration} onChange={handlePreferenceChange} required className="form-input">
+                  <option value="">Select a duration</option>
+                  <option value="1-3 Months">1-3 Months</option>
+                  <option value="3-6 Months">3-6 Months</option>
+                  <option value="6-12 Months">6-12 Months</option>
+                  <option value="Ongoing">Ongoing</option>
+                </select>
+              </div>
+            </div>
+          </fieldset>
+
+          <div className="pt-6 border-t border-gray-200 flex flex-col md:flex-row md:justify-between gap-3">
+            <button type="button" onClick={clearForm} disabled={saving || loading} className="btn-secondary-outline">Clear Form</button>
+            <button type="submit" disabled={saving || loading} className="btn-primary">{saving ? 'Saving...' : 'Save Mentor Profile'}</button>
+          </div>
+        </form>
       </div>
     </div>
   );

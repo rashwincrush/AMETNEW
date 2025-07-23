@@ -22,7 +22,9 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { TimePicker } from '@mui/x-date-pickers/TimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { format, parseISO } from 'date-fns';
+import { parseISO } from 'date-fns';
+import { formatInIST, mergeAndConvertToUTC, convertToUTCFromIST, displayIST } from '../../utils/timezone';
+import { format } from 'date-fns';
 import { useAuth } from '../../contexts/AuthContext';
 import LoadingSpinner from '../common/LoadingSpinner';
 
@@ -79,14 +81,12 @@ const EditEventForm = () => {
         if (!data) throw new Error('Event not found');
 
         // Convert string dates to Date objects
-        const formattedData = {
+        setFormData({
           ...data,
-          start_date: new Date(data.start_date),
-          end_date: new Date(data.end_date),
-          registration_deadline: data.registration_deadline ? new Date(data.registration_deadline) : null
-        };
-
-        setFormData(formattedData);
+          start_date: parseISO(data.start_date),
+          end_date: parseISO(data.end_date),
+          registration_deadline: data.registration_deadline ? parseISO(data.registration_deadline) : null
+        });
       } catch (err) {
         console.error('Error fetching event:', err);
         setError(err.message || 'Failed to load event');
@@ -120,18 +120,31 @@ const EditEventForm = () => {
     setSuccess('');
 
     try {
-      // Format dates for Supabase
-      const eventData = {
-        ...formData,
-        start_date: formData.start_date.toISOString(),
-        end_date: formData.end_date.toISOString(),
-        registration_deadline: formData.registration_deadline ? formData.registration_deadline.toISOString() : null,
-        updated_at: new Date().toISOString()
-      };
+      // Use mergeAndConvertToUTC directly with Date objects
+      // Since we're using DatePicker and TimePicker on the same field,
+      // formData.start_date already includes both date and time
+      const startUtc = mergeAndConvertToUTC(formData.start_date, formData.start_date);
+      const endUtc = mergeAndConvertToUTC(formData.end_date, formData.end_date);
+      const registrationDeadlineUTC = formData.registration_deadline ? 
+        mergeAndConvertToUTC(formData.registration_deadline, formData.registration_deadline) : null;
 
       const { error: updateError } = await supabase
         .from('events')
-        .update(eventData)
+        .update({
+          title: formData.title,
+          description: formData.description, // Save description as-is without any concatenation
+          event_type: formData.event_type,
+          start_date: startUtc,
+          end_date: endUtc,
+          location: formData.location,
+          max_attendees: formData.max_attendees,
+          is_public: formData.is_public,
+          registration_required: formData.registration_required,
+          registration_deadline: registrationDeadlineUTC,
+          additional_info: formData.additional_info,
+          featured_image_url: formData.featured_image_url,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', id);
 
       if (updateError) throw updateError;

@@ -130,10 +130,9 @@ const ContentApproval = () => {
     switch (content_type) {
       case 'job':
       case 'event':
-      {
         // For jobs and events, we might just delete them or mark as rejected
         // For now, let's delete them as an example of a different workflow
-        const tableName = content_type === 'job' ? 'jobs' : 'events';
+        tableName = content_type === 'job' ? 'jobs' : 'events';
         const { error } = await supabase.from(tableName).delete().eq('id', id);
         if (error) {
             toast.error(`Failed to delete ${content_type}: ${error.message}`);
@@ -141,17 +140,14 @@ const ContentApproval = () => {
         }
         toast.success(`${item.type} rejected and removed.`);
         break;
-      }
       default:
-      {
-        const tableName = 'content_approvals';
-        const updateData = { status: 'rejected', reviewer_id: profile?.id, reviewed_at: new Date().toISOString(), rejection_reason: reason };
+        tableName = 'content_approvals';
+        updateData = { status: 'rejected', reviewer_id: profile?.id, reviewed_at: new Date().toISOString(), rejection_reason: reason };
         const { error: defaultError } = await supabase.from(tableName).update(updateData).eq('id', id);
         if (defaultError) {
             toast.error(`Failed to reject ${content_type}: ${defaultError.message}`);
             return;
         }
-      }
         toast.success(`${item.type} rejected.`);
     }
 

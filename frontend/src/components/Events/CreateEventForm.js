@@ -22,7 +22,8 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { TimePicker } from '@mui/x-date-pickers/TimePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { format, parseISO } from 'date-fns';
+import { parseISO } from 'date-fns';
+import { mergeAndConvertToUTC } from '../../utils/timezone';
 
 const CreateEventForm = () => {
   const navigate = useNavigate();
@@ -34,14 +35,27 @@ const CreateEventForm = () => {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
+    short_description: '',
+    organizer_name: '',
+    organizer_email: '',
+    organizer_phone: '',
+    category: '',
     event_type: 'workshop',
-    start_date: new Date(),
-    end_date: new Date(new Date().setHours(new Date().getHours() + 2)),
+    tags: [],
+    venue_name: '',
+    address: '',
     location: '',
+    is_virtual: false,
+    virtual_link: '',
+    start_date: new Date(),
+    start_time: new Date(),
+    end_date: new Date(new Date().setDate(new Date().getDate() + 1)),
+    end_time: new Date(new Date().setHours(new Date().getHours() + 2)),
     max_attendees: 100,
     is_public: true,
     registration_required: true,
     registration_deadline: new Date(new Date().setDate(new Date().getDate() + 7)),
+    cover_image_url: '',
   });
 
   const eventTypes = [
@@ -56,10 +70,14 @@ const CreateEventForm = () => {
 
   const handleChange = (e) => {
     const { name, value, checked, type } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
+    if (name === 'tags') {
+      setFormData(prev => ({ ...prev, tags: value.split(',').map(tag => tag.trim()) }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: type === 'checkbox' ? checked : value
+      }));
+    }
   };
 
   const handleDateChange = (name) => (date) => {
@@ -76,18 +94,36 @@ const CreateEventForm = () => {
     setSuccess('');
 
     try {
-      // Format dates for Supabase
+      const user = (await supabase.auth.getUser()).data.user;
+      if (!user) throw new Error('You must be logged in to create an event.');
+
+      // Use the timezone utility to merge date/time and convert to UTC
+      const startDateUTC = mergeAndConvertToUTC(formData.start_date, formData.start_time);
+      const endDateUTC = mergeAndConvertToUTC(formData.end_date, formData.end_time);
+      // Registration deadline only has a date part, so we pass it for both arguments to set time to midnight.
+      const registrationDeadlineUTC = formData.registration_deadline ? mergeAndConvertToUTC(formData.registration_deadline, new Date(0)) : null;
+
       const eventData = {
         ...formData,
-        start_date: formData.start_date.toISOString(),
-        end_date: formData.end_date.toISOString(),
-        registration_deadline: formData.registration_deadline.toISOString(),
-        created_by: (await supabase.auth.getUser()).data.user.id
+        start_date: startDateUTC,
+        end_date: endDateUTC,
+        registration_deadline: registrationDeadlineUTC,
+        organizer_id: user.id,
+        tags: Array.isArray(formData.tags) ? formData.tags : formData.tags.split(',').map(t => t.trim()),
       };
+
+      // Remove frontend-only state properties that are not in the DB schema
+      delete eventData.start_time;
+      delete eventData.end_time;
+      delete eventData.location;
+      delete eventData.created_by;
+
+      const finalEventData = eventData;
 
       const { data, error: insertError } = await supabase
         .from('events')
-        .insert([eventData])
+        .insert([finalEventData])
+
         .select()
         .single();
 
@@ -138,6 +174,86 @@ const CreateEventForm = () => {
               />
             </Grid>
 
+            <Grid item xs={12}>
+              <Typography variant="subtitle1" sx={{ mt: 2, mb: 1 }}>Organizer Information</Typography>
+            </Grid>
+
+            <Grid item xs={12} md={4}>
+              <TextField
+                required
+                fullWidth
+                label="Organizer Name"
+                name="organizer_name"
+                value={formData.organizer_name}
+                onChange={handleChange}
+                variant="outlined"
+              />
+            </Grid>
+
+            <Grid item xs={12} md={4}>
+              <TextField
+                required
+                fullWidth
+                label="Organizer Email"
+                name="organizer_email"
+                type="email"
+                value={formData.organizer_email}
+                onChange={handleChange}
+                variant="outlined"
+              />
+            </Grid>
+
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Organizer Phone"
+                name="organizer_phone"
+                value={formData.organizer_phone}
+                onChange={handleChange}
+                variant="outlined"
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <Typography variant="subtitle1" sx={{ mt: 2, mb: 1 }}>Event Details</Typography>
+            </Grid>
+
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Short Description"
+                name="short_description"
+                value={formData.short_description}
+                onChange={handleChange}
+                variant="outlined"
+                helperText="A brief, catchy summary for event listings."
+              />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Category"
+                name="category"
+                value={formData.category}
+                onChange={handleChange}
+                variant="outlined"
+                helperText="e.g., Technology, Healthcare, Arts"
+              />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Tags"
+                name="tags"
+                value={formData.tags.join(', ')}
+                onChange={handleChange}
+                variant="outlined"
+                helperText="Comma-separated keywords, e.g., AI, Startups, Design"
+              />
+            </Grid>
+
             <Grid item xs={12} md={6}>
               <FormControl fullWidth required>
                 <InputLabel>Event Type</InputLabel>
@@ -158,16 +274,54 @@ const CreateEventForm = () => {
 
             <Grid item xs={12} md={6}>
               <TextField
-                required
                 fullWidth
-                label="Location"
-                name="location"
-                value={formData.location}
+                label="Venue Name"
+                name="venue_name"
+                value={formData.venue_name}
                 onChange={handleChange}
                 variant="outlined"
-                placeholder="Physical location or online meeting link"
+                placeholder="e.g., Grand Hyatt Hotel"
               />
             </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                label="Address"
+                name="address"
+                value={formData.address}
+                onChange={handleChange}
+                variant="outlined"
+                placeholder="Street, City, State, Zip Code"
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={formData.is_virtual}
+                    onChange={handleChange}
+                    name="is_virtual"
+                  />
+                }
+                label="This is a virtual event"
+              />
+            </Grid>
+
+            {formData.is_virtual && (
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Virtual Link"
+                  name="virtual_link"
+                  value={formData.virtual_link}
+                  onChange={handleChange}
+                  variant="outlined"
+                  placeholder="e.g., Zoom, Google Meet link"
+                />
+              </Grid>
+            )}
 
             <Grid item xs={12} md={6}>
               <DatePicker
@@ -252,6 +406,18 @@ const CreateEventForm = () => {
                   />
                 }
                 label="Requires Registration"
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Cover Image URL"
+                name="cover_image_url"
+                value={formData.cover_image_url}
+                onChange={handleChange}
+                variant="outlined"
+                helperText="URL for the main event image."
               />
             </Grid>
 

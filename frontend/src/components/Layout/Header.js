@@ -66,7 +66,7 @@ const Header = ({ user }) => {
         navigate(`/mentorship`);
         break;
       default:
-
+        console.log('Unknown notification type');
     }
   };
   

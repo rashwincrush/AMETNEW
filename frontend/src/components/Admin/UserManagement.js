@@ -145,7 +145,7 @@ const UserManagement = () => {
           toast.error(`Failed to verify user: ${error.message}`);
         }
         break;
-      case 'reject': {
+      case 'reject':
         if (user.alumni_verification_status !== 'pending') return;
         const reason = prompt(`Provide a reason for rejecting ${user.full_name || user.email}:`);
         if (reason) {
@@ -162,11 +162,10 @@ const UserManagement = () => {
           }
         }
         break;
-      }
       case 'delete':
         if (window.confirm(`Are you sure you want to delete ${user.full_name || user.email}? This action is irreversible.`)) {
           toast.error('User deletion from the client is not secure. This requires a backend function.');
-
+          console.log(`Attempted to delete user: ${userId}`);
         }
         break;
       default:
@@ -192,7 +191,7 @@ const UserManagement = () => {
   };
 
   const handleBulkAction = (action) => {
-
+    console.log(`Bulk Action: ${action}, Selected Users:`, selectedUsers);
     toast.success(`Bulk action ${action} will be implemented soon!`);
   };
 

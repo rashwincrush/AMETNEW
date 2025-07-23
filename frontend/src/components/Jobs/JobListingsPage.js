@@ -284,10 +284,10 @@ const JobListingsPage = () => {
   const fetchJobs = useCallback(async () => {
     setLoading(true);
     try {
-
-
-
-
+      console.log('Fetching jobs with filters:', filters);
+      console.log('Search query:', searchQuery);
+      console.log('Sort by:', sortBy);
+      console.log('Page:', currentPage, 'of size', pageSize);
       
       // Start building query
       let query = supabase
@@ -362,7 +362,7 @@ const JobListingsPage = () => {
         throw error;
       }
 
-
+      console.log(`Found ${totalJobs} total jobs, displaying ${data?.length || 0}`);
       setJobs(data || []);
       setTotalJobs(count || 0);
       setTotalPages(Math.ceil((count || 0) / pageSize));
@@ -471,7 +471,7 @@ const JobListingsPage = () => {
             <BellIcon className="w-4 h-4 mr-2" />
             My Job Alerts
           </Link>
-          <Link to="/jobs/post/select" className="btn-primary text-sm">
+          <Link to="/jobs/post" className="btn-primary text-sm">
             <PlusIcon className="w-4 h-4 mr-2" />
             Post a Job
           </Link>
