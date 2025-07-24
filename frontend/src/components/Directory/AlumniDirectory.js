@@ -202,7 +202,6 @@ const AlumniDirectory = () => {
         location: profile.location || 'Not specified',
         avatar: profile.avatar_url || '/static/Logo.png',
         skills: profile.skills || [],
-        achievements: profile.achievements || [],
         bio: profile.bio || '',
         verified: profile.is_verified || false,
         role: 'alumni',

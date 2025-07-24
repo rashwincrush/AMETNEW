@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Link } from 'react-router-dom';
-import { Container, Typography, Paper, Button, Grid } from '@mui/material';
+import { Container, Typography, Paper, Button, Grid, Box } from '@mui/material';
 
 const MentorshipDashboard = () => {
   const { user, profile, getUserRole } = useAuth();
