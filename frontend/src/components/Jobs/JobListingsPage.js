@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   MagnifyingGlassIcon,
@@ -13,13 +13,18 @@ import {
   BookmarkIcon,
   ShareIcon,
   PlusIcon,
-  BellIcon
+  BellIcon,
+  UsersIcon,
+  DocumentTextIcon
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { useNotification } from '../common/NotificationCenter';
 import SocialShareButtons from '../common/SocialShareButtons';
+import BookmarkButton from './BookmarkButton';
+
+
 
 // Define the filterOptions outside of the component to prevent re-creating on each render
 const filterOptions = {
@@ -72,10 +77,10 @@ const filterOptions = {
 };
 
 // Job card component for grid view
-const JobCard = ({ job, handleBookmark, isBookmarked }) => {
+const JobCard = ({ job, handleBookmark, isBookmarked, isPinned }) => {
+  console.log('JobCard received job:', job);
   const [showShare, setShowShare] = useState(false);
   if (!job) return null;
-
 
   const formatSalary = (min, max) => {
     if (!min && !max) return 'Not specified';
@@ -85,16 +90,21 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   };
 
   return (
-    <div className="glass-card rounded-lg p-6 hover:shadow-lg transition-shadow">
+    <div className={`glass-card rounded-lg p-6 hover:shadow-lg transition-shadow border ${isPinned ? 'border-ocean-500' : 'border-transparent'}`}>
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center">
           <img 
-            src={job.companies?.logo_url || '/placeholder-logo.png'} 
+            src={job.companies?.logo_url || '/logo.png'} 
             alt={job.companies?.name || 'Company'}
             className="w-12 h-12 rounded-lg object-cover mr-4"
           />
           <div>
-            <h3 className="font-semibold text-gray-900">{job.title}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-gray-900">{job.title}</h3>
+              {isPinned && (
+                  <div className="bg-ocean-100 text-ocean-800 text-xs font-semibold px-2 py-0.5 rounded-full">Pinned</div>
+              )}
+            </div>
             <p className="text-ocean-600 font-medium">{job.companies?.name || job.company_name}</p>
           </div>
         </div>
@@ -109,12 +119,11 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
               </div>
             )}
           </div>
-          <button
-            onClick={() => handleBookmark(job.id)}
-            className="p-2 rounded-full hover:bg-gray-100"
-          >
-            <BookmarkIcon className={`w-5 h-5 ${isBookmarked ? 'text-ocean-500 fill-ocean-500' : 'text-ocean-500'}`} />
-          </button>
+          <BookmarkButton
+            jobId={job.id}
+            isBookmarked={isBookmarked}
+            handleBookmark={handleBookmark}
+          />
         </div>
       </div>
       
@@ -152,7 +161,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
       
       <div className="flex justify-between items-center">
         <span className="text-sm text-gray-500">
-          {job.applicants || 0} applicants
+          {job.applicant_count || (job.applicants && Array.isArray(job.applicants) && job.applicants.length > 0 ? job.applicants[0].count : 0)} applicants
         </span>
         <div className="space-x-2">
           <Link 
@@ -174,9 +183,11 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
 };
 
 // Job list item component for list view
-const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
+const JobListItem = ({ job, handleBookmark, isBookmarked, isPinned }) => {
+  console.log('JobListItem received job:', job);
   const [showShare, setShowShare] = useState(false);
   if (!job) return null;
+
   const formatSalary = (min, max) => {
     if (!min && !max) return 'Not specified';
     if (min && !max) return `From ${min / 100000}L`;
@@ -201,19 +212,26 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
   }
 
   return (
-    <div className="glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4">
+    <div className={`glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border ${isPinned ? 'border-ocean-500' : 'border-transparent'}`}>
       <img 
-        src={job.companies?.logo_url || '/placeholder-logo.png'} 
+        src={job.companies?.logo_url || '/logo.png'} 
         alt={job.companies?.name || 'Company'}
         className="w-16 h-16 rounded-lg object-cover"
       />
       <div className="flex-1">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900">{job.title}</h3>
-          <span className="text-xs text-gray-500">{timeAgo(job.created_at)}</span>
+            <div className="flex items-center space-x-3">
+                <Link to={`/jobs/${job.id}`} className="text-lg font-bold text-gray-900 hover:text-ocean-600 transition-colors duration-200">
+                    {job.title}
+                </Link>
+                {isPinned && (
+                    <div className="bg-ocean-100 text-ocean-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">Pinned</div>
+                )}
+            </div>
+            <span className="text-xs text-gray-500">{timeAgo(job.created_at)}</span>
         </div>
         <p className="text-ocean-600 font-medium mb-2">{job.companies?.name || job.company_name}</p>
-        <p className="text-gray-600 text-sm mt-2 line-clamp-2">{job.description ? `${job.description.slice(0, 150)}...` : 'No description provided.'}</p>
+        <p className="text-gray-600 text-sm mt-2 mb-3 line-clamp-2">{job.description ? `${job.description.slice(0, 150)}...` : 'No description provided.'}</p>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
           <div className="flex items-center">
             <MapPinIcon className="w-4 h-4 mr-1" />
@@ -226,6 +244,10 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
           <div className="flex items-center">
             <CurrencyRupeeIcon className="w-4 h-4 mr-1" />
             <span>{formatSalary(job.salary_min, job.salary_max)}</span>
+          </div>
+          <div className="flex items-center">
+            <UsersIcon className="w-4 h-4 mr-1" />
+            <span>{job.applicants && Array.isArray(job.applicants) && job.applicants.length > 0 ? job.applicants[0].count : 0} applicants</span>
           </div>
         </div>
       </div>
@@ -241,12 +263,11 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
               </div>
             )}
           </div>
-          <button
-            onClick={() => handleBookmark(job.id)}
-            className="p-2 rounded-full hover:bg-gray-100"
-          >
-            <BookmarkIcon className={`w-5 h-5 ${isBookmarked ? 'text-ocean-500 fill-ocean-500' : 'text-ocean-500'}`} />
-          </button>
+          <BookmarkButton
+            jobId={job.id}
+            isBookmarked={isBookmarked}
+            handleBookmark={handleBookmark}
+          />
         </div>
         <Link to={`/jobs/${job.id}`} className="btn-ocean-outline px-4 py-2 rounded-lg text-sm mt-4">
           View Details
@@ -280,134 +301,77 @@ const JobListingsPage = () => {
   const [totalPages, setTotalPages] = useState(0);
   const [sortBy, setSortBy] = useState('created_at,desc');
   const [bookmarkedJobs, setBookmarkedJobs] = useState([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const fetchController = useRef(null);
+  const initialFetchDone = useRef(false);
 
-  const fetchJobs = useCallback(async () => {
+    const fetchJobs = useCallback(async () => {
+    if (fetchController.current) {
+      fetchController.current.abort();
+    }
+    fetchController.current = new AbortController();
+    const { signal } = fetchController.current;
+
     setLoading(true);
-    try {
-      console.log('Fetching jobs with filters:', filters);
-      console.log('Search query:', searchQuery);
-      console.log('Sort by:', sortBy);
-      console.log('Page:', currentPage, 'of size', pageSize);
-      
-      // Start building query
-      let query = supabase
-        .from('jobs')
-        .select('*, companies(*)', { count: 'exact' });
+    console.log('Fetching jobs with filters:', { searchQuery, sortBy, currentPage });
 
-      // Apply search query if present
-      if (searchQuery) {
-        query = query.or(`title.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%,company_name.ilike.%${searchQuery}%,required_skills.ilike.%${searchQuery}%`);
-      }
+    const [sortField, sortOrder] = sortBy.split(',');
 
-      // Apply filters
-      if (filters.jobType !== 'all') {
-        query = query.eq('job_type', filters.jobType);
-      }
-      
-      if (filters.location !== 'all') {
-        if (filters.location === 'remote') {
-          // Special case for remote jobs that might be indicated in different ways
-          query = query.or('location.ilike.%remote%,location.ilike.%anywhere%,remote.eq.true');
-        } else {
-          query = query.ilike('location', `%${filters.location}%`);
-        }
-      }
-      
-      if (filters.experience !== 'all') {
-        query = query.eq('experience_level', filters.experience);
-      }
-      
-      if (filters.industry !== 'all') {
-        query = query.or(`industry.ilike.%${filters.industry}%,required_skills.ilike.%${filters.industry}%`);
-      }
-      
-      if (filters.salaryRange !== 'all') {
-        const [min, max] = filters.salaryRange.split('-');
-        if (min && max) {
-          query = query.gte('salary_min', parseInt(min)).lte('salary_max', parseInt(max));
-        } else if (min) {
-          query = query.gte('salary_min', parseInt(min));
-        } else if (max) {
-          query = query.lte('salary_max', parseInt(max));
-        }
-      }
-      
-      if (filters.postedWithin !== 'all') {
-        const daysAgo = new Date();
-        daysAgo.setDate(daysAgo.getDate() - parseInt(filters.postedWithin));
-        query = query.gte('created_at', daysAgo.toISOString());
-      }
+    const { data, error } = await supabase.rpc('get_jobs_with_bookmarks', {
+      p_search_query: searchQuery,
+      p_sort_by: sortField,
+      p_sort_order: sortOrder,
+      p_limit: pageSize,
+      p_offset: (currentPage - 1) * pageSize
+    });
 
-      // Apply sorting
-      const [sortField, sortDirection] = sortBy.split(',');
-      query = query.order(sortField, { ascending: sortDirection === 'asc' });
-
-      // Get count before pagination
-      const { count, error: countError } = await query;
-      
-      if (countError) {
-        console.error('Error counting jobs:', countError);
-        throw countError;
-      }
-
-      // Pagination
-      const from = (currentPage - 1) * pageSize;
-      const to = from + pageSize - 1;
-      
-      // Fetch paginated results
-      const { data, error } = await query.range(from, to);
-
-      if (error) {
-        console.error('Error fetching jobs:', error);
-        throw error;
-      }
-
-      console.log(`Found ${totalJobs} total jobs, displaying ${data?.length || 0}`);
-      setJobs(data || []);
-      setTotalJobs(count || 0);
-      setTotalPages(Math.ceil((count || 0) / pageSize));
-    } catch (error) {
-      console.error('Error fetching jobs:', error);
-      notification.showError(`Failed to load jobs: ${error.message}`);
-    } finally {
-      setLoading(false);
+    if (error) {
+      console.error('Error fetching jobs via RPC:', error);
+      toast.error('Failed to fetch jobs.');
+      setJobs([]);
+      setTotalJobs(0);
+    } else {
+      console.log('Jobs fetched successfully:', data);
+      const fetchedJobs = data.map(j => ({ ...j, companies: { name: j.company_name, logo_url: j.company_logo_url } }));
+      const uniqueJobs = Array.from(new Map(fetchedJobs.map(job => [job.id, job])).values());
+      setJobs(uniqueJobs);
+      setTotalJobs(data[0]?.total_count || 0);
+      // Also update bookmarked jobs state from the fetched data
+      const newBookmarkedJobs = data.filter(j => j.is_bookmarked).map(j => j.id);
+      setBookmarkedJobs(newBookmarkedJobs);
     }
-  }, [searchQuery, filters, sortBy, currentPage, pageSize, notification, totalJobs]);
 
-  const fetchBookmarkedJobs = useCallback(async () => {
-    if (!user) return;
-    try {
-      // Check if job_bookmarks table exists first
-      const { data, error } = await supabase
-        .from('job_bookmarks')
-        .select('job_id')
-        .eq('user_id', user.id);
-      
-      if (error) {
-        // If the table doesn't exist, just set an empty array
-        if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
-          console.warn('Job bookmarks table does not exist yet. This is normal if the feature is not implemented.');
-          setBookmarkedJobs([]);
-          return;
-        }
-        throw error;
-      }
-      
-      setBookmarkedJobs(data.map(b => b.job_id));
-    } catch (error) {
-      console.error('Error fetching bookmarked jobs:', error);
-      // Set empty array as fallback
-      setBookmarkedJobs([]);
-    }
-  }, [user]);
+    setLoading(false);
+  }, [searchQuery, sortBy, currentPage, user, supabase, pageSize]);
 
   useEffect(() => {
-    fetchJobs();
+    if (initialFetchDone.current) {
+      fetchJobs();
+    } else {
+      initialFetchDone.current = true;
+      fetchJobs();
+    }
+
+    const channel = supabase
+      .channel('job-applications-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'job_applications' }, (payload) => {
+        console.log('New application detected, refetching jobs:', payload);
+        toast.success('A new application was submitted. Refreshing list...');
+        fetchJobs();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [fetchJobs]);
 
-  useEffect(() => {
-    fetchBookmarkedJobs();
-  }, [fetchBookmarkedJobs, user]);
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchJobs();
+    setIsRefreshing(false);
+    toast.success('Job listings have been updated!');
+  };
 
   const handleBookmark = async (jobId) => {
     if (!user) {
@@ -416,31 +380,46 @@ const JobListingsPage = () => {
     }
 
     try {
-      if (bookmarkedJobs.includes(jobId)) {
-        // Remove bookmark
+      const isBookmarked = bookmarkedJobs.includes(jobId);
+
+      if (isBookmarked) {
+        // Always allow un-bookmarking
         const { error } = await supabase
           .from('job_bookmarks')
           .delete()
           .match({ user_id: user.id, job_id: jobId });
 
         if (error) throw error;
-
-        setBookmarkedJobs(prev => prev.filter(id => id !== jobId));
         toast.success('Bookmark removed');
       } else {
-        // Add bookmark
+        // Check limit before adding a new bookmark
+        if (bookmarkedJobs.length >= 3) {
+          toast.error('You can only bookmark up to 3 jobs.');
+          return;
+        }
+
         const { error } = await supabase
           .from('job_bookmarks')
           .insert({ user_id: user.id, job_id: jobId });
 
-        if (error) throw error;
-
-        setBookmarkedJobs(prev => [...prev, jobId]);
-        toast.success('Job bookmarked!');
+        if (error) {
+            // Handle the case where the DB trigger prevents insertion
+            if (error.message.includes('Users can only bookmark up to 3 jobs')) {
+                toast.error('You can only bookmark up to 3 jobs.');
+            } else {
+                throw error;
+            }
+        } else {
+            toast.success('Job bookmarked and pinned to top!');
+        }
       }
+
+      // Refresh the job list to show the new pinned order and state
+      fetchJobs();
+
     } catch (error) {
       console.error('Error bookmarking job:', error);
-      notification.showError('Failed to update bookmark.');
+      notification.showError(`Failed to update bookmark: ${error.message}`);
     }
   };
 
@@ -466,7 +445,12 @@ const JobListingsPage = () => {
           <h1 className="text-3xl font-bold text-gray-900">Job Portal</h1>
           <p className="text-gray-600 mt-1">Showing {jobs.length} of {totalJobs} jobs</p>
         </div>
-        <div className="flex items-center space-x-4 mt-4 md:mt-0">
+        <div className="flex items-center space-x-2 md:space-x-4 mt-4 md:mt-0 flex-wrap">
+
+          <Link to="/jobs/applications" className="btn-secondary-outline text-sm">
+            <DocumentTextIcon className="w-4 h-4 mr-2" />
+            My Applications
+          </Link>
           <Link to="/jobs/alerts" className="btn-secondary-outline text-sm">
             <BellIcon className="w-4 h-4 mr-2" />
             My Job Alerts
@@ -536,6 +520,16 @@ const JobListingsPage = () => {
           >
             <ListBulletIcon className="w-5 h-5" />
           </button>
+          <button 
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className={`px-3 py-1 rounded-md text-sm ${isRefreshing ? 'opacity-50 cursor-not-allowed' : 'text-gray-600 hover:bg-white hover:shadow'}`}
+            title="Refresh job listings"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.664 0M2.985 19.644L6.166 16.46m11.668-11.668h-4.992v.001M21.015 4.356v4.992m0 0h-4.992m4.992 0l-3.181-3.183a8.25 8.25 0 00-11.664 0M21.015 4.356L17.834 7.54z" />
+            </svg>
+          </button>
         </div>
         <select 
           value={sortBy}
@@ -560,11 +554,25 @@ const JobListingsPage = () => {
           ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6'
           : 'space-y-4'
         }>
-          {jobs.map((job) => 
-            viewMode === 'grid' 
-              ? <JobCard key={job.id} job={job} handleBookmark={handleBookmark} isBookmarked={bookmarkedJobs.includes(job.id)} />
-              : <JobListItem key={job.id} job={job} handleBookmark={handleBookmark} isBookmarked={bookmarkedJobs.includes(job.id)} />
-          )}
+          {jobs.map((job) => (
+            viewMode === 'grid' ? (
+              <JobCard 
+                key={job.id} 
+                job={job} 
+                handleBookmark={handleBookmark} 
+                isBookmarked={bookmarkedJobs.includes(job.id)} 
+                isPinned={bookmarkedJobs.includes(job.id)}
+              />
+            ) : (
+              <JobListItem 
+                key={job.id} 
+                job={job} 
+                handleBookmark={handleBookmark} 
+                isBookmarked={bookmarkedJobs.includes(job.id)} 
+                isPinned={bookmarkedJobs.includes(job.id)}
+              />
+            )
+          ))}
         </div>
       ) : (
         <div className="text-center py-10 glass-card rounded-lg p-6 shadow-md">
@@ -648,4 +656,5 @@ const JobListingsPage = () => {
   );
 };
 
+export { JobCard };
 export default JobListingsPage;

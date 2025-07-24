@@ -1,135 +1,68 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
-import { 
-  BriefcaseIcon,
-  BuildingOfficeIcon,
-  MapPinIcon,
-  CurrencyRupeeIcon,
-  ClockIcon,
-  UserGroupIcon,
-  DocumentTextIcon,
-  PhotoIcon,
-  ExclamationTriangleIcon,
-  CheckCircleIcon
-} from '@heroicons/react/24/outline';
+import {
+  Box,
+  Stepper,
+  Step,
+  StepLabel,
+  Button,
+  Typography,
+  Paper,
+  Grid,
+  TextField,
+  MenuItem,
+  CircularProgress,
+  Card,
+  CardContent,
+  Chip,
+  Avatar,
+  Divider
+} from '@mui/material';
+import {
+  Work as WorkIcon,
+  Description as DescriptionIcon,
+  Business as BusinessIcon,
+  LocationOn as LocationIcon,
+  AttachMoney as SalaryIcon
+} from '@mui/icons-material';
+
+const steps = ['Basic Information', 'Job Details', 'Company & Contact'];
 
 const PostJob = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [activeStep, setActiveStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [currentStep, setCurrentStep] = useState(1);
+  const [errors, setErrors] = useState({});
+  const [logoFile, setLogoFile] = useState(null);
+  const [logoPreview, setLogoPreview] = useState('');
+  // Removed companies state since we're using text input
+  // Add selection mode state
+  const [showSelectionScreen, setShowSelectionScreen] = useState(true);
+  const [postingType, setPostingType] = useState(null); // 'link' or 'form'
+
   const [formData, setFormData] = useState({
-    // Basic Information
+    company_name: '', // Changed from company_id to company_name
     title: '',
-    department: '',
-    jobType: 'full-time',
     location: '',
-    workArrangement: 'office',
-    remoteOptions: '',
-    
-    // Job Details
+    job_type: 'Full-time',
     description: '',
-    responsibilities: [''],
-    requirements: [''],
-    preferredQualifications: [''],
-    skills: '',
-    
-    // Experience & Compensation
-    experienceLevel: 'mid-level',
-    experienceYears: '',
-    salaryType: 'range',
-    salaryMin: '',
-    salaryMax: '',
-    salaryNegotiable: false,
-    currency: 'INR',
-    
-    // Benefits & Perks
-    benefits: [''],
-    workingHours: '',
-    workSchedule: '',
-    travelRequired: 'none',
-    
-    // Application Settings
-    applicationDeadline: '',
-    maxApplications: '',
-    requireCoverLetter: true,
-    requirePortfolio: false,
-    applicationMethod: 'internal',
-    externalUrl: '',
-    
-    // Company Information
-    companyName: '',
-    companyDescription: '',
-    companySize: '',
-    companyType: 'private',
-    companyWebsite: '',
-    companyLogo: null,
-    
-    // Contact Information
-    contactPersonName: '',
-    contactPersonTitle: '',
-    contactEmail: '',
-    contactPhone: '',
-    
-    // Additional Settings
-    isUrgent: false,
-    isFeatured: false,
-    isRemote: false,
-    requiresApproval: true
+    requirements: '',
+    salary_range: '',
+    application_url: '',
+    deadline: '',
+    company_id: null, // To store the ID of the company
+    logo_url: '' // To store the logo URL after upload
   });
 
-  const [errors, setErrors] = useState({});
-  const [logoPreview, setLogoPreview] = useState(null);
-
-  const jobTypes = [
-    { value: 'full-time', label: 'Full-time' },
-    { value: 'part-time', label: 'Part-time' },
-    { value: 'contract', label: 'Contract' },
-    { value: 'temporary', label: 'Temporary' },
-    { value: 'internship', label: 'Internship' },
-    { value: 'freelance', label: 'Freelance' }
-  ];
-
-  const experienceLevels = [
-    { value: 'entry-level', label: 'Entry Level (0-2 years)' },
-    { value: 'mid-level', label: 'Mid Level (3-7 years)' },
-    { value: 'senior-level', label: 'Senior Level (8-15 years)' },
-    { value: 'executive', label: 'Executive (15+ years)' }
-  ];
-
-  const companySizes = [
-    { value: '1-10', label: '1-10 employees' },
-    { value: '11-50', label: '11-50 employees' },
-    { value: '51-200', label: '51-200 employees' },
-    { value: '201-500', label: '201-500 employees' },
-    { value: '501-1000', label: '501-1000 employees' },
-    { value: '1000+', label: '1000+ employees' }
-  ];
-
-  const workArrangements = [
-    { value: 'office', label: 'On-site' },
-    { value: 'remote', label: 'Remote' },
-    { value: 'hybrid', label: 'Hybrid' }
-  ];
-
-  const travelOptions = [
-    { value: 'none', label: 'No travel required' },
-    { value: 'occasional', label: 'Occasional travel (10-25%)' },
-    { value: 'frequent', label: 'Frequent travel (25-50%)' },
-    { value: 'extensive', label: 'Extensive travel (50%+)' }
-  ];
+  // Removed fetchCompanies function and related effect since we're using text input
 
   const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-    
-    // Clear error when user starts typing
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
@@ -137,794 +70,703 @@ const PostJob = () => {
 
   const handleLogoChange = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      setFormData(prev => ({ ...prev, companyLogo: file }));
-      const reader = new FileReader();
-      reader.onload = (e) => setLogoPreview(e.target.result);
-      reader.readAsDataURL(file);
+    if (!file) return;
+    
+    // Validate file type
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/svg+xml'];
+    if (!validTypes.includes(file.type)) {
+      toast.error('Invalid file type. Only PNG, JPG, JPEG, or SVG are allowed.');
+      return;
     }
-  };
-
-  const handleListChange = (field, index, value) => {
-    const newList = [...formData[field]];
-    newList[index] = value;
-    setFormData(prev => ({ ...prev, [field]: newList }));
-  };
-
-  const addListItem = (field) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: [...prev[field], '']
-    }));
-  };
-
-  const removeListItem = (field, index) => {
-    if (formData[field].length > 1) {
-      const newList = formData[field].filter((_, i) => i !== index);
-      setFormData(prev => ({ ...prev, [field]: newList }));
+    
+    // Validate file size (max 2MB)
+    const maxSize = 2 * 1024 * 1024; // 2MB
+    if (file.size > maxSize) {
+      toast.error('File size exceeds 2MB. Please upload a smaller image.');
+      return;
     }
+    
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
   };
 
-  const validateStep = (step) => {
+  const validateStep = () => {
     const newErrors = {};
-
-    switch (step) {
-      case 1: // Basic Information
-        if (!formData.title.trim()) newErrors.title = 'Job title is required';
-        if (!formData.department.trim()) newErrors.department = 'Department is required';
-        if (!formData.location.trim()) newErrors.location = 'Location is required';
-        break;
-      
-      case 2: // Job Details
-        if (!formData.description.trim()) newErrors.description = 'Job description is required';
-        if (formData.responsibilities.every(r => !r.trim())) {
-          newErrors.responsibilities = 'At least one responsibility is required';
-        }
-        if (formData.requirements.every(r => !r.trim())) {
-          newErrors.requirements = 'At least one requirement is required';
-        }
-        break;
-      
-      case 3: // Experience & Compensation
-        if (!formData.experienceYears) newErrors.experienceYears = 'Experience years is required';
-        if (formData.salaryType === 'range') {
-          if (!formData.salaryMin) newErrors.salaryMin = 'Minimum salary is required';
-          if (!formData.salaryMax) newErrors.salaryMax = 'Maximum salary is required';
-          if (formData.salaryMin && formData.salaryMax && 
-              parseInt(formData.salaryMin) >= parseInt(formData.salaryMax)) {
-            newErrors.salaryMax = 'Maximum salary must be greater than minimum';
-          }
-        }
-        break;
-      
-      case 4: // Application Settings
-        if (!formData.applicationDeadline) newErrors.applicationDeadline = 'Application deadline is required';
-        if (formData.applicationMethod === 'external' && !formData.externalUrl.trim()) {
-          newErrors.externalUrl = 'External application URL is required';
-        }
-        break;
-      
-      case 5: // Company Information
-        if (!formData.companyName.trim()) newErrors.companyName = 'Company name is required';
-        if (!formData.companyDescription.trim()) newErrors.companyDescription = 'Company description is required';
-        if (!formData.contactPersonName.trim()) newErrors.contactPersonName = 'Contact person name is required';
-        if (!formData.contactEmail.trim()) newErrors.contactEmail = 'Contact email is required';
-        break;
+    if (activeStep === 0) {
+      if (!formData.title.trim()) newErrors.title = 'Job title is required';
+      if (!formData.location.trim()) newErrors.location = 'Location is required';
     }
-
+    if (activeStep === 1) {
+      if (!formData.description.trim()) newErrors.description = 'Description is required';
+      if (!formData.requirements.trim()) newErrors.requirements = 'Requirements are required';
+    }
+    if (activeStep === 2) {
+      if (!formData.company_name) newErrors.company_name = 'Company name is required';
+      // No validation for logo, it's optional
+      if (!formData.application_url.trim()) newErrors.application_url = 'Application URL or email is required';
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleNext = () => {
-    if (validateStep(currentStep)) {
-      setCurrentStep(prev => prev + 1);
+    if (validateStep()) {
+      setActiveStep((prevActiveStep) => prevActiveStep + 1);
     }
   };
 
-  const handlePrevious = () => {
-    setCurrentStep(prev => prev - 1);
+  const handleBack = () => {
+    setActiveStep((prevActiveStep) => prevActiveStep - 1);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!validateStep(currentStep)) {
+    if (!validateStep()) {
+      toast.error('Please fix the errors before submitting.');
       return;
     }
-
     if (!user) {
-      toast.error("You must be logged in to post a job.");
+      toast.error('You must be logged in to post a job.');
       return;
     }
 
     setIsSubmitting(true);
-
     try {
-      console.log('Starting job submission process...');
-      
-      // Format the deadline date as ISO string if present
-      const deadline = formData.applicationDeadline ? 
-        new Date(formData.applicationDeadline).toISOString() : null;
-      
-      // Prepare job data with correct column names based on database schema
-      const jobData = {
-        title: formData.title,
-        company_name: formData.companyName,
-        location: formData.location,
-        job_type: formData.jobType,
-        description: formData.description,
-        requirements: Array.isArray(formData.requirements) ? 
-          JSON.stringify(formData.requirements.filter(r => r)) : null,
-        salary_range: formData.salaryType === 'range' ? 
-          `${formData.currency} ${formData.salaryMin} - ${formData.salaryMax}` : 
-          (formData.salaryNegotiable ? "Negotiable" : null),
-        application_url: formData.applicationMethod === 'external' ? formData.externalUrl : null,
-        contact_email: formData.contactEmail,
-        expires_at: deadline,
-        posted_by: user.id,
-        is_active: true,
-        education_required: null, // Not in the form, can add if needed
-        required_skills: formData.skills,
-        deadline: deadline,
-        experience_required: `${formData.experienceLevel} (${formData.experienceYears} years)`,
-      };
-      
-      console.log('Submitting job data to Supabase:', jobData);
-      
-      // Insert the job into Supabase
-      const { data: insertedData, error: insertError } = await supabase
-        .from('jobs')
-        .insert([jobData])
-        .select();
-      
-      if (insertError) {
-        console.error('Supabase insert error:', insertError);
-        throw new Error(`Database insert failed: ${insertError.message}`);
+      let companyId = formData.company_id;
+      let logoUrl = formData.logo_url;
+
+      // 1. Handle logo upload if a file is selected
+      if (logoFile) {
+        try {
+          // Sanitize filename: remove spaces and special characters
+          const cleanFileName = logoFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
+          const fileName = `${user.id}/${Date.now()}_${cleanFileName}`;
+          
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('company-logos')
+            .upload(fileName, logoFile, {
+              cacheControl: '3600',
+              upsert: false
+            });
+
+          if (uploadError) {
+            throw new Error(`Failed to upload logo: ${uploadError.message}`);
+          }
+
+          // Get public URL
+          const { data: urlData } = supabase.storage
+            .from('company-logos')
+            .getPublicUrl(fileName);
+          logoUrl = urlData.publicUrl;
+        } catch (err) {
+          console.error('Logo upload failed:', err);
+          toast.error(`Logo upload failed: ${err.message || 'Unknown error'}`); 
+          setIsSubmitting(false);
+          return;
+        }
       }
-      
-      console.log('Job posted successfully:', insertedData);
-      
-      // Show success message and redirect
-      toast.success('Job posted successfully! It will be reviewed by our team.');
+
+      // 2. Find or create the company
+      const { data: existingCompany, error: findError } = await supabase
+        .from('companies')
+        .select('id')
+        .eq('name', formData.company_name)
+        .single();
+
+      if (findError && findError.code !== 'PGRST116') throw findError; // Ignore 'not found' error
+
+      if (existingCompany) {
+        companyId = existingCompany.id;
+        // If there's a new logo, update the existing company's logo
+        if (logoUrl) {
+          const { error: updateError } = await supabase
+            .from('companies')
+            .update({ logo_url: logoUrl })
+            .eq('id', companyId);
+          if (updateError) throw updateError;
+        }
+      } else {
+        // Create a new company if it doesn't exist
+        const { data: newCompany, error: createError } = await supabase
+          .from('companies')
+          .insert({ name: formData.company_name, logo_url: logoUrl })
+          .select('id')
+          .single();
+        if (createError) throw createError;
+        companyId = newCompany.id;
+      }
+
+      // 3. Prepare and submit the job data
+      const jobData = {
+        ...formData,
+        company_id: companyId,
+        user_id: user?.id,
+        is_approved: false,
+        is_active: true,
+      };
+      // Clean up fields that are not in the 'jobs' table
+      delete jobData.logo_url;
+
+      const { error: jobError } = await supabase.from('jobs').insert([jobData]);
+      if (jobError) throw jobError;
+
+      toast.success('Job submitted for approval!');
       navigate('/jobs');
-    } catch (error) {
-      console.error('Error posting job:', error);
-      toast.error(`Error posting job: ${error.message}`);
+    } catch (err) {
+      toast.error(`Error submitting job: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const steps = [
-    { number: 1, title: 'Basic Information', description: 'Job title, type, and location' },
-    { number: 2, title: 'Job Details', description: 'Description and requirements' },
-    { number: 3, title: 'Experience & Pay', description: 'Experience level and compensation' },
-    { number: 4, title: 'Application Settings', description: 'How candidates apply' },
-    { number: 5, title: 'Company & Contact', description: 'Company information and contact' }
-  ];
+  const getStepContent = (step) => {
+    switch (step) {
+      case 0:
+        return (
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <TextField
+                required fullWidth name="title" label="Job Title" value={formData.title} onChange={handleInputChange}
+                error={!!errors.title} helperText={errors.title}
+                placeholder="e.g., Senior Marine Engineer"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                required fullWidth name="location" label="Location" value={formData.location} onChange={handleInputChange}
+                error={!!errors.location} helperText={errors.location}
+                placeholder="e.g., Mumbai, Maharashtra"
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField select fullWidth name="job_type" label="Job Type" value={formData.job_type} onChange={handleInputChange}>
+                <MenuItem value="Full-time">Full-time</MenuItem>
+                <MenuItem value="Part-time">Part-time</MenuItem>
+                <MenuItem value="Contract">Contract</MenuItem>
+                <MenuItem value="Internship">Internship</MenuItem>
+              </TextField>
+            </Grid>
+          </Grid>
+        );
+      case 1:
+        return (
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <TextField
+                required fullWidth multiline rows={6} name="description" label="Job Description" value={formData.description} onChange={handleInputChange}
+                error={!!errors.description} helperText={errors.description}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                required fullWidth multiline rows={4} name="requirements" label="Requirements" value={formData.requirements} onChange={handleInputChange}
+                error={!!errors.requirements} helperText={errors.requirements}
+              />
+            </Grid>
+          </Grid>
+        );
+      case 2:
+        return (
+          <Grid container spacing={3}>
+             <Grid item xs={12}>
+              <TextField
+                required
+                fullWidth
+                name="company_name"
+                label="Company Name"
+                value={formData.company_name}
+                onChange={handleInputChange}
+                error={!!errors.company_name}
+                helperText={errors.company_name || 'Enter the name of the company.'}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <Typography variant="subtitle1" gutterBottom>Company Logo</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Avatar 
+                  src={logoPreview || '/logo.png'} 
+                  alt="Company Logo Preview" 
+                  sx={{ width: 60, height: 60, border: '1px solid #ddd' }}
+                />
+                <Button variant="outlined" component="label">
+                  Upload Logo
+                  <input type="file" hidden accept="image/png, image/jpeg, image/jpg, image/svg+xml" onChange={handleLogoChange} />
+                </Button>
+                {logoPreview && (
+                  <Button size="small" onClick={() => { setLogoFile(null); setLogoPreview(''); }}>Remove</Button>
+                )}
+              </Box>
+              <Typography variant="caption" color="text.secondary">Max 5MB. Allowed types: PNG, JPG, SVG.</Typography>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth name="salary_range" label="Salary Range" value={formData.salary_range} onChange={handleInputChange} placeholder="e.g., $80k - $120k" />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth type="date" name="deadline" label="Application Deadline" value={formData.deadline} onChange={handleInputChange} InputLabelProps={{ shrink: true }} />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                required fullWidth name="application_url" label="Application URL or Email" value={formData.application_url} onChange={handleInputChange}
+                error={!!errors.application_url} helperText={errors.application_url}
+              />
+            </Grid>
+          </Grid>
+        );
+      default:
+        return 'Unknown step';
+    }
+  };
+
+  const getStepIcon = (step) => {
+    const icons = {
+      0: <WorkIcon />,
+      1: <DescriptionIcon />,
+      2: <BusinessIcon />
+    };
+    return icons[step] || <WorkIcon />;
+  };
+
+  // Handle option selection
+  const handleOptionSelect = (type) => {
+    setPostingType(type);
+    setShowSelectionScreen(false);
+    
+    // Reset form for link posting type
+    if (type === 'link') {
+      setFormData(prev => ({
+        ...prev,
+        application_url: '',
+        title: '',
+        company_name: '' // Changed from company_id
+      }));
+    }
+  };
+
+  // Handle back to selection
+  const handleBackToSelection = () => {
+    setShowSelectionScreen(true);
+    setPostingType(null);
+    setActiveStep(0);
+  };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="glass-card rounded-lg p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Post a Job</h1>
-        <p className="text-gray-600">Create a job posting to attract qualified maritime professionals</p>
-      </div>
-
-      {/* Progress Steps */}
-      <div className="glass-card rounded-lg p-6">
-        <div className="flex items-center justify-between">
-          {steps.map((step, index) => (
-            <div key={step.number} className="flex items-center">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-                currentStep >= step.number 
-                  ? 'bg-ocean-500 border-ocean-500 text-white' 
-                  : 'border-gray-300 text-gray-500'
-              }`}>
-                {currentStep > step.number ? (
-                  <CheckCircleIcon className="w-6 h-6" />
-                ) : (
-                  <span className="font-medium">{step.number}</span>
+    <Box sx={{ 
+      minHeight: '100vh',
+      background: '#f4f6f8', // Changed background to a light grey
+      py: 4
+    }}>
+      <Box sx={{ maxWidth: '900px', mx: 'auto', px: 2 }}>
+        {/* Header Section */}
+        <Card sx={{ 
+          mb: 4, 
+          background: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          borderRadius: 3,
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
+        }}>
+          <CardContent sx={{ p: 4, textAlign: 'center' }}>
+            <Avatar sx={{ 
+              width: 80, 
+              height: 80, 
+              mx: 'auto', 
+              mb: 2,
+              background: 'linear-gradient(45deg, #1976d2, #42a5f5)'
+            }}>
+              <WorkIcon sx={{ fontSize: 40 }} />
+            </Avatar>
+            <Typography variant="h4" component="h1" sx={{ 
+              mb: 2, 
+              fontWeight: 'bold',
+              background: 'linear-gradient(45deg, #1976d2, #42a5f5)',
+              backgroundClip: 'text',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent'
+            }}>
+              {showSelectionScreen ? 'Post a Job' : 'Post a Job Opening'}
+            </Typography>
+            <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
+              {showSelectionScreen ? 'Select a posting method' : 'Connect with talented maritime professionals'}
+            </Typography>
+            {!showSelectionScreen && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, alignItems: 'center' }}>
+                <Chip 
+                  label={postingType === 'link' ? 'Quick Link Post' : 'Full Job Form'}
+                  color="primary"
+                  sx={{ fontSize: '0.9rem', px: 2 }}
+                />
+                {postingType === 'form' && (
+                  <Chip 
+                    label={`Step ${activeStep + 1} of ${steps.length}`}
+                    color="primary"
+                    variant="outlined"
+                    sx={{ fontSize: '0.9rem', px: 2 }}
+                  />
                 )}
-              </div>
-              <div className="ml-3">
-                <p className={`text-sm font-medium ${
-                  currentStep >= step.number ? 'text-ocean-600' : 'text-gray-500'
-                }`}>
-                  {step.title}
-                </p>
-                <p className="text-xs text-gray-400">{step.description}</p>
-              </div>
-              {index < steps.length - 1 && (
-                <div className={`w-16 h-0.5 mx-4 ${
-                  currentStep > step.number ? 'bg-ocean-500' : 'bg-gray-300'
-                }`} />
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+              </Box>
+            )}
+          </CardContent>
+        </Card>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Step 1: Basic Information */}
-        {currentStep === 1 && (
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">Basic Information</h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Job Title *
-                </label>
-                <input
-                  type="text"
-                  name="title"
-                  value={formData.title}
-                  onChange={handleInputChange}
-                  className={`form-input w-full px-3 py-2 rounded-lg ${errors.title ? 'border-red-500' : ''}`}
-                  placeholder="e.g., Senior Marine Engineer"
-                />
-                {errors.title && <p className="text-red-500 text-sm mt-1">{errors.title}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Department *
-                </label>
-                <input
-                  type="text"
-                  name="department"
-                  value={formData.department}
-                  onChange={handleInputChange}
-                  className={`form-input w-full px-3 py-2 rounded-lg ${errors.department ? 'border-red-500' : ''}`}
-                  placeholder="e.g., Engineering, Operations"
-                />
-                {errors.department && <p className="text-red-500 text-sm mt-1">{errors.department}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Job Type *
-                </label>
-                <select
-                  name="jobType"
-                  value={formData.jobType}
-                  onChange={handleInputChange}
-                  className="form-input w-full px-3 py-2 rounded-lg"
-                >
-                  {jobTypes.map(type => (
-                    <option key={type.value} value={type.value}>{type.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Location *
-                </label>
-                <input
-                  type="text"
-                  name="location"
-                  value={formData.location}
-                  onChange={handleInputChange}
-                  className={`form-input w-full px-3 py-2 rounded-lg ${errors.location ? 'border-red-500' : ''}`}
-                  placeholder="e.g., Mumbai, Maharashtra"
-                />
-                {errors.location && <p className="text-red-500 text-sm mt-1">{errors.location}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Work Arrangement
-                </label>
-                <select
-                  name="workArrangement"
-                  value={formData.workArrangement}
-                  onChange={handleInputChange}
-                  className="form-input w-full px-3 py-2 rounded-lg"
-                >
-                  {workArrangements.map(arrangement => (
-                    <option key={arrangement.value} value={arrangement.value}>
-                      {arrangement.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step 2: Job Details */}
-        {currentStep === 2 && (
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">Job Details</h2>
-            
-            <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Job Description *
-                </label>
-                <textarea
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  rows={6}
-                  className={`form-input w-full px-3 py-2 rounded-lg ${errors.description ? 'border-red-500' : ''}`}
-                  placeholder="Provide a detailed description of the job role, expectations, and what the candidate will be doing..."
-                />
-                {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Key Responsibilities *
-                </label>
-                {formData.responsibilities.map((responsibility, index) => (
-                  <div key={index} className="flex items-center space-x-2 mb-2">
-                    <input
-                      type="text"
-                      value={responsibility}
-                      onChange={(e) => handleListChange('responsibilities', index, e.target.value)}
-                      className="form-input flex-1 px-3 py-2 rounded-lg"
-                      placeholder="Enter a key responsibility..."
-                    />
-                    {formData.responsibilities.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeListItem('responsibilities', index)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => addListItem('responsibilities')}
-                  className="text-ocean-600 hover:text-ocean-700 text-sm"
-                >
-                  + Add Responsibility
-                </button>
-                {errors.responsibilities && <p className="text-red-500 text-sm mt-1">{errors.responsibilities}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Requirements *
-                </label>
-                {formData.requirements.map((requirement, index) => (
-                  <div key={index} className="flex items-center space-x-2 mb-2">
-                    <input
-                      type="text"
-                      value={requirement}
-                      onChange={(e) => handleListChange('requirements', index, e.target.value)}
-                      className="form-input flex-1 px-3 py-2 rounded-lg"
-                      placeholder="Enter a requirement..."
-                    />
-                    {formData.requirements.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeListItem('requirements', index)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => addListItem('requirements')}
-                  className="text-ocean-600 hover:text-ocean-700 text-sm"
-                >
-                  + Add Requirement
-                </button>
-                {errors.requirements && <p className="text-red-500 text-sm mt-1">{errors.requirements}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Required Skills (comma-separated)
-                </label>
-                <input
-                  type="text"
-                  name="skills"
-                  value={formData.skills}
-                  onChange={handleInputChange}
-                  className="form-input w-full px-3 py-2 rounded-lg"
-                  placeholder="e.g., Marine Engineering, Leadership, Safety Management"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Experience & Compensation */}
-        {currentStep === 3 && (
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">Experience & Compensation</h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Experience Level
-                </label>
-                <select
-                  name="experienceLevel"
-                  value={formData.experienceLevel}
-                  onChange={handleInputChange}
-                  className="form-input w-full px-3 py-2 rounded-lg"
-                >
-                  {experienceLevels.map(level => (
-                    <option key={level.value} value={level.value}>{level.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Required Experience (years) *
-                </label>
-                <input
-                  type="text"
-                  name="experienceYears"
-                  value={formData.experienceYears}
-                  onChange={handleInputChange}
-                  className={`form-input w-full px-3 py-2 rounded-lg ${errors.experienceYears ? 'border-red-500' : ''}`}
-                  placeholder="e.g., 5-8 years"
-                />
-                {errors.experienceYears && <p className="text-red-500 text-sm mt-1">{errors.experienceYears}</p>}
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Salary Information
-                </label>
-                <div className="space-y-4">
-                  <div className="flex space-x-4">
-                    <label className="flex items-center">
-                      <input
-                        type="radio"
-                        name="salaryType"
-                        value="range"
-                        checked={formData.salaryType === 'range'}
-                        onChange={handleInputChange}
-                        className="mr-2"
-                      />
-                      Salary Range
-                    </label>
-                    <label className="flex items-center">
-                      <input
-                        type="radio"
-                        name="salaryType"
-                        value="exact"
-                        checked={formData.salaryType === 'exact'}
-                        onChange={handleInputChange}
-                        className="mr-2"
-                      />
-                      Fixed Salary
-                    </label>
-                    <label className="flex items-center">
-                      <input
-                        type="radio"
-                        name="salaryType"
-                        value="negotiable"
-                        checked={formData.salaryType === 'negotiable'}
-                        onChange={handleInputChange}
-                        className="mr-2"
-                      />
-                      Negotiable
-                    </label>
-                  </div>
-
-                  {formData.salaryType === 'range' && (
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <input
-                          type="number"
-                          name="salaryMin"
-                          value={formData.salaryMin}
-                          onChange={handleInputChange}
-                          className={`form-input w-full px-3 py-2 rounded-lg ${errors.salaryMin ? 'border-red-500' : ''}`}
-                          placeholder="Minimum (₹ LPA)"
-                        />
-                        {errors.salaryMin && <p className="text-red-500 text-sm mt-1">{errors.salaryMin}</p>}
-                      </div>
-                      <div>
-                        <input
-                          type="number"
-                          name="salaryMax"
-                          value={formData.salaryMax}
-                          onChange={handleInputChange}
-                          className={`form-input w-full px-3 py-2 rounded-lg ${errors.salaryMax ? 'border-red-500' : ''}`}
-                          placeholder="Maximum (₹ LPA)"
-                        />
-                        {errors.salaryMax && <p className="text-red-500 text-sm mt-1">{errors.salaryMax}</p>}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Travel Requirements
-                </label>
-                <select
-                  name="travelRequired"
-                  value={formData.travelRequired}
-                  onChange={handleInputChange}
-                  className="form-input w-full px-3 py-2 rounded-lg"
-                >
-                  {travelOptions.map(option => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step 4: Application Settings */}
-        {currentStep === 4 && (
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">Application Settings</h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Application Deadline *
-                </label>
-                <input
-                  type="date"
-                  name="applicationDeadline"
-                  value={formData.applicationDeadline}
-                  onChange={handleInputChange}
-                  className={`form-input w-full px-3 py-2 rounded-lg ${errors.applicationDeadline ? 'border-red-500' : ''}`}
-                />
-                {errors.applicationDeadline && <p className="text-red-500 text-sm mt-1">{errors.applicationDeadline}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Maximum Applications
-                </label>
-                <input
-                  type="number"
-                  name="maxApplications"
-                  value={formData.maxApplications}
-                  onChange={handleInputChange}
-                  className="form-input w-full px-3 py-2 rounded-lg"
-                  placeholder="Leave empty for unlimited"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Application Method
-                </label>
-                <div className="space-y-3">
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="applicationMethod"
-                      value="internal"
-                      checked={formData.applicationMethod === 'internal'}
-                      onChange={handleInputChange}
-                      className="mr-2"
-                    />
-                    Through our platform
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="applicationMethod"
-                      value="external"
-                      checked={formData.applicationMethod === 'external'}
-                      onChange={handleInputChange}
-                      className="mr-2"
-                    />
-                    External application URL
-                  </label>
-                  
-                  {formData.applicationMethod === 'external' && (
-                    <input
-                      type="url"
-                      name="externalUrl"
-                      value={formData.externalUrl}
-                      onChange={handleInputChange}
-                      className={`form-input w-full px-3 py-2 rounded-lg mt-2 ${errors.externalUrl ? 'border-red-500' : ''}`}
-                      placeholder="https://company.com/careers/apply"
-                    />
-                  )}
-                  {errors.externalUrl && <p className="text-red-500 text-sm mt-1">{errors.externalUrl}</p>}
-                </div>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-3">
-                  Application Requirements
-                </label>
-                <div className="space-y-2">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      name="requireCoverLetter"
-                      checked={formData.requireCoverLetter}
-                      onChange={handleInputChange}
-                      className="mr-2"
-                    />
-                    Require cover letter
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      name="requirePortfolio"
-                      checked={formData.requirePortfolio}
-                      onChange={handleInputChange}
-                      className="mr-2"
-                    />
-                    Require portfolio/work samples
-                  </label>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step 5: Company & Contact Information */}
-        {currentStep === 5 && (
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">Company & Contact Information</h2>
-            
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Company Name *
-                  </label>
-                  <input
-                    type="text"
-                    name="companyName"
-                    value={formData.companyName}
-                    onChange={handleInputChange}
-                    className={`form-input w-full px-3 py-2 rounded-lg ${errors.companyName ? 'border-red-500' : ''}`}
-                    placeholder="e.g., Ocean Shipping Ltd."
-                  />
-                  {errors.companyName && <p className="text-red-500 text-sm mt-1">{errors.companyName}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Company Size
-                  </label>
-                  <select
-                    name="companySize"
-                    value={formData.companySize}
-                    onChange={handleInputChange}
-                    className="form-input w-full px-3 py-2 rounded-lg"
+        {/* Selection Screen or Progress Stepper */}
+        {showSelectionScreen ? (
+          <Card sx={{ 
+            mb: 4,
+            background: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: 3,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
+          }}>
+            <CardContent sx={{ p: 4 }}>
+              <Typography variant="h5" sx={{ mb: 4, textAlign: 'center', color: '#1976d2', fontWeight: 500 }}>
+                How would you like to post your job?
+              </Typography>
+              
+              <Grid container spacing={4}>
+                {/* Quick Link Post Option */}
+                <Grid item xs={12} md={6}>
+                  <Card 
+                    onClick={() => handleOptionSelect('link')} 
+                    sx={{
+                      cursor: 'pointer', 
+                      p: 4, 
+                      textAlign: 'center',
+                      height: '100%',
+                      transition: 'transform 0.2s, box-shadow 0.2s',
+                      '&:hover': {
+                        transform: 'translateY(-5px)',
+                        boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)'
+                      }
+                    }}
                   >
-                    <option value="">Select company size</option>
-                    {companySizes.map(size => (
-                      <option key={size.value} value={size.value}>{size.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                    <Avatar sx={{ width: 60, height: 60, mx: 'auto', mb: 2, bgcolor: '#3f51b5' }}>
+                      <Typography variant="h5">1</Typography>
+                    </Avatar>
+                    <Typography variant="h6" gutterBottom>Quick Link Post</Typography>
+                    <Divider sx={{ my: 2 }} />
+                    <Typography color="text.secondary" sx={{ mb: 2 }}>
+                      Simply provide a job title and link to an external application page
+                    </Typography>
+                    <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mt: 2 }}>
+                      <span>⏱️</span> Takes less than a minute
+                    </Typography>
+                  </Card>
+                </Grid>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Company Description *
-                </label>
-                <textarea
-                  name="companyDescription"
-                  value={formData.companyDescription}
-                  onChange={handleInputChange}
-                  rows={4}
-                  className={`form-input w-full px-3 py-2 rounded-lg ${errors.companyDescription ? 'border-red-500' : ''}`}
-                  placeholder="Tell candidates about your company, culture, and what makes it a great place to work..."
-                />
-                {errors.companyDescription && <p className="text-red-500 text-sm mt-1">{errors.companyDescription}</p>}
-              </div>
+                {/* Full Form Post Option */}
+                <Grid item xs={12} md={6}>
+                  <Card 
+                    onClick={() => handleOptionSelect('form')} 
+                    sx={{
+                      cursor: 'pointer', 
+                      p: 4, 
+                      textAlign: 'center',
+                      height: '100%',
+                      transition: 'transform 0.2s, box-shadow 0.2s',
+                      '&:hover': {
+                        transform: 'translateY(-5px)',
+                        boxShadow: '0 12px 40px rgba(0, 0, 0, 0.15)'
+                      }
+                    }}
+                  >
+                    <Avatar sx={{ width: 60, height: 60, mx: 'auto', mb: 2, bgcolor: '#2196f3' }}>
+                      <Typography variant="h5">2</Typography>
+                    </Avatar>
+                    <Typography variant="h6" gutterBottom>Complete Job Form</Typography>
+                    <Divider sx={{ my: 2 }} />
+                    <Typography color="text.secondary" sx={{ mb: 2 }}>
+                      Create a detailed job posting with full information and employer details
+                    </Typography>
+                    <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mt: 2 }}>
+                      <span>📝</span> Comprehensive and professional
+                    </Typography>
+                  </Card>
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+        ) : postingType === 'form' ? (
+          <Card sx={{ 
+            mb: 4,
+            background: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: 3,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
+          }}>
+            <CardContent sx={{ p: 3 }}>
+              <Stepper activeStep={activeStep} alternativeLabel sx={{
+                '& .MuiStepLabel-root .Mui-completed': {
+                  color: '#1976d2'
+                },
+                '& .MuiStepLabel-root .Mui-active': {
+                  color: '#42a5f5'
+                }
+              }}>
+                {steps.map((label, index) => (
+                  <Step key={label}>
+                    <StepLabel 
+                      StepIconComponent={() => (
+                        <Avatar sx={{
+                          width: 32,
+                          height: 32,
+                          bgcolor: activeStep >= index ? '#1976d2' : '#e0e0e0',
+                          color: activeStep >= index ? 'white' : '#666'
+                        }}>
+                          {activeStep >= index ? getStepIcon(index) : index + 1}
+                        </Avatar>
+                      )}
+                    >
+                      <Typography variant="body2" sx={{ fontWeight: 500, mt: 1 }}>
+                        {label}
+                      </Typography>
+                    </StepLabel>
+                  </Step>
+                ))}
+              </Stepper>
+            </CardContent>
+          </Card>
+        ) : null}
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Company Logo
-                </label>
-                <div className="flex items-center space-x-4">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoChange}
-                    className="form-input flex-1 px-3 py-2 rounded-lg"
-                  />
-                  {logoPreview && (
-                    <img 
-                      src={logoPreview} 
-                      alt="Logo preview" 
-                      className="w-16 h-16 rounded-lg object-cover"
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Contact Person Name *
-                  </label>
-                  <input
-                    type="text"
-                    name="contactPersonName"
-                    value={formData.contactPersonName}
-                    onChange={handleInputChange}
-                    className={`form-input w-full px-3 py-2 rounded-lg ${errors.contactPersonName ? 'border-red-500' : ''}`}
-                    placeholder="HR Manager name"
-                  />
-                  {errors.contactPersonName && <p className="text-red-500 text-sm mt-1">{errors.contactPersonName}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Contact Email *
-                  </label>
-                  <input
-                    type="email"
-                    name="contactEmail"
-                    value={formData.contactEmail}
-                    onChange={handleInputChange}
-                    className={`form-input w-full px-3 py-2 rounded-lg ${errors.contactEmail ? 'border-red-500' : ''}`}
-                    placeholder="hr@company.com"
-                  />
-                  {errors.contactEmail && <p className="text-red-500 text-sm mt-1">{errors.contactEmail}</p>}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Navigation Buttons */}
-        <div className="flex justify-between">
-          <button
-            type="button"
-            onClick={handlePrevious}
-            disabled={currentStep === 1}
-            className="btn-ocean-outline px-6 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Previous
-          </button>
-          
-          {currentStep < 5 ? (
-            <button
-              type="button"
-              onClick={handleNext}
-              className="btn-ocean px-6 py-2 rounded-lg"
-            >
-              Next
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="btn-ocean px-6 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <div className="flex items-center">
-                  <div className="loading-wave"></div>
-                  <div className="loading-wave"></div>
-                  <div className="loading-wave"></div>
-                  <span className="ml-2">Publishing Job...</span>
-                </div>
+        {/* Main Content */}
+        {!showSelectionScreen && (
+          <Card sx={{ 
+            background: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: 3,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)'
+          }}>
+            <CardContent sx={{ p: 4 }}>
+              {postingType === 'link' ? (
+                /* Quick Link Post Form */
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!formData.title.trim()) {
+                    setErrors({title: 'Job title is required'});
+                    return;
+                  }
+                  if (!formData.application_url.trim()) {
+                    setErrors({application_url: 'Application URL is required'});
+                    return;
+                  }
+                  
+                  setIsSubmitting(true);
+                  supabase.from('jobs').insert([
+                    {
+                      title: formData.title,
+                      application_url: formData.application_url,
+                      company_name: formData.company_name, // Changed from company_id
+                      user_id: user?.id,
+                      is_approved: false,
+                      is_active: true,
+                      external_url: true
+                    }
+                  ])
+                  .then(({error}) => {
+                    if (error) throw error;
+                    toast.success('Job link submitted for approval!');
+                    navigate('/jobs');
+                  })
+                  .catch(err => {
+                    toast.error(`Error submitting job: ${err.message}`);
+                  })
+                  .finally(() => setIsSubmitting(false));
+                }}>
+                  <Box sx={{ mb: 4 }}>
+                    <Typography variant="h5" sx={{ 
+                      mb: 1, 
+                      fontWeight: 'bold',
+                      color: '#1976d2',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1
+                    }}>
+                      <WorkIcon />
+                      Quick Job Post with Link
+                    </Typography>
+                    <Typography variant="body1" color="text.secondary" sx={{ mt: 1, mb: 2 }}>
+                      Provide a job title and application link to quickly post a job
+                    </Typography>
+                    <Divider sx={{ my: 2 }} />
+                  </Box>
+                  
+                  <Grid container spacing={3}>
+                    <Grid item xs={12}>
+                      <TextField
+                        required
+                        fullWidth
+                        name="title"
+                        label="Job Title"
+                        value={formData.title}
+                        onChange={handleInputChange}
+                        error={!!errors.title}
+                        helperText={errors.title}
+                        placeholder="e.g., Senior Marine Engineer"
+                      />
+                    </Grid>
+                    
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        name="company_name"
+                        label="Company (Optional)"
+                        value={formData.company_name}
+                        onChange={handleInputChange}
+                        placeholder="e.g., Maersk"
+                      />
+                    </Grid>
+                    
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        required
+                        fullWidth
+                        type="url"
+                        name="application_url"
+                        label="Application URL"
+                        value={formData.application_url}
+                        onChange={handleInputChange}
+                        error={!!errors.application_url}
+                        helperText={errors.application_url}
+                        placeholder="https://example.com/apply"
+                      />
+                    </Grid>
+                  </Grid>
+                  
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4, pt: 3, borderTop: '1px solid #e0e0e0' }}>
+                    <Button 
+                      onClick={handleBackToSelection}
+                      size="large"
+                      sx={{ 
+                        px: 4,
+                        py: 1.5,
+                        borderRadius: 2,
+                        textTransform: 'none',
+                        fontSize: '1rem'
+                      }}
+                    >
+                      Back to Options
+                    </Button>
+                    
+                    <Button 
+                      variant="contained"
+                      type="submit"
+                      disabled={isSubmitting}
+                      size="large"
+                      sx={{ 
+                        px: 4,
+                        py: 1.5,
+                        borderRadius: 2,
+                        textTransform: 'none',
+                        fontSize: '1rem',
+                        background: 'linear-gradient(45deg, #1976d2, #42a5f5)',
+                        '&:hover': {
+                          background: 'linear-gradient(45deg, #1565c0, #1976d2)'
+                        }
+                      }}
+                    >
+                      {isSubmitting ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <CircularProgress size={20} color="inherit" />
+                          Publishing...
+                        </Box>
+                      ) : (
+                        'Publish Quick Job Post'
+                      )}
+                    </Button>
+                  </Box>
+                </form>
               ) : (
-                'Publish Job'
+                /* Full Job Post Form */
+                <form onSubmit={handleSubmit}>
+                  <Box sx={{ mb: 4 }}>
+                    <Typography variant="h5" sx={{ 
+                      mb: 1, 
+                      fontWeight: 'bold',
+                      color: '#1976d2',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1
+                    }}>
+                      {getStepIcon(activeStep)}
+                      {steps[activeStep]}
+                    </Typography>
+                    <Divider sx={{ my: 2 }} />
+                  </Box>
+                  
+                  {getStepContent(activeStep)}
+                  
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4, pt: 3, borderTop: '1px solid #e0e0e0' }}>
+                    <Button 
+                      onClick={activeStep === 0 ? handleBackToSelection : handleBack} 
+                      size="large"
+                      sx={{ 
+                        px: 4,
+                        py: 1.5,
+                        borderRadius: 2,
+                        textTransform: 'none',
+                        fontSize: '1rem'
+                      }}
+                    >
+                      {activeStep === 0 ? 'Back to Options' : 'Previous'}
+                    </Button>
+                    
+                    {activeStep === steps.length - 1 ? (
+                      <Button 
+                        variant="contained" 
+                        type="submit" 
+                        disabled={isSubmitting}
+                        size="large"
+                        sx={{ 
+                          px: 4,
+                          py: 1.5,
+                          borderRadius: 2,
+                          textTransform: 'none',
+                          fontSize: '1rem',
+                          background: 'linear-gradient(45deg, #1976d2, #42a5f5)',
+                          '&:hover': {
+                            background: 'linear-gradient(45deg, #1565c0, #1976d2)'
+                          }
+                        }}
+                      >
+                        {isSubmitting ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <CircularProgress size={20} color="inherit" />
+                            Publishing...
+                          </Box>
+                        ) : (
+                          'Publish Job'
+                        )}
+                      </Button>
+                    ) : (
+                      <Button 
+                        variant="contained" 
+                        onClick={handleNext}
+                        size="large"
+                        sx={{ 
+                          px: 4,
+                          py: 1.5,
+                          borderRadius: 2,
+                          textTransform: 'none',
+                          fontSize: '1rem',
+                          background: 'linear-gradient(45deg, #1976d2, #42a5f5)',
+                          '&:hover': {
+                            background: 'linear-gradient(45deg, #1565c0, #1976d2)'
+                          }
+                        }}
+                      >
+                        Next Step
+                      </Button>
+                    )}
+                  </Box>
+                </form>
               )}
-            </button>
-          )}
-        </div>
-      </form>
-    </div>
+            </CardContent>
+          </Card>
+        )}
+      </Box>
+    </Box>
   );
 };
 

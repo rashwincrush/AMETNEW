@@ -348,9 +348,8 @@ export const AuthProvider = ({ children }) => {
         listenerRef.current.unsubscribe();
         listenerRef.current = null;
       }
-      initializedRef.current = false;
     };
-  }, [profile?.id, fetchUserProfile]); // Only re-run if profile ID changes
+  }, [fetchUserProfile]); // Only re-run if profile ID changes
 
   const userRole = getUserRole();
   const isAdmin = userRole === 'admin' || userRole === 'super_admin';

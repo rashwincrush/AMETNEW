@@ -6,13 +6,15 @@ import {
   UsersIcon, 
   CalendarIcon, 
   BriefcaseIcon,
+  BookmarkIcon,
   AcademicCapIcon,
   ChatBubbleLeftRightIcon,
   ChartBarIcon,
   CogIcon,
   UserGroupIcon,
   BuildingOfficeIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  ClipboardDocumentCheckIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 

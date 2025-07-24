@@ -226,14 +226,7 @@ const ApplicationTracking = () => {
                         </p>
                       </div>
                     </div>
-                    <div className="mt-4 flex justify-end">
-                      <Link
-                        to={`/jobs/applications/${application.id}`}
-                        className="text-sm font-medium text-blue-600 hover:text-blue-500"
-                      >
-                        View application details →
-                      </Link>
-                    </div>
+
                   </div>
                 </li>
               ))}

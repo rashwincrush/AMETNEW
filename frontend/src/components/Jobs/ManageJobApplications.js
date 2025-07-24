@@ -110,12 +110,16 @@ const ManageJobApplications = () => {
                     <a href={app.resume_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Resume</a>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <select value={app.status} onChange={(e) => handleStatusChange(app.id, e.target.value)} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
-                      <option>submitted</option>
-                      <option>reviewed</option>
-                      <option>in-progress</option>
-                      <option>hired</option>
-                      <option>rejected</option>
+                    <select 
+                      value={app.status} 
+                      onChange={(e) => handleStatusChange(app.id, e.target.value)} 
+                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                    >
+                      <option value="submitted">Submitted</option>
+                      <option value="reviewed">Reviewed</option>
+                      <option value="interviewing">Interviewing</option>
+                      <option value="offered">Offered</option>
+                      <option value="rejected">Rejected</option>
                     </select>
                   </td>
                 </tr>

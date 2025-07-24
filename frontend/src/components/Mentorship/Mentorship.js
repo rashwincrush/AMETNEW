@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { Link, useLocation } from 'react-router-dom';
@@ -37,11 +37,15 @@ const Mentorship = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { user } = useAuth();
+  const hasFetched = useRef(false);
   
   // Fetch mentors on component mount
   useEffect(() => {
     console.log('Mentorship component mounted, user:', user);
-    fetchApprovedMentors();
+    if (!hasFetched.current) {
+      fetchApprovedMentors();
+      hasFetched.current = true;
+    }
   }, [location]); // Removed user from the dependency array to avoid re-fetching
   
   // Function to fetch approved mentors

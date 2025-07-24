@@ -71,21 +71,35 @@ CREATE TABLE IF NOT EXISTS public.event_feedback (
     UNIQUE(event_id, user_id)
 );
 
+-- Companies table
+CREATE TABLE IF NOT EXISTS public.companies (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    website_url TEXT,
+    logo_url TEXT,
+    is_verified BOOLEAN DEFAULT FALSE,
+    created_by UUID REFERENCES public.profiles(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
 -- Jobs table (job portal)
 CREATE TABLE IF NOT EXISTS public.jobs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     title TEXT NOT NULL,
-    company TEXT NOT NULL,
     location TEXT,
     description TEXT,
     requirements TEXT,
     salary_range TEXT,
     job_type TEXT, -- full-time, part-time, contract, etc.
-    contact_email TEXT,
     application_url TEXT,
-    posted_by UUID REFERENCES public.profiles(id),
-    is_active BOOLEAN DEFAULT TRUE,
     deadline DATE,
+    user_id UUID REFERENCES public.profiles(id), -- Standardized from posted_by
+    company_id UUID REFERENCES public.companies(id) ON DELETE SET NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_approved BOOLEAN DEFAULT FALSE, -- For admin moderation
+    is_verified BOOLEAN DEFAULT FALSE, -- For job verification
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
@@ -319,14 +333,23 @@ CREATE POLICY "Users can update their own feedback" ON public.event_feedback FOR
 -- -----------------------------------------------------------------
 -- Policies for: jobs
 -- -----------------------------------------------------------------
-DROP POLICY IF EXISTS "Jobs are viewable by everyone" ON public.jobs;
-CREATE POLICY "Jobs are viewable by everyone" ON public.jobs FOR SELECT USING (true);
+-- RLS Policies for 'jobs' table (Corrected and Consolidated)
 
-DROP POLICY IF EXISTS "Jobs are editable by poster" ON public.jobs;
-CREATE POLICY "Jobs are editable by poster" ON public.jobs FOR UPDATE USING (auth.uid() = posted_by);
+-- 1. READ: Public can view active and approved jobs
+DROP POLICY IF EXISTS "Public can view active jobs" ON public.jobs;
+CREATE POLICY "Public can view active jobs" ON public.jobs FOR SELECT USING (is_active = true AND is_approved = true);
 
-DROP POLICY IF EXISTS "Jobs can be posted by authenticated users" ON public.jobs;
-CREATE POLICY "Jobs can be posted by authenticated users" ON public.jobs FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+-- 2. CREATE: Authenticated users can create jobs
+DROP POLICY IF EXISTS "Authenticated users can create jobs" ON public.jobs;
+CREATE POLICY "Authenticated users can create jobs" ON public.jobs FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- 3. UPDATE: Users can update their own jobs
+DROP POLICY IF EXISTS "Users can update their own jobs" ON public.jobs;
+CREATE POLICY "Users can update their own jobs" ON public.jobs FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- 4. DELETE: Users can delete their own jobs
+DROP POLICY IF EXISTS "Users can delete their own jobs" ON public.jobs;
+CREATE POLICY "Users can delete their own jobs" ON public.jobs FOR DELETE USING (auth.uid() = user_id);
 
 -- -----------------------------------------------------------------
 -- Policies for: job_bookmarks

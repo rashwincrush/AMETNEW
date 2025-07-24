@@ -45,6 +45,7 @@ import EventsPage from './pages/EventsPage';
 import GroupsPage from './pages/GroupsPage';
 import JobListingsPage from './components/Jobs/JobListingsPage';
 import JobDetails from './components/Jobs/JobDetails';
+import BookmarkedJobs from './components/Jobs/BookmarkedJobs';
 import UserProfilePage from './pages/UserProfilePage';
 import MentorRegistrationForm from './components/Mentorship/MentorRegistrationForm';
 import PostJob from './components/Jobs/PostJob';
@@ -56,6 +57,7 @@ import JobPostingForm from './components/Jobs/JobPostingForm';
 import ResumeUploadForm from './components/Jobs/ResumeUploadForm';
 import JobApplication from './components/Jobs/JobApplication';
 import ApplicationTracking from './components/Jobs/ApplicationTracking';
+import EditJob from './components/Jobs/EditJob';
 import Mentorship from './components/Mentorship/Mentorship';
 // import NetworkingGroups from './components/Networking/NetworkingGroups';
 // import NetworkingGroupsDirectory from './components/NetworkingGroups/NetworkingGroupsDirectory';
@@ -148,6 +150,8 @@ function AppContent() {
             <Route path="/jobs/:jobId/apply" element={<JobApplication />} />
             <Route path="/jobs/:jobId/application-success" element={<Navigate to="/jobs/applications" />} />
             <Route path="/jobs/:id" element={<JobDetails />} />
+            <Route path="/jobs/edit/:id" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><EditJob /></ProtectedRoute>} />
+
             <Route path="/jobs/:jobId/manage" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><ManageJobApplications /></ProtectedRoute>} />
             <Route path="/my-applications" element={<ProtectedRoute><JobApplicationStatus /></ProtectedRoute>} />
             <Route path="/profile/:userId" element={<UserProfilePage />} />
