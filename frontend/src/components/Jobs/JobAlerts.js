@@ -73,21 +73,39 @@ const JobAlerts = () => {
     if (!user) return;
     try {
       setLoading(true);
+      console.log('Fetching job alerts for user ID:', user.id);
+      console.log('Using Supabase URL:', process.env.REACT_APP_SUPABASE_URL);
+      
       const { data, error } = await supabase
         .from('job_alerts')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error details:', error);
+        throw error;
+      }
+      
+      console.log('Fetched alerts:', data ? data.length : 0);
       setAlerts(data || []);
     } catch (error) {
       console.error('Error fetching job alerts:', error);
-      // Provide more specific feedback for network errors
+      
+      // Provide more detailed diagnostic information
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        showError('A network error occurred. Please check your connection or browser extensions (like ad-blockers).');
+        console.error('Network error details:', { 
+          origin: window.location.origin,
+          supabaseUrl: process.env.REACT_APP_SUPABASE_URL,
+          hasCredentials: !!supabase.auth.session,
+        });
+        showError('A network error occurred. This may be due to CORS configuration or connectivity issues.');
+      } else if (error.code === 'PGRST301') {
+        showError('Authentication error. Please try logging out and back in.');
+      } else if (error.code?.startsWith('PGRST')) {
+        showError(`Database error: ${error.message}. Please contact support.`);
       } else {
-        showError(`Could not fetch your job alerts: ${error.message}`);
+        showError(`Could not fetch your job alerts: ${error.message || 'Unknown error'}`);
       }
     } finally {
       setLoading(false);
