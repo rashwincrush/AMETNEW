@@ -224,7 +224,16 @@ const JobAlerts = () => {
   };
 
   const toggleAlert = async (alert) => {
+    // Validate the alert has an ID before proceeding
+    if (!alert || !alert.id) {
+      console.error('Cannot toggle alert: Missing alert ID', alert);
+      showError('Could not update this alert: Missing identifier');
+      return;
+    }
+
     try {
+      console.log('Toggling alert with ID:', alert.id, 'Current active state:', alert.is_active);
+      
       const { error } = await supabase
         .from('job_alerts')
         .update({ is_active: !alert.is_active })
