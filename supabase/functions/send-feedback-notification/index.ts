@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { corsHeaders, handleOptionsRequest } from '../_shared/cors.ts';
 
 interface FeedbackRecord {
   id: number;
@@ -11,6 +12,10 @@ interface FeedbackRecord {
 }
 
 serve(async (req) => {
+  // Handle OPTIONS request for CORS preflight
+  if (req.method === 'OPTIONS') {
+    return handleOptionsRequest();
+  }
   try {
     const payload = await req.json();
     const record: FeedbackRecord = payload.record;
@@ -43,12 +48,12 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ success: true }), {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500,
     });
   }

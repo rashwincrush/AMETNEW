@@ -78,7 +78,6 @@ const filterOptions = {
 
 // Job card component for grid view
 const JobCard = ({ job, handleBookmark, isBookmarked, isPinned }) => {
-  console.log('JobCard received job:', job);
   const [showShare, setShowShare] = useState(false);
   if (!job) return null;
 
@@ -184,7 +183,6 @@ const JobCard = ({ job, handleBookmark, isBookmarked, isPinned }) => {
 
 // Job list item component for list view
 const JobListItem = ({ job, handleBookmark, isBookmarked, isPinned }) => {
-  console.log('JobListItem received job:', job);
   const [showShare, setShowShare] = useState(false);
   if (!job) return null;
 
@@ -305,7 +303,7 @@ const JobListingsPage = () => {
   const fetchController = useRef(null);
   const initialFetchDone = useRef(false);
 
-    const fetchJobs = useCallback(async () => {
+  const fetchJobs = useCallback(async () => {
     if (fetchController.current) {
       fetchController.current.abort();
     }
@@ -313,7 +311,10 @@ const JobListingsPage = () => {
     const { signal } = fetchController.current;
 
     setLoading(true);
-    console.log('Fetching jobs with filters:', { searchQuery, sortBy, currentPage });
+    // Log only in development environment
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Fetching jobs with filters:', { searchQuery, sortBy, currentPage });
+    }
 
     const [sortField, sortOrder] = sortBy.split(',');
 
@@ -352,17 +353,30 @@ const JobListingsPage = () => {
       fetchJobs();
     }
 
-    const channel = supabase
-      .channel('job-applications-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'job_applications' }, (payload) => {
-        console.log('New application detected, refetching jobs:', payload);
-        toast.success('A new application was submitted. Refreshing list...');
-        fetchJobs();
-      })
-      .subscribe();
+    let channel;
+    try {
+      channel = supabase
+        .channel('job-applications-realtime')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'job_applications' }, (payload) => {
+          // Reduce verbose logging in production
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('New application detected, refetching jobs');
+          }
+          toast.success('A new application was submitted. Refreshing list...');
+          fetchJobs();
+        })
+        .subscribe()
+        .catch(error => {
+          console.error('Error subscribing to realtime channel:', error);
+        });
+    } catch (error) {
+      console.error('Error setting up realtime subscription:', error);
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
     };
   }, [fetchJobs]);
 
@@ -442,7 +456,9 @@ const JobListingsPage = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Job Portal</h1>
+          <div className="flex items-center gap-4">
+          <h1 className="text-3xl font-bold text-gray-900">Find Your Next Opportunity</h1>
+        </div>
           <p className="text-gray-600 mt-1">Showing {jobs.length} of {totalJobs} jobs</p>
         </div>
         <div className="flex items-center space-x-2 md:space-x-4 mt-4 md:mt-0 flex-wrap">

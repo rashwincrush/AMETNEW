@@ -119,7 +119,9 @@ const AlumniDashboard = () => {
     console.log('AlumniDashboard: fetchDashboardData started.');
     setLoading(true);
     try {
-      const todayStart = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+      // Format today's date in a way that's compatible with Supabase queries
+      const today = new Date();
+      const todayStart = today.toISOString().split('T')[0] + 'T00:00:00.000Z';
       const promises = [
         supabase.from('events').select('id', { count: 'exact', head: true }).gte('start_date', todayStart).eq('is_published', true),
         supabase.from('jobs').select('id', { count: 'exact', head: true }).gte('deadline', todayStart).eq('is_active', true),

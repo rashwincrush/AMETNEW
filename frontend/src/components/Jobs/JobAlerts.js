@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { useNotification } from '../../hooks/useNotification';
+import { useNotification } from '../common/NotificationCenter';
 import { Link } from 'react-router-dom';
 import { 
   BellIcon,
@@ -25,10 +25,13 @@ const JobAlerts = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingAlert, setEditingAlert] = useState(null);
   const [formData, setFormData] = useState({
-    name: '',
+    alert_name: '',
     keywords: '',
     location: '',
     job_type: 'any',
+    experience_level: 'any',
+    min_salary: null,
+    max_salary: null,
     frequency: 'weekly',
     is_active: true
   });
@@ -57,6 +60,9 @@ const JobAlerts = () => {
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
+    
+    // Special handling for alert_name to ensure it's never empty
+    
     setFormData(prev => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value
@@ -76,8 +82,13 @@ const JobAlerts = () => {
       if (error) throw error;
       setAlerts(data || []);
     } catch (error) {
-      showError('Could not fetch your job alerts.');
       console.error('Error fetching job alerts:', error);
+      // Provide more specific feedback for network errors
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        showError('A network error occurred. Please check your connection or browser extensions (like ad-blockers).');
+      } else {
+        showError(`Could not fetch your job alerts: ${error.message}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -89,57 +100,86 @@ const JobAlerts = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
     if (!user) {
       showError('You must be logged in to manage alerts.');
       return;
     }
 
+    // --- Improved Validation ---
+    const alertName = formData.alert_name.trim();
+    if (!alertName) {
+      showError('Alert name cannot be empty.');
+      return;
+    }
+
     const alertData = {
       user_id: user.id,
-      name: formData.name,
-      keywords: formData.keywords.split(',').map(k => k.trim()).filter(Boolean),
-      location: formData.location,
-      job_type: formData.job_type,
-      frequency: formData.frequency,
-      is_active: formData.is_active,
+      alert_name: alertName,
+      keywords: Array.isArray(formData.keywords)
+        ? formData.keywords
+        : (formData.keywords || '').split(',').map(k => k.trim()).filter(Boolean),
+      location: formData.location || '',
+      job_type: formData.job_type || 'any',
+      experience_level: formData.experience_level || 'any',
+      min_salary: formData.min_salary ? Number(formData.min_salary) : null,
+      max_salary: formData.max_salary ? Number(formData.max_salary) : null,
+      frequency: formData.frequency || 'weekly',
+      is_active: formData.is_active === undefined ? true : Boolean(formData.is_active),
     };
 
     try {
-      let error;
+      let result;
       if (editingAlert) {
-        // Update existing alert
-        const { error: updateError } = await supabase
+        // For updates, we can use the same data object
+        result = await supabase
           .from('job_alerts')
           .update(alertData)
-          .eq('id', editingAlert.id);
-        error = updateError;
+          .eq('id', editingAlert.id)
+          .select(); // Use select() to get the updated row back and check for errors
       } else {
-        // Create new alert
-        const { error: insertError } = await supabase
+        result = await supabase
           .from('job_alerts')
-          .insert(alertData);
-        error = insertError;
+          .insert([alertData]) // Pass as an array
+          .select(); // Use select() to get the inserted row back and check for errors
       }
 
-      if (error) throw error;
+      const { error } = result;
+
+      if (error) {
+        console.error('SUPABASE ERROR:', error);
+        // --- Specific Error Handling for Duplicate Name ---
+        if (error.code === '23505') { // '23505' is the PostgreSQL code for unique_violation
+          showError('An alert with this name already exists. Please choose a different name.');
+        } else {
+          showError(`Error: ${error.message}`);
+        }
+        return; // Stop execution on error
+      }
 
       showSuccess(editingAlert ? 'Job alert updated successfully!' : 'Job alert created successfully!');
-      fetchAlerts(); // Refresh the list
+      fetchAlerts();
       setShowCreateForm(false);
       setEditingAlert(null);
+
     } catch (error) {
-      showError(`Error: ${error.message}`);
+      // This catch block is for unexpected client-side errors
       console.error('Error submitting job alert:', error);
+      showError('An unexpected error occurred. Please try again.');
     }
+
   };
 
   const handleEdit = (alert) => {
     setEditingAlert(alert);
     setFormData({
-      name: alert.name,
+      alert_name: alert.alert_name || '',
       keywords: Array.isArray(alert.keywords) ? alert.keywords.join(', ') : '',
       location: alert.location || '',
       job_type: alert.job_type || 'any',
+      experience_level: alert.experience_level || 'any',
+      min_salary: alert.min_salary || null,
+      max_salary: alert.max_salary || null,
       frequency: alert.frequency || 'weekly',
       is_active: alert.is_active
     });
@@ -174,7 +214,7 @@ const JobAlerts = () => {
 
       if (error) throw error;
 
-      showSuccess(`Alert "${alert.name}" has been ${!alert.is_active ? 'activated' : 'deactivated'}.`);
+      showSuccess(`Alert "${alert.alert_name}" has been ${!alert.is_active ? 'activated' : 'deactivated'}.`);
       fetchAlerts(); // Refresh the list
     } catch (error) {
       showError(`Error updating alert status: ${error.message}`);
@@ -205,18 +245,22 @@ const JobAlerts = () => {
           </div>
           <button
             onClick={() => {
-              setEditingAlert(null);
-              setFormData({
-                title: '',
+              // Reset form with explicit values to ensure nothing is null/undefined
+              const initialFormState = {
+                alert_name: '',
                 keywords: '',
                 location: '',
-                jobType: 'any',
-                experienceLevel: 'any',
-                salaryMin: '',
-                salaryMax: '',
+                job_type: 'any',
+                experience_level: 'any',
+                min_salary: null,
+                max_salary: null,
                 frequency: 'weekly',
-                isActive: true
-              });
+                is_active: true
+              };
+              
+              // Reset form to initial state
+              setEditingAlert(null);
+              setFormData(initialFormState);
               setShowCreateForm(true);
             }}
             className="btn-ocean px-4 py-2 rounded-lg flex items-center"
@@ -231,132 +275,157 @@ const JobAlerts = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="glass-card rounded-lg p-6 text-center">
           <div className="text-2xl font-bold text-ocean-600">
-            {alerts.filter(alert => alert.isActive).length}
+            {alerts.filter(alert => alert.is_active).length}
           </div>
           <div className="text-sm text-gray-600">Active Alerts</div>
         </div>
         <div className="glass-card rounded-lg p-6 text-center">
           <div className="text-2xl font-bold text-green-600">
-            {alerts.reduce((sum, alert) => sum + alert.matchingJobs, 0)}
+            {/* TODO: Implement logic to count matching jobs. This data is not available from the API yet. */}
+            {0}
           </div>
           <div className="text-sm text-gray-600">Jobs Found This Week</div>
         </div>
         <div className="glass-card rounded-lg p-6 text-center">
           <div className="text-2xl font-bold text-purple-600">
-            {alerts.filter(alert => alert.lastSent).length}
+            {alerts.filter(alert => alert.last_sent_at).length}
           </div>
           <div className="text-sm text-gray-600">Alerts Sent</div>
         </div>
       </div>
 
-      {/* Alerts List */}
-      <div className="glass-card rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Job Alerts</h2>
-        
-        {alerts.length === 0 ? (
-          <div className="text-center py-12">
-            <BellIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No job alerts yet</h3>
-            <p className="text-gray-600 mb-4">
-              Create your first job alert to get notified about relevant opportunities
-            </p>
-            <button
-              onClick={() => setShowCreateForm(true)}
-              className="btn-ocean px-4 py-2 rounded-lg"
-            >
-              Create Your First Alert
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {alerts.map((alert) => (
-              <div key={alert.id} className="border border-gray-200 rounded-lg p-6 hover:bg-ocean-50 transition-colors">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-3 mb-2">
-                      <h3 className="font-semibold text-gray-900">{alert.title}</h3>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getFrequencyBadgeColor(alert.frequency)}`}>
-                        {alert.frequency}
-                      </span>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        alert.isActive 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {alert.isActive ? 'Active' : 'Paused'}
-                      </span>
+      {/* Conditional Rendering: Show Form or List */}
+      {showCreateForm ? (
+        <div className="glass-card rounded-lg p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">
+            {editingAlert ? 'Edit Job Alert' : 'Create Job Alert'}
+          </h2>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Form fields... */}
+          </form>
+        </div>
+      ) : (
+        <div className="glass-card rounded-lg p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Job Alerts</h2>
+          {loading ? (
+            <div className="text-center py-12">Loading...</div>
+          ) : alerts.length === 0 ? (
+            <div className="text-center py-12">
+              <BellIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No job alerts yet</h3>
+              <p className="text-gray-600 mb-4">
+                Create your first job alert to get notified about relevant opportunities.
+              </p>
+              <button
+                onClick={() => {
+                  setEditingAlert(null);
+                  setFormData({
+                    alert_name: '',
+                    keywords: '',
+                    location: '',
+                    job_type: 'any',
+                    experience_level: 'any',
+                    min_salary: null,
+                    max_salary: null,
+                    frequency: 'weekly',
+                    is_active: true
+                  });
+                  setShowCreateForm(true);
+                }}
+                className="btn-ocean px-4 py-2 rounded-lg"
+              >
+                Create Your First Alert
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {alerts.map((alert) => (
+                <div key={alert.id} className="border border-gray-200 rounded-lg p-6 hover:bg-ocean-50 transition-colors">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3 mb-2">
+                        <h3 className="font-semibold text-gray-900">{alert.alert_name}</h3>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getFrequencyBadgeColor(alert.frequency)}`}>
+                          {alert.frequency}
+                        </span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          alert.is_active 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {alert.is_active ? 'Active' : 'Paused'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-3 text-sm">
+                        <div className="flex items-center">
+                          <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 mr-2" />
+                          <span className="text-gray-600">Keywords:</span>
+                          <span className="ml-1 font-medium">{Array.isArray(alert.keywords) ? alert.keywords.join(', ') : ''}</span>
+                        </div>
+                        
+                        <div className="flex items-center">
+                          <MapPinIcon className="w-4 h-4 text-gray-400 mr-2" />
+                          <span className="text-gray-600">Location:</span>
+                          <span className="ml-1 font-medium">{alert.location}</span>
+                        </div>
+                        
+                        <div className="flex items-center">
+                          <BriefcaseIcon className="w-4 h-4 text-gray-400 mr-2" />
+                          <span className="text-gray-600">Type:</span>
+                          <span className="ml-1 font-medium">{alert.job_type}</span>
+                        </div>
+                        
+                        <div className="flex items-center">
+                          <ClockIcon className="w-4 h-4 text-gray-400 mr-2" />
+                          <span className="text-gray-600">Experience:</span>
+                          <span className="ml-1 font-medium">{alert.experience_level}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-6 text-sm text-gray-500">
+                        <span>Created: {new Date(alert.created_at).toLocaleDateString()}</span>
+                        {alert.last_sent_at && (
+                          <span>Last sent: {new Date(alert.last_sent_at).toLocaleDateString()}</span>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-3 text-sm">
-                      <div className="flex items-center">
-                        <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 mr-2" />
-                        <span className="text-gray-600">Keywords:</span>
-                        <span className="ml-1 font-medium">{alert.keywords}</span>
-                      </div>
+                    <div className="flex items-center space-x-2 ml-4">
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={alert.is_active}
+                          onChange={() => toggleAlert(alert)}
+                          className="sr-only peer"
+                        />
+                        <div className={`w-11 h-6 rounded-full ${alert.is_active ? 'bg-ocean-500' : 'bg-gray-200'} peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-offset-2 peer-focus:ring-ocean-300`}>
+                          <div className={`absolute left-[2px] top-[2px] bg-white rounded-full h-5 w-5 transition-transform duration-200 ${alert.is_active ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                        </div>
+                      </label>
                       
-                      <div className="flex items-center">
-                        <MapPinIcon className="w-4 h-4 text-gray-400 mr-2" />
-                        <span className="text-gray-600">Location:</span>
-                        <span className="ml-1 font-medium">{alert.location}</span>
-                      </div>
+                      <button
+                        onClick={() => handleEdit(alert)}
+                        className="p-2 text-gray-400 hover:text-ocean-600 rounded-lg hover:bg-ocean-100"
+                      >
+                        <PencilIcon className="w-4 h-4" />
+                      </button>
                       
-                      <div className="flex items-center">
-                        <BriefcaseIcon className="w-4 h-4 text-gray-400 mr-2" />
-                        <span className="text-gray-600">Type:</span>
-                        <span className="ml-1 font-medium">{alert.jobType}</span>
-                      </div>
-                      
-                      <div className="flex items-center">
-                        <ClockIcon className="w-4 h-4 text-gray-400 mr-2" />
-                        <span className="text-gray-600">Experience:</span>
-                        <span className="ml-1 font-medium">{alert.experienceLevel}</span>
-                      </div>
+                      <button
+                        onClick={() => handleDelete(alert.id)}
+                        className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-100"
+                      >
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
                     </div>
-
-                    <div className="flex items-center space-x-6 text-sm text-gray-500">
-                      <span>Created: {new Date(alert.createdDate).toLocaleDateString()}</span>
-                      {alert.lastSent && (
-                        <span>Last sent: {new Date(alert.lastSent).toLocaleDateString()}</span>
-                      )}
-                      <span className="text-ocean-600 font-medium">
-                        {alert.matchingJobs} matching jobs
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-2 ml-4">
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={alert.isActive}
-                        onChange={() => toggleAlert(alert.id)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-ocean-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-ocean-600"></div>
-                    </label>
-                    
-                    <button
-                      onClick={() => handleEdit(alert)}
-                      className="p-2 text-gray-400 hover:text-ocean-600 rounded-lg hover:bg-ocean-100"
-                    >
-                      <PencilIcon className="w-4 h-4" />
-                    </button>
-                    
-                    <button
-                      onClick={() => handleDelete(alert.id)}
-                      className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-100"
-                    >
-                      <TrashIcon className="w-4 h-4" />
-                    </button>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Create/Edit Alert Form */}
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      
       {showCreateForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="glass-card rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -382,12 +451,18 @@ const JobAlerts = () => {
                 </label>
                 <input
                   type="text"
-                  name="name"
-                  value={formData.name}
+                  name="alert_name"
+                  value={formData.alert_name || ''}
                   onChange={handleInputChange}
                   required
-                  className="form-input w-full px-3 py-2 rounded-lg"
+                  autoFocus
+                  className="form-input w-full px-3 py-2 rounded-lg border-2 border-ocean-500"
                   placeholder="e.g., Senior Marine Engineer Jobs"
+                  onBlur={(e) => {
+                    if (!e.target.value.trim()) {
+                      showError('Alert name cannot be empty');
+                    }
+                  }}
                 />
               </div>
 
@@ -444,8 +519,8 @@ const JobAlerts = () => {
                   Experience Level
                 </label>
                 <select
-                  name="experienceLevel"
-                  value={formData.experienceLevel}
+                  name="experience_level"
+                  value={formData.experience_level}
                   onChange={handleInputChange}
                   className="form-input w-full px-3 py-2 rounded-lg"
                 >
@@ -462,16 +537,16 @@ const JobAlerts = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <input
                     type="number"
-                    name="salaryMin"
-                    value={formData.salaryMin}
+                    name="min_salary"
+                    value={formData.min_salary || ''}
                     onChange={handleInputChange}
                     className="form-input w-full px-3 py-2 rounded-lg"
                     placeholder="Min (₹ LPA)"
                   />
                   <input
                     type="number"
-                    name="salaryMax"
-                    value={formData.salaryMax}
+                    name="max_salary"
+                    value={formData.max_salary || ''}
                     onChange={handleInputChange}
                     className="form-input w-full px-3 py-2 rounded-lg"
                     placeholder="Max (₹ LPA)"

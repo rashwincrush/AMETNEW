@@ -208,6 +208,25 @@ CREATE TABLE IF NOT EXISTS public.mentors (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
+-- Job Alerts table
+CREATE TABLE IF NOT EXISTS public.job_alerts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    alert_name TEXT NOT NULL,
+    keywords TEXT[],
+    location TEXT,
+    job_type TEXT,
+    experience_level TEXT,
+    min_salary INTEGER,
+    max_salary INTEGER,
+    frequency TEXT NOT NULL, -- e.g., 'daily', 'weekly'
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    last_sent_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    UNIQUE(user_id, alert_name)
+);
+
 -- Mentorship requests
 CREATE TABLE IF NOT EXISTS public.mentorship_requests (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -243,6 +262,7 @@ ALTER TABLE public.mentorship_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.group_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.group_posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.job_alerts ENABLE ROW LEVEL SECURITY;
 
 
 -- =================================================================
@@ -371,6 +391,17 @@ CREATE POLICY "Users can view their own applications" ON public.job_applications
 
 DROP POLICY IF EXISTS "Users can apply to jobs" ON public.job_applications;
 CREATE POLICY "Users can apply to jobs" ON public.job_applications FOR INSERT WITH CHECK (auth.uid() = applicant_id);
+
+-- -----------------------------------------------------------------
+-- -----------------------------------------------------------------
+-- Policies for: job_alerts
+-- -----------------------------------------------------------------
+DROP POLICY IF EXISTS "Users can manage their own job alerts" ON public.job_alerts;
+CREATE POLICY "Users can manage their own job alerts"
+ON public.job_alerts
+FOR ALL
+USING (auth.uid() = user_id)
+WITH CHECK (auth.uid() = user_id);
 
 -- -----------------------------------------------------------------
 -- Policies for: user_resumes
