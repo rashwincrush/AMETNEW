@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   BriefcaseIcon, 
@@ -8,62 +8,115 @@ import {
   DocumentTextIcon,
   ChartBarIcon,
   PlusIcon,
-  BuildingOfficeIcon
+  BuildingOfficeIcon,
+  ClockIcon,
+  PencilSquareIcon
 } from '@heroicons/react/24/outline';
+import { supabase } from '../../utils/supabase';
+
+const StatCardSkeleton = () => (
+  <div className="glass-card rounded-lg p-6 animate-pulse">
+    <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+    <div className="h-8 bg-gray-300 rounded w-1/2 mb-2"></div>
+    <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+  </div>
+);
 
 const EmployerDashboard = ({ user }) => {
-  const employerStats = [
-    { title: 'Active Job Postings', value: '12', change: '+3', icon: BriefcaseIcon, color: 'bg-blue-500' },
-    { title: 'Total Applications', value: '147', change: '+23%', icon: DocumentTextIcon, color: 'bg-green-500' },
-    { title: 'Profile Views', value: '892', change: '+15%', icon: EyeIcon, color: 'bg-purple-500' },
-    { title: 'Interviews Scheduled', value: '8', change: '+2', icon: ChatBubbleLeftRightIcon, color: 'bg-orange-500' }
-  ];
-
-  const recentApplications = [
-    { 
-      id: 1, 
-      jobTitle: 'Senior Marine Engineer', 
-      candidate: 'Rajesh Kumar', 
-      experience: '8 years',
-      location: 'Chennai',
-      appliedDate: '2 hours ago',
-      status: 'new'
-    },
-    { 
-      id: 2, 
-      jobTitle: 'Naval Architect', 
-      candidate: 'Priya Sharma', 
-      experience: '5 years',
-      location: 'Mumbai',
-      appliedDate: '4 hours ago',
-      status: 'reviewing'
-    },
-    { 
-      id: 3, 
-      jobTitle: 'Port Operations Manager', 
-      candidate: 'Mohammed Ali', 
-      experience: '12 years',
-      location: 'Kochi',
-      appliedDate: '1 day ago',
-      status: 'shortlisted'
-    },
-    { 
-      id: 4, 
-      jobTitle: 'Marine Engineer', 
-      candidate: 'Sneha Patel', 
-      experience: '3 years',
-      location: 'Pune',
-      appliedDate: '2 days ago',
-      status: 'interview'
+  const [stats, setStats] = useState(null);
+  const [recentApplications, setRecentApplications] = useState([]);
+  const [jobPerformance, setJobPerformance] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+    const fetchDashboardData = useCallback(async () => {
+    if (!user || !user.id) {
+      setLoading(false);
+      setError('User not found. Please log in again.');
+      return;
     }
-  ];
 
-  const jobPerformance = [
-    { title: 'Senior Marine Engineer', views: 156, applications: 23, posted: '1 week ago' },
-    { title: 'Naval Architect', views: 134, applications: 18, posted: '2 weeks ago' },
-    { title: 'Port Operations Manager', views: 98, applications: 15, posted: '3 weeks ago' }
-  ];
+    try {
+      setLoading(true);
+      setError(null);
 
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError || !profile || !profile.company_id) {
+        throw new Error('Could not find a company associated with this employer account.');
+      }
+      const companyId = profile.company_id;
+
+      const { data: companyJobs, error: jobsError } = await supabase
+        .from('jobs')
+        .select('id, title, created_at, is_active, views')
+        .eq('company_id', companyId);
+
+      if (jobsError) throw jobsError;
+
+      const jobIds = companyJobs.map(job => job.id);
+      const activeJobsCount = companyJobs.filter(job => job.is_active).length;
+
+      const { count: totalApplicationsCount, error: appsCountError } = await supabase
+        .from('job_applications')
+        .select('*', { count: 'exact', head: true })
+        .in('job_id', jobIds);
+
+      if (appsCountError) throw appsCountError;
+
+      setStats({
+        activeJobPostings: activeJobsCount,
+        totalApplications: totalApplicationsCount || 0,
+        profileViews: 0, // Placeholder for now
+        interviewsScheduled: 0, // Placeholder for now
+      });
+
+      if (jobIds.length > 0) {
+        const { data: applicationsData, error: applicationsError } = await supabase
+          .from('job_applications')
+          .select('id, created_at, status, jobs(title), profiles(full_name, location, experience)')
+          .in('job_id', jobIds)
+          .order('created_at', { ascending: false })
+          .limit(4);
+
+        if (applicationsError) throw applicationsError;
+        setRecentApplications(applicationsData);
+      }
+
+      const performanceWithApps = await Promise.all(
+        companyJobs.slice(0, 3).map(async (job) => {
+          const { count } = await supabase
+            .from('job_applications')
+            .select('*', { count: 'exact', head: true })
+            .eq('job_id', job.id);
+          return {
+            title: job.title,
+            views: job.views || 0,
+            applications: count || 0,
+            posted: new Date(job.created_at).toLocaleDateString(),
+          };
+        })
+      );
+      setJobPerformance(performanceWithApps);
+
+    } catch (err) {
+      console.error("Error fetching employer dashboard data:", err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+
+
+    // TODO: Replace with dynamic data when interviews feature is complete
   const upcomingInterviews = [
     {
       id: 1,
@@ -102,6 +155,41 @@ const EmployerDashboard = ({ user }) => {
     }
   };
 
+    const statIcons = {
+    activeJobPostings: { icon: BriefcaseIcon, color: 'bg-blue-500' },
+    totalApplications: { icon: DocumentTextIcon, color: 'bg-green-500' },
+    profileViews: { icon: EyeIcon, color: 'bg-purple-500' },
+    interviewsScheduled: { icon: ChatBubbleLeftRightIcon, color: 'bg-orange-500' },
+  };
+
+  const statTitles = {
+    activeJobPostings: 'Active Job Postings',
+    totalApplications: 'Total Applications',
+    profileViews: 'Profile Views',
+    interviewsScheduled: 'Interviews Scheduled',
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[...Array(4)].map((_, i) => <StatCardSkeleton key={i} />)}
+        </div>
+        <div className="h-64 bg-gray-200 rounded-lg animate-pulse"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="glass-card rounded-lg p-6 text-center text-red-500">
+        <h3 className="font-bold">An Error Occurred</h3>
+        <p>{error}</p>
+        <button onClick={fetchDashboardData} className="mt-4 btn-primary">Try Again</button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Welcome Section */}
@@ -125,17 +213,16 @@ const EmployerDashboard = ({ user }) => {
 
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {employerStats.map((stat, index) => {
-          const Icon = stat.icon;
+                {stats && Object.entries(stats).map(([key, value]) => {
+          const Icon = statIcons[key].icon;
           return (
-            <div key={index} className="glass-card rounded-lg p-6 card-hover">
+            <div key={key} className="glass-card rounded-lg p-6 card-hover">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                  <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-                  <p className="text-sm text-green-600">{stat.change} this month</p>
+                  <p className="text-sm font-medium text-gray-600">{statTitles[key]}</p>
+                  <p className="text-2xl font-bold text-gray-900">{value}</p>
                 </div>
-                <div className={`p-3 rounded-lg ${stat.color}`}>
+                <div className={`p-3 rounded-lg ${statIcons[key].color}`}>
                   <Icon className="w-6 h-6 text-white" />
                 </div>
               </div>
@@ -159,46 +246,54 @@ const EmployerDashboard = ({ user }) => {
               </Link>
             </div>
             <div className="space-y-4">
-              {recentApplications.map((application) => (
-                <div key={application.id} className="border border-gray-200 rounded-lg p-4 hover:bg-ocean-50 transition-colors">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-ocean-gradient rounded-full flex items-center justify-center">
-                          <span className="text-white font-medium text-sm">
-                            {application.candidate.split(' ').map(n => n[0]).join('')}
-                          </span>
+              {recentApplications.length > 0 ? (
+                recentApplications.map((application) => (
+                  <div key={application.id} className="border border-gray-200 rounded-lg p-4 hover:bg-ocean-50 transition-colors">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 bg-ocean-gradient rounded-full flex items-center justify-center">
+                            <span className="text-white font-medium text-sm">
+                              {application.profiles.full_name.split(' ').map(n => n[0]).join('')}
+                            </span>
+                          </div>
+                          <div>
+                            <h3 className="font-medium text-gray-900">{application.profiles.full_name}</h3>
+                            <p className="text-sm text-gray-600">Applied for: {application.jobs.title}</p>
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="font-medium text-gray-900">{application.candidate}</h3>
-                          <p className="text-sm text-gray-600">{application.jobTitle}</p>
+                        <div className="mt-2 flex items-center text-sm text-gray-500 space-x-4">
+                          <span>{application.profiles.experience || 'N/A'}</span>
+                          <span>•</span>
+                          <span>{application.profiles.location}</span>
+                          <span>•</span>
+                          <span>{new Date(application.created_at).toLocaleDateString()}</span>
                         </div>
                       </div>
-                      <div className="mt-2 flex items-center text-sm text-gray-500 space-x-4">
-                        <span>{application.experience} experience</span>
-                        <span>•</span>
-                        <span>{application.location}</span>
-                        <span>•</span>
-                        <span>{application.appliedDate}</span>
-                      </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(application.status)}`}>
+                        {application.status}
+                      </span>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(application.status)}`}>
-                      {application.status}
-                    </span>
+                    <div className="mt-3 flex space-x-2">
+                      <button className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded text-xs font-medium hover:bg-ocean-200">
+                        View Resume
+                      </button>
+                      <button className="px-3 py-1 bg-green-100 text-green-800 rounded text-xs font-medium hover:bg-green-200">
+                        Schedule Interview
+                      </button>
+                      <button className="px-3 py-1 bg-red-100 text-red-800 rounded text-xs font-medium hover:bg-red-200">
+                        Reject
+                      </button>
+                    </div>
                   </div>
-                  <div className="mt-3 flex space-x-2">
-                    <button className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded text-xs font-medium hover:bg-ocean-200">
-                      View Resume
-                    </button>
-                    <button className="px-3 py-1 bg-green-100 text-green-800 rounded text-xs font-medium hover:bg-green-200">
-                      Schedule Interview
-                    </button>
-                    <button className="px-3 py-1 bg-red-100 text-red-800 rounded text-xs font-medium hover:bg-red-200">
-                      Reject
-                    </button>
-                  </div>
+                ))
+              ) : (
+                <div className="text-center py-10">
+                  <DocumentTextIcon className="mx-auto h-12 w-12 text-gray-400" />
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">No Recent Applications</h3>
+                  <p className="mt-1 text-sm text-gray-500">New applications for your jobs will appear here.</p>
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>
@@ -236,18 +331,24 @@ const EmployerDashboard = ({ user }) => {
           <div className="glass-card rounded-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Job Performance</h3>
             <div className="space-y-3">
-              {jobPerformance.map((job, index) => (
-                <div key={index} className="p-3 bg-gray-50 rounded-lg">
-                  <h4 className="font-medium text-gray-900 text-sm">{job.title}</h4>
-                  <div className="flex justify-between items-center mt-1">
-                    <div className="flex space-x-3 text-xs text-gray-600">
-                      <span>{job.views} views</span>
-                      <span>{job.applications} applications</span>
+              {jobPerformance.length > 0 ? (
+                jobPerformance.map((job, index) => (
+                  <div key={index} className="p-3 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium text-gray-900 text-sm truncate">{job.title}</h4>
+                    <div className="flex justify-between items-center mt-1">
+                      <div className="flex space-x-3 text-xs text-gray-600">
+                        <span>{job.views} views</span>
+                        <span>{job.applications} apps</span>
+                      </div>
+                      <p className="text-xs text-gray-500">Posted: {job.posted}</p>
                     </div>
-                    <p className="text-xs text-gray-500">{job.posted}</p>
                   </div>
+                ))
+              ) : (
+                <div className="text-center py-5">
+                   <p className="mt-1 text-sm text-gray-500">Post a job to see its performance.</p>
                 </div>
-              ))}
+              )}
             </div>
             <div className="mt-4">
               <Link 
@@ -266,6 +367,10 @@ const EmployerDashboard = ({ user }) => {
         <Link to="/jobs/post" className="glass-card rounded-lg p-4 text-center card-hover">
           <PlusIcon className="w-8 h-8 text-blue-500 mx-auto mb-2" />
           <p className="text-sm font-medium text-gray-900">Post New Job</p>
+        </Link>
+        <Link to="/company/edit" className="glass-card rounded-lg p-4 text-center card-hover">
+          <PencilSquareIcon className="w-8 h-8 text-indigo-500 mx-auto mb-2" />
+          <p className="text-sm font-medium text-gray-900">Edit Company Profile</p>
         </Link>
         <Link to="/directory" className="glass-card rounded-lg p-4 text-center card-hover">
           <UsersIcon className="w-8 h-8 text-green-500 mx-auto mb-2" />

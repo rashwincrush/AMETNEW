@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../common/NotificationCenter';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { 
   BellIcon,
   PlusIcon,
@@ -16,6 +16,7 @@ import {
 } from '@heroicons/react/24/outline';
 
 const JobAlerts = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { showSuccess, showError } = useNotification();
   const [loading, setLoading] = useState(true);
@@ -264,11 +265,22 @@ const JobAlerts = () => {
       {/* Header */}
       <div className="glass-card rounded-lg p-6">
         <div className="flex items-center justify-between">
-          <div>
+          <div className="flex items-center space-x-4">
+            <button 
+              onClick={() => navigate(-1)}
+              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+              aria-label="Go back"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+            </button>
+            <div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Job Alerts</h1>
             <p className="text-gray-600">
               Get notified when new jobs matching your criteria are posted
             </p>
+          </div>
           </div>
           <button
             onClick={() => {

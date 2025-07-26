@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../../utils/supabase';
+import { supabase, useRealtime } from '../../utils/supabase';
 import { 
   Box, 
   Button, 
@@ -59,36 +59,158 @@ const EventsList = ({ isAdmin = false }) => {
     setFilter(e.target.value);
   };
 
+  // Keep track of subscription status to prevent duplicate subscriptions
+  const subscriptionStatusRef = useRef({ isSubscribing: false, isActive: false, isUnmounting: false });
+  
+  // Handle channel status changes separately from setup
+  const handleChannelStatus = useCallback((status, err) => {
+    // Only process status updates if the component is still mounted
+    // This helps avoid state updates after unmounting
+    if (status === 'SUBSCRIBED') {
+      console.log('Successfully subscribed to events and rsvps channel!');
+      subscriptionStatusRef.current.isActive = true;
+      subscriptionStatusRef.current.isSubscribing = false;
+    } else if (status === 'CHANNEL_ERROR') {
+      console.error('Channel error:', err || 'Unknown connection error');
+      subscriptionStatusRef.current.isActive = false;
+      subscriptionStatusRef.current.isSubscribing = false;
+    } else if (status === 'CLOSED') {
+      // This is normal during cleanup, so only log when not during unmount
+      if (subscriptionStatusRef.current.isUnmounting !== true) {
+        console.warn('Channel closed unexpectedly');
+      }
+      subscriptionStatusRef.current.isActive = false;
+      subscriptionStatusRef.current.isSubscribing = false;
+    }
+  }, []);
+  
+  // Access realtime connection status and helper from our custom hook
+  const { isRealtimeReady, setupRealtimeSubscription: checkRealtimeConnection } = useRealtime();
+  
+  // Set up real-time subscription with connection status check and fallback support
+  const setupRealtimeSubscription = useCallback(async () => {
+    // Prevent duplicate subscription attempts
+    if (subscriptionStatusRef.current.isSubscribing) {
+      console.log('Subscription setup already in progress, skipping');
+      return;
+    }
+    
+    // If we already have an active subscription, don't create another one
+    if (subscriptionStatusRef.current.isActive && subscriptionRef.current) {
+      console.log('Subscription already active, skipping setup');
+      return;
+    }
+    
+    subscriptionStatusRef.current.isSubscribing = true;
+    
+    try {
+      // First, wait for realtime connection to be ready, with fallback option
+      console.log('Checking if realtime connection is ready...');
+      const connectionSuccess = await checkRealtimeConnection('events-list', { allowFallback: true })
+        .catch(err => {
+          console.warn('Realtime check failed but continuing in fallback mode:', err);
+          return false; // Continue in fallback mode
+        });
+      
+      if (connectionSuccess) {
+        console.log('Realtime connection confirmed ready, creating subscription');
+        
+        // Clean up any existing subscription first
+        if (subscriptionRef.current) {
+          console.log('Removing existing channel before creating new one');
+          await supabase.removeChannel(subscriptionRef.current);
+          subscriptionRef.current = null;
+        }
+        
+        // Create a new subscription
+        const channel = supabase
+          .channel('events-list-subscription')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'events' },
+            (payload) => {
+              console.log('Real-time change received for events:', payload);
+              fetchEvents();
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'event_rsvps' },
+            (payload) => {
+              console.log('Real-time change received for rsvps:', payload);
+              fetchEvents();
+            }
+          )
+          .subscribe(handleChannelStatus);
+
+        subscriptionRef.current = channel;
+      } else {
+        console.log('Operating in non-realtime mode for events - updates will require manual refresh');
+        // Could add a visual indicator here that realtime is disabled
+      }
+    } catch (error) {
+      console.error('Error setting up realtime subscription:', error);
+      // Allow the component to continue working without realtime
+      console.log('Continuing without realtime updates for events');
+    } finally {
+      subscriptionStatusRef.current.isSubscribing = false;
+      // Don't mark as active if we didn't actually set up a subscription
+      if (subscriptionRef.current) {
+        subscriptionStatusRef.current.isActive = true;
+      }
+    }
+  }, [handleChannelStatus, checkRealtimeConnection]);
+  
   useEffect(() => {
     fetchEvents();
     
-    // Set up real-time subscription for events
-    const channel = supabase
-      .channel('events-list-subscription')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'events' },
-        (payload) => {
-          console.log('Real-time change received:', payload);
-          fetchEvents();
-        }
-      )
-      .subscribe();
-
-    subscriptionRef.current = channel;
+    // Initialize the subscription
+    setupRealtimeSubscription();
 
     // Cleanup function
     return () => {
-      if (subscriptionRef.current) {
-        supabase.removeChannel(subscriptionRef.current);
-        subscriptionRef.current = null;
-      }
+      const cleanupSubscription = async () => {
+        try {
+          // Mark component as unmounting to prevent unnecessary warnings
+          subscriptionStatusRef.current.isUnmounting = true;
+          
+          if (subscriptionRef.current) {
+            console.log('Cleaning up events subscription...');
+            // Mark subscription as inactive before removal
+            subscriptionStatusRef.current.isActive = false;
+            subscriptionStatusRef.current.isSubscribing = false;
+            
+            // Use a try-catch within the async function to handle connection errors
+            try {
+              await supabase.removeChannel(subscriptionRef.current);
+            } catch (removeError) {
+              // Silently handle WebSocket closed errors during unmount
+              if (removeError?.message?.includes('WebSocket') || 
+                  removeError?.message?.includes('connection')) {
+                // Expected during navigation, no need to log
+              } else {
+                console.error('Error removing channel:', removeError);
+              }
+            }
+            
+            subscriptionRef.current = null;
+          }
+        } catch (error) {
+          // Only log critical errors
+          if (error?.name !== 'AbortError') {
+            console.error('Error cleaning up subscription:', error);
+          }
+        }
+      };
+      
+      cleanupSubscription();
     };
-  }, [filter, eventType]);
+  }, [filter, eventType, setupRealtimeSubscription]);
 
   const fetchEvents = async () => {
     try {
       setLoading(true);
+      setError('');
       let query = supabase
         .from('events')
         .select('*')
@@ -113,11 +235,38 @@ const EventsList = ({ isAdmin = false }) => {
         query = query.eq('event_type', eventType);
       }
 
-      const { data, error: fetchError } = await query;
+      const { data: eventsData, error: fetchError } = await query;
 
       if (fetchError) throw fetchError;
 
-      setEvents(data || []);
+      if (eventsData && eventsData.length > 0) {
+        const eventIds = eventsData.map(e => e.id);
+
+        const { data: rsvpData, error: rsvpError } = await supabase
+          .from('event_rsvps')
+          .select('event_id')
+          .in('event_id', eventIds)
+          .eq('attendance_status', 'going');
+
+        if (rsvpError) {
+          console.error('Error fetching RSVP counts:', rsvpError);
+        } else {
+          const counts = rsvpData.reduce((acc, rsvp) => {
+            acc[rsvp.event_id] = (acc[rsvp.event_id] || 0) + 1;
+            return acc;
+          }, {});
+
+          const eventsWithCounts = eventsData.map(event => ({
+            ...event,
+            attendees_count: counts[event.id] || 0,
+          }));
+
+          setEvents(eventsWithCounts);
+          return;
+        }
+      }
+
+      setEvents(eventsData || []);
     } catch (err) {
       console.error('Error fetching events:', err);
       setError('Failed to load events');

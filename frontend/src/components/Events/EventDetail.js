@@ -33,13 +33,41 @@ const EventDetail = () => {
       if (eventError) throw eventError;
       setEvent(eventData);
 
-      const { data: attendeesData, error: attendeesError } = await supabase
-        .from('event_attendees')
-        .select('id, attendance_status, profiles:attendee_id(id, full_name, avatar_url, current_position)')
+      // First, fetch RSVPs for this event with status 'going'
+      const { data: rsvpsData, error: rsvpsError } = await supabase
+        .from('event_rsvps')
+        .select('id, user_id, attendance_status')
         .eq('event_id', id)
         .eq('attendance_status', 'going');
-      if (attendeesError) throw attendeesError;
-      setAttendees(attendeesData.filter(a => a.profiles));
+      
+      if (rsvpsError) throw rsvpsError;
+      
+      if (rsvpsData && rsvpsData.length > 0) {
+        // Get all user IDs from RSVPs
+        const userIds = rsvpsData.map(rsvp => rsvp.user_id);
+        
+        // Then fetch profile data for these users
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url, current_position')
+          .in('id', userIds);
+        
+        if (profilesError) throw profilesError;
+        
+        // Combine RSVP data with profile data
+        const attendeesWithProfiles = rsvpsData.map(rsvp => {
+          const profile = profilesData?.find(p => p.id === rsvp.user_id);
+          return {
+            id: rsvp.id,
+            attendance_status: rsvp.attendance_status,
+            profiles: profile || null
+          };
+        });
+        
+        setAttendees(attendeesWithProfiles.filter(a => a.profiles));
+      } else {
+        setAttendees([]);
+      }
 
     } catch (err) {
       console.error("Error fetching event data:", err);

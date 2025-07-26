@@ -12,6 +12,21 @@ import {
   ShareIcon
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
+import { StarIcon } from '@heroicons/react/24/solid';
+
+const AchievementCard = ({ achievement }) => (
+  <div className="bg-white rounded-lg p-4 border border-gray-200 hover:shadow-md transition-shadow duration-300">
+    <div className="flex items-start">
+      <div className="flex-shrink-0">
+        <StarIcon className="w-6 h-6 text-yellow-500" />
+      </div>
+      <div className="ml-3">
+        <p className="text-md font-semibold text-gray-800">{achievement.title || achievement}</p>
+        {achievement.description && <p className="text-sm text-gray-600 mt-1">{achievement.description}</p>}
+      </div>
+    </div>
+  </div>
+);
 
 const AlumniProfile = () => {
   const { id } = useParams();
@@ -227,21 +242,25 @@ const AlumniProfile = () => {
           <div className="glass-card rounded-lg p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Experience</h2>
             <div className="space-y-6">
-              {alumnus.experience.map((exp, index) => (
-                <div key={index} className="border-l-2 border-ocean-200 pl-4">
-                  <div className="flex items-start space-x-3">
-                    <div className="w-10 h-10 bg-ocean-gradient rounded-lg flex items-center justify-center flex-shrink-0">
-                      <BriefcaseIcon className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{exp.position}</h3>
-                      <p className="text-ocean-600 font-medium">{exp.company}</p>
-                      <p className="text-sm text-gray-600">{exp.duration} • {exp.location}</p>
-                      <p className="text-gray-700 mt-2">{exp.description}</p>
+              {Array.isArray(alumnus.experience) && alumnus.experience.length > 0 ? (
+                alumnus.experience.map((exp, index) => (
+                  <div key={index} className="border-l-2 border-ocean-200 pl-4">
+                    <div className="flex items-start space-x-3">
+                      <div className="w-10 h-10 bg-ocean-gradient rounded-lg flex items-center justify-center flex-shrink-0">
+                        <BriefcaseIcon className="w-5 h-5 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900">{exp.position}</h3>
+                        <p className="text-ocean-600 font-medium">{exp.company}</p>
+                        <p className="text-sm text-gray-600">{exp.duration} • {exp.location}</p>
+                        <p className="text-gray-700 mt-2">{exp.description}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-gray-500">No experience information available.</p>
+              )}
             </div>
           </div>
 
@@ -249,45 +268,50 @@ const AlumniProfile = () => {
           <div className="glass-card rounded-lg p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Education</h2>
             <div className="space-y-4">
-              {alumnus.education.map((edu, index) => (
-                <div key={index} className="border-l-2 border-ocean-200 pl-4">
-                  <div className="flex items-start space-x-3">
-                    <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <AcademicCapIcon className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{edu.degree}</h3>
-                      <p className="text-ocean-600 font-medium">{edu.institution}</p>
-                      <p className="text-sm text-gray-600">{edu.year} • {edu.grade}</p>
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {edu.activities.map((activity, idx) => (
-                          <span 
-                            key={idx}
-                            className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
-                          >
-                            {activity}
-                          </span>
-                        ))}
+              {Array.isArray(alumnus.education) && alumnus.education.length > 0 ? (
+                alumnus.education.map((edu, index) => (
+                  <div key={index} className="border-l-2 border-ocean-200 pl-4">
+                    <div className="flex items-start space-x-3">
+                      <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <AcademicCapIcon className="w-5 h-5 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900">{edu.degree}</h3>
+                        <p className="text-ocean-600 font-medium">{edu.institution}</p>
+                        <p className="text-sm text-gray-600">{edu.year} • {edu.grade}</p>
+                        {Array.isArray(edu.activities) && edu.activities.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {edu.activities.map((activity, idx) => (
+                              <span 
+                                key={idx}
+                                className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
+                              >
+                                {activity}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-gray-500">No education information available.</p>
+              )}
             </div>
           </div>
 
           {/* Achievements */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Key Achievements</h2>
-            <ul className="space-y-3">
-              {alumnus.achievements.map((achievement, index) => (
-                <li key={index} className="flex items-start">
-                  <span className="text-ocean-500 mr-3 mt-1">🏆</span>
-                  <span className="text-gray-700">{achievement}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          {Array.isArray(alumnus.achievements) && alumnus.achievements.length > 0 && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Key Achievements</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {alumnus.achievements.map((achievement, index) => (
+                  <AchievementCard key={index} achievement={achievement} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Sidebar */}

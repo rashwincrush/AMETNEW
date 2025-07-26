@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import RoleManagement from './RoleManagement';
 import ContentApproval from './ContentApproval';
 import SuperAdminPanel from './SuperAdminPanel';
+import JobVerification from './JobVerification';
 import UserManagement from './UserManagement';
 import { 
   Cog6ToothIcon, 
@@ -31,6 +32,7 @@ const SiteAdministration = () => {
   // These are the tabs *within* Site Administration
   const adminTabs = [
     { name: 'Role Management', component: <RoleManagement />, superAdminOnly: false },
+    { name: 'Job Verification', component: <JobVerification />, superAdminOnly: false },
     { name: 'Super Admin Tools', component: <SuperAdminPanel />, superAdminOnly: true },
     { name: 'App Settings', component: <AppSettings />, superAdminOnly: true },
   ].filter(tab => isSuperAdmin || !tab.superAdminOnly);

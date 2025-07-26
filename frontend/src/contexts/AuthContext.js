@@ -56,7 +56,6 @@ export const AuthProvider = ({ children }) => {
     if (!userId) {
       console.error("fetchUserProfile called with no userId.");
       setProfile(null);
-      setLoading(false);
       return null;
     }
 
@@ -74,8 +73,6 @@ export const AuthProvider = ({ children }) => {
       console.error('Error fetching profile:', error);
       setProfile(null);
       return null;
-    } finally {
-      setLoading(false);
     }
   }, []);
 
@@ -87,11 +84,7 @@ export const AuthProvider = ({ children }) => {
         console.error('Error signing out:', error);
       }
       
-      // Unsubscribe auth listener
-      if (listenerRef.current) {
-        listenerRef.current.unsubscribe();
-        listenerRef.current = null;
-      }
+      // The onAuthStateChange listener will handle the state update automatically.
       setUser(null);
       setProfile(null);
       setSession(null);
@@ -323,8 +316,12 @@ export const AuthProvider = ({ children }) => {
             console.error("Error during profile fetch on auth change:", e);
             setProfile(null);
           } finally {
-            console.log('7. Auth process finished. Setting loading to false.');
-            setLoading(false);
+            console.log('7. Auth process finished.');
+            // Only set loading to false after all async operations are done
+            if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'SIGNED_OUT') {
+              setLoading(false);
+            }
+            clearTimeout(loadingTimeout);
           }
         });
 
@@ -349,7 +346,7 @@ export const AuthProvider = ({ children }) => {
         listenerRef.current = null;
       }
     };
-  }, [fetchUserProfile]); // Only re-run if profile ID changes
+  }, []); // Empty dependency array ensures this runs only once on mount
 
   const userRole = getUserRole();
   const isAdmin = userRole === 'admin' || userRole === 'super_admin';

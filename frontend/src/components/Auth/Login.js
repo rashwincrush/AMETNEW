@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import Logo from '../common/Logo';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, Navigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
 import { signInWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Login = () => {
   const navigate = useNavigate();
+  const { user, loading: authLoading } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -16,6 +18,7 @@ const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [requiresTwoFactor, setRequiresTwoFactor] = useState(false);
+  const [loginSuccess, setLoginSuccess] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -43,8 +46,10 @@ const Login = () => {
       }
 
       if (data.user) {
-        // Navigation will be handled by AuthContext
-        navigate('/dashboard');
+        // Mark login as successful but don't navigate yet
+        // Let AuthContext fully process the auth state change
+        console.log('Login successful, waiting for auth context to update...');
+        setLoginSuccess(true);
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
@@ -61,6 +66,7 @@ const Login = () => {
       if (error) {
         setError(error.message);
       }
+      // Don't navigate here - will be handled by effect
     } catch (err) {
       setError('Failed to sign in with Google');
       console.error('Google login error:', err);
@@ -74,6 +80,7 @@ const Login = () => {
       if (error) {
         setError(error.message);
       }
+      // Don't navigate here - will be handled by effect
     } catch (err) {
       setError('Failed to sign in with LinkedIn');
       console.error('LinkedIn login error:', err);
@@ -88,6 +95,20 @@ const Login = () => {
     }));
   };
 
+  // Effect to handle redirect after auth state is updated
+  useEffect(() => {
+    // Redirect if login was successful and auth is no longer loading
+    if (loginSuccess && user && !authLoading) {
+      console.log('Auth state updated after login, redirecting to dashboard...');
+      navigate('/dashboard');
+    }
+  }, [user, authLoading, navigate, loginSuccess]);
+  
+  // If user is already authenticated, redirect to dashboard
+  if (user && !authLoading) {
+    return <Navigate to="/dashboard" />;
+  }
+  
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
@@ -130,6 +151,7 @@ const Login = () => {
                 id="email"
                 name="email"
                 type="email"
+                autoComplete="email"
                 required
                 value={formData.email}
                 onChange={handleChange}
@@ -147,6 +169,7 @@ const Login = () => {
                   id="password"
                   name="password"
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
                   required
                   value={formData.password}
                   onChange={handleChange}

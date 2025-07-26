@@ -1,15 +1,22 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Link } from 'react-router-dom';
-import { Container, Typography, Paper, Button, Grid, Box } from '@mui/material';
+import { Container, Typography, Paper, Button, Grid, Box, Tabs, Tab } from '@mui/material';
+import SessionScheduler from './SessionScheduler';
+import SessionsCalendar from './SessionsCalendar';
 
 const MentorshipDashboard = () => {
   const { user, profile, getUserRole } = useAuth();
   const role = getUserRole();
+  const [activeTab, setActiveTab] = useState(0);
 
   // This is a placeholder. In a real app, you'd fetch mentorship-specific data.
   const isMentor = profile?.is_mentor;
   const isMentee = profile?.is_mentee;
+  
+  const handleTabChange = (event, newValue) => {
+    setActiveTab(newValue);
+  };
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
@@ -66,6 +73,35 @@ const MentorshipDashboard = () => {
 
 
       </Grid>
+      
+      {/* Session Scheduling Section - Only visible if user is a mentor or mentee */}
+      {(isMentor || isMentee) && (
+        <Paper sx={{ p: 3, mt: 4 }}>
+          <Typography variant="h5" gutterBottom>Mentorship Sessions</Typography>
+          <Typography color="text.secondary" paragraph>
+            Schedule, manage, and track your mentorship sessions. You can book new sessions or view your upcoming and past sessions.
+          </Typography>
+          
+          <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+            <Tabs value={activeTab} onChange={handleTabChange}>
+              <Tab label="Schedule New Session" />
+              <Tab label="My Sessions" />
+            </Tabs>
+          </Box>
+          
+          {activeTab === 0 && (
+            <Box sx={{ py: 2 }}>
+              <SessionScheduler />
+            </Box>
+          )}
+          
+          {activeTab === 1 && (
+            <Box sx={{ py: 2 }}>
+              <SessionsCalendar />
+            </Box>
+          )}
+        </Paper>
+      )}
     </Container>
   );
 };

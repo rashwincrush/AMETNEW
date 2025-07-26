@@ -32,9 +32,9 @@ const Profile = ({ user }) => {
     company: '',
     position: '',
     experience: '',
-    graduationYear: '',
+    batch: '',
     degree: '',
-    specialization: '',
+    department: '',
     skills: [],
     achievements: [],
     interests: [],
@@ -71,9 +71,9 @@ const Profile = ({ user }) => {
             company: profile.company || '',
             position: profile.job_title || '',
             experience: profile.experience || '',
-            graduationYear: profile.graduation_year || '',
+            batch: profile.batch || '',
             degree: profile.degree || '',
-            specialization: profile.specialization || '',
+            department: profile.department || '',
             date_of_birth: profile.date_of_birth || '',
             skills: profile.skills || [],
             achievements: profile.achievements || [],
@@ -201,9 +201,9 @@ const Profile = ({ user }) => {
         company: formData.company,
         headline: formData.headline,
         experience: formData.experience,
-        graduation_year: formData.graduationYear,
+        batch: formData.batch,
         degree: formData.degree,
-        specialization: formData.specialization,
+        department: formData.department,
         date_of_birth: formData.date_of_birth,
         skills: formData.skills,
         achievements: formData.achievements,
@@ -315,7 +315,7 @@ const Profile = ({ user }) => {
       }));
     } 
     // Handle array fields
-    else if (['skills', 'achievements', 'interests', 'languages'].includes(name)) {
+        else if (['skills', 'interests', 'languages'].includes(name)) {
       const items = value.split(',').map(item => item.trim()).filter(item => item);
       setFormData(prev => ({ ...prev, [name]: items }));
     } 
@@ -325,17 +325,17 @@ const Profile = ({ user }) => {
     }
   };
 
-  const handleAddAchievement = () => {
+    const handleAddAchievement = () => {
     setFormData(prev => ({
       ...prev,
-      achievements: [...prev.achievements, '']
+      achievements: [...(prev.achievements || []), { title: '', description: '' }]
     }));
   };
 
-  const handleAchievementChange = (index, value) => {
+    const handleAchievementChange = (index, field, value) => {
     setFormData(prev => {
       const newAchievements = [...prev.achievements];
-      newAchievements[index] = value;
+      newAchievements[index] = { ...newAchievements[index], [field]: value };
       return { ...prev, achievements: newAchievements };
     });
   };
@@ -541,11 +541,11 @@ const Profile = ({ user }) => {
                 />
               </div>
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Graduation Year</label>
+                <label className="block text-sm font-medium text-gray-700">Batch</label>
                 <input
                   type="number"
-                  name="graduationYear"
-                  value={formData.graduationYear}
+                  name="batch"
+                  value={formData.batch}
                   onChange={handleChange}
                   min="1900"
                   max={new Date().getFullYear()}
@@ -564,14 +564,25 @@ const Profile = ({ user }) => {
                 />
               </div>
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Specialization</label>
+                <label className="block text-sm font-medium text-gray-700">Department</label>
                 <input
                   type="text"
-                  name="specialization"
-                  value={formData.specialization}
+                  name="department"
+                  value={formData.department}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   placeholder="e.g., Ship Design and Construction"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Student ID <span className="text-xs text-gray-500">(optional)</span></label>
+                <input
+                  type="text"
+                  name="student_id"
+                  value={formData.student_id}
+                  onChange={handleChange}
+                  className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                  placeholder="Enter your student ID for verification (optional)"
                 />
               </div>
             </div>
@@ -588,36 +599,42 @@ const Profile = ({ user }) => {
               />
             </div>
             
-            <div className="mt-6">
-              <div className="flex justify-between items-center mb-2">
-                <label className="block text-sm font-medium text-gray-700">Key Achievements</label>
-                <button 
-                  type="button"
-                  onClick={handleAddAchievement}
-                  className="text-sm text-ocean-600 hover:text-ocean-800 font-medium"
-                >
-                  + Add Achievement
-                </button>
+            <div className="mt-4 space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Achievements</label>
+              <div className="space-y-3">
+                {formData.achievements && formData.achievements.map((achievement, index) => (
+                  <div key={index} className="p-3 border rounded-md bg-gray-50 relative space-y-2">
+                    <input
+                      type="text"
+                      placeholder="Achievement Title (e.g., Employee of the Month)"
+                      className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                      value={achievement.title || ''}
+                      onChange={(e) => handleAchievementChange(index, 'title', e.target.value)}
+                    />
+                    <textarea
+                      placeholder="Description (optional)"
+                      rows={2}
+                      className="form-textarea w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                      value={achievement.description || ''}
+                      onChange={(e) => handleAchievementChange(index, 'description', e.target.value)}
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => handleRemoveAchievement(index)}
+                      className="absolute top-2 right-2 text-gray-400 hover:text-red-500 p-1 rounded-full bg-white"
+                    >
+                      <XMarkIcon className="w-5 h-5" />
+                    </button>
+                  </div>
+                ))}
               </div>
-              
-              {formData.achievements.map((achievement, index) => (
-                <div key={index} className="flex items-center space-x-2 mb-2">
-                  <input
-                    type="text"
-                    value={achievement}
-                    onChange={(e) => handleAchievementChange(index, e.target.value)}
-                    className="form-input flex-1 px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                    placeholder="Describe your achievement..."
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveAchievement(index)}
-                    className="p-2 text-red-500 hover:text-red-700"
-                  >
-                    <XMarkIcon className="w-5 h-5" />
-                  </button>
-                </div>
-              ))}
+              <button 
+                type="button" 
+                onClick={handleAddAchievement}
+                className="mt-2 text-sm font-medium text-ocean-600 hover:text-ocean-800"
+              >
+                + Add Achievement
+              </button>
             </div>
           </div>
 
@@ -741,9 +758,9 @@ const Profile = ({ user }) => {
                   <div>
                     <p className="font-medium text-gray-900">{formData.degree || 'Not specified'}</p>
                     <p className="text-sm text-gray-600">
-                      {formData.graduationYear ? `Year of Completion : ${formData.graduationYear}` : 'Graduation year not specified'}
+                      {formData.batch ? `Year of Completion : ${formData.batch}` : 'Graduation year not specified'}
                     </p>
-                    <p className="text-sm text-gray-600">{formData.specialization}</p>
+                    <p className="text-sm text-gray-600">{formData.department}</p>
                   </div>
                 </div>
                 <div>

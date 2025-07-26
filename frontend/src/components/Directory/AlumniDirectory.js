@@ -5,15 +5,32 @@ import {
   FunnelIcon,
   Squares2X2Icon,
   ListBulletIcon,
-  MapPinIcon,
-  BriefcaseIcon,
-  AcademicCapIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
+import AlumniCard from './AlumniCard';
+import AlumniListItem from './AlumniListItem';
 
-import { Collapse, Button, Box, TextField, Chip, Grid, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
+const FilterInput = ({ label, name, value, onChange, placeholder }) => (
+  <div>
+    <label htmlFor={name} className="block text-sm font-medium text-gray-700">
+      {label}
+    </label>
+    <div className="mt-1">
+      <input
+        type="text"
+        name={name}
+        id={name}
+        value={value}
+        onChange={onChange}
+        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+        placeholder={placeholder}
+      />
+    </div>
+  </div>
+);
 
 const AlumniDirectory = () => {
   const { isAuthenticated } = useAuth();
@@ -25,7 +42,9 @@ const AlumniDirectory = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [totalAlumni, setTotalAlumni] = useState(0);
-  
+  const [selectedLetter, setSelectedLetter] = useState('');
+  const [approvedMentorIds, setApprovedMentorIds] = useState(new Set());
+
   const initialFilters = {
     graduationYear: '',
     batchYear: '',
@@ -33,16 +52,16 @@ const AlumniDirectory = () => {
     location: '',
     industry: '',
     skills: '',
+    achievement: '',
     department: '',
     company: ''
   };
   const [filters, setFilters] = useState(initialFilters);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [sortBy, setSortBy] = useState('created_at,desc');
+  const [showFilters, setShowFilters] = useState(false);
+  const [sortBy, setSortBy] = useState('full_name,asc');
 
-  // --- Event Handlers ---
   const handleSearch = (e) => {
-    if (e) e.preventDefault(); // Prevent form submission if called from a form
+    if (e) e.preventDefault();
     setCurrentPage(1);
     fetchAlumniData();
   };
@@ -55,8 +74,18 @@ const AlumniDirectory = () => {
   const handleClearFilters = () => {
     setFilters(initialFilters);
     setSearchTerm('');
+    setSelectedLetter('');
     setCurrentPage(1);
-    // The useEffect will trigger a refetch
+  };
+  
+  const handleClearSingleFilter = (filterName) => {
+    setFilters(prev => ({ ...prev, [filterName]: '' }));
+    setCurrentPage(1);
+  };
+
+  const handleLetterClick = (letter) => {
+    setSelectedLetter(letter);
+    setCurrentPage(1);
   };
 
   const handleKeyDown = (e) => {
@@ -65,11 +94,9 @@ const AlumniDirectory = () => {
     }
   };
 
-  // --- Pagination Logic ---
   const totalPages = Math.ceil(totalAlumni / itemsPerPage);
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const paginate = (pageNumber) => setCurrentPage(pageNumber);
   const nextPage = () => {
     if (currentPage < totalPages) setCurrentPage(prev => prev + 1);
   };
@@ -78,26 +105,35 @@ const AlumniDirectory = () => {
   };
 
   useEffect(() => {
+    const fetchApprovedMentorIds = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('mentors')
+          .select('user_id')
+          .eq('status', 'approved');
+        
+        if (error) throw error;
+
+        setApprovedMentorIds(new Set(data.map(m => m.user_id)));
+      } catch (error) {
+        console.error('Error fetching approved mentor IDs:', error);
+      }
+    };
+
+    fetchApprovedMentorIds();
+  }, []);
+
+  useEffect(() => {
     fetchAlumniData();
-  }, [currentPage, itemsPerPage, filters, sortBy]);
+  }, [currentPage, itemsPerPage, filters, sortBy, searchTerm, selectedLetter, approvedMentorIds]);
 
   const fetchAlumniData = async () => {
     setLoading(true);
     setError(null);
-    
-    // For performance monitoring
-    const startTime = performance.now();
-    
     try {
-      // Using the imported supabase client (singleton pattern)
       const from = (currentPage - 1) * itemsPerPage;
       const to = from + itemsPerPage - 1;
       
-      console.log(`Fetching alumni data: page ${currentPage}, items ${from}-${to}`);
-      if (Object.values(filters).some(v => v)) {
-        console.log('Active filters:', filters);
-      }
-
       const columnMap = {
         graduationYear: 'graduation_year',
         batchYear: 'batch_year',
@@ -105,6 +141,7 @@ const AlumniDirectory = () => {
         location: 'location',
         industry: 'industry',
         skills: 'skills',
+        achievement: 'achievements',
         department: 'department',
         company: 'current_company',
         achievements: 'achievements'
@@ -114,46 +151,40 @@ const AlumniDirectory = () => {
         .from('profiles')
         .select('*', { count: 'exact' });
 
+      if (selectedLetter) {
+        query = query.ilike('full_name', `${selectedLetter}%`);
+      }
+
       if (searchTerm) {
         const textColumns = [
           'full_name', 'email', 'degree', 'location', 'department',
           'current_company', 'company_name', 'current_position', 'phone', 'phone_number'
         ];
-
         const numericColumns = ['graduation_year', 'batch_year', 'student_id'];
-
         const orConditions = textColumns.map(col => `${col}.ilike.%${searchTerm}%`);
-
         if (!isNaN(searchTerm) && searchTerm.trim() !== '') {
           numericColumns.forEach(col => {
             orConditions.push(`${col}.eq.${searchTerm}`);
           });
         }
-
         query = query.or(orConditions.join(','));
       }
 
       Object.keys(filters).forEach(key => {
         if (filters[key]) {
           const columnName = columnMap[key] || key;
-          // Special handling for specific filter types
           if (key === 'skills') {
             const skillsArray = filters[key].split(',').map(s => s.trim()).filter(Boolean);
             if (skillsArray.length > 0) {
-              query = query.cs(columnName, skillsArray);
+              query = query.contains('skills', skillsArray);
             }
-          } 
-          // Handle batch_year as an exact match if it's a number
-          else if (key === 'batchYear' && !isNaN(filters[key])) {
-            console.log(`Applying batch_year filter: ${filters[key]}`);
+          } else if (key === 'achievement') {
+            query = query.ilike('achievements', `'%"title":"%${filters.achievement}%"%`);
+          } else if (key === 'batchYear' && !isNaN(filters[key])) {
             query = query.eq(columnName, parseInt(filters[key]));
-          }
-          // Handle company with special case for both current_company and company_name fields
-          else if (key === 'company') {
-            console.log(`Applying company filter: ${filters[key]}`);
+          } else if (key === 'company') {
             query = query.or(`current_company.ilike.%${filters[key]}%,company_name.ilike.%${filters[key]}%`);
-          }
-          else {
+          } else {
             query = query.ilike(columnName, `%${filters[key]}%`);
           }
         }
@@ -161,32 +192,11 @@ const AlumniDirectory = () => {
 
       const [sortField, sortOrder] = sortBy.split(',');
       query = query.order(sortField, { ascending: sortOrder === 'asc' });
-
       query = query.range(from, to);
 
       const { data, error: supabaseError, count } = await query;
 
-      if (supabaseError) {
-        console.error('Error fetching alumni:', supabaseError);
-        
-        // Handle specific error types
-        if (supabaseError.code === 'PGRST301') {
-          setError('Database timeout. Please try a more specific search.');
-        } else if (supabaseError.code === '23505') {
-          setError('Database constraint error. Please try again.');
-        } else if (supabaseError.code?.startsWith('23')) {
-          setError('Database integrity error. Please try again.');
-        } else if (supabaseError.code === '42P01') {
-          setError('Table not found. Please contact support.');
-        } else if (supabaseError.message?.includes('network')) {
-          setError('Network error. Please check your connection and try again.');
-        } else if (supabaseError.message?.includes('rate limit')) {
-          setError('Rate limit exceeded. Please try again in a few minutes.');
-        } else {
-          setError(`Failed to load alumni data: ${supabaseError.message || 'Unknown error'}`);
-        }
-        return;
-      }
+      if (supabaseError) throw supabaseError;
 
       const transformedAlumni = data.map(profile => ({
         id: profile.id,
@@ -214,537 +224,329 @@ const AlumniDirectory = () => {
 
       setAlumni(transformedAlumni);
       setTotalAlumni(count || 0);
-      
-      // Log performance metrics
-      const endTime = performance.now();
-      const queryTime = endTime - startTime;
-      console.log(`Alumni query completed in ${queryTime.toFixed(2)}ms, found ${count || 0} results`);
-      
     } catch (err) {
-      console.error('An unexpected error occurred:', err);
-      
-      // Handle network errors and other common issues
-      if (err.message?.includes('network') || err.message?.includes('fetch')) {
-        setError('Network error. Please check your connection and try again.');
-      } else if (err.message?.includes('timeout')) {
-        setError('Request timed out. Please try again later.');
-      } else {
-        setError('An unexpected error occurred while fetching data.');
-      }
+      console.error('Error fetching alumni:', err);
+      setError(`Failed to load alumni data: ${err.message}`);
     } finally {
       setLoading(false);
-    }  
+    }
   };
 
-  const AlumniCard = ({ alumnus }) => (
-    <div className="bg-white rounded-lg p-6 shadow-md hover:shadow-xl transition-shadow duration-300 flex flex-col h-full border border-gray-200">
-      <div className="flex items-start space-x-4">
-        <div className="relative flex-shrink-0">
-          <img 
-            src={alumnus.avatar} 
-            alt={alumnus.name}
-            className="w-20 h-20 rounded-full object-cover"
-          />
-          {alumnus.verified && (
-            <div className="absolute -top-1 -right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-white">
-              <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-            </div>
-          )}
-        </div>
-        <div className="flex-1">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-gray-900 truncate">{alumnus.name}</h3>
-            <span className="text-xs text-gray-500 flex-shrink-0 ml-2">{alumnus.graduationYear}</span>
-          </div>
-          <div className="mt-2">
-            <p className="text-ocean-600 font-medium text-sm truncate">
-              {alumnus.currentPosition} {alumnus.currentPosition && alumnus.company ? 'at' : ''} {alumnus.company}
-            </p>
-            <div className="text-sm text-gray-500 mt-1 truncate">
-              <span>{alumnus.degree || 'N/A'}</span>
-              {alumnus.department && (
-                <>
-                  <span className="mx-1">&bull;</span>
-                  <span>{alumnus.department}</span>
-                </>
-              )}
-            </div>
-            <div className="text-xs text-gray-400">
-              Batch of {alumnus.batchYear || 'N/A'}
-              {alumnus.location && ` • ${alumnus.location}`}
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      {/* Achievements Section */}
-      {alumnus.achievements && alumnus.achievements.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-gray-100">
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Achievements</h4>
-          <div className="space-y-2">
-            {alumnus.achievements.slice(0, 3).map((achievement, index) => (
-              <div key={index} className="flex items-start">
-                <span className="text-blue-500 mr-2 mt-0.5">•</span>
-                <span className="text-sm text-gray-600">{achievement}</span>
-              </div>
-            ))}
-            {alumnus.achievements.length > 3 && (
-              <div className="text-xs text-blue-600 mt-1">+{alumnus.achievements.length - 3} more</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div className="flex-grow mt-4 space-y-3">
-        {alumnus.achievements && alumnus.achievements.length > 0 && (
-          <div className="pt-3 border-t border-gray-200">
-            <h4 className="text-xs font-semibold text-gray-500">Key Achievements</h4>
-            <ul className="list-disc list-inside mt-1 space-y-1">
-              {alumnus.achievements.slice(0, 2).map((achievement, index) => (
-                <li key={index} className="text-sm text-gray-600 truncate">{achievement}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {alumnus.skills && alumnus.skills.length > 0 && (
-          <div className="pt-3 border-t border-gray-200">
-            <h4 className="text-xs font-semibold text-gray-500">Skills</h4>
-            <div className="flex flex-wrap gap-1 mt-1">
-              {alumnus.skills.slice(0, 4).map((skill, index) => (
-                <span key={index} className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-700 rounded-full">{skill}</span>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="flex space-x-2 mt-4 pt-4 border-t border-gray-200">
-        <Link to={`/directory/${alumnus.id}`} className="btn-ocean-outline w-full text-center px-3 py-2 rounded text-sm font-medium">View Profile</Link>
-        <button className="w-full px-3 py-2 bg-green-600 text-white rounded text-sm font-medium hover:bg-green-700 transition-colors">Connect</button>
-      </div>
-    </div>
-  );
-
-  const AlumniListItem = ({ alumnus }) => (
-    <div className="bg-white rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow duration-300 border border-gray-200">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4 flex-1 min-w-0">
-          <div className="relative flex-shrink-0">
-            <img src={alumnus.avatar} alt={alumnus.name} className="w-16 h-16 rounded-full object-cover shadow-sm" />
-            {alumnus.verified && (
-              <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center border-2 border-white">
-                <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-              </div>
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold text-gray-900 truncate">{alumnus.name}</h3>
-            <p className="text-ocean-600 text-sm truncate">{alumnus.currentPosition} at {alumnus.company}</p>
-            <p className="text-gray-500 text-sm truncate">{alumnus.degree || <span className="text-gray-400 italic">Not specified</span>} &bull; {alumnus.department || <span className="text-gray-400 italic">Not specified</span>}</p>
-            {alumnus.achievements && alumnus.achievements.length > 0 && (
-              <>
-                <p className="text-xs text-gray-500 mt-1 truncate">
-                  <span className="font-semibold">Achievements:</span> {alumnus.achievements.join(', ')}
-                </p>
-              </>
-            )}
-            <p className="text-xs text-gray-500 mt-1 truncate">
-              <span className="font-semibold">Batch:</span> {alumnus.batchYear || <span className="text-gray-400 italic">Not specified</span>}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center space-x-4 flex-shrink-0 ml-4">
-          <span className="text-sm text-gray-500 hidden md:block">{alumnus.location}</span>
-          <Link to={`/directory/${alumnus.id}`} className="btn-ocean-outline px-3 py-1 rounded text-sm font-medium">View Profile</Link>
-        </div>
-      </div>
-    </div>
-  );
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="glass-card rounded-lg p-6">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Alumni Directory</h1>
-        <p className="text-gray-600">Connect with fellow AMET alumni worldwide</p>
+    <div className="bg-gray-50 p-4 sm:p-6 lg:p-8 min-h-screen">
+      <header className="bg-white shadow-md rounded-xl p-6 mb-8">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Alumni Directory</h1>
+            <p className="mt-2 text-gray-600">Connect with fellow AMET alumni worldwide.</p>
+          </div>
+          <div className="w-full lg:w-auto flex flex-col sm:flex-row items-center gap-3">
+            <div className="relative w-full sm:max-w-md">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
+              </div>
+              <input 
+                type="text"
+                placeholder="Search by name, company, position..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="pl-10 pr-4 py-2.5 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setViewMode('grid')} 
+                className={`p-2.5 border rounded-lg shadow-sm transition-all ${viewMode === 'grid' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}
+                aria-label="Grid view"
+              >
+                <Squares2X2Icon className="h-5 w-5" />
+              </button>
+              <button 
+                onClick={() => setViewMode('list')} 
+                className={`p-2.5 border rounded-lg shadow-sm transition-all ${viewMode === 'list' ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}
+                aria-label="List view"
+              >
+                <ListBulletIcon className="h-5 w-5" />
+              </button>
+              <button 
+                onClick={() => setShowFilters(true)} 
+                className={`inline-flex items-center px-4 py-2.5 border rounded-lg shadow-sm text-sm font-medium transition-all ${Object.values(filters).some(val => val !== '') ? 'bg-indigo-100 text-indigo-700 border-indigo-300' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+              >
+                <FunnelIcon className={`-ml-1 mr-2 h-5 w-5 ${Object.values(filters).some(val => val !== '') ? 'text-indigo-500' : 'text-gray-400'}`} />
+                Filters
+                {Object.values(filters).some(val => val !== '') && (
+                  <span className="ml-1.5 inline-flex items-center justify-center w-5 h-5 text-xs font-medium rounded-full bg-indigo-500 text-white">
+                    {Object.values(filters).filter(val => val !== '').length}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Active filters display */}
+        {(Object.values(filters).some(val => val !== '') || selectedLetter) && (
+          <div className="mt-4 pt-4 border-t flex flex-wrap gap-2">
+            <span className="text-sm font-medium text-gray-500 mr-1">Active filters:</span>
+            {selectedLetter && (
+              <div className="inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-indigo-50 text-indigo-700 border border-indigo-100">
+                <span>Starts with: {selectedLetter}</span>
+                <button 
+                  onClick={() => handleLetterClick('')} 
+                  className="ml-1.5 text-indigo-400 hover:text-indigo-600"
+                  aria-label={`Remove letter filter`}
+                >
+                  <XMarkIcon className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+            {Object.entries(filters).map(([key, value]) => {
+              if (value === '') return null;
+              return (
+                <div key={key} className="inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-indigo-50 text-indigo-700 border border-indigo-100">
+                  <span className="capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>: {value}
+                  <button 
+                    onClick={() => handleClearSingleFilter(key)} 
+                    className="ml-1.5 text-indigo-400 hover:text-indigo-600"
+                    aria-label={`Remove ${key} filter`}
+                  >
+                    <XMarkIcon className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+            <button 
+              onClick={handleClearFilters}
+              className="inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
+      </header>
+
+      {/* Alphabetical Filter */}
+      <div className="flex justify-center flex-wrap gap-2 mb-8">
+        {alphabet.map(letter => (
+          <button 
+            key={letter} 
+            onClick={() => handleLetterClick(letter)}
+            className={`w-8 h-8 rounded-full text-sm font-semibold transition-all ${selectedLetter === letter ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-gray-700 hover:bg-indigo-100 hover:text-indigo-700'}`}>
+            {letter}
+          </button>
+        ))}
+        <button 
+          onClick={() => handleLetterClick('')}
+          className={`h-8 px-3 rounded-full text-sm font-semibold transition-all ${selectedLetter === '' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-gray-700 hover:bg-indigo-100 hover:text-indigo-700'}`}>
+          All
+        </button>
       </div>
 
-      {/* Search and Filters */}
-      <Box sx={{ background: '#fff', borderRadius: 3, boxShadow: 2, p: { xs: 2, md: 3 }, mb: 4 }}>
-        <div className="flex flex-row items-center gap-3 w-full">
-          <Box component="form" onSubmit={handleSearch} sx={{ flexGrow: 1, minWidth: 0 }}>
-            <TextField
-              fullWidth
-              size="medium"
-              variant="outlined"
-              placeholder="Search by name, email, degree, company, location..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              onKeyDown={handleKeyDown}
-              InputProps={{
-                startAdornment: <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 mr-2" />,
-                style: { 
-                  borderRadius: 8,
-                  height: 42
-                },
-              }}
-            />
-          </Box>
-          
-          <Box sx={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleSearch}
-              sx={{ 
-                minWidth: 120, 
-                height: 42,
-                borderRadius: 2,
-                textTransform: 'none',
-                fontSize: '0.93rem',
-                fontWeight: 500,
-                whiteSpace: 'nowrap',
-                '&:hover': {
-                  transform: 'translateY(-1px)',
-                },
-                '&:active': {
-                  transform: 'translateY(0)',
-                }
-              }}
-            >
-              Search
-            </Button>
-            
-            {/* Clear Filters Button - Only show when filters are active */}
-            {(searchTerm || Object.values(filters).some(val => val)) && (
-              <Button
-                variant="outlined"
-                color="secondary"
-                onClick={handleClearFilters}
-                sx={{ 
-                  height: 42,
-                  borderRadius: 2,
-                  textTransform: 'none',
-                  fontSize: '0.93rem',
-                  fontWeight: 500,
-                  whiteSpace: 'nowrap',
-                }}
+      {/* Filter Panel (Slide-over) */}
+      {showFilters && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setShowFilters(false)}></div>
+      )}
+      <div className={`fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-xl z-50 transform transition-transform duration-300 ease-in-out ${showFilters ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="h-full flex flex-col">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold text-white">Filter Alumni</h2>
+              <button 
+                onClick={() => setShowFilters(false)} 
+                className="p-1.5 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
               >
-                Clear
-              </Button>
+                <XMarkIcon className="h-5 w-5 text-white" />
+              </button>
+            </div>
+            <p className="text-blue-100 text-sm mt-1">Refine your search results</p>
+          </div>
+          
+          {/* Filter Form */}
+          <div className="flex-grow overflow-y-auto p-6 space-y-6">
+            {/* Active Filters Summary */}
+            {Object.values(filters).some(val => val !== '') && (
+              <div className="mb-4">
+                <h3 className="text-sm font-medium text-gray-500 mb-2">Active Filters:</h3>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(filters).map(([key, value]) => {
+                    if (value === '') return null;
+                    return (
+                      <div key={key} className="inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-indigo-50 text-indigo-700 border border-indigo-100">
+                        <span className="capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>: {value}
+                        <button 
+                          onClick={() => handleClearSingleFilter(key)} 
+                          className="ml-1.5 text-indigo-400 hover:text-indigo-600"
+                          aria-label={`Remove ${key} filter`}
+                        >
+                          <XMarkIcon className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
             
-            <Button
-              variant="outlined"
-              onClick={() => setShowAdvanced(val => !val)}
-              sx={{
-                height: 42,
-                px: 2,
-                borderRadius: 2,
-                textTransform: 'none',
-                fontSize: '0.93rem',
-                fontWeight: 500,
-                whiteSpace: 'nowrap',
-                color: '#1976d2',
-                borderColor: 'rgba(25, 118, 210, 0.3)',
-                backgroundColor: 'rgba(25, 118, 210, 0.03)',
-                '&:hover': {
-                  backgroundColor: 'rgba(25, 118, 210, 0.08)',
-                  borderColor: 'rgba(25, 118, 210, 0.5)',
-                  transform: 'translateY(-1px)',
-                  boxShadow: '0 2px 8px rgba(25, 118, 210, 0.1)',
-                },
-                '&:active': {
-                  transform: 'translateY(0)',
-                  boxShadow: 'none',
-                },
-              }}
-              startIcon={
-                <div className="relative">
-                  <FunnelIcon className="w-5 h-5" />
-                  {Object.keys(filters).some(key => 
-                    key !== 'page' && key !== 'perPage' && key !== 'sortBy' && filters[key]
-                  ) && (
-                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white" />
-                  )}
+            {/* Filter Groups */}
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-sm font-medium text-gray-900 mb-3">Education</h3>
+                <div className="space-y-4">
+                  <FilterInput label="Graduation Year" name="graduationYear" value={filters.graduationYear} onChange={handleFilterChange} placeholder="e.g., 2020" />
+                  <FilterInput label="Batch" name="batchYear" value={filters.batchYear} onChange={handleFilterChange} placeholder="e.g., 2016" />
+                  <FilterInput label="Degree" name="degree" value={filters.degree} onChange={handleFilterChange} placeholder="e.g., B.E." />
+                  <FilterInput label="Department" name="department" value={filters.department} onChange={handleFilterChange} placeholder="e.g., Marine Engineering" />
                 </div>
-              }
-            >
-              {showAdvanced ? 'Hide Filters' : 'Filters'}
-            </Button>
-          </Box>
-        </div>
-        <Collapse in={showAdvanced}>
-          <Box sx={{ mt: 3, p: 3, bgcolor: '#f9fafb', borderRadius: 2, boxShadow: 1, border: '1px solid rgba(0, 0, 0, 0.08)' }}>
-            <Grid container spacing={2} mb={2}>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  label="Year of Completion"
-                  name="graduationYear"
-                  value={filters.graduationYear}
-                  onChange={handleFilterChange}
-                  variant="outlined"
-                  size="small"
-                  fullWidth
-                  InputProps={{
-                    startAdornment: <AcademicCapIcon className="w-5 h-5 text-gray-400 mr-2" />
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  label="Batch Year"
-                  name="batchYear"
-                  value={filters.batchYear}
-                  onChange={handleFilterChange}
-                  variant="outlined"
-                  size="small"
-                  fullWidth
-                  InputProps={{
-                    startAdornment: <AcademicCapIcon className="w-5 h-5 text-gray-400 mr-2" />
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  label="Degree"
-                  name="degree"
-                  value={filters.degree}
-                  onChange={handleFilterChange}
-                  variant="outlined"
-                  size="small"
-                  fullWidth
-                  InputProps={{
-                    startAdornment: <AcademicCapIcon className="w-5 h-5 text-gray-400 mr-2" />
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  label="Department"
-                  name="department"
-                  value={filters.department}
-                  onChange={handleFilterChange}
-                  variant="outlined"
-                  size="small"
-                  fullWidth
-                  InputProps={{
-                    startAdornment: <AcademicCapIcon className="w-5 h-5 text-gray-400 mr-2" />
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  label="Company"
-                  name="company"
-                  value={filters.company}
-                  onChange={handleFilterChange}
-                  variant="outlined"
-                  size="small"
-                  fullWidth
-                  InputProps={{
-                    startAdornment: <BriefcaseIcon className="w-5 h-5 text-gray-400 mr-2" />
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  label="Location"
-                  name="location"
-                  value={filters.location}
-                  onChange={handleFilterChange}
-                  variant="outlined"
-                  size="small"
-                  fullWidth
-                  InputProps={{
-                    startAdornment: <MapPinIcon className="w-5 h-5 text-gray-400 mr-2" />
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  label="Industry"
-                  name="industry"
-                  value={filters.industry}
-                  onChange={handleFilterChange}
-                  variant="outlined"
-                  size="small"
-                  fullWidth
-                  InputProps={{
-                    startAdornment: <BriefcaseIcon className="w-5 h-5 text-gray-400 mr-2" />
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <TextField
-                  label="Skills (comma-separated)"
-                  name="skills"
-                  value={filters.skills}
-                  onChange={handleFilterChange}
-                  variant="outlined"
-                  size="small"
-                  fullWidth
-                  InputProps={{
-                    startAdornment: <ExclamationTriangleIcon className="w-5 h-5 text-gray-400 mr-2" />
-                  }}
-                />
-              </Grid>
-            </Grid>
-            <div className="flex justify-end mt-2">
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={handleClearFilters}
-                sx={{ fontWeight: 500 }}
-              >
-                Clear All Filters
-              </Button>
+              </div>
+              
+              <div className="border-t pt-6">
+                <h3 className="text-sm font-medium text-gray-900 mb-3">Professional</h3>
+                <div className="space-y-4">
+                  <FilterInput label="Company" name="company" value={filters.company} onChange={handleFilterChange} placeholder="e.g., Maersk" />
+                  <FilterInput label="Industry" name="industry" value={filters.industry} onChange={handleFilterChange} placeholder="e.g., Shipping" />
+                  <FilterInput label="Location" name="location" value={filters.location} onChange={handleFilterChange} placeholder="e.g., Chennai" />
+                  <FilterInput label="Skills (comma-separated)" name="skills" value={filters.skills} onChange={handleFilterChange} placeholder="e.g., Python, SQL" />
+                </div>
+              </div>
             </div>
-          </Box>
-        </Collapse>
-      </Box>
-
-      {/* Filter Chips: Show active filters as chips */}
-      {Object.entries(filters).some(([k, v]) => v) && (
-        <Box sx={{ mb: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          {Object.entries(filters).map(([key, value]) => (
-            value ? (
-              <Chip
-                key={key}
-                label={`${key.replace(/([A-Z])/g, ' $1')}: ${value}`}
-                onDelete={() => setFilters(f => ({ ...f, [key]: '' }))}
-                color="primary"
-                sx={{ textTransform: 'capitalize' }}
-              />
-            ) : null
-          ))}
-        </Box>
-      )}
-
-      {/* Results Count and Controls */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, mt: 2, flexWrap: 'wrap', gap: 2 }}>
-        <p className="text-gray-700 font-medium">
-          Showing <span className="font-semibold">{totalAlumni > 0 ? indexOfFirstItem + 1 : 0}-{indexOfLastItem}</span> of <span className="font-semibold">{totalAlumni}</span> alumni
-        </p>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-          <FormControl size="small" sx={{ minWidth: 120 }}>
-            <InputLabel>Per Page</InputLabel>
-            <Select
-              value={itemsPerPage}
-              label="Per Page"
-              onChange={(e) => {
-                setItemsPerPage(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-            >
-              <MenuItem value={10}>10</MenuItem>
-              <MenuItem value={20}>20</MenuItem>
-              <MenuItem value={30}>30</MenuItem>
-              <MenuItem value={50}>50</MenuItem>
-            </Select>
-          </FormControl>
-          <FormControl size="small" sx={{ minWidth: 180 }}>
-            <InputLabel>Sort By</InputLabel>
-            <Select
-              value={sortBy}
-              label="Sort By"
-              onChange={(e) => setSortBy(e.target.value)}
-            >
-              <MenuItem value="full_name,asc">Name (A-Z)</MenuItem>
-              <MenuItem value="full_name,desc">Name (Z-A)</MenuItem>
-              <MenuItem value="graduation_year,desc">Graduation (Newest)</MenuItem>
-              <MenuItem value="graduation_year,asc">Graduation (Oldest)</MenuItem>
-              <MenuItem value="created_at,desc">Recently Added</MenuItem>
-            </Select>
-          </FormControl>
-        </Box>
-      </Box>
-
-      {/* Alumni Grid/List */}
-      {loading ? (
-        <div className="text-center py-12">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="mt-4 text-gray-600">Loading alumni directory...</p>
-        </div>
-      ) : error ? (
-        <div className="text-center py-12">
-          <ExclamationTriangleIcon className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <p className="text-red-600 mb-4">{error}</p>
-          <button 
-            onClick={fetchAlumniData}
-            className="btn-ocean px-4 py-2 rounded-lg"
-          >
-            Try Again
-          </button>
-        </div>
-      ) : alumni.length === 0 ? (
-        <div className="text-center py-12">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <AcademicCapIcon className="w-8 h-8 text-gray-400" />
           </div>
-          <p className="text-gray-600 mb-4">No alumni found</p>
-          <p className="text-gray-500 text-sm">Be the first to join the AMET Alumni network!</p>
-        </div>
-      ) : (
-        <div className={viewMode === 'grid' 
-          ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
-          : 'space-y-4'
-        }>
-          {alumni.map((alumnus) => 
-            viewMode === 'grid' 
-              ? <AlumniCard key={alumnus.id} alumnus={alumnus} />
-              : <AlumniListItem key={alumnus.id} alumnus={alumnus} />
-          )}
-        </div>
-      )}
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center space-x-2">
-          <button 
-            onClick={prevPage}
-            disabled={currentPage === 1}
-            className={`px-3 py-2 border border-gray-300 rounded-lg text-sm ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
-          >
-            Previous
-          </button>
           
-          {/* Display page numbers */}
-          {Array.from({ length: Math.min(5, totalPages) }).map((_, i) => {
-            // Logic to show pages around current page
-            let pageNum;
-            if (totalPages <= 5) {
-              pageNum = i + 1;
-            } else if (currentPage <= 3) {
-              pageNum = i + 1;
-            } else if (currentPage >= totalPages - 2) {
-              pageNum = totalPages - 4 + i;
-            } else {
-              pageNum = currentPage - 2 + i;
-            }
-            
-            return (
-              <button
-                key={pageNum}
-                onClick={() => paginate(pageNum)}
-                className={`px-3 py-2 ${currentPage === pageNum 
-                  ? 'bg-ocean-500 text-white' 
-                  : 'border border-gray-300 hover:bg-gray-50'} rounded-lg text-sm`}
+          {/* Action Buttons */}
+          <div className="border-t p-6 bg-gray-50">
+            <div className="flex gap-4">
+              <button 
+                onClick={handleClearFilters} 
+                className="w-full text-center py-2.5 px-4 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
               >
-                {pageNum}
+                Clear All
               </button>
-            );
-          })}
-          
-          <button 
-            onClick={nextPage}
-            disabled={currentPage === totalPages}
-            className={`px-3 py-2 border border-gray-300 rounded-lg text-sm ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
-          >
-            Next
-          </button>
+              <button 
+                onClick={() => { handleSearch(); setShowFilters(false); }} 
+                className="w-full text-center py-2.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition-colors"
+              >
+                Apply Filters
+              </button>
+            </div>
+          </div>
         </div>
-      )}
+      </div>
+
+      {/* View Toggle and Results Info */}
+      <div className="flex justify-between items-center mb-6">
+        <div className="text-sm text-gray-600">
+          {!loading && `Showing ${alumni.length > 0 ? indexOfFirstItem + 1 : 0}-${Math.min(indexOfLastItem, totalAlumni)} of ${totalAlumni} alumni`}
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <main>
+        {loading && <div className="text-center py-20 text-gray-500">Loading alumni...</div>}
+        {error && 
+          <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
+            <div className="flex">
+              <div className="py-1"><ExclamationTriangleIcon className="h-6 w-6 text-red-500 mr-3"/></div>
+              <div>
+                <p className="font-bold">Error</p>
+                <p>{error}</p>
+              </div>
+            </div>
+          </div>
+        }
+
+        {!loading && !error && (
+          <>
+            {viewMode === 'grid' ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {alumni.map((alumnus) => (
+                <AlumniCard 
+                  key={alumnus.id} 
+                  alumnus={{ ...alumnus, isMentor: approvedMentorIds.has(alumnus.id) }} 
+                />
+              ))}</div>
+            ) : (
+              <div className="space-y-4">
+                {alumni.map((alumnus) => (
+                <AlumniListItem 
+                  key={alumnus.id} 
+                  alumnus={{ ...alumnus, isMentor: approvedMentorIds.has(alumnus.id) }} 
+                />
+              ))}</div>
+            )}
+            {alumni.length === 0 && <div className="text-center py-20 text-gray-500">No alumni found matching your criteria.</div>}
+          </>
+        )}
+
+        {/* Pagination */}
+        {!loading && totalPages > 1 && (
+          <div className="mt-10 flex flex-col items-center">
+            <div className="border-t w-full pt-6">
+              <div className="flex justify-between items-center">
+                <button 
+                  onClick={prevPage} 
+                  disabled={currentPage === 1} 
+                  className="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white shadow-sm transition-colors"
+                >
+                  <svg className="mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                  Previous
+                </button>
+                
+                <div className="hidden md:flex justify-center space-x-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    // Show pages around current page
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`px-4 py-2 text-sm font-medium rounded-md ${currentPage === pageNum
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <div className="md:hidden text-sm font-medium text-gray-700 bg-white px-4 py-2 rounded-md border border-gray-300">
+                  Page {currentPage} of {totalPages}
+                </div>
+                
+                <button 
+                  onClick={nextPage} 
+                  disabled={currentPage === totalPages} 
+                  className="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white shadow-sm transition-colors"
+                >
+                  Next
+                  <svg className="ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            <div className="mt-3 text-sm text-gray-500">
+              Showing <span className="font-medium">{alumni.length > 0 ? indexOfFirstItem + 1 : 0}</span> to <span className="font-medium">{Math.min(indexOfLastItem, totalAlumni)}</span> of <span className="font-medium">{totalAlumni}</span> alumni
+            </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 };

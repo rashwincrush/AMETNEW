@@ -1,10 +1,12 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { RealtimeProvider } from './utils/supabase';
 import './App.css';
+import NetworkStatusIndicator from './components/common/NetworkStatusIndicator';
 
 // Context
-import { useAuth } from './contexts/AuthContext';
+import { useAuth, AuthProvider } from './contexts/AuthContext';
 
 // Common Components
 import Logo from './components/common/Logo';
@@ -47,6 +49,8 @@ import JobListingsPage from './components/Jobs/JobListingsPage';
 import JobDetails from './components/Jobs/JobDetails';
 import BookmarkedJobs from './components/Jobs/BookmarkedJobs';
 import UserProfilePage from './pages/UserProfilePage';
+import CompanyProfile from './components/Companies/CompanyProfile';
+import EditCompanyProfile from './components/Companies/EditCompanyProfile';
 import MentorRegistrationForm from './components/Mentorship/MentorRegistrationForm';
 import PostJob from './components/Jobs/PostJob';
 import PostJobSelection from './components/Jobs/PostJobSelection';
@@ -135,6 +139,8 @@ function AppContent() {
             <Route path="/profile" element={<Profile user={profile || user} />} />
             <Route path="/directory" element={<AlumniDirectory />} />
             <Route path="/directory/:id" element={<AlumniProfile />} />
+            <Route path="/company/:id" element={<CompanyProfile />} />
+            <Route path="/company/edit" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><EditCompanyProfile user={profile || user} /></ProtectedRoute>} />
             <Route path="/events/*" element={<EventsPage />} />
             <Route path="/events/edit/:id" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><EditEvent /></ProtectedRoute>} />
             <Route path="/events/create" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><CreateEvent /></ProtectedRoute>} />
@@ -199,14 +205,19 @@ function AppContent() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <NotificationProvider>
-        <Router>
-          <AppContent />
-          <FeedbackWidget />
-        </Router>
-      </NotificationProvider>
-    </QueryClientProvider>
+    <Router>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <RealtimeProvider>
+            <NetworkStatusIndicator />
+            <NotificationProvider>
+              <AppContent />
+              <FeedbackWidget />
+            </NotificationProvider>
+          </RealtimeProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </Router>
   );
 }
 

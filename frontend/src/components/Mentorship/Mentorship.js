@@ -16,7 +16,8 @@ import {
   CheckCircleIcon,
   XCircleIcon,
   PlusIcon,
-  HeartIcon
+  HeartIcon,
+  PencilIcon
 } from '@heroicons/react/24/outline';
 
 const Mentorship = () => {
@@ -36,6 +37,7 @@ const Mentorship = () => {
   const [myMentees, setMyMentees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isCurrentUserMentor, setIsCurrentUserMentor] = useState(false);
   const { user } = useAuth();
   const hasFetched = useRef(false);
   
@@ -44,9 +46,32 @@ const Mentorship = () => {
     console.log('Mentorship component mounted, user:', user);
     if (!hasFetched.current) {
       fetchApprovedMentors();
+      checkCurrentUserMentor();
       hasFetched.current = true;
     }
   }, [location]); // Removed user from the dependency array to avoid re-fetching
+  
+  // Check if the current user is already a mentor
+  const checkCurrentUserMentor = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('mentors')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+        
+      if (error && error.code !== 'PGRST116') { // PGRST116 is not found error
+        console.error('Error checking mentor status:', error);
+        return;
+      }
+      
+      setIsCurrentUserMentor(!!data);
+    } catch (err) {
+      console.error('Error checking if user is mentor:', err);
+    }
+  };
   
   // Function to fetch approved mentors
   const fetchApprovedMentors = async () => {
@@ -297,8 +322,17 @@ const Mentorship = () => {
             to="/mentorship/become-mentor"
             className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center"
           >
-            <PlusIcon className="w-5 h-5 mr-2" />
-            Become a Mentor
+            {isCurrentUserMentor ? (
+              <>
+                <PencilIcon className="w-5 h-5 mr-2" />
+                Edit Mentorship Details
+              </>
+            ) : (
+              <>
+                <PlusIcon className="w-5 h-5 mr-2" />
+                Become a Mentor
+              </>
+            )}
           </Link>
         </div>
       </div>

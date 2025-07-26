@@ -82,14 +82,49 @@ const AlumniDashboard = () => {
   const userName = profile?.full_name || user?.user_metadata?.full_name || user?.email || 'Alumni';
   const hasFetched = useRef(false);
 
-  const promiseWithTimeout = useCallback((promise, ms, timeoutError = new Error('Request timed out')) => {
-    const timeout = new Promise((_, reject) => {
+  // Improved promiseWithTimeout with retry capability
+  const promiseWithTimeout = useCallback((promise, ms, maxRetries = 2, timeoutError = new Error('Request timed out')) => {
+    // First check if the input is a promise
+    if (!promise || typeof promise.then !== 'function') {
+      console.error('Invalid promise passed to promiseWithTimeout:', promise);
+      return Promise.resolve(promise); // Return a resolved promise with the value
+    }
+    
+    // Function to create a timeout promise
+    const createTimeout = () => new Promise((_, reject) => {
       const id = setTimeout(() => {
         clearTimeout(id);
         reject(timeoutError);
       }, ms);
     });
-    return Promise.race([promise, timeout]);
+    
+    // Function to attempt the promise with timeout and retry logic
+    const attemptWithRetry = (retriesLeft) => {
+      // Log retries
+      if (maxRetries - retriesLeft > 0) {
+        console.log(`Retrying API call, attempt ${maxRetries - retriesLeft + 1} of ${maxRetries + 1}`);
+      }
+      
+      return Promise.race([
+        // Add catch handler safely to the promise to avoid unhandled rejections
+        promise.then(result => result, err => {
+          // If we have retries left and this is a network error or 429 (too many requests)
+          if (retriesLeft > 0 && (err.message?.includes('network') || err.status === 429)) {
+            console.warn('Request failed, retrying...', err);
+            // Exponential backoff - wait longer for each retry
+            const backoffTime = 1000 * Math.pow(2, maxRetries - retriesLeft);
+            return new Promise(resolve => {
+              setTimeout(() => resolve(attemptWithRetry(retriesLeft - 1)), backoffTime);
+            });
+          }
+          console.error('Promise error:', err);
+          throw err;
+        }),
+        createTimeout()
+      ]);
+    };
+    
+    return attemptWithRetry(maxRetries);
   }, []);
 
   const fetchConnectionsCount = useCallback(async (userId) => {
@@ -118,33 +153,218 @@ const AlumniDashboard = () => {
     if (!user?.id) return;
     console.log('AlumniDashboard: fetchDashboardData started.');
     setLoading(true);
+    
+    // Track which data items have been loaded successfully
+    const dataStatus = {
+      eventsCount: false,
+      jobsCount: false,
+      events: false,
+      jobs: false,
+      alumni: false,
+      connections: false
+    };
     try {
       // Format today's date in a way that's compatible with Supabase queries
       const today = new Date();
-      const todayStart = today.toISOString().split('T')[0] + 'T00:00:00.000Z';
+      // Format ISO string properly to avoid Bad Request errors
+      const todayStart = today.toISOString();
+      // Define the promises with better error handling
       const promises = [
-        supabase.from('events').select('id', { count: 'exact', head: true }).gte('start_date', todayStart).eq('is_published', true),
-        supabase.from('jobs').select('id', { count: 'exact', head: true }).gte('deadline', todayStart).eq('is_active', true),
-        supabase.from('events').select('id, title, start_date, location, event_type').gte('start_date', todayStart).eq('is_published', true).order('start_date', { ascending: true }).limit(3),
-        supabase.from('jobs').select('id, title, company_name, location, created_at').gte('deadline', todayStart).eq('is_active', true).order('created_at', { ascending: false }).limit(3),
-        supabase.from('profiles').select('id', { count: 'exact', head: true }),
+        supabase.from('events').select('id', { count: 'exact', head: true }).gte('start_date', todayStart).eq('is_published', true)
+          .then(result => {
+            if (result.error) console.error('Error fetching event count:', result.error);
+            return result;
+          }),
+        supabase.from('jobs').select('id', { count: 'exact', head: true }).gte('deadline', todayStart).eq('is_active', true)
+          .then(result => {
+            if (result.error) console.error('Error fetching job count:', result.error);
+            return result;
+          }),
+        supabase.from('events').select('id, title, start_date, address, event_type').gte('start_date', todayStart).eq('is_published', true).order('start_date', { ascending: true }).limit(3)
+          .then(result => {
+            if (result.error) console.error('Error fetching upcoming events:', result.error);
+            return result;
+          }),
+        supabase.from('jobs').select('id, title, company_name, location, created_at').gte('deadline', todayStart).eq('is_active', true).order('created_at', { ascending: false }).limit(3)
+          .then(result => {
+            if (result.error) console.error('Error fetching job recommendations:', result.error);
+            return result;
+          }),
       ];
-
-      const results = await Promise.all(promises.map(p => promiseWithTimeout(p, 10000)));
-      const connectionsCount = await fetchConnectionsCount(user.id);
-
-      setDashboardData(prev => ({
-        ...prev,
-        upcomingEventsCount: results[0].count || 0,
-        jobOpportunitiesCount: results[1].count || 0,
-        upcomingEventsList: results[2].data || [],
-        jobRecommendationsList: results[3].data || [],
-        totalAlumni: results[4].count || 0,
-        personalConnections: connectionsCount,
-      }));
+      
+      // Fetch each piece of data individually to prevent all-or-nothing failures
+      let dashboardUpdates = {};
+      
+      try {
+        // Fetch profile count with explicit promise creation and better error handling
+        // This avoids issues with the promiseWithTimeout function
+        const fetchProfileCount = async () => {
+          try {
+            // Use explicit promise that will be properly caught if it fails
+            const { count, error } = await supabase
+              .from('profiles')
+              .select('id', { count: 'exact', head: true });
+            
+            if (error) throw error;
+            return { count, error: null };
+          } catch (err) {
+            console.warn('Profile count query failed, will retry:', err);
+            throw err;
+          }
+        };
+        
+        // Use the promiseWithTimeout with our explicit promise function
+        const profilesResult = await promiseWithTimeout(
+          fetchProfileCount(), 
+          20000, // Increased to 20 seconds
+          3     // Increased to 3 retries
+        );
+        
+        if (profilesResult && !profilesResult.error) {
+          dashboardUpdates.totalAlumni = profilesResult.count || 0;
+          dataStatus.alumni = true;
+        } else if (profilesResult && profilesResult.error) {
+          console.error('Error in profiles query response:', profilesResult.error);
+        }
+      } catch (error) {
+        console.error('Error fetching profiles count:', error);
+        // Set a fallback value so the UI doesn't break
+        dashboardUpdates.totalAlumni = 0;
+        dataStatus.alumni = true; // Mark as done to avoid blocking other components
+      }
+      
+      // Then fetch connections count
+      try {
+        const connectionsCount = await fetchConnectionsCount(user.id);
+        dashboardUpdates.personalConnections = connectionsCount;
+        dataStatus.connections = true;
+      } catch (error) {
+        console.error('Error fetching connections count:', error);
+        dashboardUpdates.personalConnections = 0;
+      }
+      
+      // Update dashboard with whatever data we have so far
+      if (Object.keys(dashboardUpdates).length > 0) {
+        setDashboardData(prev => ({
+          ...prev,
+          ...dashboardUpdates
+        }));
+      }
+      
+      // Reset for next batch
+      dashboardUpdates = {};
+      
+      // Now try fetching events data
+      try {
+        const today = new Date();
+        const todayStart = today.toISOString();
+        
+        // Get event count with increased timeout and retries
+        const eventsCountResult = await promiseWithTimeout(
+          supabase.from('events').select('id', { count: 'exact', head: true })
+            .gte('start_date', todayStart)
+            .eq('is_published', true), 
+          15000, // Increased from 8000ms to 15000ms
+          2     // Allow up to 2 retries
+        );
+        
+        if (!eventsCountResult.error) {
+          dashboardUpdates.upcomingEventsCount = eventsCountResult.count || 0;
+          dataStatus.eventsCount = true;
+        }
+        
+        // Get event list with increased timeout and retries
+        const eventsListResult = await promiseWithTimeout(
+          supabase.from('events')
+            .select('id, title, start_date, address, event_type')
+            .gte('start_date', todayStart)
+            .eq('is_published', true)
+            .order('start_date', { ascending: true })
+            .limit(3),
+          15000, // Increased from 8000ms to 15000ms
+          2     // Allow up to 2 retries
+        );
+        
+        if (!eventsListResult.error) {
+          dashboardUpdates.upcomingEventsList = eventsListResult.data || [];
+          dataStatus.events = true;
+        }
+      } catch (error) {
+        console.error('Error fetching events data:', error);
+      }
+      
+      // Update dashboard with events data
+      if (Object.keys(dashboardUpdates).length > 0) {
+        setDashboardData(prev => ({
+          ...prev,
+          ...dashboardUpdates
+        }));
+      }
+      
+      // Reset for next batch
+      dashboardUpdates = {};
+      
+      // Finally try fetching jobs data
+      try {
+        const today = new Date();
+        const todayStart = today.toISOString();
+        
+        // Get jobs count with increased timeout and retries
+        const jobsCountResult = await promiseWithTimeout(
+          supabase.from('jobs')
+            .select('id', { count: 'exact', head: true })
+            .gte('deadline', todayStart)
+            .eq('is_active', true),
+          15000, // Increased from 8000ms to 15000ms
+          2     // Allow up to 2 retries
+        );
+        
+        if (!jobsCountResult.error) {
+          dashboardUpdates.jobOpportunitiesCount = jobsCountResult.count || 0;
+          dataStatus.jobsCount = true;
+        }
+        
+        // Get jobs list with increased timeout and retries
+        const jobsListResult = await promiseWithTimeout(
+          supabase.from('jobs')
+            .select('id, title, company_name, location, created_at')
+            .gte('deadline', todayStart)
+            .eq('is_active', true)
+            .order('created_at', { ascending: false })
+            .limit(3),
+          15000, // Increased from 8000ms to 15000ms
+          2     // Allow up to 2 retries
+        );
+        
+        if (!jobsListResult.error) {
+          dashboardUpdates.jobRecommendationsList = jobsListResult.data || [];
+          dataStatus.jobs = true;
+        }
+      } catch (error) {
+        console.error('Error fetching jobs data:', error);
+      }
+      
+      // Final update with jobs data
+      if (Object.keys(dashboardUpdates).length > 0) {
+        setDashboardData(prev => ({
+          ...prev,
+          ...dashboardUpdates
+        }));
+      }
+      
+      // Log which data was successfully loaded
+      console.log('Dashboard data load status:', dataStatus);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-      toast.error('Failed to load dashboard data.');
+      
+      // More helpful error messages based on error type
+      if (error.message && error.message.includes('timeout')) {
+        toast.error('Dashboard data is taking longer than expected to load. Some features may be limited.');
+      } else if (error.message && error.message.includes('network')) {
+        toast.error('Network issue detected. Please check your connection and try again.');
+      } else {
+        toast.error('Failed to load some dashboard data. Please try refreshing the page.');
+      }
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
 const supabaseKey = process.env.REACT_APP_SUPABASE_KEY;
@@ -11,6 +12,7 @@ if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
+// Create the client with realtime configuration
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   global: {
     headers: { 
@@ -22,7 +24,220 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
     persistSession: true,
     detectSessionInUrl: true,
   },
+  realtime: {
+    params: {
+      eventsPerSecond: 10
+    },
+    // Explicitly set endpoint to ensure proper connection
+    endpoint: `${supabaseUrl}/realtime/v1`.replace('http', 'ws')
+  }
 });
+
+// Log current configuration to help with debugging
+console.log('Supabase client initialized with:', {
+  url: supabaseUrl ? `${supabaseUrl.substring(0, 15)}...` : 'undefined',  // Only log partial URL for security
+  hasKey: !!supabaseKey,
+  realtimeEnabled: true
+});
+
+// Create a context for WebSocket connection status
+export const RealtimeContext = createContext({
+  isRealtimeReady: false,
+  setupRealtimeSubscription: async () => {},
+});
+
+// Realtime status provider component
+export const RealtimeProvider = ({ children }) => {
+  const [isRealtimeReady, setIsRealtimeReady] = useState(false);
+  const [connectionAttempts, setConnectionAttempts] = useState(0);
+  const statusRef = useRef(null);
+  
+  // Track realtime status to prevent multiple connections
+  const channelRef = useRef(null);
+  
+  // Initialize and setup realtime connection
+  useEffect(() => {
+    // If there's already a status channel, don't create another one
+    if (channelRef.current) return;
+
+    console.log('Setting up realtime status channel...');
+    
+    try {
+      // Log Supabase client status
+      console.log('Supabase client status:', {
+        authUrl: supabase.auth.url,
+        hasAuthSession: !!supabase.auth.session,
+        realtimeUrl: supabase.realtime?.url || '(using default)'
+      });
+      
+      // Create a status channel to monitor connection
+      const statusChannel = supabase.channel('system:status');
+      channelRef.current = statusChannel;
+      
+      // Subscribe to status events
+      statusChannel
+        .on('system', { event: '*' }, (status) => {
+          console.log('Realtime status event:', status);
+          if (status.event === 'connected') {
+            console.log('Realtime connected successfully!');
+            setIsRealtimeReady(true);
+          } else if (status.event === 'disconnected') {
+            console.warn('Realtime disconnected!');
+            setIsRealtimeReady(false);
+            // Only attempt reconnect if not unmounting
+            if (!statusRef.current?.unmounting) {
+              // Increment connection attempts
+              setConnectionAttempts(prev => prev + 1);
+            }
+          }
+        })
+        .subscribe(status => {
+          console.log('Realtime subscription status:', status);
+          if (status === 'SUBSCRIBED') {
+            console.log('Successfully subscribed to system status channel');
+            setIsRealtimeReady(true);
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('Error connecting to realtime:', status);
+            setIsRealtimeReady(false);
+            // Only attempt reconnect if not unmounting
+            if (!statusRef.current?.unmounting) {
+              // Increment connection attempts
+              setConnectionAttempts(prev => prev + 1);
+            }
+          }
+        });
+    } catch (error) {
+      console.error('Error setting up realtime channel:', error);
+      // Set a retry attempt on error
+      setTimeout(() => {
+        setConnectionAttempts(prev => prev + 1);
+      }, 2000);
+    }
+
+    statusRef.current = { unmounting: false };
+    
+    // Clean up function
+    return () => {
+      if (statusRef.current) {
+        statusRef.current.unmounting = true;
+      }
+      
+      if (channelRef.current) {
+        console.log('Cleaning up realtime status channel');
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
+  }, []);
+  
+  // Auto reconnect with exponential backoff
+  useEffect(() => {
+    if (connectionAttempts === 0) return;
+    
+    // Increase max attempts to 8 for more resilience
+    const maxAttempts = 8;
+    if (connectionAttempts > maxAttempts) {
+      console.warn(`Realtime connection failed after ${maxAttempts} attempts. Manual refresh may be needed.`);
+      // Even after max attempts, still allow components to render without realtime
+      // Mark realtime as "available" to prevent components from waiting indefinitely
+      setIsRealtimeReady(true); 
+      return;
+    }
+    
+    // Exponential backoff (1s, 2s, 4s, 8s, 16s, 32s, 60s, 60s)
+    const backoff = Math.min(1000 * Math.pow(2, connectionAttempts - 1), 60000);
+    
+    console.log(`Attempting to reconnect realtime in ${backoff/1000}s (attempt ${connectionAttempts}/${maxAttempts})`);
+    
+    const timer = setTimeout(() => {
+      if (channelRef.current) {
+        // Remove old channel
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+      
+      // Create new channel
+      const statusChannel = supabase.channel('system:status');
+      channelRef.current = statusChannel;
+      
+      statusChannel
+        .on('system', { event: '*' }, (status) => {
+          console.log('Realtime status:', status);
+          if (status.event === 'connected') {
+            setIsRealtimeReady(true);
+            // Reset connection attempts on success
+            setConnectionAttempts(0);
+          } else if (status.event === 'disconnected') {
+            setIsRealtimeReady(false);
+          }
+        })
+        .subscribe();
+        
+    }, backoff);
+    
+    return () => clearTimeout(timer);
+  }, [connectionAttempts]);
+  
+  // Function to safely setup a realtime subscription with extended timeout and retries
+  const setupRealtimeSubscription = async (channelName, options) => {
+    return new Promise((resolve, reject) => {
+      if (!options?.skipReadyCheck && !isRealtimeReady) {
+        console.log(`Realtime not ready yet for ${channelName}, waiting...`);
+        
+        // Wait up to 15 seconds for connection to be ready (increased from 5s)
+        let attempts = 0;
+        const maxAttempts = 30; // 30 attempts * 500ms = 15 seconds max wait
+        
+        const checkInterval = setInterval(() => {
+          attempts++;
+          
+          if (isRealtimeReady) {
+            clearInterval(checkInterval);
+            console.log(`Realtime connection ready, proceeding with subscription to ${channelName}`);
+            resolve(true);
+          } else if (attempts >= maxAttempts) {
+            clearInterval(checkInterval);
+            // Log more detailed diagnostic information
+            console.warn(`Timed out waiting for realtime connection after ${maxAttempts * 500}ms for ${channelName}`);
+            console.warn('Connection state:', {
+              connectionAttempts, 
+              isRealtimeReady,
+              hasStatusChannel: !!channelRef.current
+            });
+            
+            // Allow component to proceed even without realtime - better UX than total failure
+            if (options?.allowFallback) {
+              console.log('Proceeding without realtime connection (fallback mode)');
+              resolve(false);
+            } else {
+              reject(new Error('Realtime connection timed out'));
+            }
+          } else if (attempts % 5 === 0) { // Log every 2.5 seconds
+            console.log(`Still waiting for realtime connection... (${attempts}/${maxAttempts})`);
+          }
+        }, 500);
+      } else {
+        // Already connected, proceed immediately
+        resolve(true);
+      }
+    });
+  };
+  
+  return (
+    <RealtimeContext.Provider value={{ isRealtimeReady, setupRealtimeSubscription }}>
+      {children}
+    </RealtimeContext.Provider>
+  );
+};
+
+// Custom hook for accessing the realtime status
+export const useRealtime = () => {
+  const context = useContext(RealtimeContext);
+  if (context === undefined) {
+    throw new Error('useRealtime must be used within a RealtimeProvider');
+  }
+  return context;
+};
 
 // Auth helper functions
 export const signInWithEmail = async (email, password, otpCode = null) => {
@@ -358,14 +573,45 @@ export const createMentorshipRequest = async (requestData) => {
 
 // Networking Groups Functions
 
-// Fetch all public groups
-export const fetchPublicGroups = async () => {
-  const { data, error } = await supabase
+// Fetch all groups with optional filtering
+export const fetchGroups = async (options = {}) => {
+  const {
+    includePrivate = false,
+    searchQuery = '',
+    tags = [],
+    sortBy = 'created_at',
+    sortOrder = 'desc',
+    limit = 100
+  } = options;
+  
+  let query = supabase
     .from('groups')
     .select('*, group_members(count)')
-    .eq('is_private', false)
-    .order('created_at', { ascending: false });
+    .order(sortBy, { ascending: sortOrder === 'asc' })
+    .limit(limit);
+  
+  // Apply privacy filter if needed
+  if (!includePrivate) {
+    query = query.eq('is_private', false);
+  }
+  
+  // Apply search filter if provided
+  if (searchQuery) {
+    query = query.ilike('name', `%${searchQuery}%`);
+  }
+  
+  // Apply tags filter if provided
+  if (tags && tags.length > 0) {
+    query = query.contains('tags', tags);
+  }
+  
+  const { data, error } = await query;
   return { data, error };
+};
+
+// For backward compatibility
+export const fetchPublicGroups = async () => {
+  return fetchGroups({ includePrivate: false });
 };
 
 // Fetch a single group's details, including members
@@ -441,6 +687,109 @@ export const createGroupPost = async (postData) => {
     .select()
     .single();
   return { data, error };
+};
+
+// Delete a post from a group
+export const deleteGroupPost = async (postId) => {
+  const { data, error } = await supabase
+    .from('group_posts')
+    .delete()
+    .eq('id', postId);
+  return { data, error };
+};
+
+// Remove a member from a group
+export const removeGroupMember = async (groupId, userId) => {
+  const { data, error } = await supabase
+    .from('group_members')
+    .delete()
+    .eq('group_id', groupId)
+    .eq('user_id', userId);
+  return { data, error };
+};
+
+// Update group details
+export const updateGroupDetails = async (groupId, updates) => {
+  const { data, error } = await supabase
+    .from('groups')
+    .update(updates)
+    .eq('id', groupId)
+    .select()
+    .single();
+  return { data, error };
+};
+
+// Upload group avatar
+export const uploadGroupAvatar = async (file, groupId) => {
+  try {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `group_avatar_${groupId}_${Date.now()}.${fileExt}`;
+    const filePath = fileName;
+    
+    // Use post_images bucket for all uploads
+    const bucketName = 'post_images';
+    
+    const { error: uploadError } = await supabase.storage
+      .from(bucketName)
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type || 'image/png',
+      });
+      
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      return { error: uploadError };
+    }
+    
+    const { data: urlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(filePath);
+      
+    // Update group with new avatar URL
+    const { data, error } = await updateGroupDetails(groupId, {
+      group_avatar_url: urlData.publicUrl
+    });
+    
+    return { data, error, url: urlData.publicUrl };
+  } catch (err) {
+    console.error('Error in uploadGroupAvatar:', err);
+    return { error: err };
+  }
+};
+
+// Upload post image
+export const uploadPostImage = async (file, userId) => {
+  try {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `post_image_${userId}_${Date.now()}.${fileExt}`;
+    const filePath = fileName;
+    
+    // Use post_images bucket for all uploads
+    const bucketName = 'post_images';
+    
+    const { error: uploadError } = await supabase.storage
+      .from(bucketName)
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type || 'image/png',
+      });
+      
+    if (uploadError) {
+      console.error('Post image upload error:', uploadError);
+      return { error: uploadError };
+    }
+    
+    const { data } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(filePath);
+      
+    return { url: data.publicUrl };
+  } catch (err) {
+    console.error('Error in uploadPostImage:', err);
+    return { error: err };
+  }
 };
 
 

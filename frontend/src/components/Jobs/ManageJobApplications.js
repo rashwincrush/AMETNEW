@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import LoadingSpinner from '../common/LoadingSpinner';
@@ -7,6 +7,7 @@ import { toast } from 'react-hot-toast';
 
 const ManageJobApplications = () => {
   const { jobId } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [applications, setApplications] = useState([]);
   const [job, setJob] = useState(null);
@@ -75,8 +76,21 @@ const ManageJobApplications = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-2">Manage Applications</h1>
-      <h2 className="text-xl text-gray-600 mb-6">For: {job?.title}</h2>
+      <div className="flex items-center mb-6">
+        <button 
+          onClick={() => navigate(-1)}
+          className="p-1 hover:bg-gray-100 rounded-full transition-colors mr-4"
+          aria-label="Go back"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+        </button>
+        <div>
+          <h1 className="text-3xl font-bold mb-2">Manage Applications</h1>
+          <h2 className="text-xl text-gray-600">For: {job?.title}</h2>
+        </div>
+      </div>
       
       {applications.length === 0 ? (
         <p>No applications have been submitted for this job yet.</p>

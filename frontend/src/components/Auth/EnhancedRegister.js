@@ -407,8 +407,8 @@ const EnhancedRegister = () => {
           <h3 className="text-xl font-semibold text-gray-800 mb-4">Student Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
             <div>
-              <label htmlFor="studentId" className={commonLabelClass}>Student ID *</label>
-              <input id="studentId" name="studentId" type="text" required value={formData.studentId} onChange={handleChange} placeholder="AMET12345" className={commonInputClass(errors.studentId)} />
+              <label htmlFor="studentId" className={commonLabelClass}>Student ID <span className="text-xs text-gray-500">(optional)</span></label>
+              <input id="studentId" name="studentId" type="text" value={formData.studentId} onChange={handleChange} placeholder="AMET12345 (optional)" className={commonInputClass(errors.studentId)} />
               {errors.studentId && <p className={commonErrorClass}>{errors.studentId}</p>}
             </div>
             <div>

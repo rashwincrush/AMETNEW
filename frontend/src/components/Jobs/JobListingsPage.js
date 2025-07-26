@@ -17,7 +17,8 @@ import {
   UsersIcon,
   DocumentTextIcon
 } from '@heroicons/react/24/outline';
-import { supabase } from '../../utils/supabase';
+import { CheckBadgeIcon } from '@heroicons/react/24/solid';
+import { supabase, useRealtime } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { useNotification } from '../common/NotificationCenter';
@@ -77,7 +78,7 @@ const filterOptions = {
 };
 
 // Job card component for grid view
-const JobCard = ({ job, handleBookmark, isBookmarked, isPinned }) => {
+const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   const [showShare, setShowShare] = useState(false);
   if (!job) return null;
 
@@ -89,7 +90,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, isPinned }) => {
   };
 
   return (
-    <div className={`glass-card rounded-lg p-6 hover:shadow-lg transition-shadow border ${isPinned ? 'border-ocean-500' : 'border-transparent'}`}>
+    <div className="glass-card rounded-lg p-6 hover:shadow-lg transition-shadow border border-transparent">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center">
           <img 
@@ -100,11 +101,15 @@ const JobCard = ({ job, handleBookmark, isBookmarked, isPinned }) => {
           <div>
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-gray-900">{job.title}</h3>
-              {isPinned && (
-                  <div className="bg-ocean-100 text-ocean-800 text-xs font-semibold px-2 py-0.5 rounded-full">Pinned</div>
+            </div>
+            <div className="flex items-center gap-1">
+              <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">{job.companies?.name || job.company_name}</Link>
+              {job.is_verified && (
+                <div className="flex items-center text-blue-500" title="Verified Employer">
+                  <CheckBadgeIcon className="w-4 h-4" />
+                </div>
               )}
             </div>
-            <p className="text-ocean-600 font-medium">{job.companies?.name || job.company_name}</p>
           </div>
         </div>
         <div className="flex items-center">
@@ -118,6 +123,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, isPinned }) => {
               </div>
             )}
           </div>
+
           <BookmarkButton
             jobId={job.id}
             isBookmarked={isBookmarked}
@@ -182,7 +188,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, isPinned }) => {
 };
 
 // Job list item component for list view
-const JobListItem = ({ job, handleBookmark, isBookmarked, isPinned }) => {
+const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
   const [showShare, setShowShare] = useState(false);
   if (!job) return null;
 
@@ -210,7 +216,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, isPinned }) => {
   }
 
   return (
-    <div className={`glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border ${isPinned ? 'border-ocean-500' : 'border-transparent'}`}>
+    <div className="glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border border-transparent">
       <img 
         src={job.companies?.logo_url || '/logo.png'} 
         alt={job.companies?.name || 'Company'}
@@ -222,13 +228,18 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, isPinned }) => {
                 <Link to={`/jobs/${job.id}`} className="text-lg font-bold text-gray-900 hover:text-ocean-600 transition-colors duration-200">
                     {job.title}
                 </Link>
-                {isPinned && (
-                    <div className="bg-ocean-100 text-ocean-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">Pinned</div>
-                )}
+
             </div>
             <span className="text-xs text-gray-500">{timeAgo(job.created_at)}</span>
         </div>
-        <p className="text-ocean-600 font-medium mb-2">{job.companies?.name || job.company_name}</p>
+        <div className="flex items-center gap-1 mb-2">
+          <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">{job.companies?.name || job.company_name}</Link>
+          {job.is_verified && (
+            <div className="flex items-center text-blue-500" title="Verified Employer">
+              <CheckBadgeIcon className="w-5 h-5" />
+            </div>
+          )}
+        </div>
         <p className="text-gray-600 text-sm mt-2 mb-3 line-clamp-2">{job.description ? `${job.description.slice(0, 150)}...` : 'No description provided.'}</p>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
           <div className="flex items-center">
@@ -261,6 +272,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, isPinned }) => {
               </div>
             )}
           </div>
+
           <BookmarkButton
             jobId={job.id}
             isBookmarked={isBookmarked}
@@ -299,9 +311,14 @@ const JobListingsPage = () => {
   const [totalPages, setTotalPages] = useState(0);
   const [sortBy, setSortBy] = useState('created_at,desc');
   const [bookmarkedJobs, setBookmarkedJobs] = useState([]);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+
+
   const fetchController = useRef(null);
   const initialFetchDone = useRef(false);
+  const jobsSubscription = useRef(null);
 
   const fetchJobs = useCallback(async () => {
     if (fetchController.current) {
@@ -340,42 +357,93 @@ const JobListingsPage = () => {
       // Also update bookmarked jobs state from the fetched data
       const newBookmarkedJobs = data.filter(j => j.is_bookmarked).map(j => j.id);
       setBookmarkedJobs(newBookmarkedJobs);
+
+      // Sort jobs to show bookmarked jobs at the top
+      const bookmarkedJobsIds = new Set(newBookmarkedJobs);
+      setJobs(prev => {
+        return [...prev].sort((a, b) => {
+          // Bookmarked jobs first
+          if (bookmarkedJobsIds.has(a.id) && !bookmarkedJobsIds.has(b.id)) return -1;
+          if (!bookmarkedJobsIds.has(a.id) && bookmarkedJobsIds.has(b.id)) return 1;
+          // Then by the original sort order
+          return 0;
+        });
+      });
     }
 
     setLoading(false);
   }, [searchQuery, sortBy, currentPage, user, supabase, pageSize]);
 
   useEffect(() => {
-    if (initialFetchDone.current) {
-      fetchJobs();
-    } else {
-      initialFetchDone.current = true;
-      fetchJobs();
+    fetchJobs();
+  }, [fetchJobs]);
+
+  const { setupRealtimeSubscription } = useRealtime();
+
+  useEffect(() => {
+    if (jobsSubscription.current) {
+      return;
     }
 
-    let channel;
-    try {
-      channel = supabase
-        .channel('job-applications-realtime')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'job_applications' }, (payload) => {
-          // Reduce verbose logging in production
-          if (process.env.NODE_ENV !== 'production') {
-            console.log('New application detected, refetching jobs');
-          }
-          toast.success('A new application was submitted. Refreshing list...');
-          fetchJobs();
-        })
-        .subscribe()
-        .catch(error => {
-          console.error('Error subscribing to realtime channel:', error);
-        });
-    } catch (error) {
-      console.error('Error setting up realtime subscription:', error);
-    }
+    const setupSubscription = async () => {
+      try {
+        // First ensure realtime connection is ready, with fallback option
+        console.log('Setting up realtime subscription for jobs...');
+        const connectionSuccess = await setupRealtimeSubscription('job-listings', { allowFallback: true })
+          .catch(err => {
+            console.warn('Realtime check failed but continuing in fallback mode:', err);
+            return false; // Continue in fallback mode
+          });
 
+        if (connectionSuccess) {
+          console.log('Realtime connection confirmed ready, creating jobs subscription');
+          
+          jobsSubscription.current = supabase
+            .channel('job-listings-realtime')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, (payload) => {
+              console.log('Change received in jobs table!', payload);
+              toast.success('Job listings have been updated. Refreshing...');
+              fetchJobs();
+            })
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'job_applications' }, (payload) => {
+              if (process.env.NODE_ENV !== 'production') {
+                console.log('New application detected, refetching jobs');
+              }
+              toast.success('A new application was submitted. Refreshing list...');
+              fetchJobs();
+            })
+            .subscribe(status => {
+              if (status === 'SUBSCRIBED') {
+                console.log('Realtime channel subscribed for jobs and applications.');
+              } else {
+                console.log('Realtime subscription status:', status);
+              }
+            });
+        } else {
+          console.log('Operating in non-realtime mode for jobs - updates will require manual refresh');
+          // Consider adding a visual indicator to let users know realtime is disabled
+        }
+      } catch (error) {
+        console.error('Failed to setup realtime subscription:', error);
+        console.log('Continuing without realtime updates for jobs');
+      }
+    };
+
+    // Start the subscription setup
+    setupSubscription();
+
+    // Cleanup subscription on component unmount
     return () => {
-      if (channel) {
-        supabase.removeChannel(channel);
+      if (jobsSubscription.current) {
+        console.log('Cleaning up realtime subscription...');
+        try {
+          supabase.removeChannel(jobsSubscription.current).then(() => {
+            jobsSubscription.current = null;
+          });
+        } catch (e) {
+          console.log('Error during channel cleanup:', e);
+          jobsSubscription.current = null;
+        }
       }
     };
   }, [fetchJobs]);
@@ -424,7 +492,7 @@ const JobListingsPage = () => {
                 throw error;
             }
         } else {
-            toast.success('Job bookmarked and pinned to top!');
+            toast.success('Job bookmarked! It will appear at the top of your listings.');
         }
       }
 
@@ -572,20 +640,18 @@ const JobListingsPage = () => {
         }>
           {jobs.map((job) => (
             viewMode === 'grid' ? (
-              <JobCard 
-                key={job.id} 
-                job={job} 
-                handleBookmark={handleBookmark} 
-                isBookmarked={bookmarkedJobs.includes(job.id)} 
-                isPinned={bookmarkedJobs.includes(job.id)}
+              <JobCard
+                key={job.id}
+                job={job}
+                handleBookmark={handleBookmark}
+                isBookmarked={bookmarkedJobs.includes(job.id)}
               />
             ) : (
-              <JobListItem 
-                key={job.id} 
-                job={job} 
-                handleBookmark={handleBookmark} 
-                isBookmarked={bookmarkedJobs.includes(job.id)} 
-                isPinned={bookmarkedJobs.includes(job.id)}
+              <JobListItem
+                key={job.id}
+                job={job}
+                handleBookmark={handleBookmark}
+                isBookmarked={bookmarkedJobs.includes(job.id)}
               />
             )
           ))}

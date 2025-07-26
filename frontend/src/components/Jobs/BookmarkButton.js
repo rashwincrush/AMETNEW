@@ -21,11 +21,11 @@ const BookmarkButton = ({ jobId, isBookmarked, handleBookmark }) => {
   return (
     <button
       onClick={handleClick}
-      className="p-2 rounded-full hover:bg-gray-100"
+      className={`p-2 rounded-full transition-colors duration-200 ${isBookmarked ? 'bg-ocean-100 hover:bg-ocean-200' : 'hover:bg-gray-100'}`}
       aria-label={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
     >
       <BookmarkIcon 
-        className={`w-5 h-5 ${isBookmarked ? 'text-ocean-500 fill-ocean-500' : 'text-ocean-500'}`} 
+        className={`w-5 h-5 transition-colors duration-200 ${isBookmarked ? 'text-ocean-600 fill-ocean-600' : 'text-gray-500'}`} 
       />
     </button>
   );
