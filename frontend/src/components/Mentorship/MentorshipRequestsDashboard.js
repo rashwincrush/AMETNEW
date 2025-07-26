@@ -1,6 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../utils/supabase';
-import { Box, Typography, Paper, Button, Chip, Grid, CircularProgress, Alert } from '@mui/material';
+import { 
+  Box, 
+  Typography, 
+  Paper, 
+  Button, 
+  Chip, 
+  Grid, 
+  CircularProgress, 
+  Alert, 
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  TextField
+} from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 import { Link } from 'react-router-dom';
 
@@ -11,6 +26,9 @@ const MentorshipRequestsDashboard = () => {
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
   const [success, setSuccess] = useState('');
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [selectedRequestId, setSelectedRequestId] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
 
   useEffect(() => {
     fetchRequests();
@@ -33,23 +51,52 @@ const MentorshipRequestsDashboard = () => {
     setLoading(false);
   };
 
-  const handleAction = async (id, status) => {
+  const handleAction = async (id, status, responseMessage = null) => {
     setActionLoading(true);
     setError('');
     setSuccess('');
     try {
+      const updateData = { status };
+      if (responseMessage !== null) {
+        updateData.response_message = responseMessage;
+      }
+      
       const { error } = await supabase
         .from('mentorship_requests')
-        .update({ status })
+        .update(updateData)
         .eq('id', id);
       if (error) throw error;
       setSuccess(`Request ${status}`);
       fetchRequests();
     } catch (err) {
+      console.error('Error updating request:', err);
       setError('Failed to update request');
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const openRejectDialog = (requestId) => {
+    setSelectedRequestId(requestId);
+    setRejectionReason('');
+    setRejectDialogOpen(true);
+  };
+
+  const handleRejectConfirm = () => {
+    if (!rejectionReason.trim()) {
+      setError('Please provide a reason for rejection');
+      return;
+    }
+    
+    handleAction(selectedRequestId, 'rejected', rejectionReason);
+    setRejectDialogOpen(false);
+    setRejectionReason('');
+  };
+
+  const handleRejectCancel = () => {
+    setRejectDialogOpen(false);
+    setSelectedRequestId(null);
+    setRejectionReason('');
   };
 
   return (
@@ -78,12 +125,23 @@ const MentorshipRequestsDashboard = () => {
                 <Typography variant="body2" color="textSecondary">
                   Requested at: {new Date(req.requested_at).toLocaleString()}
                 </Typography>
-                {isAdmin && req.status === 'pending' && (
-                  <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-                    <Button variant="contained" color="success" disabled={actionLoading} onClick={() => handleAction(req.id, 'approved')}>Approve</Button>
-                    <Button variant="outlined" color="error" disabled={actionLoading} onClick={() => handleAction(req.id, 'rejected')}>Reject</Button>
-                  </Box>
-                )}
+                <Box sx={{ mt: 2 }}>
+                  {/* Display rejection reason if request is rejected */}
+                  {req.status === 'rejected' && req.response_message && (
+                    <Box sx={{ mb: 2, p: 1, bgcolor: 'error.light', borderRadius: 1 }}>
+                      <Typography variant="subtitle2" fontWeight="bold">Rejection Reason:</Typography>
+                      <Typography variant="body2">{req.response_message}</Typography>
+                    </Box>
+                  )}
+                  
+                  {/* Admin or mentor controls for pending requests */}
+                  {(isAdmin || user.id === req.mentor_id) && req.status === 'pending' && (
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Button variant="contained" color="success" disabled={actionLoading} onClick={() => handleAction(req.id, 'approved')}>Approve</Button>
+                      <Button variant="outlined" color="error" disabled={actionLoading} onClick={() => openRejectDialog(req.id)}>Reject</Button>
+                    </Box>
+                  )}
+                </Box>
               </Paper>
             </Grid>
           ))}
@@ -91,6 +149,36 @@ const MentorshipRequestsDashboard = () => {
       )}
       {success && <Alert severity="success" sx={{ mt: 2 }}>{success}</Alert>}
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+      
+      {/* Rejection Reason Dialog */}
+      <Dialog open={rejectDialogOpen} onClose={handleRejectCancel}>
+        <DialogTitle>Provide Rejection Reason</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Please provide a reason for rejecting this mentorship request. This feedback will be visible to the mentee.
+          </DialogContentText>
+          <TextField
+            autoFocus
+            margin="dense"
+            id="rejection-reason"
+            label="Rejection Reason"
+            type="text"
+            fullWidth
+            multiline
+            rows={4}
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+            error={rejectionReason.trim() === ''}
+            helperText={rejectionReason.trim() === '' ? 'Rejection reason is required' : ''}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleRejectCancel}>Cancel</Button>
+          <Button onClick={handleRejectConfirm} variant="contained" color="primary">
+            Submit
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

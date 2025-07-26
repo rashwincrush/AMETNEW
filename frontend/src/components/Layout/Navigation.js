@@ -14,7 +14,8 @@ import {
   UserGroupIcon,
   BuildingOfficeIcon,
   ShieldCheckIcon,
-  ClipboardDocumentCheckIcon
+  ClipboardDocumentCheckIcon,
+  ArrowUpTrayIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -45,6 +46,7 @@ const Navigation = () => {
     { path: '/admin/approvals', label: 'User Approvals', icon: CogIcon },
     { path: '/admin/analytics', label: 'Analytics', icon: ChartBarIcon },
     { path: '/admin/users', label: 'User Management', icon: BuildingOfficeIcon },
+    { path: '/admin/csv', label: 'CSV Import/Export', icon: ArrowUpTrayIcon },
   ];
 
   const employerMenuItems = [

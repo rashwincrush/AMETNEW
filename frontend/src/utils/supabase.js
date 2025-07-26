@@ -576,7 +576,6 @@ export const createMentorshipRequest = async (requestData) => {
 // Fetch all groups with optional filtering
 export const fetchGroups = async (options = {}) => {
   const {
-    includePrivate = false,
     searchQuery = '',
     tags = [],
     sortBy = 'created_at',
@@ -587,13 +586,9 @@ export const fetchGroups = async (options = {}) => {
   let query = supabase
     .from('groups')
     .select('*, group_members(count)')
+    .eq('is_private', false) // Always fetch only public groups
     .order(sortBy, { ascending: sortOrder === 'asc' })
     .limit(limit);
-  
-  // Apply privacy filter if needed
-  if (!includePrivate) {
-    query = query.eq('is_private', false);
-  }
   
   // Apply search filter if provided
   if (searchQuery) {

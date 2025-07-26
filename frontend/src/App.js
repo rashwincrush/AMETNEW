@@ -50,6 +50,8 @@ import JobDetails from './components/Jobs/JobDetails';
 import BookmarkedJobs from './components/Jobs/BookmarkedJobs';
 import UserProfilePage from './pages/UserProfilePage';
 import CompanyProfile from './components/Companies/CompanyProfile';
+import PublicCompanyProfile from './components/Companies/PublicCompanyProfile';
+import CSVImportExport from './components/Admin/CSVImportExport';
 import EditCompanyProfile from './components/Companies/EditCompanyProfile';
 import MentorRegistrationForm from './components/Mentorship/MentorRegistrationForm';
 import PostJob from './components/Jobs/PostJob';
@@ -140,6 +142,7 @@ function AppContent() {
             <Route path="/directory" element={<AlumniDirectory />} />
             <Route path="/directory/:id" element={<AlumniProfile />} />
             <Route path="/company/:id" element={<CompanyProfile />} />
+            <Route path="/companies/:id" element={<PublicCompanyProfile />} />
             <Route path="/company/edit" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><EditCompanyProfile user={profile || user} /></ProtectedRoute>} />
             <Route path="/events/*" element={<EventsPage />} />
             <Route path="/events/edit/:id" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><EditEvent /></ProtectedRoute>} />
@@ -179,6 +182,7 @@ function AppContent() {
             <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><Analytics /></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><UserManagement /></ProtectedRoute>} />
             <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><AdminSettings /></ProtectedRoute>} />
+            <Route path="/admin/csv" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><CSVImportExport /></ProtectedRoute>} />
             <Route path="/admin/events/:id/feedback" element={<ProtectedRoute allowedRoles={['admin', 'super_admin']}><EventFeedbackReport /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/dashboard" />} />
           </Routes>

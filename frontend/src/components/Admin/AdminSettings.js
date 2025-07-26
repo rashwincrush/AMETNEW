@@ -1,78 +1,215 @@
 import React, { useState } from 'react';
 import { Tab } from '@headlessui/react';
 import { useAuth } from '../../contexts/AuthContext';
-import RoleManagement from './RoleManagement';
+import { supabase } from '../../utils/supabase';
+import toast from 'react-hot-toast';
 import ContentApproval from './ContentApproval';
-import SuperAdminPanel from './SuperAdminPanel';
-import JobVerification from './JobVerification';
 import UserManagement from './UserManagement';
+import CSVExport from './CSVExport';
 import { 
   Cog6ToothIcon, 
   ShieldCheckIcon, 
   UsersIcon,
   DocumentCheckIcon,
+  ClipboardDocumentListIcon,
+  WrenchScrewdriverIcon
 } from '@heroicons/react/24/outline';
 import PermissionGate from '../PermissionGate';
 
-// AppSettings can be a simple component defined at the bottom
-const AppSettings = () => (
+// Reports component that includes CSV Export functionality
+const Reports = () => (
   <div className="p-4">
-    <h2 className="text-lg font-semibold mb-4">Application Settings</h2>
-    <p className="text-gray-600">
-      Configure global application settings, features, and behaviors. This feature is coming soon.
-    </p>
+    <h2 className="text-lg font-semibold mb-4">Reports & Data Management</h2>
+    <CSVExport />
   </div>
 );
 
-// Define the new SiteAdministration component that will contain sub-tabs
-const SiteAdministration = () => {
-  const { getUserRole } = useAuth();
-  const isSuperAdmin = getUserRole() === 'super_admin';
+// System Administration component focused on super admin management
+const SystemAdministration = () => {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [targetEmail, setTargetEmail] = useState('');
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [selectedUserForRoleChange, setSelectedUserForRoleChange] = useState(null);
 
-  // These are the tabs *within* Site Administration
-  const adminTabs = [
-    { name: 'Role Management', component: <RoleManagement />, superAdminOnly: false },
-    { name: 'Job Verification', component: <JobVerification />, superAdminOnly: false },
-    { name: 'Super Admin Tools', component: <SuperAdminPanel />, superAdminOnly: true },
-    { name: 'App Settings', component: <AppSettings />, superAdminOnly: true },
-  ].filter(tab => isSuperAdmin || !tab.superAdminOnly);
+  // Fetch admin users when component mounts
+  React.useEffect(() => {
+    fetchAdminUsers();
+  }, []);
 
-  if (!isSuperAdmin) {
-      // Although the parent tab is gated, this provides a clear message if somehow accessed.
-      return (
-          <div className="bg-yellow-50 p-8 rounded-lg text-center">
-            <ShieldCheckIcon className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
-            <h3 className="text-lg font-bold text-yellow-800">Super Admin Access Required</h3>
-            <p className="text-yellow-700">This section is available to Super Admins only.</p>
-          </div>
-      )
-  }
+  const fetchAdminUsers = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, email, role') 
+        .or('role.eq.admin,role.eq.super_admin')
+        .order('updated_at', { ascending: false });
+      if (error) throw error;
+      setAdminUsers(data || []);
+    } catch (err) {
+      console.error('Error fetching admin users:', err);
+      toast.error(`Could not load admin users: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSuperAdminAssignment = async (userIdToUpdate, makeSuperAdmin) => {
+    setLoading(true);
+    try {
+      const newRole = makeSuperAdmin ? 'super_admin' : 'admin';
+      
+      const { error } = await supabase
+        .from('profiles')
+        .update({ role: newRole })
+        .eq('id', userIdToUpdate);
+        
+      if (error) throw error;
+      
+      toast.success(`User role updated to ${newRole}`);
+      fetchAdminUsers(); // Refresh the list
+    } catch (err) {
+      console.error('Error updating user role:', err);
+      toast.error(`Failed to update role: ${err.message}`);
+    } finally {
+      setShowConfirmation(false);
+      setSelectedUserForRoleChange(null);
+      setLoading(false);
+    }
+  };
+
+  const handleEmailSearch = async () => {
+    if (!targetEmail.trim()) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, email, role')
+        .ilike('email', targetEmail.trim())
+        .single();
+        
+      if (error) throw error;
+      if (!data) {
+        toast.error('No user found with that email');
+        return;
+      }
+      
+      setSelectedUserForRoleChange(data);
+      setShowConfirmation(true);
+    } catch (err) {
+      console.error('Error searching for user:', err);
+      toast.error('Failed to find user with that email');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="p-2 sm:p-4">
-      <Tab.Group>
-        <Tab.List className="flex space-x-1 rounded-xl bg-purple-100 p-1">
-          {adminTabs.map((tab) => (
-            <Tab
-              key={tab.name}
-              className={({ selected }) =>
-                `w-full py-2.5 text-sm font-medium leading-5 text-purple-700 rounded-lg
-                 focus:outline-none focus:ring-2 ring-offset-2 ring-offset-purple-400 ring-white ring-opacity-60
-                 ${selected ? 'bg-white shadow' : 'text-purple-500 hover:bg-white/[0.3]'}`
-              }
+    <div className="p-6 max-w-4xl mx-auto">
+      <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+        <div className="flex items-center mb-4">
+          <ShieldCheckIcon className="h-6 w-6 text-purple-700 mr-2" />
+          <h2 className="text-xl font-semibold text-gray-800">System Administration</h2>
+        </div>
+        <p className="text-gray-600 mb-6">Manage system administrators and critical platform settings.</p>
+
+        <div className="mb-8">
+          <h3 className="text-lg font-medium text-gray-700 mb-4">Assign Super Admin Role</h3>
+          <div className="flex gap-2 mb-4">
+            <input
+              type="email"
+              placeholder="Enter user's email to find"
+              value={targetEmail}
+              onChange={(e) => setTargetEmail(e.target.value)}
+              className="flex-1 rounded border border-gray-300 p-2"
+            />
+            <button
+              onClick={handleEmailSearch}
+              disabled={loading}
+              className="bg-purple-600 text-white rounded px-4 py-2 hover:bg-purple-700 transition"
             >
-              {tab.name}
-            </Tab>
+              {loading ? 'Searching...' : 'Find User & Assign'}
+            </button>
+          </div>
+        </div>
+
+        {showConfirmation && selectedUserForRoleChange && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+            <h4 className="font-medium text-yellow-800 mb-2">Confirm Role Change</h4>
+            <p className="text-yellow-700 mb-3">
+              Are you sure you want to make <span className="font-semibold">{selectedUserForRoleChange.email}</span> a Super Admin?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleSuperAdminAssignment(selectedUserForRoleChange.id, true)}
+                className="bg-yellow-600 text-white rounded px-3 py-1 text-sm hover:bg-yellow-700"
+                disabled={loading}
+              >
+                {loading ? 'Processing...' : 'Confirm'}
+              </button>
+              <button
+                onClick={() => setShowConfirmation(false)}
+                className="bg-gray-200 text-gray-700 rounded px-3 py-1 text-sm hover:bg-gray-300"
+                disabled={loading}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <h3 className="text-lg font-medium text-gray-700 mb-4">Current Admins & Super Admins</h3>
+          {loading && <p className="text-gray-500 italic">Loading administrators...</p>}
+          {!loading && adminUsers.length === 0 && (
+            <p className="text-gray-500">No administrators found.</p>
+          )}
+          {!loading && adminUsers.map(admin => (
+            <div key={admin.id} className="border-b border-gray-100 py-3 flex justify-between items-center">
+              <div>
+                <div className="font-medium">
+                  {admin.first_name} {admin.last_name}
+                </div>
+                <div className="text-gray-500 text-sm">{admin.email}</div>
+              </div>
+              <div className="flex items-center">
+                <span className={`px-2 py-1 text-xs rounded mr-4 ${admin.role === 'super_admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
+                  {admin.role === 'super_admin' ? 'Super Admin' : 'Admin'}
+                </span>
+                {admin.role === 'super_admin' ? (
+                  <button
+                    onClick={() => {
+                      setSelectedUserForRoleChange(admin);
+                      setShowConfirmation(true);
+                    }}
+                    className="text-red-600 hover:text-red-800 text-sm"
+                    disabled={admin.id === user?.id}
+                    title={admin.id === user?.id ? "You cannot revoke your own Super Admin role" : ""}
+                  >
+                    {admin.id !== user?.id ? 'Revoke Super Admin' : 'Current User'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setSelectedUserForRoleChange(admin);
+                      setShowConfirmation(true);
+                    }}
+                    className="text-purple-600 hover:text-purple-800 text-sm"
+                  >
+                    Make Super Admin
+                  </button>
+                )}
+              </div>
+            </div>
           ))}
-        </Tab.List>
-        <Tab.Panels className="mt-2">
-          {adminTabs.map((tab, idx) => (
-            <Tab.Panel key={idx} className="rounded-xl bg-white p-3">
-              {tab.component}
-            </Tab.Panel>
-          ))}
-        </Tab.Panels>
-      </Tab.Group>
+        </div>
+      </div>
     </div>
   );
 };
@@ -84,7 +221,7 @@ const AdminSettings = () => {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const isSuperAdmin = userRole === 'super_admin';
 
-  // Define the new, consolidated tabs
+  // Define the consolidated tabs with redundant components removed
   const tabs = [
     {
       name: 'User Management',
@@ -101,11 +238,18 @@ const AdminSettings = () => {
       superAdminOnly: false,
     },
     {
-      name: 'Site Administration',
-      icon: <ShieldCheckIcon className="w-5 h-5" />,
-      component: <SiteAdministration />,
+      name: 'System Administration',
+      icon: <WrenchScrewdriverIcon className="w-5 h-5" />,
+      component: <SystemAdministration />,
       permission: 'manage_settings',
       superAdminOnly: true,
+    },
+    {
+      name: 'Reports',
+      icon: <ClipboardDocumentListIcon className="w-5 h-5" />,
+      component: <Reports />,
+      permission: 'manage_settings',
+      superAdminOnly: false,
     },
   ];
 
