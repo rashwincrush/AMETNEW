@@ -26,10 +26,9 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
   },
   realtime: {
     params: {
-      eventsPerSecond: 10
+      eventsPerSecond: 5
     },
-    // Explicitly set endpoint to ensure proper connection
-    endpoint: `${supabaseUrl}/realtime/v1`.replace('http', 'ws')
+
   }
 });
 

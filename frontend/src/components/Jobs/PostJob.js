@@ -32,17 +32,25 @@ import {
 const steps = ['Basic Information', 'Job Details', 'Company & Contact'];
 
 const PostJob = () => {
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [activeStep, setActiveStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState('');
-  // Removed companies state since we're using text input
-  // Add selection mode state
   const [showSelectionScreen, setShowSelectionScreen] = useState(true);
   const [postingType, setPostingType] = useState(null); // 'link' or 'form'
+
+  useEffect(() => {
+    if (profile && profile.primary_role === 'employer') {
+      setFormData(prev => ({
+        ...prev,
+        company_name: profile.company_name || '',
+        logo_url: profile.logo_url || ''
+      }));
+    }
+  }, [profile]);
 
   const [formData, setFormData] = useState({
     company_name: '', // Changed from company_id to company_name
@@ -58,9 +66,7 @@ const PostJob = () => {
     logo_url: '' // To store the logo URL after upload
   });
 
-  // Removed fetchCompanies function and related effect since we're using text input
-
-  const handleInputChange = (e) => {
+  const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     if (errors[name]) {
@@ -166,50 +172,140 @@ const PostJob = () => {
         }
       }
 
-      // 2. Find or create the company
-      const { data: existingCompany, error: findError } = await supabase
+      // 2. Find or create the company - CRITICAL for getting a valid company_id
+      console.log("Finding or creating company with name:", formData.company_name.trim());
+      
+      // First try to find the company by exact name match
+      const { data: existingCompanies, error: findError } = await supabase
         .from('companies')
         .select('id')
-        .eq('name', formData.company_name)
-        .single();
+        .eq('name', formData.company_name.trim());
 
-      if (findError && findError.code !== 'PGRST116') throw findError; // Ignore 'not found' error
+      if (findError) {
+        console.error("Error finding company:", findError);
+        throw new Error(`Failed to find company: ${findError.message}`);
+      }
 
-      if (existingCompany) {
-        companyId = existingCompany.id;
+      // Check if we found an existing company
+      if (existingCompanies && existingCompanies.length > 0) {
+        companyId = existingCompanies[0].id;
+        console.log("Found existing company with ID:", companyId);
+        
         // If there's a new logo, update the existing company's logo
         if (logoUrl) {
+          console.log("Updating company logo for ID:", companyId);
           const { error: updateError } = await supabase
             .from('companies')
             .update({ logo_url: logoUrl })
             .eq('id', companyId);
-          if (updateError) throw updateError;
+            
+          if (updateError) {
+            console.error("Error updating company logo:", updateError);
+            throw new Error(`Failed to update company logo: ${updateError.message}`);
+          }
         }
       } else {
-        // Create a new company if it doesn't exist
+        // Create a new company since it doesn't exist
+        console.log("Creating new company with name:", formData.company_name.trim());
+        
         const { data: newCompany, error: createError } = await supabase
           .from('companies')
-          .insert({ name: formData.company_name, logo_url: logoUrl })
-          .select('id')
-          .single();
-        if (createError) throw createError;
-        companyId = newCompany.id;
+          .insert({
+            name: formData.company_name.trim(),
+            logo_url: logoUrl,
+            created_by: user.id // Ensure we set the created_by field
+          })
+          .select();
+          
+        if (createError) {
+          console.error("Error creating company:", createError);
+          throw new Error(`Failed to create company: ${createError.message}`);
+        }
+        
+        if (!newCompany || newCompany.length === 0) {
+          console.error("No company data returned after creation");
+          throw new Error("Failed to create company: No data returned");
+        }
+        
+        companyId = newCompany[0].id;
+        console.log("Created new company with ID:", companyId);
+      }
+      
+      // Verify we have a valid company_id before proceeding
+      if (!companyId) {
+        console.error("No valid company_id after company creation/lookup");
+        throw new Error("Cannot create job without a valid company ID");
       }
 
       // 3. Prepare and submit the job data
+      console.log("Preparing job data with company_id:", companyId);
+
+      // Explicitly remove the offending field from the form data to prevent it from being included
+      if (formData.primary_role) {
+        delete formData.primary_role;
+      }
+      
+      // Format the deadline properly
+      const rawDeadline = formData.deadline;
+      let deadline = null;
+      
+      if (rawDeadline) {
+        try {
+          const parts = rawDeadline.split('/');
+          if (parts.length === 3) {
+            const [day, month, year] = parts;
+            // Convert to strings and pad if needed
+            const dayStr = String(day).padStart(2, '0');
+            const monthStr = String(month).padStart(2, '0');
+            // Create a valid ISO date string
+            deadline = new Date(`${year}-${monthStr}-${dayStr}T00:00:00Z`).toISOString();
+          } else {
+            deadline = new Date(rawDeadline).toISOString();
+          }
+          console.log("Formatted deadline:", deadline);
+        } catch (dateError) {
+          console.error("Error formatting deadline:", dateError);
+          throw new Error(`Invalid date format for deadline: ${rawDeadline}`);
+        }
+      }
+
+      // Create the final payload by explicitly picking only the valid fields.
+      // This is the most robust way to prevent payload contamination.
       const jobData = {
-        ...formData,
-        company_id: companyId,
-        user_id: user?.id,
+        title: formData.title?.trim(),
+        location: formData.location?.trim(),
+        job_type: formData.job_type,
+        description: formData.description?.trim(),
+        requirements: formData.requirements?.trim(),
+        salary_range: formData.salary_range?.trim(),
+        application_url: formData.application_url?.trim(),
+        company_id: companyId,      // This is critical and must not be null
+        posted_by: user.id,         // This is also required
         is_approved: false,
         is_active: true,
       };
-      // Clean up fields that are not in the 'jobs' table
-      delete jobData.logo_url;
-
-      const { error: jobError } = await supabase.from('jobs').insert([jobData]);
-      if (jobError) throw jobError;
-
+      
+      // Only add deadline if it's valid
+      if (deadline) {
+        jobData.deadline = deadline;
+      }
+      
+      // Log the exact payload we're sending
+      console.log("Submitting job with payload:", jobData);
+      
+      // Insert the job with a specific select call to avoid issues with non-existent columns
+      const { data: newJob, error: jobError } = await supabase
+        .from('jobs')
+        .insert([jobData])
+        .select('id'); // Only return the ID to avoid column issues
+        
+      // Check for errors
+      if (jobError) {
+        console.error("Error creating job:", jobError);
+        throw new Error(`Failed to create job: ${jobError.message}`);
+      }
+      
+      console.log("Job created successfully");
       toast.success('Job submitted for approval!');
       navigate('/jobs');
     } catch (err) {
@@ -226,20 +322,20 @@ const PostJob = () => {
           <Grid container spacing={3}>
             <Grid item xs={12}>
               <TextField
-                required fullWidth name="title" label="Job Title" value={formData.title} onChange={handleInputChange}
+                required fullWidth name="title" label="Job Title" value={formData.title} onChange={handleChange}
                 error={!!errors.title} helperText={errors.title}
                 placeholder="e.g., Senior Marine Engineer"
               />
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
-                required fullWidth name="location" label="Location" value={formData.location} onChange={handleInputChange}
+                required fullWidth name="location" label="Location" value={formData.location} onChange={handleChange}
                 error={!!errors.location} helperText={errors.location}
                 placeholder="e.g., Mumbai, Maharashtra"
               />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField select fullWidth name="job_type" label="Job Type" value={formData.job_type} onChange={handleInputChange}>
+              <TextField select fullWidth name="job_type" label="Job Type" value={formData.job_type} onChange={handleChange}>
                 <MenuItem value="Full-time">Full-time</MenuItem>
                 <MenuItem value="Part-time">Part-time</MenuItem>
                 <MenuItem value="Contract">Contract</MenuItem>
@@ -253,13 +349,13 @@ const PostJob = () => {
           <Grid container spacing={3}>
             <Grid item xs={12}>
               <TextField
-                required fullWidth multiline rows={6} name="description" label="Job Description" value={formData.description} onChange={handleInputChange}
+                required fullWidth multiline rows={6} name="description" label="Job Description" value={formData.description} onChange={handleChange}
                 error={!!errors.description} helperText={errors.description}
               />
             </Grid>
             <Grid item xs={12}>
               <TextField
-                required fullWidth multiline rows={4} name="requirements" label="Requirements" value={formData.requirements} onChange={handleInputChange}
+                required fullWidth multiline rows={4} name="requirements" label="Requirements" value={formData.requirements} onChange={handleChange}
                 error={!!errors.requirements} helperText={errors.requirements}
               />
             </Grid>
@@ -275,7 +371,7 @@ const PostJob = () => {
                 name="company_name"
                 label="Company Name"
                 value={formData.company_name}
-                onChange={handleInputChange}
+                onChange={handleChange}
                 error={!!errors.company_name}
                 helperText={errors.company_name || 'Enter the name of the company.'}
               />
@@ -299,14 +395,14 @@ const PostJob = () => {
               <Typography variant="caption" color="text.secondary">Max 5MB. Allowed types: PNG, JPG, SVG.</Typography>
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="salary_range" label="Salary Range" value={formData.salary_range} onChange={handleInputChange} placeholder="e.g., $80k - $120k" />
+              <TextField fullWidth name="salary_range" label="Salary Range" value={formData.salary_range} onChange={handleChange} placeholder="e.g., $80k - $120k" />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth type="date" name="deadline" label="Application Deadline" value={formData.deadline} onChange={handleInputChange} InputLabelProps={{ shrink: true }} />
+              <TextField fullWidth type="date" name="deadline" label="Application Deadline" value={formData.deadline} onChange={handleChange} InputLabelProps={{ shrink: true }} />
             </Grid>
             <Grid item xs={12}>
               <TextField
-                required fullWidth name="application_url" label="Application URL or Email" value={formData.application_url} onChange={handleInputChange}
+                required fullWidth name="application_url" label="Application URL or Email" value={formData.application_url} onChange={handleChange}
                 error={!!errors.application_url} helperText={errors.application_url}
               />
             </Grid>
@@ -600,7 +696,7 @@ const PostJob = () => {
                         name="title"
                         label="Job Title"
                         value={formData.title}
-                        onChange={handleInputChange}
+                        onChange={handleChange}
                         error={!!errors.title}
                         helperText={errors.title}
                         placeholder="e.g., Senior Marine Engineer"
@@ -613,7 +709,7 @@ const PostJob = () => {
                         name="company_name"
                         label="Company (Optional)"
                         value={formData.company_name}
-                        onChange={handleInputChange}
+                        onChange={handleChange}
                         placeholder="e.g., Maersk"
                       />
                     </Grid>
@@ -626,7 +722,7 @@ const PostJob = () => {
                         name="application_url"
                         label="Application URL"
                         value={formData.application_url}
-                        onChange={handleInputChange}
+                        onChange={handleChange}
                         error={!!errors.application_url}
                         helperText={errors.application_url}
                         placeholder="https://example.com/apply"

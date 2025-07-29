@@ -38,7 +38,7 @@ import ProtectedRoute from './components/Auth/ProtectedRoute';
 // Dashboard Components
 import AlumniDashboard from './components/Dashboard/AlumniDashboard';
 import AdminDashboard from './components/Admin/Dashboard';
-import EmployerDashboard from './components/Dashboard/EmployerDashboard';
+
 
 // Feature Components
 import AlumniDirectory from './components/Directory/AlumniDirectory';
@@ -123,7 +123,7 @@ function AppContent() {
       case 'admin':
         return <AdminDashboard user={profile || user} />;
       case 'employer':
-        return <EmployerDashboard user={profile || user} />;
+        return <Navigate to="/profile" />;
       default:
         return <AlumniDashboard user={profile || user} />;
     }

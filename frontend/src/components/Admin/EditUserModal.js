@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
+import { supabase } from '../../utils/supabase';
 
 const EditUserModal = ({ user, isOpen, onClose, onSave }) => {
   const [formData, setFormData] = useState({});
@@ -8,7 +9,7 @@ const EditUserModal = ({ user, isOpen, onClose, onSave }) => {
   useEffect(() => {
     if (user) {
       setFormData({
-        full_name: user.full_name || '',
+        // Exclude full_name since it's a generated column
         location: user.location || '',
         current_position: user.current_position || '',
         is_admin: user.is_admin || false,
@@ -26,8 +27,45 @@ const EditUserModal = ({ user, isOpen, onClose, onSave }) => {
     setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
-  const handleSave = () => {
-    onSave(user.id, formData);
+  const handleSave = async () => {
+    try {
+      // Extract role flags
+      const { is_admin, is_employer, is_mentor } = formData;
+      
+      // Determine the role based on checkboxes
+      let role = 'alumni'; // Default
+      if (is_admin) role = 'admin';
+      else if (is_employer) role = 'employer';
+      else if (is_mentor) role = 'mentor';
+      
+      // Call our safe role update function
+      const { data: roleResult, error: roleError } = await supabase
+        .rpc('update_user_role', {
+          user_id: user.id,
+          new_role: role
+        });
+        
+      if (roleError) throw roleError;
+      
+      // Update other fields (excluding full_name and role flags)
+      const updateData = {
+        location: formData.location,
+        current_position: formData.current_position,
+        alumni_verification_status: formData.alumni_verification_status
+      };
+      
+      // Pass the safe data to the parent component's handler
+      onSave(user.id, {
+        ...updateData,
+        is_admin, 
+        is_employer, 
+        is_mentor,
+        role
+      });
+    } catch (error) {
+      console.error('Error updating user:', error);
+      alert(`Failed to update user: ${error.message}`);
+    }
   };
 
   return (
@@ -47,7 +85,8 @@ const EditUserModal = ({ user, isOpen, onClose, onSave }) => {
                 <div className="mt-4 space-y-4">
                   <div>
                     <label htmlFor="full_name" className="block text-sm font-medium text-gray-700">Full Name</label>
-                    <input type="text" name="full_name" id="full_name" value={formData.full_name} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
+                    <input type="text" name="full_name" id="full_name" value={user.full_name || ''} disabled className="mt-1 block w-full rounded-md bg-gray-100 border-gray-300 shadow-sm text-gray-500 sm:text-sm" />
+                    <p className="text-xs text-gray-500 mt-1">Full name cannot be edited directly. Update first and last name instead.</p>
                   </div>
                   <div>
                     <label htmlFor="location" className="block text-sm font-medium text-gray-700">Location</label>

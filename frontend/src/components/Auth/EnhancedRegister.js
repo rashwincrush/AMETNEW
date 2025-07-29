@@ -221,7 +221,9 @@ const EnhancedRegister = () => {
       }
 
       if (authData.user) {
-        // Step 2: Insert the detailed profile into the 'profiles' table
+        // No need to create a separate company record - store employer data directly in profiles
+        
+        // Insert the detailed profile into the 'profiles' table with employer data directly embedded
         const profileData = {
           id: authData.user.id, // Links profile to the auth user
           full_name: `${formData.firstName} ${formData.lastName}`.trim(),
@@ -233,11 +235,18 @@ const EnhancedRegister = () => {
           degree: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.degree.trim() : null,
           department: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.department.trim() : null,
           student_id: formData.primaryRole === 'student' ? formData.studentId.trim() : null,
-          company: formData.primaryRole === 'employer' ? formData.companyName.trim() : null,
-          job_title: formData.primaryRole === 'employer' ? formData.jobTitle.trim() : null,
+          
+          // Store employer data directly in profiles
+          is_employer: formData.primaryRole === 'employer',
+          company_name: formData.primaryRole === 'employer' ? formData.companyName.trim() : null,
+          company_website: formData.primaryRole === 'employer' ? formData.companyWebsite.trim() : null,
           industry: formData.primaryRole === 'employer' ? formData.industry.trim() : null,
+          company_location: formData.primaryRole === 'employer' ? formData.currentLocation.trim() : null,
+          company_size: formData.primaryRole === 'employer' ? formData.companySize || null : null,
+          
+          // Other profile fields
+          job_title: formData.primaryRole === 'employer' ? formData.jobTitle.trim() : null,
           linkedin_profile: formData.linkedinProfile.trim() || null,
-          website: formData.primaryRole === 'employer' ? formData.companyWebsite.trim() : null,
           skills: formData.skills,
           interests: formData.interests,
           bio: formData.bio.trim() || null,

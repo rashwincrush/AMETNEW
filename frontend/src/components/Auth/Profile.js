@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
   UserIcon, 
@@ -15,12 +16,28 @@ import ProfileResume from './ProfileResume';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 
-const Profile = ({ user }) => {
-  const { updateProfile } = useAuth();
+const Profile = () => {
+  const navigate = useNavigate();
+  const { user, profile, loading, updateProfile, getUserRole } = useAuth();
+  
+  // Additional component loading state for transitional periods
+  const [isComponentLoading, setIsComponentLoading] = useState(true);
+  const initialLoadComplete = useRef(false);
+  
+  // All useState hooks must be at the top level, before any conditional returns
+  const [companyId, setCompanyId] = useState(null);
+  const [companyFormData, setCompanyFormData] = useState({
+    name: '',
+    industry: '',
+    website_url: '',
+    location: '',
+    description: '',
+  });
   const [isEditing, setIsEditing] = useState(false);
-  const [imageUrl, setImageUrl] = useState(user.avatar || '/default-avatar.svg');
+  const [imageUrl, setImageUrl] = useState('/default-avatar.svg'); // Default value without user dependency
   const [imageFile, setImageFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
@@ -32,9 +49,11 @@ const Profile = ({ user }) => {
     company: '',
     position: '',
     experience: '',
-    batch: '',
     degree: '',
     department: '',
+    batch: '',
+    student_id: '',
+    date_of_birth: '',
     skills: [],
     achievements: [],
     interests: [],
@@ -47,56 +66,214 @@ const Profile = ({ user }) => {
     }
   });
 
+  // Define isEmployer constant
+  const isEmployer = getUserRole() === 'employer';
+  
+  // Handle changes to company form fields
+  const handleCompanyChange = (e) => {
+    const { name, value } = e.target;
+    setCompanyFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  // Function to fetch company data for employer users
+  const fetchCompanyData = async (userId) => {
+    try {
+      const { data: companies, error } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('created_by', userId)
+        .single();
+
+      if (error) {
+        // It's okay if no company is found, just log other errors
+        if (error.code !== 'PGRST116') { 
+          console.error('Error fetching company data:', error);
+        }
+        return null;
+      }
+      return companies;
+    } catch (error) {
+      console.error('Error in fetchCompanyData:', error);
+      return null;
+    }
+  };
+  
+  // Track authentication state changes to manage component loading
+  useEffect(() => {
+    console.log('Profile component auth state effect:', { loading, user, profile });
+    
+    // Only show loading on initial load, not on subsequent updates
+    if (!initialLoadComplete.current) {
+      // Set component as loading when auth is loading or when we have a user but no profile yet
+      if (loading || (user && !profile)) {
+        setIsComponentLoading(true);
+        return;
+      }
+      
+      // When auth is no longer loading and we have necessary data, finish loading
+      setIsComponentLoading(false);
+      initialLoadComplete.current = true;
+    }
+  }, [loading, user, profile]);
+  
+  // Update imageUrl when user/profile is available
+  useEffect(() => {
+    if (user && user.avatar) {
+      setImageUrl(user.avatar);
+    } else if (profile && profile.avatar_url) {
+      setImageUrl(profile.avatar_url);
+    }
+  }, [user, profile]);
+  
+  // Helper functions to deeply clean "Not specified" values
+  const cleanValue = (value) => {
+    // Return empty string for any 'Not specified' value
+    if (value === 'Not specified' || value === null || value === undefined) {
+      return '';
+    }
+    return value;
+  };
+  
+  // Recursively clean an object or array
+  const deepClean = (obj) => {
+    if (!obj) return obj;
+    
+    // Handle arrays
+    if (Array.isArray(obj)) {
+      return obj.map(item => {
+        if (typeof item === 'object' && item !== null) {
+          return deepClean(item);
+        }
+        return cleanValue(item);
+      });
+    }
+    
+    // Handle objects
+    if (typeof obj === 'object') {
+      const cleaned = {};
+      for (const [key, value] of Object.entries(obj)) {
+        if (typeof value === 'object' && value !== null) {
+          cleaned[key] = deepClean(value);
+        } else {
+          cleaned[key] = cleanValue(value);
+        }
+      }
+      return cleaned;
+    }
+    
+    return cleanValue(obj);
+  };
+  
+  // Check if a value should be displayed
+  const hasValue = (value) => {
+    if (value === undefined || value === null || value === '' || value === 'Not specified') {
+      return false;
+    }
+    
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
+    
+    if (typeof value === 'object') {
+      return Object.keys(value).length > 0;
+    }
+    
+    return true;
+  };
+
   // Initialize form with user data
   useEffect(() => {
-    if (user) {
+    if (user && profile) {
       const initializeForm = async () => {
+        setIsComponentLoading(true);
         try {
-          const { data: profile, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single();
+          // Deep clean the profile data first to remove all 'Not specified' values
+          const cleanedProfile = deepClean(profile);
+          let initialCompany = cleanedProfile.company || '';
 
-          if (error) throw error;
-
-          setFormData({
-            first_name: profile.first_name || user.user_metadata?.first_name || '',
-            last_name: profile.last_name || user.user_metadata?.last_name || '',
-            email: profile.email || user.email || '',
-            phone: profile.phone || '',
-            location: profile.location || '',
-            headline: profile.headline || '',
-            about: profile.about || '',
-            company: profile.company || '',
-            position: profile.job_title || '',
-            experience: profile.experience || '',
-            batch: profile.batch || '',
-            degree: profile.degree || '',
-            department: profile.department || '',
-            date_of_birth: profile.date_of_birth || '',
-            skills: profile.skills || [],
-            achievements: profile.achievements || [],
-            interests: profile.interests || [],
-            languages: profile.languages || [],
-            socialLinks: profile.social_links || {
-              linkedin: '',
-              github: '',
-              twitter: '',
-              website: ''
+          // Fetch and integrate company data if the user is an employer
+          let companyFormDataClean = {};
+          if (isEmployer) {
+            const companyData = await fetchCompanyData(user.id);
+            if (companyData) {
+              // Clean company data
+              companyFormDataClean = deepClean(companyData);
+              setCompanyFormData(companyFormDataClean);
+              setCompanyId(companyData.id);
+              
+              // Set the authoritative company name
+              initialCompany = companyFormDataClean.name || initialCompany;
             }
-          });
+          }
+
+          console.log('Setting initial company name:', initialCompany);
+          console.log('Cleaned profile data:', cleanedProfile);
+
+          // Set the main form data with potentially updated company name
+          const formDataInitial = {
+            first_name: cleanedProfile.first_name || '',
+            last_name: cleanedProfile.last_name || '',
+            email: cleanedProfile.email || user.email || '',
+            phone: cleanedProfile.phone || '',
+            location: cleanedProfile.location || '',
+            headline: cleanedProfile.headline || '',
+            about: cleanedProfile.about || '',
+            company: initialCompany, // Use the authoritative company name
+            position: cleanedProfile.position || '',
+            experience: cleanedProfile.experience || '',
+            degree: cleanedProfile.degree || '',
+            department: cleanedProfile.department || '',
+            batch: cleanedProfile.batch || '',
+            student_id: cleanedProfile.student_id || '',
+            date_of_birth: cleanedProfile.date_of_birth || '',
+            skills: Array.isArray(cleanedProfile.skills) ? cleanedProfile.skills : [],
+            achievements: Array.isArray(cleanedProfile.achievements) ? cleanedProfile.achievements.map(achievement => {
+              if (typeof achievement === 'object' && achievement !== null) {
+                return {
+                  title: achievement.title || '',
+                  description: achievement.description || ''
+                };
+              }
+              return { title: String(achievement), description: '' };
+            }) : [],
+            interests: Array.isArray(cleanedProfile.interests) ? cleanedProfile.interests : [],
+            languages: Array.isArray(cleanedProfile.languages) ? cleanedProfile.languages : [],
+            socialLinks: cleanedProfile.social_links || { linkedin: '', github: '', twitter: '', website: '' }
+          };
           
-          setImageUrl(profile.avatar_url || '/default-avatar.svg');
-        } catch (err) {
-          console.error('Error initializing profile:', err);
-          toast.error('Failed to load profile data');
+          console.log('Final form data being set:', formDataInitial);
+          setFormData(formDataInitial);
+
+        } catch (error) {
+          console.error('Error in profile initialization:', error);
+          toast.error('Failed to initialize profile data');
+        } finally {
+          setIsComponentLoading(false);
         }
       };
 
       initializeForm();
     }
-  }, [user]);
+  }, [user, profile, isEmployer]);
+
+  // Add conditional rendering AFTER all hooks are defined
+  if (isComponentLoading || loading) {
+    return (
+      <div className="text-center p-8 mt-12">
+        <div className="flex flex-col items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-ocean-600 mb-4"></div>
+          <p className="text-gray-700">Loading your profile...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return <div className="text-center p-8">Profile not found.</div>;
+  }
 
   const handleImageChange = (e) => {
     const file = e.target.files?.[0];
@@ -120,52 +297,6 @@ const Profile = ({ user }) => {
     setImageUrl(URL.createObjectURL(file));
   };
 
-  const uploadAvatar = async (file) => {
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-      
-      // First, try to delete any existing avatar for this user
-      const { data: existingFiles } = await supabase
-        .storage
-        .from('avatars')
-        .list('', {
-          search: `${user.id}-`,
-        });
-      
-      if (existingFiles && existingFiles.length > 0) {
-        const filesToRemove = existingFiles.map(x => x.name);
-        await supabase.storage
-          .from('avatars')
-          .remove(filesToRemove);
-      }
-      
-      // Upload the new file
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: true,
-          contentType: file.type
-        });
-        
-      if (uploadError) throw uploadError;
-      
-      // Get public URL with cache busting
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(fileName);
-
-      // Add a timestamp to the URL to bypass browser cache
-      const cacheBustedUrl = `${publicUrl}?t=${new Date().getTime()}`;
-      setImageUrl(cacheBustedUrl);
-
-      return publicUrl; // Return the original URL for the database
-    } catch (error) {
-      console.error('Avatar upload error:', error);
-      throw new Error('Failed to upload profile picture');
-    }
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -201,9 +332,10 @@ const Profile = ({ user }) => {
         company: formData.company,
         headline: formData.headline,
         experience: formData.experience,
-        batch: formData.batch,
         degree: formData.degree,
         department: formData.department,
+        batch: formData.batch,
+        student_id: formData.student_id,
         date_of_birth: formData.date_of_birth,
         skills: formData.skills,
         achievements: formData.achievements,
@@ -270,6 +402,15 @@ const Profile = ({ user }) => {
 
       console.log('Profile updated in database:', data);
 
+      if (isEmployer && companyId) {
+        const { error: companyUpdateError } = await supabase
+          .from('companies')
+          .update(companyFormData)
+          .eq('id', companyId);
+
+        if (companyUpdateError) throw new Error(`Failed to update company: ${companyUpdateError.message}`);
+      }
+
       console.log('Updating auth context...');
       try {
         await Promise.race([
@@ -285,6 +426,9 @@ const Profile = ({ user }) => {
 
       toast.success('Profile updated successfully!');
       setIsEditing(false);
+      if (isEmployer) {
+        navigate('/jobs');
+      }
       console.log('Form submission completed successfully');
     } catch (error) {
       console.error('Profile update error:', error);
@@ -341,19 +485,54 @@ const Profile = ({ user }) => {
   };
 
   const handleRemoveAchievement = (index) => {
-    setFormData(prev => {
-      const newAchievements = [...prev.achievements];
-      newAchievements.splice(index, 1);
-      return { ...prev, achievements: newAchievements };
-    });
+    setFormData(prev => ({
+      ...prev,
+      achievements: prev.achievements.filter((_, i) => i !== index)
+    }));
   };
 
+  const uploadAvatar = async (file) => {
+    if (!file) {
+      throw new Error('No file provided for avatar upload.');
+    }
+
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${user.id}_${new Date().getTime()}.${fileExt}`;
+    const filePath = `avatars/${fileName}`;
+
+    console.log(`Uploading to: ${filePath}`);
+
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(filePath, file, { 
+        upsert: true,
+        cacheControl: '3600'
+      });
+
+    if (uploadError) {
+      console.error('Error during avatar upload:', uploadError);
+      throw new Error(`Failed to upload avatar: ${uploadError.message}`);
+    }
+
+    console.log('Upload successful, getting public URL...');
+
+    const { data } = supabase.storage
+      .from('avatars')
+      .getPublicUrl(filePath);
+
+    if (!data || !data.publicUrl) {
+      console.error('Could not get public URL for avatar.');
+      throw new Error('Could not get public URL for avatar.');
+    }
+
+    console.log('Public URL received:', data.publicUrl);
+    return data.publicUrl;
+  };
+
+  // Main render logic
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-3xl font-bold text-gray-900">Profile Settings</h1>
-      </div>
-      
+    <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 bg-gray-50">
+      <h1 className="text-3xl font-bold text-gray-800 mb-6">Profile Settings</h1>
       {/* Profile Header */}
       <div className="glass-card rounded-lg p-6">
         <div className="flex items-start justify-between mb-6">
@@ -384,16 +563,7 @@ const Profile = ({ user }) => {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">{formData.first_name} {formData.last_name}</h1>
               <p className="text-ocean-600 font-medium">{formData.headline}</p>
-              <div className="flex items-center text-gray-600 mt-2 space-x-4">
-                <div className="flex items-center">
-                  <MapPinIcon className="w-4 h-4 mr-1" />
-                  <span className="text-sm">{formData.location || 'Not specified'}</span>
-                </div>
-                <div className="flex items-center">
-                  <EnvelopeIcon className="w-4 h-4 mr-1" />
-                  <span className="text-sm">{formData.email}</span>
-                </div>
-              </div>
+              {/* Contact information removed from here to avoid duplication */}
             </div>
           </div>
           
@@ -480,15 +650,49 @@ const Profile = ({ user }) => {
               </div>
             </div>
             
-            <div className="mt-4 space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Professional Headline</label>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Batch</label>
+              <input
+                type="number"
+                name="batch"
+                value={formData.batch}
+                onChange={handleChange}
+                min="1900"
+                max={new Date().getFullYear()}
+                className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Degree</label>
               <input
                 type="text"
-                name="headline"
-                value={formData.headline}
+                name="degree"
+                value={formData.degree}
                 onChange={handleChange}
                 className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                placeholder="e.g., Senior Marine Engineer at Ocean Shipping Ltd."
+                placeholder="e.g., B.E. in Marine Engineering"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Department</label>
+              <input
+                type="text"
+                name="department"
+                value={formData.department}
+                onChange={handleChange}
+                className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                placeholder="e.g., Ship Design and Construction"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Student ID <span className="text-xs text-gray-500">(optional)</span></label>
+              <input
+                type="text"
+                name="student_id"
+                value={formData.student_id}
+                onChange={handleChange}
+                className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                placeholder="Enter your student ID for verification (optional)"
               />
             </div>
             
@@ -541,48 +745,14 @@ const Profile = ({ user }) => {
                 />
               </div>
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Batch</label>
-                <input
-                  type="number"
-                  name="batch"
-                  value={formData.batch}
-                  onChange={handleChange}
-                  min="1900"
-                  max={new Date().getFullYear()}
-                  className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Degree</label>
+                <label className="block text-sm font-medium text-gray-700">Professional Headline</label>
                 <input
                   type="text"
-                  name="degree"
-                  value={formData.degree}
+                  name="headline"
+                  value={formData.headline}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                  placeholder="e.g., B.E. in Marine Engineering"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Department</label>
-                <input
-                  type="text"
-                  name="department"
-                  value={formData.department}
-                  onChange={handleChange}
-                  className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                  placeholder="e.g., Ship Design and Construction"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Student ID <span className="text-xs text-gray-500">(optional)</span></label>
-                <input
-                  type="text"
-                  name="student_id"
-                  value={formData.student_id}
-                  onChange={handleChange}
-                  className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                  placeholder="Enter your student ID for verification (optional)"
+                  placeholder="e.g., Senior Marine Engineer at Ocean Shipping Ltd."
                 />
               </div>
             </div>
@@ -716,145 +886,152 @@ const Profile = ({ user }) => {
           </div>
         </form>
       ) : (
-        /* View Mode */
         <div className="space-y-6">
           {/* About Section */}
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
-              <p className="text-gray-600 mt-1">View and manage your personal information</p>
+          {hasValue(formData.about) && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">About</h2>
+              <p className="text-gray-700 leading-relaxed">{formData.about}</p>
             </div>
-            <button 
-              onClick={() => setIsEditing(true)}
-              className="btn-primary-outline flex items-center"
-            >
-              <PencilIcon className="w-5 h-5 mr-2" />
-              Edit Profile
-            </button>
-          </div>
-
-          {/* About Section */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">About</h2>
-            <p className="text-gray-700 leading-relaxed">
-              {formData.about || 'No information provided yet.'}
-            </p>
-          </div>
+          )}
 
           {/* Professional Information */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Professional Information</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <div className="flex items-start">
-                  <BriefcaseIcon className="w-5 h-5 text-ocean-500 mr-3 mt-1 flex-shrink-0" />
-                  <div>
-                    <p className="font-medium text-gray-900">{formData.position || 'Not specified'}</p>
-                    <p className="text-sm text-gray-600">{formData.company || 'Not specified'}</p>
-                  </div>
-                </div>
-                <div className="flex items-start">
-                  <AcademicCapIcon className="w-5 h-5 text-ocean-500 mr-3 mt-1 flex-shrink-0" />
-                  <div>
-                    <p className="font-medium text-gray-900">{formData.degree || 'Not specified'}</p>
-                    <p className="text-sm text-gray-600">
-                      {formData.batch ? `Year of Completion : ${formData.batch}` : 'Graduation year not specified'}
-                    </p>
-                    <p className="text-sm text-gray-600">{formData.department}</p>
-                  </div>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900 mb-1">Experience</p>
-                  <p className="text-gray-700">{formData.experience || 'Not specified'}</p>
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <p className="font-medium text-gray-900 mb-2">Contact Information</p>
-                  <div className="space-y-2">
-                    <div className="flex items-center text-gray-600">
-                      <EnvelopeIcon className="w-4 h-4 mr-2 flex-shrink-0" />
-                      <span className="truncate">{formData.email}</span>
-                    </div>
-                    <div className="flex items-center text-gray-600">
-                      <PhoneIcon className="w-4 h-4 mr-2 flex-shrink-0" />
-                      <span>{formData.phone || 'Not specified'}</span>
-                    </div>
-                    <div className="flex items-center text-gray-600">
-                      <MapPinIcon className="w-4 h-4 mr-2 flex-shrink-0" />
-                      <span>{formData.location || 'Not specified'}</span>
-                    </div>
-                    {formData.date_of_birth && (
-                      <div className="flex items-center text-gray-600">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-2 flex-shrink-0">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-                        </svg>
-                        <span>{new Date(formData.date_of_birth).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+          {(hasValue(formData.position) || hasValue(formData.company) || hasValue(formData.degree) || hasValue(formData.experience)) && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Professional Information</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  {hasValue(formData.position) && (
+                    <div className="flex items-start">
+                      <BriefcaseIcon className="w-5 h-5 text-ocean-500 mr-3 mt-1 flex-shrink-0" />
+                      <div>
+                        <p className="font-medium text-gray-900">{formData.position}</p>
+                        {hasValue(formData.company) && (
+                          <p className="text-sm text-gray-600">{formData.company}</p>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
+                  {hasValue(formData.degree) && (
+                    <div className="flex items-start">
+                      <AcademicCapIcon className="w-5 h-5 text-ocean-500 mr-3 mt-1 flex-shrink-0" />
+                      <div>
+                        <p className="font-medium text-gray-900">{formData.degree}</p>
+                        {hasValue(formData.department) && (
+                          <p className="text-sm text-gray-600">{formData.department}</p>
+                        )}
+                        {hasValue(formData.batch) && (
+                          <p className="text-sm text-gray-600">{`Batch of ${formData.batch}`}</p>
+                        )}
+                        {hasValue(formData.student_id) && (
+                          <p className="text-sm text-gray-600">Student ID: {formData.student_id}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {hasValue(formData.experience) && (
+                    <div>
+                      <p className="font-medium text-gray-900 mb-1">Experience</p>
+                      <p className="text-gray-700">{formData.experience}</p>
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-4">
+                  {(hasValue(formData.email) || hasValue(formData.phone) || hasValue(formData.location) || hasValue(formData.date_of_birth)) && (
+                    <div>
+                      <p className="font-medium text-gray-900 mb-2">Contact Information</p>
+                      <div className="space-y-2">
+                        {hasValue(formData.email) && (
+                          <div className="flex items-center text-gray-600">
+                            <EnvelopeIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+                            <span className="truncate">{formData.email}</span>
+                          </div>
+                        )}
+                        {hasValue(formData.phone) && (
+                          <div className="flex items-center text-gray-600">
+                            <PhoneIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+                            <span>{formData.phone}</span>
+                          </div>
+                        )}
+                        {hasValue(formData.location) && (
+                          <div className="flex items-center text-gray-600">
+                            <MapPinIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+                            <span>{formData.location}</span>
+                          </div>
+                        )}
+                        {hasValue(formData.date_of_birth) && (
+                          <div className="flex items-center text-gray-600">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-2 flex-shrink-0">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                            </svg>
+                            <span>{new Date(formData.date_of_birth).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Skills Section */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Skills</h2>
-            <div className="flex flex-wrap gap-2">
-              {formData.skills.length > 0 ? (
-                formData.skills.map((skill, index) => (
-                  <span 
-                    key={index}
-                    className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm font-medium"
-                  >
-                    {skill}
-                  </span>
-                ))
-              ) : (
-                <p className="text-gray-500 italic">No skills added yet</p>
-              )}
-            </div>
-          </div>
-
-          {/* Achievements Section */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Key Achievements</h2>
-            <ul className="space-y-3">
-              {formData.achievements.length > 0 ? (
-                formData.achievements.map((achievement, index) => (
-                  <li key={index} className="flex items-start">
-                    <span className="text-ocean-500 mr-2 mt-1">•</span>
-                    <span className="text-gray-700">{achievement}</span>
-                  </li>
-                ))
-              ) : (
-                <p className="text-gray-500 italic">No achievements added yet</p>
-              )}
-            </ul>
-          </div>
-          
-          {/* Social Links Section */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Social Links</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Object.entries(formData.socialLinks).map(([platform, url]) => (
-                url && (
-                  <div key={platform} className="flex items-center">
-                    <span className="capitalize font-medium text-gray-700 w-24">{platform}:</span>
-                    <a 
-                      href={url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-ocean-600 hover:underline truncate"
-                    >
-                      {url}
-                    </a>
+          {/* Skills & Achievements */}
+          {(hasValue(formData.skills) || hasValue(formData.achievements)) && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Skills & Achievements</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {hasValue(formData.skills) && formData.skills.length > 0 && (
+                  <div>
+                    <h3 className="font-medium text-gray-900 mb-2">Skills</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {formData.skills.map((skill, index) => (
+                        <span key={index} className="bg-blue-100 text-blue-800 px-2 py-1 rounded-md text-sm">
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                )
-              ))}
+                )}
+                {hasValue(formData.achievements) && formData.achievements.length > 0 && (
+                  <div>
+                    <h3 className="font-medium text-gray-900 mb-2">Achievements</h3>
+                    <div className="space-y-3">
+                      {formData.achievements.map((achievement, index) => (
+                        <div key={index} className="border-l-4 border-ocean-500 pl-3">
+                          <h4 className="font-medium">{achievement.title || ''}</h4>
+                          <p className="text-sm text-gray-700">{achievement.description || ''}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Social Links Section */}
+          {hasValue(formData.socialLinks) && Object.values(formData.socialLinks).some(link => hasValue(link)) && (
+            <div className="glass-card rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Social Links</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.entries(formData.socialLinks).map(([platform, url]) => (
+                  hasValue(url) && (
+                    <div key={platform} className="flex items-center">
+                      <span className="capitalize font-medium text-gray-700 w-24">{platform}:</span>
+                      <a 
+                        href={url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-ocean-600 hover:underline truncate"
+                      >
+                        {url}
+                      </a>
+                    </div>
+                  )
+                ))}
+              </div>
+            </div>
+          )}
           
           {/* Resume Management */}
           <ProfileResume />

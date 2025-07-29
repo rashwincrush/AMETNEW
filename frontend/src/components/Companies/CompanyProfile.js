@@ -1,15 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
-import { BuildingOffice2Icon, MapPinIcon, LinkIcon, BriefcaseIcon, CheckBadgeIcon } from '@heroicons/react/24/solid';
+import { BuildingOffice2Icon, MapPinIcon, LinkIcon, BriefcaseIcon, CheckBadgeIcon, PencilIcon } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../contexts/AuthContext';
+import EmployerGuard from '../Auth/EmployerGuard';
+import LoadingScreen from '../common/LoadingScreen';
 
 const CompanyProfile = () => {
   const { id } = useParams();
+  const { user, profile } = useAuth();
   const [company, setCompany] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
     const fetchCompanyData = async () => {
@@ -24,6 +29,11 @@ const CompanyProfile = () => {
 
         if (companyError) throw companyError;
         setCompany(companyData);
+        
+        // Check if the logged-in user is the company owner
+        if (user && companyData) {
+          setIsOwner(companyData.user_id === user.id);
+        }
 
         // Fetch active jobs for the company
         const { data: jobsData, error: jobsError } = await supabase
@@ -75,14 +85,26 @@ const CompanyProfile = () => {
             onError={(e) => { e.target.onerror = null; e.target.src = '/default-company-logo.svg'; }}
           />
           <div className="flex-1">
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold text-gray-900">{company.name}</h1>
-              {company.is_verified && (
-                <div className="flex items-center gap-1 text-blue-600">
-                  <CheckBadgeIcon className="w-6 h-6" />
-                  <span className="font-semibold text-sm">Verified Employer</span>
-                </div>
-              )}
+            <div className="flex items-center gap-3 justify-between">
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-gray-900">{company.name}</h1>
+                {company.is_verified && (
+                  <div className="flex items-center gap-1 text-blue-600">
+                    <CheckBadgeIcon className="w-6 h-6" />
+                    <span className="font-semibold text-sm">Verified Employer</span>
+                  </div>
+                )}
+              </div>
+              
+              {/* Edit Company Button - Only visible to the owner or admin */}
+              <EmployerGuard companyId={id} strict={false}>
+                {(isOwner || profile?.role === 'admin') && (
+                  <Link to={`/company/${id}/edit`} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-ocean-600 hover:bg-ocean-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ocean-500">
+                    <PencilIcon className="-ml-1 mr-2 h-5 w-5" />
+                    Edit Company
+                  </Link>
+                )}
+              </EmployerGuard>
             </div>
             <p className="mt-2 text-gray-600">{company.description || 'No description provided.'}</p>
             <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-500">
@@ -107,10 +129,21 @@ const CompanyProfile = () => {
 
       {/* Open Positions */}
       <div className="glass-card rounded-lg p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <BriefcaseIcon className="w-6 h-6 text-ocean-500" />
-          <span>Open Positions ({jobs.length})</span>
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+            <BriefcaseIcon className="w-6 h-6 text-ocean-500" />
+            <span>Open Positions ({jobs.length})</span>
+          </h2>
+          
+          {/* Post Job Button - Only visible to the company owner or admin */}
+          <EmployerGuard companyId={id} strict={false}>
+            {(isOwner || profile?.role === 'admin') && (
+              <Link to="/jobs/post" className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-ocean-600 hover:bg-ocean-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ocean-500">
+                Post a Job
+              </Link>
+            )}
+          </EmployerGuard>
+        </div>
         <div className="space-y-4">
           {jobs.length > 0 ? (
             jobs.map(job => (

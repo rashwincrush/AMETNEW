@@ -178,18 +178,40 @@ const UserManagement = () => {
 
   const handleSaveUser = async (userId, updatedData) => {
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update(updatedData)
-        .eq('id', userId);
+      // First, update the role if it has changed.
+      if (updatedData.role) {
+        const { error: rpcError } = await supabase.rpc('update_user_role', {
+          user_id: userId,
+          new_role: updatedData.role,
+        });
 
-      if (error) throw error;
+        if (rpcError) {
+          throw new Error(`Role update failed: ${rpcError.message}`);
+        }
+      }
 
-      setUsers(currentUsers => currentUsers.map(u => u.id === userId ? { ...u, ...updatedData } : u));
+      // Then, update any other fields, excluding role and generated columns.
+      const { full_name, role, ...otherData } = updatedData;
+      if (Object.keys(otherData).length > 0) {
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update(otherData)
+          .eq('id', userId);
+
+        if (updateError) {
+          throw new Error(`Profile update failed: ${updateError.message}`);
+        }
+      }
+
+      // If all successful, update UI and show success toast.
+      setUsers(users.map((user) => (user.id === userId ? { ...user, ...updatedData } : user)));
       toast.success('User profile updated successfully!');
-      setIsEditModalOpen(false);
+      setEditingUser(null); // Exit editing mode
+
     } catch (error) {
-      toast.error(`Failed to update user: ${error.message}`);
+      toast.error(`Update failed: ${error.message}`);
+      // On failure, refresh data from server to ensure UI consistency.
+      fetchUsers();
     }
   };
 

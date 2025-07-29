@@ -34,8 +34,18 @@ const AlumniProfile = () => {
   const [alumnus, setAlumnus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState('idle'); // idle, pending, connected, error
   
   useEffect(() => {
+    const getCurrentUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setCurrentUser(session.user);
+      }
+    };
+    getCurrentUser();
+
     const fetchAlumnusData = async () => {
       if (!id) return;
 
@@ -106,6 +116,67 @@ const AlumniProfile = () => {
 
     fetchAlumnusData();
   }, [id]);
+
+  useEffect(() => {
+    if (!currentUser || !alumnus) return;
+
+    const checkConnectionStatus = async () => {
+      try {
+        const { data, error } = await supabase.rpc('get_connection_status', {
+          user_1_id: currentUser.id,
+          user_2_id: alumnus.id
+        });
+
+        if (error) throw error;
+
+        setConnectionStatus(data || 'idle');
+      } catch (error) {
+        console.error('Error checking connection status:', error);
+        setConnectionStatus('error');
+      }
+    };
+
+    checkConnectionStatus();
+  }, [currentUser, alumnus]);
+
+  const handleConnect = async () => {
+    if (!currentUser || !alumnus || connectionStatus !== 'idle') return;
+
+    const { error } = await supabase.from('connections').insert([
+      { requester_id: currentUser.id, recipient_id: alumnus.id, status: 'pending' }
+    ]);
+
+    if (error) {
+      console.error('Error sending connection request:', error);
+      alert('Failed to send connection request.');
+    } else {
+      setConnectionStatus('pending');
+    }
+  };
+
+  const handleMessage = async () => {
+    if (!currentUser || !alumnus) return;
+
+    try {
+      const { data: conversationId, error } = await supabase.rpc('get_or_create_conversation', {
+        user_1_id: currentUser.id,
+        user_2_id: alumnus.id
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (conversationId) {
+        navigate(`/messages/${conversationId}`);
+      } else {
+        throw new Error('Could not get or create a conversation.');
+      }
+    } catch (error) {
+      console.error('Error handling message action:', error);
+      alert('There was an error trying to start a conversation. Please try again.');
+    }
+  };
   
   if (loading) {
     return (
@@ -149,93 +220,76 @@ const AlumniProfile = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Cover Image & Basic Info */}
-      <div className="glass-card rounded-lg overflow-hidden">
-        {/* Cover Image */}
-        <div 
-          className="h-48 bg-cover bg-center relative"
-          style={{ backgroundImage: `url(${alumnus.coverImage})` }}
-        >
-          <div className="absolute inset-0 bg-black bg-opacity-30"></div>
+    <div className="max-w-4xl mx-auto space-y-6 p-4">
+      {/* Centered Header */}
+      <div className="glass-card rounded-lg p-6 flex flex-col items-center text-center">
+        {/* Profile Picture */}
+        <div className="relative mb-4">
+          <img 
+            src={alumnus.avatar} 
+            alt={`${alumnus.name}'s profile picture`}
+            className="w-32 h-32 rounded-full object-cover border-4 border-white shadow-lg"
+          />
+          {alumnus.verified && (
+            <div className="absolute bottom-1 right-1 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center border-2 border-white" title="Verified Alumnus">
+              <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+            </div>
+          )}
         </div>
         
-        {/* Profile Info */}
-        <div className="p-6">
-          <div className="flex flex-col md:flex-row items-start md:items-end space-y-4 md:space-y-0 md:space-x-6">
-            {/* Profile Picture */}
-            <div className="relative -mt-20 md:-mt-24 flex-shrink-0">
-              <img 
-                src={alumnus.avatar} 
-                alt={`${alumnus.name}'s profile picture`}
-                className="w-32 h-32 md:w-40 md:h-40 rounded-full object-cover border-4 border-white shadow-lg"
-              />
-              {alumnus.verified && (
-                <div className="absolute bottom-2 right-2 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center border-2 border-white" title="Verified Alumnus">
-                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              )}
+        {/* Basic Info */}
+        <div className="flex-1 mb-4">
+          <h1 className="text-3xl font-bold text-gray-900">{alumnus.name}</h1>
+          <p className="text-xl text-ocean-600 font-medium">{alumnus.currentPosition}</p>
+          <p className="text-gray-600">{alumnus.company}</p>
+          
+          <div className="flex flex-wrap justify-center items-center text-gray-600 mt-2 gap-x-4 gap-y-1">
+            <div className="flex items-center">
+              <MapPinIcon className="w-4 h-4 mr-1" />
+              <span className="text-sm">{alumnus.location}</span>
             </div>
-            
-            {/* Basic Info */}
-            <div className="flex-1">
-              <h1 className="text-3xl font-bold text-gray-900">{alumnus.name}</h1>
-              <p className="text-xl text-ocean-600 font-medium">{alumnus.currentPosition}</p>
-              <p className="text-gray-600">{alumnus.company}</p>
-              
-              <div className="flex flex-wrap items-center text-gray-600 mt-2 space-x-4">
-                <div className="flex items-center">
-                  <MapPinIcon className="w-4 h-4 mr-1" />
-                  <span className="text-sm">{alumnus.location}</span>
-                </div>
-                <div className="flex items-center">
-                  <AcademicCapIcon className="w-4 h-4 mr-1" />
-                  <span className="text-sm">{alumnus.degree} • Year of Completion : {alumnus.graduationYear}</span>
-                </div>
-              </div>
-              
-              <div className="flex items-center text-gray-600 mt-1">
-                <span className="text-sm">{alumnus.connections} connections</span>
-                {alumnus.mutualConnections > 0 && (
-                  <>
-                    <span className="mx-2">•</span>
-                    <span className="text-sm">{alumnus.mutualConnections} mutual connections</span>
-                  </>
-                )}
-              </div>
-            </div>
-            
-            {/* Action Buttons */}
-            <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-              <button className="btn-ocean px-4 py-2 rounded-lg flex items-center">
-                <UserPlusIcon className="w-4 h-4 mr-2" />
-                Connect
-              </button>
-              <Link 
-                to="/messages" 
-                className="btn-ocean-outline px-4 py-2 rounded-lg flex items-center"
-              >
-                <ChatBubbleLeftRightIcon className="w-4 h-4 mr-2" />
-                Message
-              </Link>
-              <button className="btn-ocean-outline px-4 py-2 rounded-lg flex items-center">
-                <ShareIcon className="w-4 h-4 mr-2" />
-                Share
-              </button>
+            <div className="flex items-center">
+              <AcademicCapIcon className="w-4 h-4 mr-1" />
+              <span className="text-sm">{alumnus.degree} • {alumnus.graduationYear}</span>
             </div>
           </div>
         </div>
+        
+        {/* Action Buttons */}
+        {currentUser && currentUser.id !== alumnus.id && (
+        <div className="flex items-center justify-center space-x-2">
+          <button 
+            onClick={handleConnect}
+            disabled={connectionStatus !== 'idle'}
+            className={`btn-ocean px-4 py-2 rounded-lg flex items-center ${connectionStatus !== 'idle' ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            <UserPlusIcon className="w-4 h-4 mr-2" />
+            {connectionStatus === 'pending' ? 'Pending' : connectionStatus === 'accepted' ? 'Connected' : 'Connect'}
+          </button>
+          <button 
+            onClick={handleMessage}
+            className="btn-ocean-outline px-4 py-2 rounded-lg flex items-center"
+          >
+            <ChatBubbleLeftRightIcon className="w-4 h-4 mr-2" />
+            Message
+          </button>
+          <button className="btn-ocean-outline px-4 py-2 rounded-lg flex items-center">
+            <ShareIcon className="w-4 h-4 mr-2" />
+            Share
+          </button>
+        </div>
+        )}
       </div>
 
+      {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Content */}
+        {/* Left Column */}
         <div className="lg:col-span-2 space-y-6">
           {/* About */}
           <div className="glass-card rounded-lg p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">About</h2>
-            <p className="text-gray-700 leading-relaxed">{alumnus.about}</p>
+            <p className="text-gray-700 leading-relaxed">{alumnus.about || 'No biography provided.'}</p>
           </div>
 
           {/* Experience */}
@@ -244,17 +298,15 @@ const AlumniProfile = () => {
             <div className="space-y-6">
               {Array.isArray(alumnus.experience) && alumnus.experience.length > 0 ? (
                 alumnus.experience.map((exp, index) => (
-                  <div key={index} className="border-l-2 border-ocean-200 pl-4">
-                    <div className="flex items-start space-x-3">
-                      <div className="w-10 h-10 bg-ocean-gradient rounded-lg flex items-center justify-center flex-shrink-0">
-                        <BriefcaseIcon className="w-5 h-5 text-white" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900">{exp.position}</h3>
-                        <p className="text-ocean-600 font-medium">{exp.company}</p>
-                        <p className="text-sm text-gray-600">{exp.duration} • {exp.location}</p>
-                        <p className="text-gray-700 mt-2">{exp.description}</p>
-                      </div>
+                  <div key={index} className="flex items-start space-x-3">
+                    <div className="w-10 h-10 bg-ocean-gradient rounded-lg flex items-center justify-center flex-shrink-0">
+                      <BriefcaseIcon className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-gray-900">{exp.position}</h3>
+                      <p className="text-ocean-600 font-medium">{exp.company}</p>
+                      <p className="text-sm text-gray-600">{exp.duration} • {exp.location}</p>
+                      <p className="text-gray-700 mt-2">{exp.description}</p>
                     </div>
                   </div>
                 ))
@@ -270,28 +322,14 @@ const AlumniProfile = () => {
             <div className="space-y-4">
               {Array.isArray(alumnus.education) && alumnus.education.length > 0 ? (
                 alumnus.education.map((edu, index) => (
-                  <div key={index} className="border-l-2 border-ocean-200 pl-4">
-                    <div className="flex items-start space-x-3">
-                      <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                        <AcademicCapIcon className="w-5 h-5 text-white" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900">{edu.degree}</h3>
-                        <p className="text-ocean-600 font-medium">{edu.institution}</p>
-                        <p className="text-sm text-gray-600">{edu.year} • {edu.grade}</p>
-                        {Array.isArray(edu.activities) && edu.activities.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {edu.activities.map((activity, idx) => (
-                              <span 
-                                key={idx}
-                                className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
-                              >
-                                {activity}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                  <div key={index} className="flex items-start space-x-3">
+                    <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <AcademicCapIcon className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-gray-900">{edu.degree}</h3>
+                      <p className="text-ocean-600 font-medium">{edu.institution}</p>
+                      <p className="text-sm text-gray-600">{edu.year} • {edu.grade}</p>
                     </div>
                   </div>
                 ))
@@ -314,7 +352,7 @@ const AlumniProfile = () => {
           )}
         </div>
 
-        {/* Sidebar */}
+        {/* Right Sidebar */}
         <div className="space-y-6">
           {/* Contact Info */}
           <div className="glass-card rounded-lg p-6">
@@ -322,17 +360,13 @@ const AlumniProfile = () => {
             <div className="space-y-3">
               <div className="flex items-center">
                 <EnvelopeIcon className="w-5 h-5 text-gray-400 mr-3" />
-                <a href={`mailto:${alumnus.email}`} className="text-ocean-600 hover:text-ocean-700 text-sm">
+                <a href={`mailto:${alumnus.email}`} className="text-ocean-600 hover:text-ocean-700 text-sm truncate">
                   {alumnus.email}
                 </a>
               </div>
               <div className="flex items-center">
                 <PhoneIcon className="w-5 h-5 text-gray-400 mr-3" />
-                <span className="text-gray-700 text-sm">{alumnus.phone}</span>
-              </div>
-              <div className="flex items-center">
-                <MapPinIcon className="w-5 h-5 text-gray-400 mr-3" />
-                <span className="text-gray-700 text-sm">{alumnus.location}</span>
+                <span className="text-gray-700 text-sm">{alumnus.phone || 'Not specified'}</span>
               </div>
             </div>
           </div>
@@ -341,42 +375,18 @@ const AlumniProfile = () => {
           <div className="glass-card rounded-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Skills</h3>
             <div className="flex flex-wrap gap-2">
-              {alumnus.skills.map((skill, index) => (
-                <span 
-                  key={index}
-                  className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm font-medium"
-                >
-                  {skill}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Interests */}
-          <div className="glass-card rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Interests</h3>
-            <div className="flex flex-wrap gap-2">
-              {alumnus.interests.map((interest, index) => (
-                <span 
-                  key={index}
-                  className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm"
-                >
-                  {interest}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Languages */}
-          <div className="glass-card rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Languages</h3>
-            <div className="space-y-2">
-              {alumnus.languages.map((language, index) => (
-                <div key={index} className="flex items-center justify-between">
-                  <span className="text-gray-700 text-sm">{language}</span>
-                  <span className="text-xs text-gray-500">Fluent</span>
-                </div>
-              ))}
+              {Array.isArray(alumnus.skills) && alumnus.skills.length > 0 ? (
+                alumnus.skills.map((skill, index) => (
+                  <span 
+                    key={index}
+                    className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm font-medium"
+                  >
+                    {skill}
+                  </span>
+                ))
+              ) : (
+                <p className="text-gray-500 text-sm">No skills listed.</p>
+              )}
             </div>
           </div>
 
@@ -384,20 +394,24 @@ const AlumniProfile = () => {
           <div className="glass-card rounded-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Social Links</h3>
             <div className="space-y-2">
-              {Object.entries(alumnus.socialLinks || {}).map(([platform, url]) => (
-                url && (
-                  <a 
-                    key={platform}
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm"
-                  >
-                    <LinkIcon className="w-4 h-4 mr-2" />
-                    {platform.charAt(0).toUpperCase() + platform.slice(1)}
-                  </a>
-                )
-              ))}
+              {alumnus.socialLinks && Object.values(alumnus.socialLinks).some(link => link) ? (
+                Object.entries(alumnus.socialLinks).map(([platform, url]) => (
+                  url && (
+                    <a 
+                      key={platform}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm"
+                    >
+                      <LinkIcon className="w-4 h-4 mr-2" />
+                      {platform.charAt(0).toUpperCase() + platform.slice(1)}
+                    </a>
+                  )
+                ))
+              ) : (
+                <p className="text-gray-500 text-sm">No social links provided.</p>
+              )}
             </div>
           </div>
         </div>

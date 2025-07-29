@@ -50,11 +50,7 @@ const Navigation = () => {
   ];
 
   const employerMenuItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: HomeIcon },
-    { path: '/directory', label: 'Alumni Directory', icon: UsersIcon },
     { path: '/jobs', label: 'Job Portal', icon: BriefcaseIcon },
-    { path: '/groups', label: 'Groups', icon: UserGroupIcon },
-    { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon },
   ];
 
     const getMenuItems = () => {
@@ -125,7 +121,7 @@ const Navigation = () => {
         </Link>
         
         {/* Admin Settings Link - Only visible to admins and super_admins */}
-                {(profile?.role === 'admin' || profile?.role === 'super_admin' || profile?.role === 'moderator') && (
+                {profile && (profile.role === 'admin' || profile.role === 'super_admin') && (
           <Link
             to="/admin/settings"
             className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-ocean-50 hover:text-ocean-700 transition-all duration-200 mb-2"

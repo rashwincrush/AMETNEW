@@ -334,8 +334,17 @@ const JobListingsPage = () => {
     }
 
     const [sortField, sortOrder] = sortBy.split(',');
+    
+    // Check if the current user is an employer
+    const isEmployer = user && user.user_metadata && 
+      (user.user_metadata.role === 'employer' || user.user_metadata.user_type === 'employer');
+      
+    // If user is an employer, we need to check their company ID
 
-    const { data, error } = await supabase.rpc('get_jobs_with_bookmarks', {
+
+    // Call appropriate RPC based on user role
+    let rpcName = isEmployer ? 'get_my_posted_jobs' : 'get_jobs_with_bookmarks';
+    const { data, error } = await supabase.rpc(rpcName, {
       p_search_query: searchQuery,
       p_sort_by: sortField,
       p_sort_order: sortOrder,
@@ -350,25 +359,40 @@ const JobListingsPage = () => {
       setTotalJobs(0);
     } else {
       console.log('Jobs fetched successfully:', data);
-      const fetchedJobs = data.map(j => ({ ...j, companies: { name: j.company_name, logo_url: j.company_logo_url } }));
-      const uniqueJobs = Array.from(new Map(fetchedJobs.map(job => [job.id, job])).values());
-      setJobs(uniqueJobs);
-      setTotalJobs(data[0]?.total_count || 0);
-      // Also update bookmarked jobs state from the fetched data
-      const newBookmarkedJobs = data.filter(j => j.is_bookmarked).map(j => j.id);
-      setBookmarkedJobs(newBookmarkedJobs);
+      if (data) {
+        const transformedData = data.map(job => ({
+          ...job,
+          companies: { name: job.company_name, logo_url: job.company_logo_url }
+        }));
 
-      // Sort jobs to show bookmarked jobs at the top
-      const bookmarkedJobsIds = new Set(newBookmarkedJobs);
-      setJobs(prev => {
-        return [...prev].sort((a, b) => {
-          // Bookmarked jobs first
-          if (bookmarkedJobsIds.has(a.id) && !bookmarkedJobsIds.has(b.id)) return -1;
-          if (!bookmarkedJobsIds.has(a.id) && bookmarkedJobsIds.has(b.id)) return 1;
-          // Then by the original sort order
-          return 0;
+        if (isEmployer) {
+          setJobs(transformedData);
+        } else {
+          const uniqueJobs = Array.from(new Map(transformedData.map(job => [job.id, job])).values());
+          setJobs(uniqueJobs);
+        }
+        setTotalJobs(data && data.length > 0 ? data[0].total_count : 0);
+
+        // Also update bookmarked jobs state from the fetched data
+        const newBookmarkedJobs = data.filter(j => j.is_bookmarked).map(j => j.id);
+        setBookmarkedJobs(newBookmarkedJobs);
+
+        // Sort jobs to show bookmarked jobs at the top
+        const bookmarkedJobsIds = new Set(newBookmarkedJobs);
+        setJobs(prev => {
+          const currentJobs = isEmployer ? transformedData : Array.from(new Map(transformedData.map(job => [job.id, job])).values());
+          return [...currentJobs].sort((a, b) => {
+            // Bookmarked jobs first
+            if (bookmarkedJobsIds.has(a.id) && !bookmarkedJobsIds.has(b.id)) return -1;
+            if (!bookmarkedJobsIds.has(a.id) && bookmarkedJobsIds.has(b.id)) return 1;
+            // Then by the original sort order
+            return 0;
+          });
         });
-      });
+      } else {
+        setJobs([]);
+        setTotalJobs(0);
+      }
     }
 
     setLoading(false);

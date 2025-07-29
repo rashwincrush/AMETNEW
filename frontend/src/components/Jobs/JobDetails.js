@@ -23,6 +23,7 @@ import {
 import { BookmarkIcon as BookmarkIconSolid } from '@heroicons/react/24/solid';
 import JobApplicationForm from './JobApplicationForm';
 import { useAuth } from '../../contexts/AuthContext';
+import EmployerGuard from '../Auth/EmployerGuard';
 
 // Helper function to safely convert string data to arrays
 const convertToArray = (data) => {
@@ -44,7 +45,7 @@ const JobDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isBookmarked, setIsBookmarked] = useState(false);
-  const { user, getUserRole } = useAuth();
+  const { user, profile, getUserRole } = useAuth();
   const [bookmarking, setBookmarking] = useState(false); // For loading state of bookmark action
   const [sharing, setSharing] = useState(false); // For loading state of share action
   
@@ -59,7 +60,7 @@ const JobDetails = () => {
       try {
         const { data, error } = await supabase
           .from('jobs')
-          .select('*')
+          .select('*, companies (name, logo_url)')
           .eq('id', id)
           .single();
           
@@ -272,16 +273,16 @@ const JobDetails = () => {
           <div className="flex items-start justify-between flex-wrap lg:flex-nowrap gap-4">
             {/* Company Logo and Job Info */}
             <div className="flex items-start space-x-4 flex-1">
-              {job.companyLogo && (
+              {job.companies && job.companies.logo_url && (
                 <img 
-                  src={job.companyLogo} 
-                  alt={job.company || 'Company logo'}
+                  src={job.companies.logo_url} 
+                  alt={`${job.companies.name} logo`}
                   className="w-16 h-16 md:w-20 md:h-20 rounded-lg object-cover flex-shrink-0"
                 />
               )}
               <div className="flex-1 min-w-0">
                 <h1 className="text-3xl font-bold text-gray-900 mb-2">{job.title}</h1>
-                <p className="text-xl text-ocean-600 font-medium mb-2">{job.company || 'Company Name Not Available'}</p>
+                <p className="text-xl text-ocean-600 font-medium mb-2">{job.companies?.name || 'Company Name Not Available'}</p>
                 <p className="text-gray-600 mb-4">{job.description || 'No summary available.'}</p>
                 
                 {/* Key Info Grid */}
@@ -351,25 +352,36 @@ const JobDetails = () => {
                   {sharing ? 'Sharing...' : 'Share'}
                 </button>
 
-                {/* Edit Job Button - visible only to the job poster */}
-                {user && job && user.id === job.user_id && (
-                  <Link 
-                    to={`/jobs/edit/${job.id}`}
-                    className="flex items-center justify-center w-full px-4 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-ocean-600 hover:bg-ocean-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ocean-500 transition-colors"
-                  >
-                    <PencilIcon className="w-5 h-5 mr-2" />
-                    Edit Job
-                  </Link>
-                )}
+                {/* Edit Job Button - visible only to the job poster or authorized roles */}
+                {(() => {
+                  const userRole = getUserRole();
+                  const canEdit = user && (job.posted_by === user.id || ['employer', 'admin', 'super_admin'].includes(userRole));
 
-                {user && (getUserRole() === 'admin' || getUserRole() === 'super_admin' || (getUserRole() === 'employer' && job && user.id === job.user_id)) && (
-                  <Link 
-                    to={`/jobs/${job.id}/manage`}
-                    className="flex items-center justify-center w-full px-4 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
-                  >
-                    Manage Applications
-                  </Link>
-                )}
+                  if (canEdit) {
+                    return (
+                      <Link 
+                        to={`/jobs/edit/${job.id}`}
+                        className="flex items-center justify-center w-full px-4 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-ocean-600 hover:bg-ocean-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ocean-500 transition-colors"
+                      >
+                        <PencilIcon className="w-5 h-5 mr-2" />
+                        Edit Job
+                      </Link>
+                    );
+                  }
+                  return null;
+                })()}
+
+                {/* Manage Applications Button - visible only to job poster, admins, or appropriate employer */}
+                <EmployerGuard jobId={job?.id} strict={false}>
+                  {user && (profile?.role === 'admin' || profile?.role === 'super_admin' || profile?.role === 'employer') && (
+                    <Link 
+                      to={`/jobs/${job.id}/manage`}
+                      className="flex items-center justify-center w-full px-4 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                    >
+                      Manage Applications
+                    </Link>
+                  )}
+                </EmployerGuard>
               </div>
             </div>
           </div>

@@ -106,13 +106,16 @@ const JobPostingForm = () => {
     setIsSubmitting(true);
     setError('');
     try {
+      const deadline = formData.deadline ? new Date(formData.deadline).toISOString() : null;
+
       const { error: jobError } = await supabase.from('jobs').insert([{
         ...formData,
+        deadline,
         user_id: user.id,
-        is_approved: false,
-        is_verified: false,
-        is_active: true,
-      }]);
+        is_approved: false, // Jobs are not auto-approved
+        is_verified: false, // Jobs are not auto-verified
+        is_active: true, // Job is active upon creation
+      }]).select();
 
       if (jobError) throw jobError;
 
