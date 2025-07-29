@@ -204,11 +204,16 @@ const EnhancedRegister = () => {
         formData.email,
         formData.password,
         {
-          // Metadata for the auth.users table
+          // Metadata for the auth.users table - using standardized 'role' key only
           full_name: `${formData.firstName} ${formData.lastName}`.trim(),
-          role: formData.primaryRole,
+          role: formData.primaryRole, // This will be used by the DB trigger to set profile.role
         }
       );
+      
+      console.log('Registration metadata sent:', {
+        role: formData.primaryRole,
+        fullName: `${formData.firstName} ${formData.lastName}`.trim()
+      });
 
       if (signUpError) {
         if (signUpError.message.includes('User already registered')) {
@@ -229,7 +234,7 @@ const EnhancedRegister = () => {
           full_name: `${formData.firstName} ${formData.lastName}`.trim(),
           email: formData.email,
           phone: formData.phone.trim() || null,
-          role: formData.primaryRole,
+          // role field removed - will be set by DB trigger from auth metadata
           graduation_year: formData.primaryRole === 'alumni' ? formData.graduationYear : null,
           expected_graduation_year: formData.primaryRole === 'student' ? formData.expectedGraduationYear : null,
           degree: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.degree.trim() : null,
@@ -260,9 +265,32 @@ const EnhancedRegister = () => {
 
         if (profileError) {
           console.error('Error saving profile:', profileError);
+          // Log role information for debugging
+          console.error('Role data during failed profile creation:', {
+            primaryRole: formData.primaryRole,
+            metadataRole: authData.user?.user_metadata?.role,
+            profileData
+          });
           setError('Your account was created, but we failed to save your profile details. Please contact support.');
           setIsLoading(false);
           return;
+        }
+        
+        // Verify role was properly set
+        const { data: profileCheck, error: checkError } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', authData.user.id)
+          .single();
+          
+        if (checkError || !profileCheck || profileCheck.role !== formData.primaryRole) {
+          console.warn('Role mismatch after registration:', {
+            expected: formData.primaryRole,
+            actual: profileCheck?.role,
+            error: checkError
+          });
+        } else {
+          console.log('Role successfully set to:', profileCheck.role);
         }
 
         setError('Registration successful! Please check your email to verify your account.');

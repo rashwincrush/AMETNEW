@@ -1,4 +1,5 @@
 -- Function to create a profile for a new user.
+-- Updated to standardize on 'role' metadata key and improve role handling
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
@@ -16,7 +17,8 @@ BEGIN
     NEW.id,
     NEW.email,
     NOW(),
-    COALESCE(NEW.raw_user_meta_data ->> 'user_type', NEW.raw_user_meta_data ->> 'role', 'alumni'),
+    -- Standardized to use only 'role' metadata key, with 'user' as safer default
+    COALESCE(NEW.raw_user_meta_data ->> 'role', 'user'),
     false,
     NEW.raw_user_meta_data ->> 'first_name',
     NEW.raw_user_meta_data ->> 'last_name',
