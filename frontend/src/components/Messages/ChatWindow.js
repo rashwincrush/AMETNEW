@@ -16,6 +16,7 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
   const [loading, setLoading] = useState(false);
   const [otherParticipant, setOtherParticipant] = useState(null);
   const [fileAttachment, setFileAttachment] = useState(null);
+  const [isConnected, setIsConnected] = useState(true); // Added connection status state
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -61,6 +62,22 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
             : conversation.participant_1;
             
         setOtherParticipant(other);
+        
+        // Check if a connection exists with status = 'accepted'
+        const { data: connection, error: connectionError } = await supabase
+          .from('connections')
+          .select('status')
+          .or(`requester_id.eq.${currentUser.id},recipient_id.eq.${currentUser.id}`)
+          .eq('recipient_id', other.id)
+          .eq('status', 'accepted')
+          .maybeSingle();
+        
+        if (connectionError) {
+          console.error('Error checking connection:', connectionError);
+        }
+        
+        // Update connection status
+        setIsConnected(connection && connection.status === 'accepted');
         
         // Fetch messages
         const { data: messagesData, error: messagesError } = await supabase
@@ -235,6 +252,12 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
     
     if ((!newMessage.trim() && !fileAttachment) || !currentUser || !conversationId) return;
     
+    // Check if users are connected first
+    if (!isConnected) {
+      toast.error('You must connect with this user before sending messages.');
+      return;
+    }
+    
     try {
       // Show loading indicator
       toast.loading('Sending message...');
@@ -291,20 +314,36 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
         
       if (error) {
         console.error('Error sending message:', error);
-        throw error;
+        // Check for permission errors (RLS blocking)
+        if (error.code === '42501' || error.message?.includes('permission denied')) {
+          // Recheck connection status as it might have changed
+          const { data: connection } = await supabase
+            .from('connections')
+            .select('status')
+            .or(`requester_id.eq.${currentUser.id},recipient_id.eq.${currentUser.id}`)
+            .eq('recipient_id', otherParticipant.id)
+            .eq('status', 'accepted')
+            .maybeSingle();
+          
+          setIsConnected(connection && connection.status === 'accepted');
+          toast.error('You are no longer connected with this user.');
+        } else {
+          throw error;
+        }
+        return;
       }
       
       // Clear form
       setNewMessage('');
       setFileAttachment(null);
       
-      // Dismiss loading toast and show success
+      // Dismiss loading toast
       toast.dismiss();
       
     } catch (err) {
       console.error('Error sending message:', err);
       toast.dismiss();
-      toast.error('Failed to send message');
+      toast.error('Failed to send message. Please try again.');
     }
   };
 
@@ -428,6 +467,17 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
         </div>
       )}
 
+      {/* Connection Warning */}
+      {!isConnected && conversationId && (
+        <div className="p-2 bg-red-50 border-t border-red-200">
+          <div className="flex items-center justify-center">
+            <div className="text-red-500 text-sm font-medium">
+              You are no longer connected with this user. You cannot send messages until you reconnect.
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Message Input */}
       <div className="p-4 border-t border-gray-200 bg-white">
         <form onSubmit={handleSendMessage} className="flex items-end space-x-2">
@@ -437,14 +487,15 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyPress={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  if (e.key === 'Enter' && !e.shiftKey && isConnected) {
                     e.preventDefault();
                     handleSendMessage(e);
                   }
                 }}
-                className="form-input w-full pr-20 py-3 rounded-lg resize-none"
+                className={`form-input w-full pr-20 py-3 rounded-lg resize-none ${!isConnected ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 rows="1"
-                placeholder="Type a message..."
+                placeholder={isConnected ? "Type a message..." : "Cannot send messages - connection removed"}
+                disabled={!isConnected}
               />
               <div className="absolute right-2 bottom-2 flex items-center space-x-1">
                 <button

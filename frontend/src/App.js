@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RealtimeProvider } from './utils/supabase';
+import { Toaster } from 'react-hot-toast';
 import './App.css';
 import NetworkStatusIndicator from './components/common/NetworkStatusIndicator';
 
@@ -217,6 +218,29 @@ function App() {
             <NotificationProvider>
               <AppContent />
               <FeedbackWidget />
+              <Toaster 
+                position="top-right"
+                toastOptions={{
+                  duration: 4000,
+                  style: {
+                    background: '#fff',
+                    color: '#333',
+                  },
+                  success: {
+                    style: {
+                      background: '#e6f7e6',
+                      border: '1px solid #c3e6cb',
+                    },
+                  },
+                  error: {
+                    style: {
+                      background: '#f8d7da',
+                      border: '1px solid #f5c6cb',
+                    },
+                    duration: 5000,
+                  },
+                }}
+              />
             </NotificationProvider>
           </RealtimeProvider>
         </AuthProvider>

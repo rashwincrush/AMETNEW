@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import NotificationBell from '../Notifications/NotificationBell';
 import { 
-  BellIcon, 
   Bars3Icon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
@@ -14,24 +14,12 @@ const Header = ({ user }) => {
   // Use the most up-to-date user information (profile from context or passed user prop)
   const currentUser = profile || user;
   const navigate = useNavigate();
-  const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const notificationRef = useRef(null);
   const userMenuRef = useRef(null);
-  const [notifications] = useState([
-    { id: 1, text: 'New event: Alumni Meetup 2024', time: '2 mins ago', unread: true },
-    { id: 2, text: 'Job application received', time: '1 hour ago', unread: true },
-    { id: 3, text: 'Mentorship request approved', time: '3 hours ago', unread: false },
-  ]);
 
-  const unreadCount = notifications.filter(n => n.unread).length;
-
-  // Close popovers when clicking outside
+  // Close popover when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
-        setShowNotifications(false);
-      }
       if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
         setShowUserMenu(false);
       }
@@ -42,39 +30,6 @@ const Header = ({ user }) => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
-  
-  const toggleNotifications = () => {
-    setShowNotifications(prev => !prev);
-  };
-  
-  // Handle notification click based on type
-  const handleNotificationClick = (notification) => {
-    setShowNotifications(false); // Close the dropdown
-    
-    // Navigate based on notification type
-    switch (notification.type) {
-      case 'event':
-        navigate(`/events/${notification.targetId}`);
-        break;
-      case 'job':
-        navigate(`/jobs/${notification.targetId}`);
-        break;
-      case 'connection':
-        navigate(`/directory/${notification.targetId}`);
-        break;
-      case 'mentorship':
-        navigate(`/mentorship`);
-        break;
-      default:
-        console.log('Unknown notification type');
-    }
-  };
-  
-  // View all notifications
-  const viewAllNotifications = () => {
-    setShowNotifications(false); // Close the dropdown
-    navigate('/notifications');
-  };
 
   const handleLogout = async () => {
     setShowUserMenu(false);
@@ -149,15 +104,7 @@ const Header = ({ user }) => {
         <div className="flex items-center space-x-4">
 
           {/* Notifications */}
-          <Link 
-            to="/notifications"
-            className="relative p-2 rounded-full text-gray-600 hover:bg-gray-100 focus:outline-none"
-          >
-            <BellIcon className="h-6 w-6" />
-            {unreadCount > 0 && (
-              <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white"></span>
-            )}
-          </Link>
+          <NotificationBell currentUser={currentUser} />
 
           {/* User Menu */}
           <div className="relative" ref={userMenuRef}>
@@ -167,7 +114,13 @@ const Header = ({ user }) => {
             >
               <div className="text-right">
                 <p className="text-sm font-medium text-gray-900">{currentUser.full_name || currentUser.name || 'User'}</p>
-                <p className="text-xs text-ocean-600">{currentUser.primary_role || currentUser.role || 'Alumni'}</p>
+                <p className="text-xs text-ocean-600">
+                  {currentUser.role === 'super_admin' ? 'Super Admin' :
+                   currentUser.role === 'admin' ? 'Administrator' :
+                   currentUser.role === 'employer' ? 'Employer' :
+                   currentUser.role === 'student' ? 'Student' :
+                   currentUser.primary_role || currentUser.role || 'Alumni'}
+                </p>
               </div>
               <img 
                 src={currentUser.avatar_url ? `${currentUser.avatar_url}?t=${new Date().getTime()}` : '/default-avatar.svg'} 
@@ -187,6 +140,13 @@ const Header = ({ user }) => {
                   <div className="px-4 py-3 border-b border-gray-200">
                     <p className="text-sm font-semibold text-gray-900 truncate">{currentUser.full_name || currentUser.name || 'User'}</p>
                     <p className="text-xs text-gray-500 truncate">{currentUser.email || 'No email provided'}</p>
+                    <p className="text-xs text-ocean-600 mt-1 font-medium">
+                      {currentUser.role === 'super_admin' ? 'Super Admin' :
+                       currentUser.role === 'admin' ? 'Administrator' :
+                       currentUser.role === 'employer' ? 'Employer' :
+                       currentUser.role === 'student' ? 'Student' :
+                       currentUser.primary_role || currentUser.role || 'Alumni'}
+                    </p>
                   </div>
                   <Link
                     to="/profile"

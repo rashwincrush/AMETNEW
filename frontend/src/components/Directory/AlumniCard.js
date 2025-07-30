@@ -4,17 +4,23 @@ import { MapPinIcon, BriefcaseIcon, StarIcon, AcademicCapIcon, BuildingOfficeIco
 
 const AlumniCard = ({ alumnus }) => {
   // Generate a color based on name for consistent avatar background
-  const getInitials = (name) => {
-    if (!name || name === 'Unknown') return 'AM';
-    return name
-      .split(' ')
-      .map(part => part[0])
-      .join('')
-      .substring(0, 2)
-      .toUpperCase();
+  const getInitials = () => {
+    if (!alumnus.name || alumnus.name === 'Unknown') {
+      return 'AM';
+    }
+    
+    // Extract initials from full_name
+    const nameParts = alumnus.name.split(' ').filter(Boolean);
+    if (nameParts.length === 0) return 'AM';
+    
+    if (nameParts.length === 1) {
+      return nameParts[0][0].toUpperCase();
+    }
+    
+    return (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase();
   };
 
-  const initials = getInitials(alumnus.name);
+  const initials = getInitials();
   
   return (
     <div className="bg-white rounded-xl shadow-md hover:shadow-xl overflow-hidden transition-all duration-300 border border-gray-200/80 flex flex-col h-full">
@@ -27,7 +33,7 @@ const AlumniCard = ({ alumnus }) => {
             <img
               className="h-24 w-24 rounded-full object-cover ring-4 ring-white shadow-lg"
               src={alumnus.avatar}
-              alt={`${alumnus.name}'s avatar`}
+              alt={`${alumnus.name || 'User'}'s avatar`}
               onError={(e) => {
                 e.target.onerror = null;
                 e.target.style.display = 'none';
@@ -56,17 +62,17 @@ const AlumniCard = ({ alumnus }) => {
                   Mentor
                 </span>
               )}
-              {alumnus.student_id && (
+              {alumnus.isEmployer && (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                  <AcademicCapIcon className="-ml-0.5 mr-1 h-3.5 w-3.5" />
-                  Verified
+                  <BuildingOfficeIcon className="-ml-0.5 mr-1 h-3.5 w-3.5" />
+                  Employer
                 </span>
               )}
             </div>
           </div>
           <div className="flex items-center justify-center text-sm text-gray-500">
             <AcademicCapIcon className="h-4 w-4 mr-1.5 text-gray-400" />
-            <span>Batch of {alumnus.batchYear || 'N/A'}</span>
+            <span>Graduation Year: {alumnus.graduationYear || 'N/A'}</span>
           </div>
         </div>
       </div>
@@ -83,10 +89,10 @@ const AlumniCard = ({ alumnus }) => {
             </div>
           </div>
           
-          {/* Detail 2: Industry */}
+          {/* Detail 2: Headline */}
           <div className="flex items-start">
             <BuildingOfficeIcon className="h-5 w-5 mr-2 text-indigo-500 flex-shrink-0 mt-0.5" />
-            <p className="text-sm">{alumnus.industry || 'Industry not specified'}</p>
+            <p className="text-sm">{alumnus.bio || 'Headline not specified'}</p>
           </div>
           
           {/* Detail 3: Location */}
@@ -100,7 +106,7 @@ const AlumniCard = ({ alumnus }) => {
             <AcademicCapIcon className="h-5 w-5 mr-2 text-indigo-500 flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-sm">{alumnus.degree || 'Degree not specified'}</p>
-              <p className="text-sm text-gray-500">{alumnus.department || 'Department not specified'}</p>
+              <p className="text-sm text-gray-500">Graduation Year: {alumnus.graduationYear || 'N/A'}</p>
             </div>
           </div>
           

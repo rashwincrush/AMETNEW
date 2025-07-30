@@ -20,7 +20,16 @@ const ChatWindow = ({ conversationId, currentUser }) => {
       setLoading(true);
       const { data, error } = await supabase
         .from('messages')
-        .select('*, sender:profiles(id, full_name, avatar_url)')
+        .select(`
+          id,
+          conversation_id,
+          sender_id,
+          recipient_id,
+          content,
+          created_at,
+          updated_at,
+          sender:sender_id(id, full_name, avatar_url)
+        `)
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: true });
 

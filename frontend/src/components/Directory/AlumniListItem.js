@@ -4,17 +4,23 @@ import { MapPinIcon, BriefcaseIcon, StarIcon, ChevronRightIcon, AcademicCapIcon 
 
 const AlumniListItem = ({ alumnus }) => {
   // Generate initials for avatar fallback
-  const getInitials = (name) => {
-    if (!name || name === 'Unknown') return 'AM';
-    return name
-      .split(' ')
-      .map(part => part[0])
-      .join('')
-      .substring(0, 2)
-      .toUpperCase();
+  const getInitials = () => {
+    if (!alumnus.name || alumnus.name === 'Unknown') {
+      return 'AM';
+    }
+    
+    // Extract initials from full_name
+    const nameParts = alumnus.name.split(' ').filter(Boolean);
+    if (nameParts.length === 0) return 'AM';
+    
+    if (nameParts.length === 1) {
+      return nameParts[0][0].toUpperCase();
+    }
+    
+    return (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase();
   };
 
-  const initials = getInitials(alumnus.name);
+  const initials = getInitials();
   
   return (
     <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200/80 hover:shadow-md transition-all duration-300 group">
@@ -27,7 +33,7 @@ const AlumniListItem = ({ alumnus }) => {
                 <img
                   className="h-14 w-14 rounded-full object-cover ring-2 ring-indigo-100 group-hover:ring-indigo-200 transition-all"
                   src={alumnus.avatar}
-                  alt={`${alumnus.name}'s avatar`}
+                  alt={`${alumnus.name || 'User'}'s avatar`}
                   onError={(e) => {
                     e.target.onerror = null;
                     e.target.style.display = 'none';
@@ -57,10 +63,10 @@ const AlumniListItem = ({ alumnus }) => {
                       Mentor
                     </span>
                   )}
-                  {alumnus.student_id && (
+                  {alumnus.isEmployer && (
                     <span className="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                       <AcademicCapIcon className="-ml-0.5 mr-1 h-3 w-3" />
-                      Verified
+                      Employer
                     </span>
                   )}
                 </div>
@@ -69,9 +75,9 @@ const AlumniListItem = ({ alumnus }) => {
               <div className="mt-1 flex flex-col sm:flex-row sm:items-center sm:gap-6">
                 <p className="text-sm text-gray-600 truncate flex items-center">
                   <AcademicCapIcon className="h-4 w-4 mr-1.5 text-gray-400 flex-shrink-0" />
-                  <span>Batch of {alumnus.batchYear || 'N/A'}</span>
-                  {alumnus.department && <span className="mx-1.5">·</span>}
-                  {alumnus.department && <span>{alumnus.department}</span>}
+                  <span>{alumnus.degree || 'Degree not specified'}</span>
+                  {alumnus.graduationYear && <span className="mx-1.5">·</span>}
+                  {alumnus.graduationYear && <span>Class of {alumnus.graduationYear}</span>}
                 </p>
                 
                 <p className="text-sm text-gray-600 truncate flex items-center mt-1 sm:mt-0">

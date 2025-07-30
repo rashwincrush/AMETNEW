@@ -1,47 +1,59 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { format } from 'date-fns';
-import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
+import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { 
-  AcademicCapIcon, 
-  UserIcon, 
-  UserGroupIcon, 
-  EnvelopeIcon, 
-  CalendarIcon, 
-  BriefcaseIcon, 
-  ChatBubbleLeftRightIcon,
-  BellIcon,
-  FunnelIcon,
-  XMarkIcon
-} from '@heroicons/react/24/outline';
+import { Link } from 'react-router-dom';
 
-const Notifications = () => {
-  const navigate = useNavigate();
-  const { user, profile } = useAuth();
-  const currentUser = profile || user;
-  
+const NotificationsPage = ({ currentUser }) => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all'); // 'all', 'unread', 'read'
-  const [activeTypeFilter, setActiveTypeFilter] = useState('all'); // Filter by notification type
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [outgoingRequests, setOutgoingRequests] = useState([]);
   const [requestsLoading, setRequestsLoading] = useState(true);
-  const [showTypeFilters, setShowTypeFilters] = useState(false);
   const channelRef = useRef(null);
 
-  const notificationTypes = {
-    all: { name: 'All Types', icon: BellIcon, color: 'bg-gray-500' },
-    profile: { name: 'Profile', icon: UserIcon, color: 'bg-purple-500' },
-    connections: { name: 'Connections', icon: UserGroupIcon, color: 'bg-blue-500' },
-    messaging: { name: 'Messages', icon: EnvelopeIcon, color: 'bg-green-500' },
-    events: { name: 'Events', icon: CalendarIcon, color: 'bg-yellow-500' },
-    jobs: { name: 'Jobs', icon: BriefcaseIcon, color: 'bg-red-500' },
-    chat: { name: 'Chats', icon: ChatBubbleLeftRightIcon, color: 'bg-pink-500' },
-    mentorship: { name: 'Mentorship', icon: AcademicCapIcon, color: 'bg-indigo-500' }
-  };
+  useEffect(() => {
+    if (!currentUser) return;
+
+    fetchNotifications();
+    fetchConnectionRequests();
+
+    // Set up realtime subscription for new notifications
+    const setupRealtimeSubscription = () => {
+      // Clean up any existing subscription first
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
+
+      channelRef.current = supabase
+        .channel('notifications_page')
+        .on('postgres_changes', 
+          { event: '*', schema: 'public', table: 'notifications' }, 
+          () => {
+            // Refresh notifications on any changes
+            fetchNotifications();
+          }
+        )
+        .on('postgres_changes',
+          { event: '*', schema: 'public', table: 'connections' },
+          () => {
+            // Refresh connection requests on any changes
+            fetchConnectionRequests();
+          }
+        )
+        .subscribe();
+    };
+
+    setupRealtimeSubscription();
+
+    return () => {
+      // Clean up subscription
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
+    };
+  }, [currentUser]);
 
   const fetchNotifications = async () => {
     if (!currentUser) return;
@@ -54,26 +66,20 @@ const Notifications = () => {
         .eq('profile_id', currentUser.id)
         .order('created_at', { ascending: false });
       
+      // Filter based on active tab
       if (activeTab === 'unread') {
         query = query.eq('is_read', false);
       } else if (activeTab === 'read') {
         query = query.eq('is_read', true);
       }
-
-      if (activeTypeFilter !== 'all') {
-        query = query.eq('type', activeTypeFilter);
-      }
-
+      
       const { data, error } = await query;
 
-      if (error) {
-        console.error('Error fetching notifications:', error);
-        throw error;
-      }
+      if (error) throw error;
       setNotifications(data || []);
-    } catch (error) {
-      toast.error('Failed to fetch notifications.');
-      console.error(error);
+    } catch (err) {
+      console.error('Error fetching notifications:', err);
+      toast.error('Failed to load notifications');
     } finally {
       setLoading(false);
     }
@@ -81,6 +87,7 @@ const Notifications = () => {
 
   const fetchConnectionRequests = async () => {
     if (!currentUser) return;
+
     setRequestsLoading(true);
     try {
       // Fetch incoming requests
@@ -88,15 +95,13 @@ const Notifications = () => {
         .from('connections')
         .select(`
           id,
-          requester_id,
-          recipient_id,
           status,
           created_at,
-          updated_at,
-          requester:requester_id (id, full_name, avatar_url, job_title, company)
+          requester:requester_id(id, full_name, avatar_url, job_title, company)
         `)
         .eq('recipient_id', currentUser.id)
         .eq('status', 'pending');
+
       if (incomingError) throw incomingError;
       setIncomingRequests(incoming || []);
 
@@ -105,58 +110,23 @@ const Notifications = () => {
         .from('connections')
         .select(`
           id,
-          requester_id,
-          recipient_id,
           status,
           created_at,
-          updated_at,
-          recipient:recipient_id (id, full_name, avatar_url, job_title, company)
+          recipient:recipient_id(id, full_name, avatar_url, job_title, company)
         `)
         .eq('requester_id', currentUser.id)
         .eq('status', 'pending');
+
       if (outgoingError) throw outgoingError;
       setOutgoingRequests(outgoing || []);
 
     } catch (error) {
       console.error('Error fetching connection requests:', error);
-      toast.error('Could not fetch connection requests.');
+      toast.error('Failed to load connection requests.');
     } finally {
       setRequestsLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (currentUser) {
-      fetchNotifications();
-      fetchConnectionRequests();
-    }
-  }, [currentUser, activeTab, activeTypeFilter]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const channel = supabase
-      .channel('notifications-page-realtime-channel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `profile_id=eq.${currentUser.id}` }, (payload) => {
-        console.log('Realtime notification update:', payload);
-        toast('You have a new notification!');
-        fetchNotifications();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'connections' }, (payload) => {
-        console.log('Realtime connection request update:', payload);
-        fetchConnectionRequests();
-      })
-      .subscribe();
-
-    channelRef.current = channel;
-
-    return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
-    };
-  }, [currentUser]);
 
   const markAsRead = async (notificationId) => {
     try {
@@ -164,18 +134,22 @@ const Notifications = () => {
         .from('notifications')
         .update({ is_read: true })
         .eq('id', notificationId);
+
       if (error) throw error;
+      
+      // Update local state
       setNotifications(prev => 
         prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
       );
     } catch (err) {
       console.error('Error marking notification as read:', err);
-      toast.error('Failed to update notification.');
+      toast.error('Failed to mark notification as read');
     }
   };
 
   const markAllAsRead = async () => {
-    if (!currentUser) return;
+    if (!currentUser || notifications.length === 0) return;
+
     try {
       const { error } = await supabase
         .from('notifications')
@@ -184,10 +158,11 @@ const Notifications = () => {
         .eq('is_read', false);
 
       if (error) throw error;
-
+      
       // Update local state
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       toast.success('All notifications marked as read');
+      fetchNotifications();
     } catch (err) {
       console.error('Error marking all notifications as read:', err);
       toast.error('Failed to mark notifications as read');
@@ -201,12 +176,10 @@ const Notifications = () => {
         .update({ status: newStatus, updated_at: new Date().toISOString() })
         .eq('id', requestId);
 
-      if (error) {
-        console.error('Error responding to connection request:', error);
-        throw error;
-      }
+      if (error) throw error;
       toast.success(`Request ${newStatus === 'accepted' ? 'accepted' : 'declined'}.`);
       
+      // Refresh connection requests
       fetchConnectionRequests();
     } catch (error) {
       console.error('Error responding to request:', error);
@@ -215,7 +188,7 @@ const Notifications = () => {
   };
 
   const handleCancelRequest = async (requestId) => {
-    if (!window.confirm('Are you sure you want to cancel this connection request?')) return;
+    if (!confirm('Are you sure you want to cancel this connection request?')) return;
 
     try {
       const { error } = await supabase
@@ -223,12 +196,10 @@ const Notifications = () => {
         .delete()
         .eq('id', requestId);
 
-      if (error) {
-        console.error('Error cancelling connection request:', error);
-        throw error;
-      }
+      if (error) throw error;
       toast.success('Request cancelled.');
       
+      // Refresh connection requests
       fetchConnectionRequests();
     } catch (error) {
       console.error('Error cancelling request:', error);
@@ -240,9 +211,17 @@ const Notifications = () => {
     try {
       return format(new Date(dateString), 'MMM dd, yyyy');
     } catch (err) {
-      console.error('Error formatting date:', err);
       return 'Unknown date';
     }
+  };
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    // We need to refetch with the new filter
+    setLoading(true);
+    setTimeout(() => {
+      fetchNotifications();
+    }, 100);
   };
 
   return (
@@ -259,6 +238,7 @@ const Notifications = () => {
           </div>
         ) : (
           <div className="space-y-6">
+            {/* Incoming Requests */}
             {incomingRequests.length > 0 && (
               <div>
                 <h3 className="text-lg font-medium mb-3">Incoming Requests</h3>
@@ -280,11 +260,22 @@ const Notifications = () => {
                           <p className="text-sm text-gray-500">
                             {req.requester.job_title} {req.requester.company ? `at ${req.requester.company}` : ''}
                           </p>
+                          <p className="text-xs text-gray-400 mt-1">Requested {formatDate(req.created_at)}</p>
                         </div>
                       </div>
-                      <div className="flex space-x-2 mt-3 md:mt-0">
-                        <button onClick={() => handleConnectionResponse(req.id, 'accepted')} className="px-4 py-2 bg-ocean-500 text-white rounded hover:bg-ocean-600 text-sm font-medium">Accept</button>
-                        <button onClick={() => handleConnectionResponse(req.id, 'declined')} className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 text-sm font-medium">Decline</button>
+                      <div className="flex space-x-2">
+                        <button 
+                          onClick={() => handleConnectionResponse(req.id, 'accepted')}
+                          className="px-4 py-2 bg-ocean-500 text-white rounded hover:bg-ocean-600 text-sm font-medium"
+                        >
+                          Accept
+                        </button>
+                        <button 
+                          onClick={() => handleConnectionResponse(req.id, 'declined')}
+                          className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 text-sm font-medium"
+                        >
+                          Decline
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -292,6 +283,7 @@ const Notifications = () => {
               </div>
             )}
             
+            {/* Outgoing Requests */}
             {outgoingRequests.length > 0 && (
               <div className="mt-6">
                 <h3 className="text-lg font-medium mb-3">Sent Requests</h3>
@@ -328,7 +320,7 @@ const Notifications = () => {
               </div>
             )}
             
-            {(incomingRequests.length === 0 && outgoingRequests.length === 0) && (
+            {incomingRequests.length === 0 && outgoingRequests.length === 0 && (
               <div className="bg-white rounded-lg shadow p-6 text-center">
                 <p className="text-gray-500">No pending connection requests</p>
               </div>
@@ -339,75 +331,67 @@ const Notifications = () => {
       
       {/* Notifications Section */}
       <div className="mt-10">
-        <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
+        <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold">All Notifications</h2>
           <button 
             onClick={markAllAsRead} 
-            className="text-sm text-ocean-600 hover:text-ocean-800 order-last md:order-none"
+            className="text-sm text-ocean-600 hover:text-ocean-800"
           >
             Mark all as read
           </button>
         </div>
         
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          {/* Tabs and Filters */}
-          <div className="flex flex-wrap items-center justify-between p-4 border-b bg-gray-50">
-            <div className="flex items-center space-x-2">
-              <button onClick={() => setActiveTab('all')} className={`px-3 py-1.5 text-sm rounded-md ${activeTab === 'all' ? 'bg-ocean-500 text-white' : 'bg-white hover:bg-gray-100'}`}>All</button>
-              <button onClick={() => setActiveTab('unread')} className={`px-3 py-1.5 text-sm rounded-md ${activeTab === 'unread' ? 'bg-ocean-500 text-white' : 'bg-white hover:bg-gray-100'}`}>Unread</button>
-              <button onClick={() => setActiveTab('read')} className={`px-3 py-1.5 text-sm rounded-md ${activeTab === 'read' ? 'bg-ocean-500 text-white' : 'bg-white hover:bg-gray-100'}`}>Read</button>
-            </div>
-            <div className="relative">
-              <button onClick={() => setShowTypeFilters(!showTypeFilters)} className="inline-flex items-center px-3 py-1.5 text-sm rounded-md bg-white hover:bg-gray-100 border">
-                <FunnelIcon className="h-4 w-4 mr-2" />
-                {notificationTypes[activeTypeFilter]?.name || 'Filter'}
-              </button>
-              {showTypeFilters && (
-                <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-20">
-                  <div className="py-1">
-                    {Object.entries(notificationTypes).map(([type, { name, icon: Icon, color }]) => (
-                      <a href="#" key={type} onClick={(e) => { e.preventDefault(); setActiveTypeFilter(type); setShowTypeFilters(false); }} className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                        <span className={`p-1 rounded-full text-white mr-3 ${color}`}><Icon className="h-4 w-4" /></span>
-                        {name}
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+          {/* Tabs */}
+          <div className="flex border-b">
+            <button 
+              onClick={() => handleTabChange('all')}
+              className={`flex-1 py-3 px-4 text-center ${activeTab === 'all' ? 'bg-gray-100 border-b-2 border-ocean-500 font-medium' : 'hover:bg-gray-50'}`}
+            >
+              All
+            </button>
+            <button 
+              onClick={() => handleTabChange('unread')}
+              className={`flex-1 py-3 px-4 text-center ${activeTab === 'unread' ? 'bg-gray-100 border-b-2 border-ocean-500 font-medium' : 'hover:bg-gray-50'}`}
+            >
+              Unread
+            </button>
+            <button 
+              onClick={() => handleTabChange('read')}
+              className={`flex-1 py-3 px-4 text-center ${activeTab === 'read' ? 'bg-gray-100 border-b-2 border-ocean-500 font-medium' : 'hover:bg-gray-50'}`}
+            >
+              Read
+            </button>
           </div>
           
           {/* Notification List */}
           {loading ? (
-            <div className="text-center py-8"><div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-ocean-500 mx-auto"></div><p className="mt-2 text-gray-500">Loading...</p></div>
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-ocean-500 mx-auto"></div>
+              <p className="mt-2 text-gray-500">Loading notifications...</p>
+            </div>
           ) : notifications.length > 0 ? (
-            <ul className="divide-y divide-gray-200">
-              {notifications.map(notification => {
-                const typeInfo = notificationTypes[notification.type] || { icon: BellIcon, name: 'General', color: 'bg-gray-400' };
-                const Icon = typeInfo.icon;
-                return (
-                  <li key={notification.id} onClick={() => !notification.is_read && markAsRead(notification.id)} className={`p-4 flex items-start space-x-4 hover:bg-gray-50 cursor-pointer ${!notification.is_read ? 'bg-ocean-50' : ''}`}>
-                    <div className={`p-2 rounded-full text-white ${typeInfo.color}`}><Icon className="h-5 w-5" /></div>
-                    <div className="flex-1">
-                      <div className="flex justify-between items-center">
-                        <p className="text-sm font-medium text-gray-900">{notification.title}</p>
-                        <span className="text-xs text-gray-500">{format(new Date(notification.created_at), 'MMM d, h:mm a')}</span>
-                      </div>
-                      <p className="text-sm text-gray-600 mt-1">{notification.message}</p>
-                      <div className="flex items-center justify-between mt-2">
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${typeInfo.color} bg-opacity-20 text-opacity-90`}>{typeInfo.name}</span>
-                        {!notification.is_read && <span className="w-2 h-2 bg-blue-500 rounded-full" title="Unread"></span>}
-                      </div>
+            <div className="divide-y">
+              {notifications.map(notification => (
+                <Link 
+                  key={notification.id}
+                  to={notification.link || '#'}
+                  className="block"
+                  onClick={() => !notification.is_read && markAsRead(notification.id)}
+                >
+                  <div className={`p-4 hover:bg-gray-50 ${!notification.is_read ? 'bg-blue-50' : ''}`}>
+                    <div className="flex justify-between">
+                      <h3 className="font-medium text-gray-900">{notification.title}</h3>
+                      <span className="text-sm text-gray-500">{formatDate(notification.created_at)}</span>
                     </div>
-                  </li>
-                );
-              })}
-            </ul>
+                    <p className="mt-1 text-gray-600">{notification.message}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
           ) : (
-            <div className="text-center py-12">
-              <BellIcon className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No notifications</h3>
-              <p className="mt-1 text-sm text-gray-500">You're all caught up!</p>
+            <div className="text-center py-8">
+              <p className="text-gray-500">No notifications found</p>
             </div>
           )}
         </div>
@@ -416,4 +400,4 @@ const Notifications = () => {
   );
 };
 
-export default Notifications;
+export default NotificationsPage;

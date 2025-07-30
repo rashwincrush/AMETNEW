@@ -58,60 +58,79 @@ export const RealtimeProvider = ({ children }) => {
   useEffect(() => {
     // If there's already a status channel, don't create another one
     if (channelRef.current) return;
-
-    console.log('Setting up realtime status channel...');
     
-    try {
-      // Log Supabase client status
-      console.log('Supabase client status:', {
-        authUrl: supabase.auth.url,
-        hasAuthSession: !!supabase.auth.session,
-        realtimeUrl: supabase.realtime?.url || '(using default)'
-      });
+    // First check if we have an auth session before attempting realtime connection
+    const checkSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data?.session) {
+        console.log('No auth session found, delaying realtime connection');
+        // Schedule a retry after a delay
+        setTimeout(() => setConnectionAttempts(prev => prev + 1), 2000);
+        return false;
+      }
+      return true;
+    };
+    
+    // Only proceed with realtime setup if we have a session
+    checkSession().then(hasSession => {
+      if (!hasSession) return;
       
-      // Create a status channel to monitor connection
-      const statusChannel = supabase.channel('system:status');
-      channelRef.current = statusChannel;
+      console.log('Auth session found, setting up realtime status channel...');
       
-      // Subscribe to status events
-      statusChannel
-        .on('system', { event: '*' }, (status) => {
-          console.log('Realtime status event:', status);
-          if (status.event === 'connected') {
-            console.log('Realtime connected successfully!');
-            setIsRealtimeReady(true);
-          } else if (status.event === 'disconnected') {
-            console.warn('Realtime disconnected!');
-            setIsRealtimeReady(false);
-            // Only attempt reconnect if not unmounting
-            if (!statusRef.current?.unmounting) {
-              // Increment connection attempts
-              setConnectionAttempts(prev => prev + 1);
-            }
-          }
-        })
-        .subscribe(status => {
-          console.log('Realtime subscription status:', status);
-          if (status === 'SUBSCRIBED') {
-            console.log('Successfully subscribed to system status channel');
-            setIsRealtimeReady(true);
-          } else if (status === 'CHANNEL_ERROR') {
-            console.error('Error connecting to realtime:', status);
-            setIsRealtimeReady(false);
-            // Only attempt reconnect if not unmounting
-            if (!statusRef.current?.unmounting) {
-              // Increment connection attempts
-              setConnectionAttempts(prev => prev + 1);
-            }
-          }
+      try {
+        // Log Supabase client status
+        console.log('Supabase client status:', {
+          authUrl: supabase.auth.url,
+          hasAuthSession: !!supabase.auth.session,
+          realtimeUrl: supabase.realtime?.url || '(using default)'
         });
-    } catch (error) {
-      console.error('Error setting up realtime channel:', error);
-      // Set a retry attempt on error
-      setTimeout(() => {
-        setConnectionAttempts(prev => prev + 1);
-      }, 2000);
-    }
+        
+        // Create a status channel to monitor connection
+        const statusChannel = supabase.channel('system:status');
+        channelRef.current = statusChannel;
+        
+        // Subscribe to status events
+        statusChannel
+          .on('system', { event: '*' }, (status) => {
+            console.log('Realtime status event:', status);
+            if (status.event === 'connected') {
+              console.log('Realtime connected successfully!');
+              setIsRealtimeReady(true);
+            } else if (status.event === 'disconnected') {
+              console.warn('Realtime disconnected!');
+              setIsRealtimeReady(false);
+              // Only attempt reconnect if not unmounting
+              if (!statusRef.current?.unmounting) {
+                // Increment connection attempts
+                setConnectionAttempts(prev => prev + 1);
+              }
+            }
+          })
+          .subscribe(status => {
+            console.log('Realtime subscription status:', status);
+            if (status === 'SUBSCRIBED') {
+              console.log('Successfully subscribed to system status channel');
+              setIsRealtimeReady(true);
+            } else if (status === 'CHANNEL_ERROR') {
+              console.error('Error connecting to realtime:', status);
+              setIsRealtimeReady(false);
+              // Only attempt reconnect if not unmounting
+              if (!statusRef.current?.unmounting) {
+                // Increment connection attempts
+                setConnectionAttempts(prev => prev + 1);
+              }
+            }
+          });
+      } catch (error) {
+        console.error('Error setting up realtime channel:', error);
+        // Set a retry attempt on error
+        setTimeout(() => {
+          setConnectionAttempts(prev => prev + 1);
+        }, 2000);
+      }
+    }).catch(error => {
+      console.error('Error checking session:', error);
+    });
 
     statusRef.current = { unmounting: false };
     

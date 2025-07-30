@@ -58,7 +58,7 @@ const AlumniDirectory = () => {
   };
   const [filters, setFilters] = useState(initialFilters);
   const [showFilters, setShowFilters] = useState(false);
-  const [sortBy, setSortBy] = useState('full_name,asc');
+  const [sortBy, setSortBy] = useState('first_name,asc');
 
   const handleSearch = (e) => {
     if (e) e.preventDefault();
@@ -148,17 +148,21 @@ const AlumniDirectory = () => {
       };
 
       let query = supabase
-        .from('profiles')
+        .from('public_profiles_view')
         .select('*', { count: 'exact' });
+        
+      // The view already filters for verified profiles with show_in_directory=true
+      // No need to filter for first_name/last_name as that's handled by the view
 
       if (selectedLetter) {
-        query = query.ilike('full_name', `${selectedLetter}%`);
+        // Search in both first_name and last_name for the selected letter
+        query = query.or(`first_name.ilike.${selectedLetter}%,last_name.ilike.${selectedLetter}%`);
       }
 
       if (searchTerm) {
         const textColumns = [
-          'full_name', 'email', 'degree', 'location', 'department',
-          'current_company', 'company_name', 'current_position', 'phone', 'phone_number'
+          'first_name', 'last_name', 'email', 'degree', 'location', 'department',
+          'current_company', 'company_name', 'current_job_title', 'phone'
         ];
         const numericColumns = ['graduation_year', 'batch_year', 'student_id'];
         const orConditions = textColumns.map(col => `${col}.ilike.%${searchTerm}%`);
@@ -191,7 +195,7 @@ const AlumniDirectory = () => {
       });
 
       const [sortField, sortOrder] = sortBy.split(',');
-      query = query.order(sortField, { ascending: sortOrder === 'asc' });
+      query = query.order(sortField === 'first_name' ? 'full_name' : sortField, { ascending: sortOrder === 'asc' });
       query = query.range(from, to);
 
       const { data, error: supabaseError, count } = await query;
@@ -200,27 +204,21 @@ const AlumniDirectory = () => {
 
       const transformedAlumni = data.map(profile => ({
         id: profile.id,
-        name: profile.full_name || `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || 'Unknown',
+        name: profile.full_name || 'Unknown',
         email: profile.email || '',
         graduationYear: profile.graduation_year,
-        batchYear: profile.batch_year,
-        achievements: profile.achievements || [],
-        department: profile.department || '',
-        degree: profile.degree || '',
-        currentPosition: profile.current_position || '',
-        company: profile.current_company || profile.company_name || '',
+        degree: profile.degree_program || '',
+        currentPosition: profile.current_job_title || '',
+        company: profile.company_name || '',
         location: profile.location || '',
         avatar: profile.avatar_url || '/static/Logo.png',
         skills: profile.skills || [],
-        bio: profile.bio || '',
-        verified: profile.is_verified || false,
+        bio: profile.headline || '',
         role: 'alumni',
-        phone: profile.phone || profile.phone_number || '',
-        linkedin: profile.linkedin_url || '',
-        studentId: profile.student_id || '',
+        socialLinks: profile.social_links || {},
         isMentor: profile.is_mentor || false,
         isEmployer: profile.is_employer || false
-      })).filter(alumni => alumni.name !== 'Unknown' || alumni.email);
+      }));
 
       setAlumni(transformedAlumni);
       setTotalAlumni(count || 0);

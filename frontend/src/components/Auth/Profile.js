@@ -221,10 +221,10 @@ const Profile = () => {
             location: cleanedProfile.location || '',
             headline: cleanedProfile.headline || '',
             about: cleanedProfile.about || '',
-            company: initialCompany, // Use the authoritative company name
-            position: cleanedProfile.position || '',
+            company: cleanedProfile.company_name || initialCompany, // Map to company_name from backend
+            position: cleanedProfile.current_job_title || '', // Map to current_job_title from backend
             experience: cleanedProfile.experience || '',
-            degree: cleanedProfile.degree || '',
+            degree: cleanedProfile.degree_program || '', // Map to degree_program from backend
             department: cleanedProfile.department || '',
             batch: cleanedProfile.batch || '',
             student_id: cleanedProfile.student_id || '',
@@ -327,12 +327,12 @@ const Profile = () => {
         last_name: formData.last_name,
         phone: formData.phone,
         location: formData.location,
-        job_title: formData.position,
+        current_job_title: formData.position, // Map to backend field
         about: formData.about,
-        company: formData.company,
+        company_name: formData.company, // Map to backend field
         headline: formData.headline,
         experience: formData.experience,
-        degree: formData.degree,
+        degree_program: formData.degree, // Map to backend field
         department: formData.department,
         batch: formData.batch,
         student_id: formData.student_id,
@@ -366,12 +366,8 @@ const Profile = () => {
       if (imageFile) {
         console.log('Uploading new avatar...');
         try {
-          const publicUrl = await Promise.race([
-            uploadAvatar(imageFile),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Avatar upload timed out')), 10000)
-            ),
-          ]);
+          // Use the upload function directly without a race condition
+          const publicUrl = await uploadAvatar(imageFile);
 
           console.log('Avatar uploaded successfully:', publicUrl);
           profileUpdates.avatar_url = publicUrl;
@@ -379,17 +375,23 @@ const Profile = () => {
         } catch (error) {
           console.error('Profile picture upload failed:', error);
           toast.error(error.message || 'Failed to upload profile picture');
-          throw error;
+          // Don't throw the error - let the profile save even if avatar upload fails
+          // This way the form submission won't be blocked by avatar issues
         }
       }
 
-      console.log('Updating profile in database...');
-      const { data, error } = await Promise.race([
-        supabase.from('profiles').update(profileUpdates).eq('id', user.id).select().single(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Database update timed out')), 10000)
-        ),
-      ]);
+      // Remove is_profile_complete as it's a generated column in the database
+      // This avoids the error: column "is_profile_complete" can only be updated to DEFAULT
+      delete profileUpdates.is_profile_complete;
+
+      console.log('Updating profile in database with:', JSON.stringify(profileUpdates));
+      // Removed Promise.race to ensure the update completes
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(profileUpdates)
+        .eq('id', user.id)
+        .select()
+        .single();
 
       if (error) {
         console.error('Database update error:', error);
@@ -413,15 +415,13 @@ const Profile = () => {
 
       console.log('Updating auth context...');
       try {
-        await Promise.race([
-          updateProfile(profileUpdates),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Auth context update timed out')), 5000)
-          ),
-        ]);
+        console.log('Calling updateProfile with:', profileUpdates);
+        // Don't race this with a timeout - let it complete normally
+        await updateProfile(profileUpdates);
         console.log('Auth context updated successfully');
       } catch (updateError) {
         console.error('Error updating auth context (non-critical):', updateError);
+        // Continue even if auth context update fails - the database update was successful
       }
 
       toast.success('Profile updated successfully!');
@@ -588,7 +588,7 @@ const Profile = () => {
                 <input
                   type="text"
                   name="first_name"
-                  value={formData.first_name}
+                  value={formData.first_name || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   required
@@ -599,7 +599,7 @@ const Profile = () => {
                 <input
                   type="text"
                   name="last_name"
-                  value={formData.last_name}
+                  value={formData.last_name || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   required
@@ -610,7 +610,7 @@ const Profile = () => {
                 <input
                   type="email"
                   name="email"
-                  value={formData.email}
+                  value={formData.email || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 bg-gray-100 cursor-not-allowed"
                   disabled
@@ -621,7 +621,7 @@ const Profile = () => {
                 <input
                   type="tel"
                   name="phone"
-                  value={formData.phone}
+                  value={formData.phone || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   placeholder="+1 (555) 123-4567"
@@ -632,7 +632,7 @@ const Profile = () => {
                 <input
                   type="text"
                   name="location"
-                  value={formData.location}
+                  value={formData.location || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   placeholder="City, Country"
@@ -655,7 +655,7 @@ const Profile = () => {
               <input
                 type="number"
                 name="batch"
-                value={formData.batch}
+                value={formData.batch || ''}
                 onChange={handleChange}
                 min="1900"
                 max={new Date().getFullYear()}
@@ -667,7 +667,7 @@ const Profile = () => {
               <input
                 type="text"
                 name="degree"
-                value={formData.degree}
+                value={formData.degree || ''}
                 onChange={handleChange}
                 className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                 placeholder="e.g., B.E. in Marine Engineering"
@@ -678,7 +678,7 @@ const Profile = () => {
               <input
                 type="text"
                 name="department"
-                value={formData.department}
+                value={formData.department || ''}
                 onChange={handleChange}
                 className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                 placeholder="e.g., Ship Design and Construction"
@@ -689,7 +689,7 @@ const Profile = () => {
               <input
                 type="text"
                 name="student_id"
-                value={formData.student_id}
+                value={formData.student_id || ''}
                 onChange={handleChange}
                 className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                 placeholder="Enter your student ID for verification (optional)"
@@ -700,7 +700,7 @@ const Profile = () => {
               <label className="block text-sm font-medium text-gray-700">About Me</label>
               <textarea
                 name="about"
-                value={formData.about}
+                value={formData.about || ''}
                 onChange={handleChange}
                 rows={4}
                 className="form-textarea w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
@@ -718,7 +718,7 @@ const Profile = () => {
                 <input
                   type="text"
                   name="company"
-                  value={formData.company}
+                  value={formData.company || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                 />
@@ -728,7 +728,7 @@ const Profile = () => {
                 <input
                   type="text"
                   name="position"
-                  value={formData.position}
+                  value={formData.position || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                 />
@@ -738,7 +738,7 @@ const Profile = () => {
                 <input
                   type="text"
                   name="experience"
-                  value={formData.experience}
+                  value={formData.experience || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   placeholder="e.g., 10+ years in marine engineering"
@@ -749,7 +749,7 @@ const Profile = () => {
                 <input
                   type="text"
                   name="headline"
-                  value={formData.headline}
+                  value={formData.headline || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   placeholder="e.g., Senior Marine Engineer at Ocean Shipping Ltd."
@@ -817,7 +817,7 @@ const Profile = () => {
                 <input
                   type="url"
                   name="socialLinks.linkedin"
-                  value={formData.socialLinks.linkedin}
+                  value={formData.socialLinks?.linkedin || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   placeholder="https://linkedin.com/in/yourname"
@@ -828,7 +828,7 @@ const Profile = () => {
                 <input
                   type="url"
                   name="socialLinks.github"
-                  value={formData.socialLinks.github}
+                  value={formData.socialLinks?.github || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   placeholder="https://github.com/yourname"
@@ -839,7 +839,7 @@ const Profile = () => {
                 <input
                   type="url"
                   name="socialLinks.twitter"
-                  value={formData.socialLinks.twitter}
+                  value={formData.socialLinks?.twitter || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   placeholder="https://twitter.com/yourname"
@@ -850,7 +850,7 @@ const Profile = () => {
                 <input
                   type="url"
                   name="socialLinks.website"
-                  value={formData.socialLinks.website}
+                  value={formData.socialLinks?.website || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   placeholder="https://yourwebsite.com"

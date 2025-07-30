@@ -13,6 +13,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
 import { StarIcon } from '@heroicons/react/24/solid';
+import toast from 'react-hot-toast';
 
 const AchievementCard = ({ achievement }) => (
   <div className="bg-white rounded-lg p-4 border border-gray-200 hover:shadow-md transition-shadow duration-300">
@@ -140,17 +141,54 @@ const AlumniProfile = () => {
   }, [currentUser, alumnus]);
 
   const handleConnect = async () => {
-    if (!currentUser || !alumnus || connectionStatus !== 'idle') return;
-
-    const { error } = await supabase.from('connections').insert([
-      { requester_id: currentUser.id, recipient_id: alumnus.id, status: 'pending' }
-    ]);
-
-    if (error) {
-      console.error('Error sending connection request:', error);
-      alert('Failed to send connection request.');
-    } else {
-      setConnectionStatus('pending');
+    if (!currentUser || !alumnus) return;
+    
+    // If already pending, cancel the request
+    if (connectionStatus === 'pending') {
+      try {
+        // Find the connection request
+        const { data, error: findError } = await supabase
+          .from('connections')
+          .select('id')
+          .eq('requester_id', currentUser.id)
+          .eq('recipient_id', alumnus.id)
+          .eq('status', 'pending')
+          .single();
+        
+        if (findError) {
+          console.error('Error finding connection request:', findError);
+          throw new Error('Could not locate your connection request');
+        }
+        
+        // Delete the connection request
+        const { error: deleteError } = await supabase
+          .from('connections')
+          .delete()
+          .eq('id', data.id);
+          
+        if (deleteError) {
+          console.error('Error cancelling connection request:', deleteError);
+          throw new Error('Failed to cancel connection request');
+        }
+        
+        setConnectionStatus('idle');
+        toast.success('Connection request cancelled successfully');
+      } catch (error) {
+        console.error('Error in connection cancellation:', error);
+        toast.error(error.message || 'Failed to cancel connection request');
+      }
+    } else if (connectionStatus === 'idle') {
+      // Send a new connection request
+      const { error } = await supabase.from('connections').insert([
+        { requester_id: currentUser.id, recipient_id: alumnus.id, status: 'pending' }
+      ]);
+  
+      if (error) {
+        console.error('Error sending connection request:', error);
+        toast.error('Failed to send connection request');
+      } else {
+        setConnectionStatus('pending');
+      }
     }
   };
 
@@ -174,7 +212,7 @@ const AlumniProfile = () => {
       }
     } catch (error) {
       console.error('Error handling message action:', error);
-      alert('There was an error trying to start a conversation. Please try again.');
+      toast.error('There was an error trying to start a conversation. Please try again.');
     }
   };
   
@@ -262,8 +300,8 @@ const AlumniProfile = () => {
         <div className="flex items-center justify-center space-x-2">
           <button 
             onClick={handleConnect}
-            disabled={connectionStatus !== 'idle'}
-            className={`btn-ocean px-4 py-2 rounded-lg flex items-center ${connectionStatus !== 'idle' ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            disabled={connectionStatus === 'accepted' || connectionStatus === 'error'}
+            className={`${connectionStatus === 'pending' ? 'btn-yellow' : 'btn-ocean'} px-4 py-2 rounded-lg flex items-center ${(connectionStatus === 'accepted' || connectionStatus === 'error') ? 'opacity-50 cursor-not-allowed' : ''}`}>
             <UserPlusIcon className="w-4 h-4 mr-2" />
             {connectionStatus === 'pending' ? 'Pending' : connectionStatus === 'accepted' ? 'Connected' : 'Connect'}
           </button>

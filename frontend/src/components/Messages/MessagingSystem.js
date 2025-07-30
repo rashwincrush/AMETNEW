@@ -2,7 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../utils/supabase';
 import ConversationList from './ConversationList';
 import ChatWindow from './ChatWindow';
+import ConnectionManager from './ConnectionManager';
 import { useNotification } from '../../hooks/useNotification';
+import { UserPlusIcon } from '@heroicons/react/24/outline';
 
 const MessagingSystem = () => {
   const { showInfo, showSuccess, showError } = useNotification();
@@ -11,6 +13,8 @@ const MessagingSystem = () => {
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [error, setError] = useState(null);
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
+  const [activeTab, setActiveTab] = useState('conversations');
 
   // Fetch current user
   useEffect(() => {
@@ -57,7 +61,18 @@ const MessagingSystem = () => {
       
       const formattedConversations = await Promise.all(
         data.map(async (conv) => {
-          const otherParticipant = conv.participant_1.id === currentUser.id ? conv.participant_2 : conv.participant_1;
+          const otherUser = conv.participant_1.id === currentUser.id ? conv.participant_2 : conv.participant_1;
+          
+          // Check if a connection exists with status = 'accepted'
+          const { data: connection, error: connectionError } = await supabase
+            .from('connections')
+            .select('status')
+            .or(`requester_id.eq.${currentUser.id},recipient_id.eq.${currentUser.id}`)
+            .eq('recipient_id', otherUser.id)
+            .eq('status', 'accepted')
+            .maybeSingle();
+          
+          const isConnected = connection && connection.status === 'accepted';
           
           const { count, error: countError } = await supabase
             .from('messages')
@@ -76,19 +91,21 @@ const MessagingSystem = () => {
 
           return {
             id: conv.id,
-            name: otherParticipant.full_name || 'Unknown User',
-            avatar: otherParticipant.avatar_url,
+            name: otherUser.full_name || 'Unknown User',
+            avatar: otherUser.avatar_url,
             lastMessageAt: conv.last_message_at,
-            participantId: otherParticipant.id,
-            isOnline: otherParticipant.is_online || false,
+            participantId: otherUser.id,
+            isOnline: otherUser.is_online || false,
             unreadCount: countError ? 0 : count,
             latestMessage: latestMessage ? latestMessage.content : 'No messages yet...',
-            latestMessageSender: latestMessage ? (latestMessage.sender_id === currentUser.id ? 'You' : otherParticipant.full_name) : '',
+            latestMessageSender: latestMessage ? (latestMessage.sender_id === currentUser.id ? 'You' : otherUser.full_name) : '',
+            isConnected: isConnected, // Flag to indicate if users are connected
           };
         })
       );
       
-      setConversations(formattedConversations);
+      // Only keep conversations with active connections
+      setConversations(formattedConversations.filter(c => c.isConnected));
     } catch (err) {
       console.error('Error fetching conversations:', err);
       setError('Failed to load conversations');
@@ -175,7 +192,7 @@ const MessagingSystem = () => {
     markAsRead();
   };
 
-  const handleCreateConversation = async (userId) => {
+  const handleCreateConversation = async (targetUserId) => {
     if (!currentUser) {
       showError('You must be logged in to start a conversation.');
       return;
@@ -183,8 +200,25 @@ const MessagingSystem = () => {
 
     try {
       setLoading(true);
+
+      // Check if a connection exists with status = 'accepted'
+      const { data: connection, error: connectionError } = await supabase
+        .from('connections')
+        .select('status')
+        .or(`requester_id.eq.${currentUser.id},recipient_id.eq.${currentUser.id}`)
+        .eq('recipient_id', targetUserId)
+        .eq('status', 'accepted')
+        .maybeSingle();
+
+      if (connectionError || !connection) {
+        showError('You must connect with this user first before messaging.');
+        setLoading(false);
+        return;
+      }
+
+      // Proceed only if connected
       const { data, error } = await supabase.rpc('get_or_create_conversation', {
-        p_user_id: userId
+        p_user_id: targetUserId
       });
 
       if (error) throw error;
@@ -193,8 +227,8 @@ const MessagingSystem = () => {
       setSelectedConversation(data);
       showSuccess('Conversation started!');
     } catch (err) {
-      console.error('Error creating conversation:', err);
-      showError('Failed to start conversation.');
+      console.error('Error starting conversation:', err);
+      showError('Unable to start conversation.');
     } finally {
       setLoading(false);
     }
@@ -217,13 +251,38 @@ const MessagingSystem = () => {
   return (
     <div className="flex flex-col h-screen bg-gray-50">
       <div className="flex-1 flex overflow-hidden">
-        <ConversationList 
-          conversations={conversations}
-          loading={loading}
-          selectedConversationId={selectedConversation}
-          onSelectConversation={handleSelectConversation}
-          currentUser={currentUser}
-        />
+        <div className="bg-white w-full md:w-1/3 lg:w-1/4 border-r border-gray-200 flex flex-col">
+          {/* Header with Tabs */}
+          <div className="p-4 border-b border-gray-200">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">Messages</h2>
+            <div className="flex border-b">
+              <button 
+                onClick={() => setActiveTab('conversations')}
+                className={`px-4 py-2 text-sm font-medium ${activeTab === 'conversations' ? 'border-b-2 border-ocean-500 text-ocean-600' : 'text-gray-500 hover:text-gray-700'}`}>
+                Conversations
+              </button>
+              <button 
+                onClick={() => setActiveTab('connections')}
+                className={`px-4 py-2 text-sm font-medium ${activeTab === 'connections' ? 'border-b-2 border-ocean-500 text-ocean-600' : 'text-gray-500 hover:text-gray-700'}`}>
+                Connections
+              </button>
+            </div>
+          </div>
+
+          {/* Content based on active tab */}
+          <div className="flex-1 overflow-y-auto">
+            {activeTab === 'conversations' ? (
+              <ConversationList 
+                conversations={conversations}
+                onSelectConversation={handleSelectConversation}
+                selectedConversationId={selectedConversation?.id}
+                currentUser={currentUser}
+              />
+            ) : (
+              <ConnectionManager currentUser={currentUser} />
+            )}
+          </div>
+        </div>
         <ChatWindow 
           conversationId={selectedConversation}
           currentUser={currentUser}

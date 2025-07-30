@@ -81,26 +81,67 @@ export const AuthProvider = ({ children }) => {
 
   const signOut = useCallback(async () => {
     try {
-      const { error } = await supabase.auth.signOut();
+      console.log('Starting complete signout process');
       
-      if (error) {
-        console.error('Error signing out:', error);
-      }
-      
-      // Unsubscribe auth listener
+      // 1. Unsubscribe from auth listener first to prevent callbacks
       if (listenerRef.current) {
         listenerRef.current.unsubscribe();
         listenerRef.current = null;
+        console.log('Auth listener unsubscribed');
       }
+
+      // 2. Clear React state
       setUser(null);
       setProfile(null);
       setSession(null);
+      setPermissionsCache({});
+      console.log('React state cleared');
+      
+      // 3. Manually clear all Supabase-related items from localStorage
+      const supabaseKeys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
+          supabaseKeys.push(key);
+        }
+      }
+      
+      supabaseKeys.forEach(key => {
+        localStorage.removeItem(key);
+        console.log(`Cleared localStorage key: ${key}`);
+      });
+      
+      // 4. Now try the API call (might still fail, but we've cleared local state)
+      try {
+        await supabase.auth.signOut();
+        console.log('Successfully called Supabase signOut API');
+      } catch (supabaseError) {
+        console.error('Supabase signOut API error (continuing anyway):', supabaseError);
+      }
+      
+      // 5. Force a complete page reload to ensure all state is cleared
+      console.log('Forcing complete page reload');
+      setTimeout(() => {
+        localStorage.setItem('force_logout_time', Date.now().toString());
+        window.location.href = '/login';
+      }, 100);
+      
     } catch (error) {
       console.error('Sign out error:', error);
-      // Force logout
+      // Final emergency cleanup
       setUser(null);
       setProfile(null);
       setSession(null);
+      
+      // Clear any possible Supabase storage
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
+          localStorage.removeItem(key);
+        }
+      }
+      
+      window.location.href = '/login';
     }
   }, []);
 

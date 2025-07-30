@@ -204,15 +204,19 @@ const EnhancedRegister = () => {
         formData.email,
         formData.password,
         {
-          // Metadata for the auth.users table - using standardized 'role' key only
-          full_name: `${formData.firstName} ${formData.lastName}`.trim(),
+          // Metadata for the auth.users table - using standardized keys
+          first_name: formData.firstName.trim(),
+          last_name: formData.lastName.trim(),
           role: formData.primaryRole, // This will be used by the DB trigger to set profile.role
+          account_type: formData.primaryRole, // Adding account_type for consistency
         }
       );
       
       console.log('Registration metadata sent:', {
         role: formData.primaryRole,
-        fullName: `${formData.firstName} ${formData.lastName}`.trim()
+        account_type: formData.primaryRole,
+        first_name: formData.firstName.trim(),
+        last_name: formData.lastName.trim()
       });
 
       if (signUpError) {
@@ -231,7 +235,8 @@ const EnhancedRegister = () => {
         // Insert the detailed profile into the 'profiles' table with employer data directly embedded
         const profileData = {
           id: authData.user.id, // Links profile to the auth user
-          full_name: `${formData.firstName} ${formData.lastName}`.trim(),
+          first_name: formData.firstName.trim(),
+          last_name: formData.lastName.trim(),
           email: formData.email,
           phone: formData.phone.trim() || null,
           // role field removed - will be set by DB trigger from auth metadata

@@ -18,6 +18,7 @@ import {
   DocumentTextIcon
 } from '@heroicons/react/24/outline';
 import { CheckBadgeIcon } from '@heroicons/react/24/solid';
+import { CircularProgress } from '@mui/material';
 import { supabase, useRealtime } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -289,7 +290,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
 
 // Main JobListingsPage component
 const JobListingsPage = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading, userRole } = useAuth();
   const location = useLocation();
   const notification = useNotification();
   const [viewMode, setViewMode] = useState('grid');
@@ -543,6 +544,16 @@ const JobListingsPage = () => {
     setCurrentPage(pageNumber);
   };
 
+  const canPostJob = ['employer', 'admin', 'super_admin'].includes(userRole);
+
+  if (authLoading) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <CircularProgress />
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 bg-gray-50 min-h-screen">
       {/* Header */}
@@ -563,10 +574,12 @@ const JobListingsPage = () => {
             <BellIcon className="w-4 h-4 mr-2" />
             My Job Alerts
           </Link>
-          <Link to="/jobs/post" className="btn-primary text-sm">
-            <PlusIcon className="w-4 h-4 mr-2" />
-            Post a Job
-          </Link>
+          {canPostJob && (
+            <Link to="/jobs/post" className="btn-primary text-sm">
+              <PlusIcon className="w-4 h-4 mr-2" />
+              Post a Job
+            </Link>
+          )}
         </div>
       </div>
 
