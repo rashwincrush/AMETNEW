@@ -81,6 +81,7 @@ const ConnectionManager = ({ currentUser }) => {
   };
 
   const handleCancel = async (requestId) => {
+    // eslint-disable-next-line no-restricted-globals
     if (!confirm('Are you sure you want to cancel this connection request?')) return;
 
     try {

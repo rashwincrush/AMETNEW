@@ -29,6 +29,7 @@ const UserManagement = () => {
   const [loading, setLoading] = useState(true);
   const [selectedTab, setSelectedTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [editingUser, setEditingUser] = useState(null);
   const [filters, setFilters] = useState({
     role: 'all',
     alumni_verification_status: 'all',
