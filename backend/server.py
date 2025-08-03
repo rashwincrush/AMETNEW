@@ -6,8 +6,8 @@ import logging
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 
-from .dependencies import get_current_user, supabase, supabase_admin, SUPABASE_URL
-from .routers import groups
+from dependencies import get_current_user, supabase, supabase_admin, SUPABASE_URL
+from routers import groups
 
 # Create the main app
 app = FastAPI(title="AMET Alumni Portal API", version="1.0.0")

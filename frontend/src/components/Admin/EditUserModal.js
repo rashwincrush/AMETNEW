@@ -4,69 +4,40 @@ import { XMarkIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
 
 const EditUserModal = ({ user, isOpen, onClose, onSave }) => {
-  const [formData, setFormData] = useState({});
+  const [selectedRole, setSelectedRole] = useState('');
+
+  const ALL_ROLES = [
+    { name: 'alumni', description: 'Alumni' },
+    { name: 'mentor', description: 'Mentor' },
+    { name: 'employer', description: 'Employer' },
+    { name: 'student', description: 'Mentee/Student' },
+    { name: 'admin', description: 'Admin' },
+  ];
 
   useEffect(() => {
-    if (user) {
-      setFormData({
-        // Exclude full_name since it's a generated column
-        location: user.location || '',
-        current_position: user.current_position || '',
-        is_admin: user.is_admin || false,
-        is_mentor: user.is_mentor || false,
-        is_employer: user.is_employer || false,
-        alumni_verification_status: user.alumni_verification_status || 'pending',
-      });
+    // When the modal opens, reset the selected role.
+    if (isOpen) {
+      setSelectedRole('');
     }
-  }, [user]);
+  }, [isOpen]);
 
   if (!user) return null;
 
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+  const handleRoleChange = (e) => {
+    setSelectedRole(e.target.value);
   };
 
-  const handleSave = async () => {
-    try {
-      // Extract role flags
-      const { is_admin, is_employer, is_mentor } = formData;
-      
-      // Determine the role based on checkboxes
-      let role = 'alumni'; // Default
-      if (is_admin) role = 'admin';
-      else if (is_employer) role = 'employer';
-      else if (is_mentor) role = 'mentor';
-      
-      // Call our safe role update function
-      const { data: roleResult, error: roleError } = await supabase
-        .rpc('update_user_role', {
-          user_id: user.id,
-          new_role: role
-        });
-        
-      if (roleError) throw roleError;
-      
-      // Update other fields (excluding full_name and role flags)
-      const updateData = {
-        location: formData.location,
-        current_position: formData.current_position,
-        alumni_verification_status: formData.alumni_verification_status
-      };
-      
-      // Pass the safe data to the parent component's handler
-      onSave(user.id, {
-        ...updateData,
-        is_admin, 
-        is_employer, 
-        is_mentor,
-        role
-      });
-    } catch (error) {
-      console.error('Error updating user:', error);
-      alert(`Failed to update user: ${error.message}`);
+  const handleSave = () => {
+    if (!selectedRole) {
+      alert('Please select a new role.');
+      return;
     }
+    onSave(user.id, selectedRole);
+    onClose();
   };
+
+  // Filter out the user's current role from the list of options
+  const availableRoles = ALL_ROLES.filter(r => r.name !== user.role);
 
   return (
     <Transition appear show={isOpen} as={React.Fragment}>
@@ -79,41 +50,36 @@ const EditUserModal = ({ user, isOpen, onClose, onSave }) => {
             <Transition.Child as={React.Fragment} enter="ease-out duration-300" enterFrom="opacity-0 scale-95" enterTo="opacity-100 scale-100" leave="ease-in duration-200" leaveFrom="opacity-100 scale-100" leaveTo="opacity-0 scale-95">
               <Dialog.Panel className="w-full max-w-lg transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
                 <Dialog.Title as="h3" className="text-lg font-medium leading-6 text-gray-900 flex justify-between items-center">
-                  <span>Edit User: {user.full_name}</span>
+                  <span>Edit Role for: {user.full_name}</span>
                   <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><XMarkIcon className="h-6 w-6" /></button>
                 </Dialog.Title>
                 <div className="mt-4 space-y-4">
-                  <div>
-                    <label htmlFor="full_name" className="block text-sm font-medium text-gray-700">Full Name</label>
-                    <input type="text" name="full_name" id="full_name" value={user.full_name || ''} disabled className="mt-1 block w-full rounded-md bg-gray-100 border-gray-300 shadow-sm text-gray-500 sm:text-sm" />
-                    <p className="text-xs text-gray-500 mt-1">Full name cannot be edited directly. Update first and last name instead.</p>
-                  </div>
-                  <div>
-                    <label htmlFor="location" className="block text-sm font-medium text-gray-700">Location</label>
-                    <input type="text" name="location" id="location" value={formData.location} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
-                  </div>
-                  <div>
-                    <label htmlFor="current_position" className="block text-sm font-medium text-gray-700">Current Position</label>
-                    <input type="text" name="current_position" id="current_position" value={formData.current_position} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" />
-                  </div>
-                  <div>
-                    <label htmlFor="alumni_verification_status" className="block text-sm font-medium text-gray-700">Verification Status</label>
-                    <select id="alumni_verification_status" name="alumni_verification_status" value={formData.alumni_verification_status} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                      <option>pending</option>
-                      <option>verified</option>
-                      <option>rejected</option>
-                    </select>
-                  </div>
+                  <p className="text-sm text-gray-500">Current Role: <span className="font-semibold text-gray-800">{user.role}</span></p>
                   <div className="space-y-2 pt-2">
-                    <p className="text-sm font-medium text-gray-700">Roles</p>
-                    <div className="flex items-center"><input id="is_admin" name="is_admin" type="checkbox" checked={formData.is_admin} onChange={handleChange} className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" /><label htmlFor="is_admin" className="ml-2 block text-sm text-gray-900">Admin</label></div>
-                    <div className="flex items-center"><input id="is_mentor" name="is_mentor" type="checkbox" checked={formData.is_mentor} onChange={handleChange} className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" /><label htmlFor="is_mentor" className="ml-2 block text-sm text-gray-900">Mentor</label></div>
-                    <div className="flex items-center"><input id="is_employer" name="is_employer" type="checkbox" checked={formData.is_employer} onChange={handleChange} className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" /><label htmlFor="is_employer" className="ml-2 block text-sm text-gray-900">Employer</label></div>
+                    <p className="text-sm font-medium text-gray-700">Assign New Role</p>
+                    <div className="space-y-2">
+                      {availableRoles.map(role => (
+                        <div key={role.name} className="flex items-center">
+                          <input 
+                            id={role.name} 
+                            name="role" 
+                            type="radio" 
+                            value={role.name}
+                            checked={selectedRole === role.name}
+                            onChange={handleRoleChange} 
+                            className="h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-500" 
+                          />
+                          <label htmlFor={role.name} className="ml-3 block text-sm font-medium text-gray-700">
+                            {role.description}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
                 <div className="mt-6 flex justify-end space-x-3">
                   <button type="button" className="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50" onClick={onClose}>Cancel</button>
-                  <button type="button" className="inline-flex justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700" onClick={handleSave}>Save Changes</button>
+                  <button type="button" className="inline-flex justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:bg-indigo-400" onClick={handleSave} disabled={!selectedRole}>Save Changes</button>
                 </div>
               </Dialog.Panel>
             </Transition.Child>

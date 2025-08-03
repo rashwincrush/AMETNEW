@@ -2,10 +2,9 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
-const ProtectedRoute = ({ children, allowedRoles }) => {
-  const { isAuthenticated, getUserRole, loading } = useAuth();
+const ProtectedRoute = ({ children, requiredPermission }) => {
+  const { isAuthenticated, hasPermission, loading } = useAuth();
   const location = useLocation();
-  const userRole = getUserRole();
 
   if (loading) {
     return (
@@ -24,8 +23,9 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(userRole)) {
-    return <Navigate to="/dashboard" state={{ from: location, error: 'unauthorized' }} replace />;
+  if (requiredPermission && !hasPermission(requiredPermission)) {
+    // Redirect to the dedicated 'access-denied' page
+    return <Navigate to="/access-denied" state={{ from: location.pathname }} replace />;
   }
 
   return children;

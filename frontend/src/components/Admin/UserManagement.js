@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { 
   UsersIcon,
@@ -23,13 +24,15 @@ import {
 import toast from 'react-hot-toast';
 import UserDetailsModal from './UserDetailsModal';
 import EditUserModal from './EditUserModal';
+import RejectUserModal from './RejectUserModal';
 
 const UserManagement = () => {
+  const { hasPermission } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTab, setSelectedTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [editingUser, setEditingUser] = useState(null);
+
   const [filters, setFilters] = useState({
     role: 'all',
     alumni_verification_status: 'all',
@@ -38,6 +41,7 @@ const UserManagement = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -87,7 +91,7 @@ const UserManagement = () => {
 
   const getStatusBadge = (status) => {
     switch (status) {
-      case 'verified':
+      case 'approved':
         return 'bg-green-100 text-green-800';
       case 'pending':
         return 'bg-yellow-100 text-yellow-800';
@@ -98,18 +102,36 @@ const UserManagement = () => {
     }
   };
 
-  const getRoleBadge = (user) => {
-    if (user.is_admin) return 'bg-purple-100 text-purple-800';
-    if (user.is_mentor) return 'bg-blue-100 text-blue-800';
-    if (user.is_employer) return 'bg-indigo-100 text-indigo-800';
-    return 'bg-gray-100 text-gray-800';
+  // Role mapping utility functions
+  const ROLE_MAPPINGS = {
+    'alumni': 'Alumni',
+    'mentor': 'Mentor',
+    'employer': 'Employer',
+    'mentee_student': 'Mentee/Student',
+    'student': 'Mentee/Student',
+    'admin': 'Admin',
+    'super_admin': 'Super Admin'
   };
   
-  const getRoleName = (user) => {
-    if (user.is_admin) return 'Admin';
-    if (user.is_mentor) return 'Mentor';
-    if (user.is_employer) return 'Employer';
-    return 'Alumni';
+  const getRoleBadge = (role) => {
+    switch (role) {
+      case 'admin':
+      case 'super_admin':
+        return 'bg-purple-100 text-purple-800';
+      case 'mentor':
+        return 'bg-blue-100 text-blue-800';
+      case 'employer':
+        return 'bg-indigo-100 text-indigo-800';
+      case 'mentee_student':
+      case 'student':
+        return 'bg-green-100 text-green-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+  
+  const getRoleLabel = (role) => {
+    return ROLE_MAPPINGS[role] || 'Unknown';
   };
 
   const tabs = [
@@ -132,87 +154,73 @@ const UserManagement = () => {
         setSelectedUser(user);
         setIsEditModalOpen(true);
         break;
+      case 'reject':
+        if (user.alumni_verification_status === 'rejected') return;
+        setSelectedUser(user);
+        setIsRejectModalOpen(true);
+        break;
       case 'approve':
-        if (user.alumni_verification_status !== 'pending') return;
+        if (user.alumni_verification_status === 'approved') return;
         try {
           const { error } = await supabase
             .from('profiles')
-            .update({ alumni_verification_status: 'verified' })
+            .update({ 
+              alumni_verification_status: 'approved',
+              rejection_reason: null  // Clear any previous rejection reason
+            })
             .eq('id', userId);
           if (error) throw error;
-          setUsers(currentUsers => currentUsers.map(u => u.id === userId ? { ...u, alumni_verification_status: 'verified' } : u));
-          toast.success(`${user.full_name || user.email} has been verified.`);
+          setUsers(currentUsers => currentUsers.map(u => u.id === userId ? { 
+            ...u, 
+            alumni_verification_status: 'approved',
+            rejection_reason: null 
+          } : u));
+          toast.success(`${user.full_name || user.email} has been approved.`);
         } catch (error) {
-          toast.error(`Failed to verify user: ${error.message}`);
+          toast.error(`Failed to approve user: ${error.message}`);
         }
         break;
-      case 'reject': {
-        if (user.alumni_verification_status !== 'pending') return;
-        const reason = prompt(`Provide a reason for rejecting ${user.full_name || user.email}:`);
-        if (reason) {
+      case 'delete':
+        if (window.confirm(`Are you sure you want to permanently delete user ${user.email || user.id}?`)) {
           try {
             const { error } = await supabase
               .from('profiles')
-              .update({ alumni_verification_status: 'rejected' })
+              .delete()
               .eq('id', userId);
             if (error) throw error;
-            setUsers(currentUsers => currentUsers.map(u => u.id === userId ? { ...u, alumni_verification_status: 'rejected' } : u));
-            toast.success(`${user.full_name || user.email} has been rejected.`);
-          } catch (error) {
-            toast.error(`Failed to reject user: ${error.message}`);
+            toast.success(`User has been permanently deleted`);
+            fetchUsers(); // Refresh the list
+          } catch (err) {
+            console.error('Error deleting user:', err);
+            toast.error(`Failed to delete user: ${err.message}`);
           }
         }
         break;
-      }
-      case 'delete': {
-        if (window.confirm(`Are you sure you want to delete ${user.full_name || user.email}? This action is irreversible.`)) {
-          toast.error('User deletion from the client is not secure. This requires a backend function.');
-          console.log(`Attempted to delete user: ${userId}`);
-        }
-        break;
-      }
       default: {
         toast.error(`Unknown action: ${action}`);
       }
     }
   };
 
-  const handleSaveUser = async (userId, updatedData) => {
+  const handleSaveUser = async (userId, newRole) => {
     try {
-      // First, update the role if it has changed.
-      if (updatedData.role) {
-        const { error: rpcError } = await supabase.rpc('update_user_role', {
-          user_id: userId,
-          new_role: updatedData.role,
-        });
+      const { error } = await supabase.rpc('update_user_role', {
+        user_id: userId,
+        new_role: newRole,
+      });
 
-        if (rpcError) {
-          throw new Error(`Role update failed: ${rpcError.message}`);
-        }
+      if (error) {
+        throw error;
       }
 
-      // Then, update any other fields, excluding role and generated columns.
-      const { full_name, role, ...otherData } = updatedData;
-      if (Object.keys(otherData).length > 0) {
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update(otherData)
-          .eq('id', userId);
-
-        if (updateError) {
-          throw new Error(`Profile update failed: ${updateError.message}`);
-        }
-      }
-
-      // If all successful, update UI and show success toast.
-      setUsers(users.map((user) => (user.id === userId ? { ...user, ...updatedData } : user)));
-      toast.success('User profile updated successfully!');
-      setEditingUser(null); // Exit editing mode
+      toast.success('User role updated successfully!');
+      fetchUsers(); // Refresh the user list
+      setIsEditModalOpen(false);
+      setSelectedUser(null);
 
     } catch (error) {
-      toast.error(`Update failed: ${error.message}`);
-      // On failure, refresh data from server to ensure UI consistency.
-      fetchUsers();
+      console.error('Error updating user role:', error);
+      toast.error(`Failed to update user role: ${error.message}`);
     }
   };
 
@@ -232,6 +240,40 @@ const UserManagement = () => {
       setSelectedUsers([]);
     } else {
       setSelectedUsers(filteredUsers.map(user => user.id));
+    }
+  };
+
+  const handleRejectUser = async (userId, rejectionComment) => {
+    try {
+      // Update both status and rejection reason fields
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({
+          alumni_verification_status: 'rejected',
+          rejection_reason: rejectionComment // Store rejection reason in the database
+        })
+        .eq('id', userId);
+        
+      if (error) throw error;
+      
+      // Remove any stored rejection comments from localStorage if they exist
+      // This is to clean up any legacy localStorage items
+      try {
+        const rejectionComments = JSON.parse(localStorage.getItem('rejectionComments') || '{}');
+        if (rejectionComments[userId]) {
+          delete rejectionComments[userId];
+          localStorage.setItem('rejectionComments', JSON.stringify(rejectionComments));
+        }
+      } catch (e) {
+        console.log('Error cleaning localStorage:', e);
+      }
+      
+      toast.success('User has been rejected');
+      setIsRejectModalOpen(false);
+      fetchUsers(); // Refresh the list
+    } catch (err) {
+      console.error('Error rejecting user:', err);
+      toast.error(`Failed to reject user: ${err.message}`);
     }
   };
 
@@ -317,7 +359,7 @@ const UserManagement = () => {
                 onChange={e => setFilters({...filters, alumni_verification_status: e.target.value})}
               >
                 <option value="all">All Statuses</option>
-                <option value="verified">Verified</option>
+                <option value="approved">Approved</option>
                 <option value="pending">Pending</option>
                 <option value="rejected">Rejected</option>
               </select>
@@ -417,8 +459,8 @@ const UserManagement = () => {
                       </div>
                     </td>
                     <td className="py-4 px-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRoleBadge(user)}`}>
-                        {getRoleName(user)}
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleBadge(user.role)}`}>
+                        {getRoleLabel(user.role)}
                       </span>
                     </td>
                     <td className="py-4 px-4">
@@ -453,31 +495,35 @@ const UserManagement = () => {
                         >
                           <PencilIcon className="w-4 h-4" />
                         </button>
-                        {user.alumni_verification_status === 'pending' && (
+                        {hasPermission('manage:users') && (
                           <>
                             <button 
-                              title="Approve User"
+                              title={user.alumni_verification_status === 'approved' ? 'Already approved' : 'Approve User'}
+                              disabled={user.alumni_verification_status === 'approved'}
                               onClick={() => handleUserAction('approve', user.id)}
-                              className="p-1 text-gray-400 hover:text-green-600"
+                              className={`p-1 ${user.alumni_verification_status === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600'}`}
                             >
                               <CheckCircleIcon className="w-4 h-4" />
                             </button>
                             <button 
-                              title="Reject User"
+                              title={user.alumni_verification_status === 'rejected' ? 'Already rejected' : 'Reject User'}
+                              disabled={user.alumni_verification_status === 'rejected'}
                               onClick={() => handleUserAction('reject', user.id)}
-                              className="p-1 text-gray-400 hover:text-red-600"
+                              className={`p-1 ${user.alumni_verification_status === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600'}`}
                             >
                               <XCircleIcon className="w-4 h-4" />
                             </button>
                           </>
                         )}
-                        <button 
-                          title="Delete User"
-                          onClick={() => handleUserAction('delete', user.id)}
-                          className="p-1 text-gray-400 hover:text-red-600"
-                        >
-                          <TrashIcon className="w-4 h-4" />
-                        </button>
+                        {hasPermission('delete:users') && (
+                          <button 
+                            title="Delete User"
+                            onClick={() => handleUserAction('delete', user.id)}
+                            className="p-1 text-gray-400 hover:text-red-600"
+                          >
+                            <TrashIcon className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -521,6 +567,13 @@ const UserManagement = () => {
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         onSave={handleSaveUser}
+      />
+      
+      <RejectUserModal 
+        user={selectedUser}
+        isOpen={isRejectModalOpen}
+        onClose={() => setIsRejectModalOpen(false)}
+        onReject={handleRejectUser}
       />
     </div>
   );

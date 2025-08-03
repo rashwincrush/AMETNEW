@@ -11,45 +11,90 @@ export const useAuth = () => {
   return context;
 };
 
+// Define permissions for each role
+const PERMISSIONS = {
+  alumni: [
+    // Dashboard, Alumni Directory, Job Portal (View), Events, Mentorship, Groups, Messages, Profile Settings
+    'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
+    'request:mentorship', 'become:mentor', 'access:groups', 'message:users',
+    'access:profile_settings'
+  ],
+  mentor: [
+    // Mentor has all Alumni permissions plus mentorship management
+    'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
+    'request:mentorship', 'become:mentor', 'access:groups', 'message:users',
+    'access:profile_settings',
+    // Additional mentor-specific permissions
+    'manage:mentor_profile', 'manage:mentee_requests', 'chat:mentees', 'manage:mentoring_slots'
+  ],
+  employer: [
+    // Dashboard, Alumni Directory, Job Portal (View & Post), Events, Groups, Messages, Profile Settings
+    'access:dashboard', 'view:alumni_directory', 'view:jobs', 'post:jobs',
+    'access:events', 'access:groups', 'message:users', 'access:profile_settings',
+    // Additional employer-specific permissions
+    'manage:job_applications', 'manage:job_alerts'
+  ],
+  student: [
+    // Dashboard, Alumni Directory, Mentorship (request only), Messages (with mentors), Profile Settings
+    'access:dashboard', 'view:alumni_directory', 'request:mentorship',
+    'message:assigned_mentor', 'access:profile_settings'
+  ],
+  admin: ['access:all', 'manage:users', 'delete:users'],
+  super_admin: ['access:all', 'manage:users', 'delete:users'],
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState(null);
-  const [permissionsCache, setPermissionsCache] = useState({});
+  const [rejectionStatus, setRejectionStatus] = useState({ isRejected: false, reason: null });
   const listenerRef = useRef(null);
-
-  // Track initialization state with ref to prevent duplicate inits
   const initializedRef = useRef(false);
 
-  // Helper to get user role - defined early to avoid temporal dead zone issues
   const getUserRole = useCallback(() => {
-    if (!profile && !user) return 'alumni';
+    return profile?.role || 'student'; // Default to 'student' if no role is found
+  }, [profile]);
+
+  const userRole = getUserRole();
+
+  const hasPermission = useCallback((permission) => {
+    const userPermissions = PERMISSIONS[userRole] || [];
+    if (userPermissions.includes('access:all')) return true;
+    return userPermissions.includes(permission);
+  }, [userRole]);
+
+  const hasAnyPermission = useCallback((permissions) => {
+    const userPermissions = PERMISSIONS[userRole] || [];
+    if (userPermissions.includes('access:all')) return true;
+    return permissions.some(p => userPermissions.includes(p));
+  }, [userRole]);
+
+  const hasAllPermissions = useCallback((permissions) => {
+    const userPermissions = PERMISSIONS[userRole] || [];
+    if (userPermissions.includes('access:all')) return true;
+    return permissions.every(p => userPermissions.includes(p));
+  }, [userRole]);
+
+  // Check if user is rejected and should be blocked
+  const checkUserRejectionStatus = useCallback((profileData) => {
+    if (!profileData) return false;
     
-    // Check profile role first
-    if (profile?.role) {
-      // Explicit role checks
-      if (profile.role === 'super_admin') return 'super_admin';
-      if (profile.role === 'admin') return 'admin';
-      if (profile.role === 'moderator') return 'moderator';
-      if (profile.role === 'employer') return 'employer';
-      if (profile.role) return profile.role;
+    // Check for rejection condition: alumni_verification_status === 'rejected'
+    const isRejected = profileData.alumni_verification_status === 'rejected';
+    
+    if (isRejected) {
+      console.log('User account is rejected');
+      
+      // Don't store rejection reason in localStorage, it will be fetched from Supabase in RejectionPage
+      
+      // Update rejection status state
+      setRejectionStatus({ isRejected: true });
+      return true;
     }
     
-    // Fallbacks if no profile role
-    // Check if admin based on email domain and is_admin flag
-    if (profile?.email?.includes('@amet.ac.in') && profile?.is_admin) {
-      return 'admin';
-    }
-    
-    // Check if employer based on is_employer flag
-    if (profile?.is_employer) {
-      return 'employer';
-    }
-    
-    // Final fallback to user metadata or default
-    return user?.user_metadata?.role || 'alumni';
-  }, [profile, user]);
+    return false;
+  }, []);
 
   const fetchUserProfile = useCallback(async (userId) => {
     console.log(`Fetching profile for userId: ${userId}`);
@@ -67,6 +112,14 @@ export const AuthProvider = ({ children }) => {
         .eq('id', userId)
         .single()
         .throwOnError();
+
+      // Check if user is rejected. If so, stop here.
+      if (checkUserRejectionStatus(profileData)) {
+        // The checkUserRejectionStatus function already set the rejection state.
+        // We must not set the profile for a rejected user.
+        setLoading(false);
+        return null; // Stop the auth flow for this user
+      }
 
       setProfile(profileData);
       return profileData;
@@ -94,7 +147,6 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       setProfile(null);
       setSession(null);
-      setPermissionsCache({});
       console.log('React state cleared');
       
       // 3. Manually clear all Supabase-related items from localStorage
@@ -220,77 +272,14 @@ export const AuthProvider = ({ children }) => {
     }
   }, [user, fetchUserProfile]);
 
-  // Permission checking functions - IMPORTANT: do not include getUserRole in dependency arrays
-  const hasPermission = useCallback(async (permissionName) => {
-    if (!user) return false;
-    
-    // For super_admin, always return true
-    if (getUserRole() === 'super_admin') return true;
-    
-    // Check cache first
-    if (permissionsCache[permissionName] !== undefined) {
-      return permissionsCache[permissionName];
-    }
-    
-    try {
-      const { data, error } = await supabase.rpc(
-        'has_permission',
-        { user_id: user.id, permission_name: permissionName }
-      );
-      
-      if (error) {
-        console.error('Error checking permission:', error);
-        return false;
+  // Handle automatic redirect for rejected users
+  useEffect(() => {
+    if (rejectionStatus.isRejected) {
+      if (window.location.pathname !== '/rejection') {
+        window.location.href = '/rejection';
       }
-      
-      // Cache the result
-      setPermissionsCache(prev => ({
-        ...prev,
-        [permissionName]: !!data
-      }));
-      
-      return !!data;
-    } catch (error) {
-      console.error('Permission check failed:', error);
-      return false;
     }
-  }, [user, permissionsCache, profile]); // Depend on profile instead of getUserRole
-  
-  const hasAnyPermission = useCallback(async (permissions) => {
-    if (!user || !permissions || !permissions.length) return false;
-    
-    // For super_admin, always return true
-    if (getUserRole() === 'super_admin') return true;
-    
-    try {
-      const results = await Promise.all(
-        permissions.map(permission => hasPermission(permission))
-      );
-      
-      return results.some(result => result === true);
-    } catch (error) {
-      console.error('Permission check failed:', error);
-      return false;
-    }
-  }, [user, hasPermission, profile]); // Depend on profile instead of getUserRole
-  
-  const hasAllPermissions = useCallback(async (permissions) => {
-    if (!user || !permissions || !permissions.length) return false;
-    
-    // For super_admin, always return true
-    if (getUserRole() === 'super_admin') return true;
-    
-    try {
-      const results = await Promise.all(
-        permissions.map(permission => hasPermission(permission))
-      );
-      
-      return results.every(result => result === true);
-    } catch (error) {
-      console.error('Permission check failed:', error);
-      return false;
-    }
-  }, [user, hasPermission, profile]); // Depend on profile instead of getUserRole
+  }, [rejectionStatus.isRejected]);
 
   useEffect(() => {
     console.log('AuthProvider useEffect started.');
@@ -393,7 +382,6 @@ export const AuthProvider = ({ children }) => {
     };
   }, [profile?.id, fetchUserProfile]); // Only re-run if profile ID changes
 
-  const userRole = getUserRole();
   const isAdmin = userRole === 'admin' || userRole === 'super_admin';
 
   const value = {
@@ -410,7 +398,8 @@ export const AuthProvider = ({ children }) => {
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
-    getUserRole
+    getUserRole,
+    rejectionStatus
   };
 
   return (

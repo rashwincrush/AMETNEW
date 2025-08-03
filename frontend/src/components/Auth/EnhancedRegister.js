@@ -58,35 +58,13 @@ const EnhancedRegister = () => {
   ];
 
   useEffect(() => {
-    const fetchRoles = async () => {
-      setIsLoading(true);
-      try {
-        const { data, error: fetchError } = await supabase
-          .from('roles')
-          .select('name, description')
-          .in('name', ['alumni', 'student', 'employer', 'user']); // Whitelist only safe, user-selectable roles
-
-        if (fetchError) throw fetchError;
-        setRoles(data && data.length > 0 ? data : [
-          { name: 'alumni', description: 'AMET Alumni' },
-          { name: 'student', description: 'Current AMET Student' },
-          { name: 'employer', description: 'Employer / Recruiter' },
-          { name: 'user', description: 'General User / Guest' },
-        ]);
-      } catch (err) {
-        console.error('Error fetching roles:', err.message);
-        setError('Could not load roles. Using default roles.');
-        setRoles([
-          { name: 'alumni', description: 'AMET Alumni' },
-          { name: 'student', description: 'Current AMET Student' },
-          { name: 'employer', description: 'Employer / Recruiter' },
-          { name: 'user', description: 'General User / Guest' },
-        ]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchRoles();
+    // Set the roles to the fixed list as per requirements.
+    setRoles([
+      { name: 'alumni', description: 'Alumni' },
+      { name: 'mentor', description: 'Mentor' },
+      { name: 'employer', description: 'Employer' },
+      { name: 'student', description: 'Mentee/Student' },
+    ]);
   }, []);
 
   const handleChange = (e) => {

@@ -21,48 +21,27 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const Navigation = () => {
   const location = useLocation();
-    const { signOut, getUserRole, profile } = useAuth();
+  const { signOut, getUserRole, profile, hasPermission } = useAuth();
 
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/');
 
-  const alumniMenuItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: HomeIcon },
-    { path: '/directory', label: 'Alumni Directory', icon: UsersIcon },
-    { path: '/events', label: 'Events', icon: CalendarIcon },
-    { path: '/jobs', label: 'Job Portal', icon: BriefcaseIcon },
-    { path: '/mentorship', label: 'Mentorship', icon: AcademicCapIcon },
-    { path: '/groups', label: 'Groups', icon: UserGroupIcon },
-    { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon },
+  // Define all possible menu items with their required permissions
+  const allMenuItems = [
+    { path: '/dashboard', label: 'Dashboard', icon: HomeIcon, permission: 'access:dashboard' },
+    { path: '/directory', label: 'Alumni Directory', icon: UsersIcon, permission: 'view:alumni_directory' },
+    { path: '/events', label: 'Events', icon: CalendarIcon, permission: 'access:events' },
+    { path: '/jobs', label: 'Job Portal', icon: BriefcaseIcon, permission: 'view:jobs' },
+    { path: '/mentorship', label: 'Mentorship', icon: AcademicCapIcon, permission: 'request:mentorship' },
+    { path: '/groups', label: 'Groups', icon: UserGroupIcon, permission: 'access:groups' },
+    { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon, permission: 'message:users' },
+    // Admin Settings is the only admin entry in the sidebar
+    // All other admin pages are accessible through Admin Settings
   ];
 
-  const adminMenuItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: HomeIcon },
-    { path: '/directory', label: 'Alumni Directory', icon: UsersIcon },
-    { path: '/events', label: 'Events', icon: CalendarIcon },
-    { path: '/jobs', label: 'Job Portal', icon: BriefcaseIcon },
-    { path: '/mentorship', label: 'Mentorship', icon: AcademicCapIcon },
-    { path: '/groups', label: 'Groups', icon: UserGroupIcon },
-    { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon },
-    { path: '/admin/approvals', label: 'User Approvals', icon: CogIcon },
-    { path: '/admin/analytics', label: 'Analytics', icon: ChartBarIcon },
-    { path: '/admin/users', label: 'User Management', icon: BuildingOfficeIcon },
-    { path: '/admin/csv', label: 'CSV Import/Export', icon: ArrowUpTrayIcon },
-  ];
-
-  const employerMenuItems = [
-    { path: '/jobs', label: 'Job Portal', icon: BriefcaseIcon },
-  ];
-
-    const getMenuItems = () => {
-        const role = profile?.role || 'alumni';
-    switch (role) {
-      case 'admin':
-        return adminMenuItems;
-      case 'employer':
-        return employerMenuItems;
-      default:
-        return alumniMenuItems;
-    }
+  // Filter menu items based on user's permissions
+  const getMenuItems = () => {
+    // Filter menu items that the user has permission to access
+    return allMenuItems.filter(item => hasPermission(item.permission));
   };
 
   const handleLogout = async () => {
@@ -120,8 +99,8 @@ const Navigation = () => {
           Profile Settings
         </Link>
         
-        {/* Admin Settings Link - Only visible to admins and super_admins */}
-                {profile && (profile.role === 'admin' || profile.role === 'super_admin') && (
+        {/* Admin Settings Link - Only visible to users with access:all permission */}
+                {hasPermission && hasPermission('access:all') && (
           <Link
             to="/admin/settings"
             className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-ocean-50 hover:text-ocean-700 transition-all duration-200 mb-2"
