@@ -344,6 +344,10 @@ const JobListingsPage = () => {
 
 
     // Call appropriate RPC based on user role
+    // Note: The backend SQL functions will handle filtering by is_approved:
+    // - Regular users will only see jobs where is_approved = true
+    // - Admin users will see all jobs
+    // - Employers will see their own posted jobs regardless of approval status
     let rpcName = isEmployer ? 'get_my_posted_jobs' : 'get_jobs_with_bookmarks';
     const { data, error } = await supabase.rpc(rpcName, {
       p_search_query: searchQuery,

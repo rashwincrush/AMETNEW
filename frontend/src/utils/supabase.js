@@ -598,7 +598,8 @@ export const fetchGroups = async (options = {}) => {
     tags = [],
     sortBy = 'created_at',
     sortOrder = 'desc',
-    limit = 100
+    limit = 100,
+    isAdmin = false
   } = options;
   
   let query = supabase
@@ -607,6 +608,11 @@ export const fetchGroups = async (options = {}) => {
     .eq('is_private', false) // Always fetch only public groups
     .order(sortBy, { ascending: sortOrder === 'asc' })
     .limit(limit);
+    
+  // Only show approved groups to regular users
+  if (!isAdmin) {
+    query = query.eq('is_approved', true);
+  }
   
   // Apply search filter if provided
   if (searchQuery) {
@@ -640,31 +646,21 @@ export const fetchGroupDetails = async (groupId) => {
   return { data, error };
 };
 
-// Create a new group
-export const createGroup = async (groupData, creatorId) => {
+// Create a new group (backend triggers will set creator/admin membership)
+export const createGroup = async (groupData) => {
   const { data, error } = await supabase
     .from('groups')
-    .insert([{ ...groupData, created_by: creatorId }])
+    .insert([groupData])
     .select()
     .single();
-
-  // If group created successfully, add creator as admin member
-  if (data && !error) {
-    await supabase.from('group_members').insert([{
-      group_id: data.id,
-      user_id: creatorId,
-      role: 'admin'
-    }]);
-  }
-
   return { data, error };
 };
 
-// Join a group
-export const joinGroup = async (groupId, userId) => {
+// Join a group (backend trigger/RLS infers user_id and role)
+export const joinGroup = async (groupId) => {
   const { data, error } = await supabase
     .from('group_members')
-    .insert([{ group_id: groupId, user_id: userId, role: 'member' }])
+    .insert([{ group_id: groupId }])
     .select();
   return { data, error };
 };

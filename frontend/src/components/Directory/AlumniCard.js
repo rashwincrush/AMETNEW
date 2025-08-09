@@ -92,7 +92,7 @@ const AlumniCard = ({ alumnus }) => {
           {/* Detail 2: Headline */}
           <div className="flex items-start">
             <BuildingOfficeIcon className="h-5 w-5 mr-2 text-indigo-500 flex-shrink-0 mt-0.5" />
-            <p className="text-sm">{alumnus.bio || 'Headline not specified'}</p>
+            <p className="text-sm">{alumnus.headline || alumnus.bio || 'Headline not specified'}</p>
           </div>
           
           {/* Detail 3: Location */}
@@ -105,26 +105,69 @@ const AlumniCard = ({ alumnus }) => {
           <div className="flex items-start">
             <AcademicCapIcon className="h-5 w-5 mr-2 text-indigo-500 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm">{alumnus.degree || 'Degree not specified'}</p>
-              <p className="text-sm text-gray-500">Graduation Year: {alumnus.graduationYear || 'N/A'}</p>
+              <p className="text-sm">{alumnus.degree || 'Degree not specified'}{alumnus.department ? `, ${alumnus.department}` : ''}</p>
             </div>
           </div>
           
           {/* Detail 5: Skills */}
           <div className="pt-1">
-            <p className="text-xs font-medium text-gray-500 mb-1.5">Skills</p>
+            <p className="text-xs font-medium text-gray-500 mb-1.5">Skills & Interests</p>
             <div className="flex flex-wrap gap-1">
-              {Array.isArray(alumnus.skills) && alumnus.skills.length > 0 ? 
-                alumnus.skills.slice(0, 3).map((skill, index) => (
-                  <span key={index} className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded-full">
-                    {skill}
-                  </span>
-                )) : 
-                <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded-full">No skills listed</span>
-              }
-              {Array.isArray(alumnus.skills) && alumnus.skills.length > 3 && (
-                <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-full">+{alumnus.skills.length - 3}</span>
-              )}
+              {(() => {
+                // Parse skills into a consistent format
+                let skillsList = [];
+                
+                if (alumnus.skills) {
+                  if (Array.isArray(alumnus.skills)) {
+                    skillsList = alumnus.skills.filter(s => s && s.trim());
+                  } else if (typeof alumnus.skills === 'string' && alumnus.skills.trim()) {
+                    skillsList = alumnus.skills.split(',').map(s => s.trim()).filter(Boolean);
+                  }
+                }
+                
+                // Parse interests into a consistent format
+                let interestsList = [];
+                if (alumnus.interests) {
+                  if (Array.isArray(alumnus.interests)) {
+                    interestsList = alumnus.interests.filter(Boolean);
+                  } else if (typeof alumnus.interests === 'string' && alumnus.interests.trim()) {
+                    interestsList = alumnus.interests.split(',').map(s => s.trim()).filter(Boolean);
+                  }
+                }
+                
+                // Render skills first, then interests, or a placeholder if neither exists
+                if (skillsList.length > 0) {
+                  return (
+                    <>
+                      {skillsList.slice(0, 3).map((skill, index) => (
+                        <span key={index} className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded-full">
+                          {skill}
+                        </span>
+                      ))}
+                      {skillsList.length > 3 && (
+                        <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-full">+{skillsList.length - 3}</span>
+                      )}
+                    </>
+                  );
+                } else if (interestsList.length > 0) {
+                  return (
+                    <>
+                      {interestsList.slice(0, 2).map((interest, index) => (
+                        <span key={`interest-${index}`} className="inline-block px-2 py-1 text-xs bg-blue-50 text-blue-800 rounded-full">
+                          {interest}
+                        </span>
+                      ))}
+                      {interestsList.length > 2 && (
+                        <span className="inline-block px-2 py-1 text-xs bg-blue-50 text-blue-600 rounded-full">+{interestsList.length - 2} interests</span>
+                      )}
+                    </>
+                  );
+                } else {
+                  return (
+                    <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded-full">No skills listed</span>
+                  );
+                }
+              })()}
             </div>
           </div>
         </div>

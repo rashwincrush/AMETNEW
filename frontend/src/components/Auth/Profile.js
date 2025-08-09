@@ -18,7 +18,7 @@ import toast from 'react-hot-toast';
 
 const Profile = () => {
   const navigate = useNavigate();
-  const { user, profile, loading, updateProfile, getUserRole } = useAuth();
+  const { user, profile, loading, updateProfile, getUserRole, fetchUserProfile } = useAuth();
   
   // Additional component loading state for transitional periods
   const [isComponentLoading, setIsComponentLoading] = useState(true);
@@ -226,7 +226,7 @@ const Profile = () => {
             experience: cleanedProfile.experience || '',
             degree: cleanedProfile.degree_program || '', // Map to degree_program from backend
             department: cleanedProfile.department || '',
-            batch: cleanedProfile.batch || '',
+            graduation_year: cleanedProfile.graduation_year || '',
             student_id: cleanedProfile.student_id || '',
             date_of_birth: cleanedProfile.date_of_birth || '',
             skills: Array.isArray(cleanedProfile.skills) ? cleanedProfile.skills : [],
@@ -334,7 +334,7 @@ const Profile = () => {
         experience: formData.experience,
         degree_program: formData.degree, // Map to backend field
         department: formData.department,
-        batch: formData.batch,
+        graduation_year: formData.graduation_year,
         student_id: formData.student_id,
         date_of_birth: formData.date_of_birth,
         skills: formData.skills,
@@ -417,8 +417,36 @@ const Profile = () => {
       try {
         console.log('Calling updateProfile with:', profileUpdates);
         // Don't race this with a timeout - let it complete normally
-        await updateProfile(profileUpdates);
-        console.log('Auth context updated successfully');
+        const updatedProfile = await updateProfile(profileUpdates);
+        console.log('Auth context updated successfully', updatedProfile);
+        
+        // Apply the updated data to the form
+        if (updatedProfile) {
+          const mappedData = {
+            ...formData,
+            // Map backend field names to form field names
+            first_name: updatedProfile.first_name || formData.first_name,
+            last_name: updatedProfile.last_name || formData.last_name,
+            phone: updatedProfile.phone || formData.phone,
+            location: updatedProfile.location || formData.location,
+            position: updatedProfile.current_job_title || formData.position,
+            about: updatedProfile.about || formData.about,
+            company: updatedProfile.company_name || formData.company,
+            headline: updatedProfile.headline || formData.headline,
+            experience: updatedProfile.experience || formData.experience,
+            degree: updatedProfile.degree_program || formData.degree,
+            department: updatedProfile.department || formData.department,
+            batch: updatedProfile.batch || formData.batch,
+            student_id: updatedProfile.student_id || formData.student_id,
+            date_of_birth: updatedProfile.date_of_birth || formData.date_of_birth,
+            skills: updatedProfile.skills || formData.skills,
+            achievements: updatedProfile.achievements || formData.achievements,
+            interests: updatedProfile.interests || formData.interests,
+            languages: updatedProfile.languages || formData.languages,
+            socialLinks: updatedProfile.social_links || formData.socialLinks,
+          };
+          setFormData(mappedData);
+        }
       } catch (updateError) {
         console.error('Error updating auth context (non-critical):', updateError);
         // Continue even if auth context update fails - the database update was successful
@@ -430,10 +458,14 @@ const Profile = () => {
         navigate('/jobs');
       }
       console.log('Form submission completed successfully');
+      // Force refresh of profile data from server
+      if (fetchUserProfile) {
+        await fetchUserProfile(user.id);
+      }
     } catch (error) {
       console.error('Profile update error:', error);
       toast.error(
-        error.message.includes('timed out')
+        error.message && error.message.includes('timed out')
           ? 'Request timed out. Please try again.'
           : `Failed to update profile: ${error.message || 'Unknown error'}`
       );
@@ -441,6 +473,14 @@ const Profile = () => {
       clearTimeout(timeoutId);
       console.log('Setting isSubmitting to false');
       setIsSubmitting(false);
+      
+      // Reset image file state to prevent duplicate uploads
+      setImageFile(null);
+      
+      // Force UI refresh
+      setTimeout(() => {
+        setFormData(prev => ({...prev}));
+      }, 100);
     }
   };
 
@@ -651,15 +691,16 @@ const Profile = () => {
             </div>
             
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Batch</label>
+              <label className="block text-sm font-medium text-gray-700">Graduation Year</label>
               <input
                 type="number"
-                name="batch"
-                value={formData.batch || ''}
+                name="graduation_year"
+                value={formData.graduation_year || ''}
                 onChange={handleChange}
                 min="1900"
                 max={new Date().getFullYear()}
                 className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                placeholder="Enter your graduation year (e.g. 2020)"
               />
             </div>
             <div className="space-y-2">

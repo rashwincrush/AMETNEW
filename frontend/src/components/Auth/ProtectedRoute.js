@@ -2,8 +2,8 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
-const ProtectedRoute = ({ children, requiredPermission }) => {
-  const { isAuthenticated, hasPermission, loading } = useAuth();
+const ProtectedRoute = ({ children, requiredPermission, isSuperAdminOnly }) => {
+  const { isAuthenticated, hasPermission, loading, getUserRole } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -23,7 +23,8 @@ const ProtectedRoute = ({ children, requiredPermission }) => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (requiredPermission && !hasPermission(requiredPermission)) {
+  if ((requiredPermission && !hasPermission(requiredPermission)) || 
+      (isSuperAdminOnly && getUserRole() !== 'super_admin')) {
     // Redirect to the dedicated 'access-denied' page
     return <Navigate to="/access-denied" state={{ from: location.pathname }} replace />;
   }

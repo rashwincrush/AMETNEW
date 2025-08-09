@@ -241,8 +241,10 @@ const CreateEvent = () => {
         description: formData.description,
         category: formData.category,
         event_type: formData.type,
-        start_date: `${formData.date}T${formData.startTime}`,
-        end_date: `${formData.date}T${formData.endTime}`,
+        // Persist timestamps in UTC to avoid client timezone shifts
+        // Build from local date+time, then convert to ISO (UTC)
+        start_date: new Date(`${formData.date}T${formData.startTime}:00`).toISOString(),
+        end_date: new Date(`${formData.date}T${formData.endTime}:00`).toISOString(),
         venue: formData.venue,
         address: formData.address,
         virtual_link: formData.virtualLink,

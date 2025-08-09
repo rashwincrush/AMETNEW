@@ -3,6 +3,7 @@ import { Tab } from '@headlessui/react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
+import { Link } from 'react-router-dom';
 import ContentApproval from './ContentApproval';
 import UserManagement from './UserManagement';
 import CSVExport from './CSVExport';
@@ -12,17 +13,49 @@ import {
   UsersIcon,
   DocumentCheckIcon,
   ClipboardDocumentListIcon,
-  WrenchScrewdriverIcon
+  WrenchScrewdriverIcon,
+  ChatBubbleLeftRightIcon
 } from '@heroicons/react/24/outline';
 import PermissionGate from '../PermissionGate';
 
-// Reports component that includes CSV Export functionality
-const Reports = () => (
-  <div className="p-4">
-    <h2 className="text-lg font-semibold mb-4">Reports & Data Management</h2>
-    <CSVExport />
-  </div>
-);
+// Reports component that includes CSV Export functionality and Feedback Report
+const Reports = () => {
+  const { getUserRole } = useAuth();
+  const userRole = getUserRole();
+  const isSuperAdmin = userRole === 'super_admin';
+
+  return (
+    <div className="p-4">
+      <h2 className="text-lg font-semibold mb-4">Reports & Data Management</h2>
+      
+      {isSuperAdmin && (
+        <div className="mb-6 bg-white shadow rounded-lg p-4 border border-indigo-100">
+          <h3 className="text-md font-medium mb-4 flex items-center text-indigo-700">
+            <ChatBubbleLeftRightIcon className="h-5 w-5 mr-2" />
+            User Feedback Reports
+          </h3>
+          <p className="mb-4 text-sm text-gray-600">
+            View and manage feedback submitted by users across the platform. Monitor issues, feature requests, and improvement suggestions.
+          </p>
+          <Link 
+            to="/admin/feedback" 
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            View Feedback Reports
+          </Link>
+        </div>
+      )}
+      
+      <div className="bg-white shadow rounded-lg p-4 border border-green-100">
+        <h3 className="text-md font-medium mb-4 flex items-center text-green-700">
+          <ClipboardDocumentListIcon className="h-5 w-5 mr-2" />
+          CSV Import/Export
+        </h3>
+        <CSVExport />
+      </div>
+    </div>
+  );
+}
 
 // System Administration component focused on super admin management
 const SystemAdministration = () => {

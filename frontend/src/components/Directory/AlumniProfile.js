@@ -82,12 +82,14 @@ const AlumniProfile = () => {
           name: data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Unknown',
           email: data.email || '',
           phone: data.phone || data.phone_number || '',
-          graduationYear: data.graduation_year,
-          degree: data.degree || 'Not specified',
+          // Updated to match actual database schema
+          graduationYear: data.batch || data.graduation_year || 'Not specified',
+          degree: data.course || data.degree || 'Not specified',
+          department: data.department || 'Not specified',
           specialization: data.specialization || '',
-          currentPosition: data.current_position || 'Not specified',
-          company: data.current_company || data.company_name || 'Not specified',
-          location: data.location || 'Not specified',
+          currentPosition: data.position || data.current_position || 'Not specified',
+          company: data.company || data.current_company || data.company_name || 'Not specified',
+          location: data.city || data.location || 'Not specified',
           avatar: data.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.full_name || data.email || 'User')}&background=3B82F6&color=fff`,
           coverImage: data.cover_image || 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
           verified: data.is_verified || false,
@@ -396,15 +398,28 @@ const AlumniProfile = () => {
           <div className="glass-card rounded-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
             <div className="space-y-3">
-              <div className="flex items-center">
-                <EnvelopeIcon className="w-5 h-5 text-gray-400 mr-3" />
-                <a href={`mailto:${alumnus.email}`} className="text-ocean-600 hover:text-ocean-700 text-sm truncate">
-                  {alumnus.email}
-                </a>
+              <div className="flex items-center">  
+                <BriefcaseIcon className="w-6 h-6 mr-4 text-ocean-600" />
+                <div>
+                  <div className="text-sm text-gray-500">Currently</div>
+                  <div className="font-medium">{alumnus.currentPosition} at {alumnus.company}</div>
+                </div>
               </div>
+
               <div className="flex items-center">
-                <PhoneIcon className="w-5 h-5 text-gray-400 mr-3" />
-                <span className="text-gray-700 text-sm">{alumnus.phone || 'Not specified'}</span>
+                <MapPinIcon className="w-6 h-6 mr-4 text-ocean-600" />
+                <div>
+                  <div className="text-sm text-gray-500">Location</div>
+                  <div className="font-medium">{alumnus.location}</div>
+                </div>
+              </div>
+
+              <div className="flex items-center">
+                <AcademicCapIcon className="w-6 h-6 mr-4 text-ocean-600" />
+                <div>
+                  <div className="text-sm text-gray-500">Education</div>
+                  <div className="font-medium">{alumnus.degree}, {alumnus.department} ({alumnus.batch})</div>
+                </div>
               </div>
             </div>
           </div>

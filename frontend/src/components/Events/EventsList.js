@@ -215,6 +215,11 @@ const EventsList = ({ isAdmin = false }) => {
         .from('events')
         .select('*')
         .order('start_date', { ascending: true });
+      
+      // Only show approved events to regular users
+      if (!isAdmin) {
+        query = query.eq('is_approved', true);
+      }
 
       // Apply filters
       const now = new Date().toISOString();

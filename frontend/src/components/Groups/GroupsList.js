@@ -117,13 +117,12 @@ const GroupCard = ({ group, isMember, onJoinLeave, currentUserId }) => {
 };
 
 const GroupsList = () => {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [groups, setGroups] = useState([]);
   const [userMemberships, setUserMemberships] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-
   const [selectedTags, setSelectedTags] = useState([]);
   
   // Get all unique tags from groups
@@ -136,7 +135,8 @@ const GroupsList = () => {
       try {
         const { data, error } = await fetchGroups({
           searchQuery: searchQuery,
-          tags: selectedTags.length > 0 ? selectedTags : undefined
+          tags: selectedTags.length > 0 ? selectedTags : undefined,
+          isAdmin // Pass the admin status to control visibility
         });
         
         if (error) throw error;
@@ -178,7 +178,7 @@ const GroupsList = () => {
         await leaveGroup(groupId, user.id);
         setUserMemberships(prev => prev.filter(id => id !== groupId));
       } else {
-        await joinGroup(groupId, user.id);
+        await joinGroup(groupId);
         setUserMemberships(prev => [...prev, groupId]);
       }
     } catch (err) {

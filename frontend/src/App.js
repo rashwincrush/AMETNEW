@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RealtimeProvider } from './utils/supabase';
 import { Toaster } from 'react-hot-toast';
 import './App.css';
-import NetworkStatusIndicator from './components/common/NetworkStatusIndicator';
 
 // Context
 import { useAuth, AuthProvider } from './contexts/AuthContext';
@@ -81,6 +80,7 @@ import Analytics from './components/Admin/Analytics';
 import UserManagement from './components/Admin/UserManagement';
 
 import AdminSettings from './components/Admin/AdminSettings';
+import FeedbackReport from './components/Admin/FeedbackReport';
 import MenteeRegistrationForm from './components/Mentorship/MenteeRegistrationForm';
 import JobApplicationStatus from './components/Jobs/JobApplicationStatus';
 import ManageJobApplications from './components/Jobs/ManageJobApplications';
@@ -178,6 +178,7 @@ function AppContent() {
             <Route path="/my-applications" element={<ProtectedRoute><JobApplicationStatus /></ProtectedRoute>} />
             <Route path="/profile/:userId" element={<ProtectedRoute requiredPermission="view:alumni_directory"><UserProfilePage /></ProtectedRoute>} />
             <Route path="/directory" element={<ProtectedRoute requiredPermission="view:alumni_directory"><AlumniDirectory /></ProtectedRoute>} />
+            <Route path="/directory/:id" element={<ProtectedRoute requiredPermission="view:alumni_directory"><AlumniProfile /></ProtectedRoute>} />
             
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/mentorship/become-mentor" element={<ProtectedRoute requiredPermission="manage:mentor_profile"><MentorRegistrationForm /></ProtectedRoute>} />
@@ -198,6 +199,7 @@ function AppContent() {
             <Route path="/admin/settings" element={<ProtectedRoute requiredPermission="access:all"><AdminSettings /></ProtectedRoute>} />
             <Route path="/admin/csv" element={<ProtectedRoute requiredPermission="access:all"><CSVImportExport /></ProtectedRoute>} />
             <Route path="/admin/events/:id/feedback" element={<ProtectedRoute requiredPermission="access:all"><EventFeedbackReport /></ProtectedRoute>} />
+            <Route path="/admin/feedback" element={<ProtectedRoute isSuperAdminOnly={true}><FeedbackReport /></ProtectedRoute>} />
             <Route path="/rejection" element={<RejectionPage />} />
             <Route path="/access-denied" element={<AccessDenied />} />
             <Route path="*" element={<Navigate to="/dashboard" />} />
@@ -229,7 +231,6 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <RealtimeProvider>
-            <NetworkStatusIndicator />
             <NotificationProvider>
               <AppContent />
               <FeedbackWidget />

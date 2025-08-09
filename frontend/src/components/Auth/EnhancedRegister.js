@@ -166,128 +166,97 @@ const EnhancedRegister = () => {
     setError(''); // Clear general error message when moving to previous step
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!validateStep(3)) {
-      setError('Please fill out all required fields before submitting.');
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  if (!validateStep(3)) {
+    setError('Please fill out all required fields before submitting.');
+    return;
+  }
+
+  setIsLoading(true);
+  setError('');
+
+  try {
+    // Step 1: Sign up the user (trigger will create basic profile)
+    const { data: authData, error: signUpError } = await signUpWithEmail(
+      formData.email,
+      formData.password,
+      {
+        first_name: formData.firstName.trim(),
+        last_name: formData.lastName.trim(),
+        role: formData.primaryRole,
+        account_type: formData.primaryRole,
+      }
+    );
+    
+    console.log('Registration metadata sent:', {
+      role: formData.primaryRole,
+      first_name: formData.firstName.trim(),
+      last_name: formData.lastName.trim()
+    });
+
+    if (signUpError) {
+      if (signUpError.message.includes('User already registered')) {
+        setError('A user with this email already exists. Please try logging in.');
+      } else {
+        throw signUpError;
+      }
+      setIsLoading(false);
       return;
     }
 
-    setIsLoading(true);
-    setError('');
-
-    try {
-      // Step 1: Sign up the user
-      const { data: authData, error: signUpError } = await signUpWithEmail(
-        formData.email,
-        formData.password,
-        {
-          // Metadata for the auth.users table - using standardized keys
-          first_name: formData.firstName.trim(),
-          last_name: formData.lastName.trim(),
-          role: formData.primaryRole, // This will be used by the DB trigger to set profile.role
-          account_type: formData.primaryRole, // Adding account_type for consistency
-        }
-      );
+    if (authData.user) {
+      // Step 2: Wait a moment for trigger to complete
+      await new Promise(resolve => setTimeout(resolve, 1500));
       
-      console.log('Registration metadata sent:', {
-        role: formData.primaryRole,
-        account_type: formData.primaryRole,
-        first_name: formData.firstName.trim(),
-        last_name: formData.lastName.trim()
-      });
-
-      if (signUpError) {
-        if (signUpError.message.includes('User already registered')) {
-          setError('A user with this email already exists. Please try logging in.');
-        } else {
-          throw signUpError;
-        }
-        setIsLoading(false);
-        return;
-      }
-
-      if (authData.user) {
-        // No need to create a separate company record - store employer data directly in profiles
+      // Step 3: Update the profile with additional details (don't insert, update!)
+      const profileUpdates = {
+        phone: formData.phone.trim() || null,
+        graduation_year: formData.primaryRole === 'alumni' ? parseInt(formData.graduationYear) : null,
+        degree: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.degree.trim() : null,
+        department: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.department.trim() : null,
+        student_id: formData.primaryRole === 'student' ? formData.studentId.trim() : null,
         
-        // Insert the detailed profile into the 'profiles' table with employer data directly embedded
-        const profileData = {
-          id: authData.user.id, // Links profile to the auth user
-          first_name: formData.firstName.trim(),
-          last_name: formData.lastName.trim(),
-          email: formData.email,
-          phone: formData.phone.trim() || null,
-          // role field removed - will be set by DB trigger from auth metadata
-          graduation_year: formData.primaryRole === 'alumni' ? formData.graduationYear : null,
-          expected_graduation_year: formData.primaryRole === 'student' ? formData.expectedGraduationYear : null,
-          degree: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.degree.trim() : null,
-          department: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.department.trim() : null,
-          student_id: formData.primaryRole === 'student' ? formData.studentId.trim() : null,
-          
-          // Store employer data directly in profiles
-          is_employer: formData.primaryRole === 'employer',
-          company_name: formData.primaryRole === 'employer' ? formData.companyName.trim() : null,
-          company_website: formData.primaryRole === 'employer' ? formData.companyWebsite.trim() : null,
-          industry: formData.primaryRole === 'employer' ? formData.industry.trim() : null,
-          company_location: formData.primaryRole === 'employer' ? formData.currentLocation.trim() : null,
-          company_size: formData.primaryRole === 'employer' ? formData.companySize || null : null,
-          
-          // Other profile fields
-          job_title: formData.primaryRole === 'employer' ? formData.jobTitle.trim() : null,
-          linkedin_profile: formData.linkedinProfile.trim() || null,
-          skills: formData.skills,
-          interests: formData.interests,
-          bio: formData.bio.trim() || null,
-          location: formData.currentLocation.trim() || null,
-          updated_at: new Date().toISOString(),
-        };
-
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert(profileData);
-
-        if (profileError) {
-          console.error('Error saving profile:', profileError);
-          // Log role information for debugging
-          console.error('Role data during failed profile creation:', {
-            primaryRole: formData.primaryRole,
-            metadataRole: authData.user?.user_metadata?.role,
-            profileData
-          });
-          setError('Your account was created, but we failed to save your profile details. Please contact support.');
-          setIsLoading(false);
-          return;
-        }
+        // Store employer data directly in profiles
+        is_employer: formData.primaryRole === 'employer',
+        company_name: formData.primaryRole === 'employer' ? formData.companyName.trim() : null,
+        company_website: formData.primaryRole === 'employer' ? formData.companyWebsite.trim() : null,
+        industry: formData.primaryRole === 'employer' ? formData.industry.trim() : null,
+        company_location: formData.primaryRole === 'employer' ? formData.currentLocation.trim() : null,
         
-        // Verify role was properly set
-        const { data: profileCheck, error: checkError } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', authData.user.id)
-          .single();
-          
-        if (checkError || !profileCheck || profileCheck.role !== formData.primaryRole) {
-          console.warn('Role mismatch after registration:', {
-            expected: formData.primaryRole,
-            actual: profileCheck?.role,
-            error: checkError
-          });
-        } else {
-          console.log('Role successfully set to:', profileCheck.role);
-        }
+        // Other profile fields
+        job_title: formData.jobTitle?.trim() || null,
+        linkedin_url: formData.linkedinProfile.trim() || null,
+        skills: formData.skills,
+        interests: formData.interests,
+        bio: formData.bio.trim() || null,
+        location: formData.currentLocation.trim() || null,
+        updated_at: new Date().toISOString(),
+      };
 
-        setError('Registration successful! Please check your email to verify your account.');
-      } else {
-        setError('An unexpected error occurred during registration. Please try again.');
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update(profileUpdates) // ✅ UPDATE instead of INSERT
+        .eq('id', authData.user.id);
+
+      if (profileError) {
+        console.error('Error updating profile:', profileError);
+        setError('Your account was created, but we failed to save some profile details. You can complete your profile later.');
+        // Don't return here - still show success message
       }
-
-    } catch (err) {
-      console.error('Registration failed:', err);
-      setError(err.message || 'An unknown error occurred.');
-    } finally {
-      setIsLoading(false);
+      
+      setError('Registration successful! Please check your email to verify your account.');
+    } else {
+      setError('An unexpected error occurred during registration. Please try again.');
     }
-  };
+
+  } catch (err) {
+    console.error('Registration failed:', err);
+    setError(err.message || 'An unknown error occurred.');
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const handleSocialLogin = async (providerAction) => {
     setIsLoading(true);

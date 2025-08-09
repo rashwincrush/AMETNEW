@@ -30,7 +30,7 @@ const CreateGroup = () => {
     };
 
     try {
-      const { data, error: createError } = await createGroup(groupData, user.id);
+      const { data, error: createError } = await createGroup(groupData);
       if (createError) throw createError;
       navigate(`/groups/${data.id}`);
     } catch (err) {

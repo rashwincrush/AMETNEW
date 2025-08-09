@@ -141,14 +141,13 @@ const GroupDetails = () => {
       toast.error('You must be logged in to join a group.');
       return;
     }
+    if (isMember) return; // already joined
     const toastId = toast.loading('Joining group...');
     try {
-      // Insert new member record
-      const { error } = await supabase.from('group_members').insert({
-        group_id: groupId,
-        user_id: user.id,
-        role: 'member',
-      });
+      // Insert only group_id; backend trigger/RLS will set user_id and role
+      const { error } = await supabase
+        .from('group_members')
+        .insert({ group_id: groupId });
 
       if (error) throw error;
 
@@ -158,25 +157,32 @@ const GroupDetails = () => {
         .select('id, full_name, avatar_url')
         .eq('id', user.id)
         .single();
-        
       if (profileError) {
-        console.warn('Could not fetch profile data, using user metadata as fallback');
+        console.error('Failed to fetch profile after join:', profileError.message);
       }
 
-      // Use fetched profile or fallback to user metadata
       const profileToUse = profileData || { 
         id: user.id, 
         full_name: user.user_metadata?.full_name || 'User', 
         avatar_url: user.user_metadata?.avatar_url 
       };
       
-      // Update local state with new member
+      // Optimistically update local state
       setMembers([...members, { role: 'member', profiles: profileToUse }]);
       setIsMember(true);
       setCurrentUserRole('member');
       toast.success('Successfully joined the group!', { id: toastId });
     } catch (err) {
-      toast.error(`Failed to join group: ${err.message}`, { id: toastId });
+      // Handle common RLS/duplicate cases gracefully
+      const msg = err?.message || 'Unknown error';
+      if (msg.includes('duplicate') || msg.includes('unique')) {
+        setIsMember(true);
+        toast.success('You are already a member.', { id: toastId });
+      } else if (err?.status === 403) {
+        toast.error('You do not have permission to join this group.', { id: toastId });
+      } else {
+        toast.error(`Failed to join group: ${msg}`, { id: toastId });
+      }
     }
   };
 

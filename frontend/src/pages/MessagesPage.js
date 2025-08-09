@@ -4,7 +4,7 @@ import NewConversationModal from '../components/Messages/NewConversationModal';
 import { supabase } from '../utils/supabase';
 import { useAuth } from '../contexts/AuthContext';
 
-const ChatWindow = ({ conversationId, currentUser }) => {
+const ChatWindow = ({ conversationId, currentUser, onBack }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,27 +18,54 @@ const ChatWindow = ({ conversationId, currentUser }) => {
     const fetchMessages = async () => {
       if (!conversationId) return;
       setLoading(true);
-      const { data, error } = await supabase
-        .from('messages')
-        .select(`
-          id,
-          conversation_id,
-          sender_id,
-          recipient_id,
-          content,
-          created_at,
-          updated_at,
-          sender:sender_id(id, full_name, avatar_url)
-        `)
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching messages:', error);
-      } else {
-        setMessages(data);
+      try {
+        console.log('Fetching messages for conversation:', conversationId);
+        
+        // Get messages first
+        const { data: messagesData, error: messagesError } = await supabase
+          .from('messages')
+          .select(`
+            id,
+            conversation_id,
+            sender_id,
+            recipient_id,
+            content,
+            created_at,
+            updated_at
+          `)
+          .eq('conversation_id', conversationId)
+          .order('created_at', { ascending: true });
+          
+        if (messagesError) {
+          throw messagesError;
+        }
+        
+        // Then fetch sender profiles for each message
+        const messagePromises = messagesData.map(async (message) => {
+          const { data: senderData, error: senderError } = await supabase
+            .from('profiles')
+            .select('id, full_name, avatar_url')
+            .eq('id', message.sender_id)
+            .single();
+            
+          return {
+            ...message,
+            sender: senderError ? null : senderData
+          };
+        });
+        
+        // Combine all messages with their sender data
+        const messagesWithSenders = await Promise.all(messagePromises);
+        
+        // Log success and set the messages
+        console.log('Messages fetched successfully:', messagesWithSenders?.length || 0);
+        setMessages(messagesWithSenders || []);
+      } catch (err) {
+        console.error('Exception fetching messages:', err);
+        alert('An error occurred while loading messages.');
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     fetchMessages();
@@ -133,20 +160,44 @@ const ChatWindow = ({ conversationId, currentUser }) => {
 
   return (
     <div className="flex flex-col h-full bg-white">
-      <div className="p-4 border-b border-gray-200">
-        <h3 className="font-bold text-gray-800">Chat</h3>
+      <div className="p-4 border-b border-gray-200 flex items-center">
+        {onBack && (
+          <button onClick={onBack} className="md:hidden mr-4 p-1 rounded-full hover:bg-gray-100">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </button>
+        )}
+        <div>
+          <h3 className="font-bold text-gray-800">Chat</h3>
+          <p className="text-xs text-gray-500">Message history is saved for 24 hours only</p>
+        </div>
       </div>
       <div className="flex-grow p-4 overflow-y-auto bg-gray-50 space-y-4">
         {loading ? (
-          <p>Loading messages...</p>
+          <div className="flex justify-center items-center h-full">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500"></div>
+            <span className="ml-2 text-gray-600">Loading messages...</span>
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex justify-center items-center h-full">
+            <p className="text-gray-500">No messages yet. Start the conversation!</p>
+          </div>
         ) : (
           messages.map(msg => (
             <div key={msg.id} className={`flex items-end gap-2 ${msg.sender_id === currentUser.id ? 'justify-end' : 'justify-start'}`}>
-              {msg.sender_id !== currentUser.id && (
-                <img src={msg.sender.avatar_url || `https://ui-avatars.com/api/?name=${msg.sender.full_name}`} alt={msg.sender.full_name} className="h-8 w-8 rounded-full object-cover" />
+              {msg.sender_id !== currentUser.id && msg.sender && (
+                <img 
+                  src={msg.sender?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(msg.sender?.full_name || 'User')}`} 
+                  alt={msg.sender?.full_name || 'User'} 
+                  className="h-8 w-8 rounded-full object-cover" 
+                />
               )}
               <div className={`px-4 py-2 rounded-lg max-w-xs lg:max-w-md ${msg.sender_id === currentUser.id ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-800'}`}>
                 <p>{msg.content}</p>
+                <div className="text-xs mt-1 text-right ${msg.sender_id === currentUser.id ? 'text-indigo-200' : 'text-gray-500'}">
+                  {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
               </div>
             </div>
           ))
@@ -270,27 +321,41 @@ const MessagesPage = () => {
     );
   }
 
+  if (selectedConversationId && window.innerWidth < 768) {
+    return (
+      <ChatWindow 
+        conversationId={selectedConversationId} 
+        currentUser={user} 
+        onBack={() => setSelectedConversationId(null)} 
+      />
+    );
+  }
+
   return (
     <>
-    <div className="h-screen grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4">
-      <div className="md:col-span-1 lg:col-span-1">
-        <ConversationList 
-          conversations={conversations} 
-          onSelectConversation={setSelectedConversationId}
-          selectedConversationId={selectedConversationId}
-          onNewConversation={() => setIsNewConversationModalOpen(true)}
-        />
+      <div className="h-screen flex">
+        <div className={`${selectedConversationId ? 'hidden' : 'block'} md:block w-full md:w-1/3 lg:w-1/4 border-r border-gray-200`}>
+          <ConversationList 
+            conversations={conversations} 
+            onSelectConversation={setSelectedConversationId}
+            selectedConversationId={selectedConversationId}
+            onNewConversation={() => setIsNewConversationModalOpen(true)}
+          />
+        </div>
+        <div className={`${selectedConversationId ? 'block' : 'hidden'} md:block w-full md:w-2/3 lg:w-3/4`}>
+          <ChatWindow 
+            conversationId={selectedConversationId} 
+            currentUser={user} 
+            onBack={() => setSelectedConversationId(null)} 
+          />
+        </div>
       </div>
-      <div className="hidden md:block md:col-span-2 lg:col-span-3">
-        <ChatWindow conversationId={selectedConversationId} currentUser={user} />
-      </div>
-    </div>
-    <NewConversationModal 
-      isOpen={isNewConversationModalOpen}
-      onClose={() => setIsNewConversationModalOpen(false)}
-      onConversationStarted={handleConversationStarted}
-    />
-  </>
+      <NewConversationModal 
+        isOpen={isNewConversationModalOpen}
+        onClose={() => setIsNewConversationModalOpen(false)}
+        onConversationStarted={handleConversationStarted}
+      />
+    </>
   );
 };
 
