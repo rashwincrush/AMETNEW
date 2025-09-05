@@ -2,13 +2,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
+import { getMyMentorProfile, upsertMentor } from '../../services/mentors';
 import { useNotification } from '../common/NotificationCenter';
 import { XMarkIcon, CheckCircleIcon, InformationCircleIcon, PlusIcon, ClockIcon, SparklesIcon, BriefcaseIcon, Cog6ToothIcon, UserPlusIcon } from '@heroicons/react/24/outline';
 
 const MentorRegistrationForm = () => {
   const navigate = useNavigate();
   const notification = useNotification();
-  const [user, setUser] = useState(null);
+    const [user, setUser] = useState(null);
+  const [isNewMentor, setIsNewMentor] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showExistingMentorModal, setShowExistingMentorModal] = useState(false);
@@ -63,27 +65,15 @@ const MentorRegistrationForm = () => {
         // Proceed with fetching mentor profile only if we have a user and haven't fetched before
         if (authUser.id && !hasFetchedRef.current) {
           setLoading(true);
-          hasFetchedRef.current = true; // Mark as fetched to prevent re-runs
+          hasFetchedRef.current = true;
 
-          console.log('Fetching mentor profile for user:', authUser.id);
-          const { data: mentorProfile, error: profileError } = await supabase
-            .from('mentors')
-            .select('*')
-            .eq('user_id', authUser.id)
-            .maybeSingle();
-
-          if (profileError && profileError.code !== 'PGRST116') {
-            console.error('Error fetching mentor profile:', profileError);
-            notification.showError(`Error fetching profile: ${profileError.message}`);
-          }
+          const mentorProfile = await getMyMentorProfile();
 
           if (mentorProfile) {
-            console.log('Found existing mentor profile:', mentorProfile);
             setExistingMentorStatus(mentorProfile.status);
             if (mentorProfile.status === 'approved') {
               setShowExistingMentorModal(true);
             }
-
             setFormData({
               mentoring_capacity_hours_per_month: mentorProfile.mentoring_capacity_hours_per_month || '',
               expertise: Array.isArray(mentorProfile.expertise) ? mentorProfile.expertise : [],
@@ -93,8 +83,9 @@ const MentorRegistrationForm = () => {
               max_mentees: mentorProfile.max_mentees || '',
               mentoring_experience_description: mentorProfile.mentoring_experience_description || '',
             });
-
             notification.showSuccess('Existing mentor profile loaded for editing.');
+          } else {
+            setIsNewMentor(true);
           }
         }
       } catch (error) {
@@ -184,23 +175,20 @@ const MentorRegistrationForm = () => {
       mentoring_statement: formData.mentoring_statement,
       max_mentees: parseNumeric(formData.max_mentees),
       mentoring_experience_description: formData.mentoring_experience_description || null,
-      status: existingMentorStatus === 'approved' ? 'approved' : 'pending_approval',
+      status: existingMentorStatus || 'pending',
     };
 
     try {
-      const { data, error } = await supabase
-        .from('mentors')
-        .upsert(mentorData, { onConflict: 'user_id' })
-        .select()
-        .single();
+      const { data, error } = await upsertMentor(mentorData);
 
-      if (error) throw error;
-
-      notification.showSuccess('Your mentor profile has been saved successfully!');
-      // No longer navigating away, user stays on the page to review or continue editing.
-    } catch (error) {
-      console.error('Error saving mentor profile:', error);
-      notification.showError(`Failed to save profile: ${error.message}`);
+      if (error) {
+        notification.showError(`Failed to save profile: ${error}`);
+      } else {
+        notification.showSuccess('Your mentor profile has been saved successfully!');
+        if (isNewMentor) setIsNewMentor(false);
+        // Update status for subsequent saves
+        setExistingMentorStatus(data.status);
+      }
     } finally {
       setSaving(false);
     }
@@ -210,8 +198,7 @@ const MentorRegistrationForm = () => {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
         <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indigo-600"></div>
-        <p className="mt-6 text-lg font-semibold text-gray-700">Loading Your Profile...</p>
-        <p className="text-sm text-gray-500">Please wait a moment.</p>
+        <p className="mt-6 text-lg font-semibold text-gray-700">Loading Profile...</p>
       </div>
     );
   }
@@ -219,6 +206,18 @@ const MentorRegistrationForm = () => {
   return (
     <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
       <div className="max-w-6xl w-full mx-auto">
+        {isNewMentor && (
+          <div className="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-8 rounded-r-lg shadow">
+            <div className="flex">
+              <div className="py-1"><InformationCircleIcon className="h-6 w-6 text-blue-500 mr-4"/></div>
+              <div>
+                <p className="font-bold">You haven’t created a mentor profile yet.</p>
+                <p className="text-sm">Fill out the form below to get started.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Welcome Header */}
         <div className="relative bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl shadow-xl overflow-hidden p-8 mb-12">
             <div className="absolute inset-0 bg-black opacity-20"></div>

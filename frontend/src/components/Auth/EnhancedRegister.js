@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Logo from '../common/Logo';
 import { Link, useNavigate } from 'react-router-dom';
-import { EyeIcon, EyeSlashIcon, CheckIcon, ArrowLeftIcon } from '@heroicons/react/24/outline'; // Removed XMarkIcon as it's not used in the final version
+import { EyeIcon, EyeSlashIcon, CheckIcon, ArrowLeftIcon, XMarkIcon } from '@heroicons/react/24/outline'; 
 import { supabase, signUpWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
 
 const EnhancedRegister = () => {
@@ -39,9 +39,11 @@ const EnhancedRegister = () => {
   });
 
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false); // Retained for general loading if needed elsewhere
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
   const [error, setError] = useState(''); // For general form errors or success messages
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [roles, setRoles] = useState([]);
 
   const skillOptions = [
@@ -61,20 +63,122 @@ const EnhancedRegister = () => {
     // Set the roles to the fixed list as per requirements.
     setRoles([
       { name: 'alumni', description: 'Alumni' },
-      { name: 'mentor', description: 'Mentor' },
       { name: 'employer', description: 'Employer' },
-      { name: 'student', description: 'Mentee/Student' },
+      { name: 'student', description: 'Student' },
     ]);
   }, []);
+  
+  // Reset mentorship role when primaryRole changes to ensure compatibility
+  useEffect(() => {
+    if (formData.mentorshipRole) {
+      // Define which mentorship roles are valid for each primary role
+      const validRoles = {
+        'alumni': ['mentor', 'mentee', 'both'],
+        'employer': ['mentor', 'mentee', 'both'],
+        'student': ['mentee']
+      };
+      
+      const validForCurrentRole = validRoles[formData.primaryRole] || [];
+      
+      // If current mentorship role is not valid for selected primary role, reset it
+      if (!validForCurrentRole.includes(formData.mentorshipRole)) {
+        setFormData(prev => ({
+          ...prev,
+          mentorshipRole: ''
+        }));
+      }
+    }
+  }, [formData.primaryRole]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
+    
+    let processedValue = value;
+    
+    // Handle special validation cases
+    if (name === 'firstName' || name === 'lastName') {
+      // Only allow letters and spaces, no numbers or special characters
+      processedValue = value.replace(/[^A-Za-z ]/g, '');
+
+      if (processedValue !== value) {
+        setErrors(prev => ({
+          ...prev,
+          [name]: 'Only letters and spaces are allowed.'
+        }));
+      } else if (errors[name]) {
+        setErrors(prev => ({ ...prev, [name]: '' }));
+      }
+    } else if (name === 'email') {
+      // Convert email to lowercase
+      processedValue = value.toLowerCase();
+      
+      // Check if uppercase letters were used and show warning
+      if (value !== value.toLowerCase()) {
+        setErrors(prev => ({
+          ...prev,
+          [name]: 'Email will be saved in lowercase format'
+        }));
+      }
+      
+      // Check and warn about .co domain
+      if (/\.co$/i.test(processedValue)) {
+        processedValue = processedValue.replace(/\.co$/i, '');
+        setErrors(prev => ({
+          ...prev,
+          [name]: '".co" domains are not accepted - did you mean ".com"?'
+        }));
+      }
+    } else if (name === 'primaryRole') {
+      // When primary role changes, we may need to reset mentorship role
+      // This is handled in the useEffect hook, but we should clear errors
+      setErrors(prev => {
+        const newErrors = {...prev};
+        delete newErrors.mentorshipRole;
+        return newErrors;
+      });
+    } else if (name === 'phone') {
+      // Allow only numbers and starting + symbol
+      // First, strip all non-digit and non-plus characters
+      let strippedValue = value.replace(/[^0-9+]/g, '');
+      
+      // Ensure + is only at the beginning if present
+      if (strippedValue.includes('+')) {
+        const plusIndex = strippedValue.indexOf('+');
+        if (plusIndex > 0) {
+          // If + is not at the start, move it to the start
+          strippedValue = '+' + strippedValue.replace(/\+/g, '');
+          setErrors(prev => ({
+            ...prev,
+            [name]: 'Plus sign (+) is only allowed at the beginning of the number'
+          }));
+        } else if (strippedValue.lastIndexOf('+') !== plusIndex) {
+          // If there are multiple + signs, keep only the first one
+          strippedValue = '+' + strippedValue.substring(1).replace(/\+/g, '');
+          setErrors(prev => ({
+            ...prev,
+            [name]: 'Only one plus sign (+) is allowed at the beginning'
+          }));
+        }
+      }
+      
+      processedValue = strippedValue;
+      
+      // Give feedback if any characters were removed
+      if (processedValue !== value && !errors[name]) {
+        setErrors(prev => ({
+          ...prev,
+          [name]: 'Phone can only contain digits and an optional leading +'
+        }));
+      }
+    }
+    
     setFormData((prev) => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value,
+      [name]: type === 'checkbox' ? checked : processedValue,
     }));
-    // Clear specific error when user starts typing/changing value
-    if (errors[name]) {
+    
+    // Clear specific error when user starts typing/changing value and input is valid
+    if (errors[name] && processedValue === value) {
       setErrors((prev) => ({ ...prev, [name]: '' }));
     }
   };
@@ -90,6 +194,42 @@ const EnhancedRegister = () => {
       setErrors((prev) => ({ ...prev, skills: '' }));
     }
   };
+  
+  const [customSkill, setCustomSkill] = useState('');
+  
+  const handleCustomSkillChange = (e) => {
+    setCustomSkill(e.target.value);
+  };
+  
+  const handleCustomSkillAdd = () => {
+    if (customSkill.trim()) {
+      // Split by comma and/or space and filter out empty items
+      const newSkills = customSkill.split(/[,\s]+/).filter(skill => skill.trim());
+      
+      // Add each new skill if not already included and if under the 5-skill limit
+      setFormData(prev => {
+        const updatedSkills = [...prev.skills];
+        
+        for (const skill of newSkills) {
+          if (!updatedSkills.includes(skill) && updatedSkills.length < 5) {
+            updatedSkills.push(skill);
+          }
+        }
+        
+        return {
+          ...prev,
+          skills: updatedSkills
+        };
+      });
+      
+      // Clear input after adding
+      setCustomSkill('');
+      
+      if (errors.skills) {
+        setErrors((prev) => ({ ...prev, skills: '' }));
+      }
+    }
+  };
 
   const handleInterestToggle = (interest) => {
     setFormData((prev) => ({
@@ -102,14 +242,35 @@ const EnhancedRegister = () => {
 
   const validateStep = (stepToValidate) => {
     const newErrors = {};
+    
+    // Step 1: Basic info validation
     if (stepToValidate === 1) {
-      if (!formData.firstName.trim()) newErrors.firstName = 'First name is required.';
-      if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required.';
+      // Name validations
+      if (!formData.firstName.trim()) {
+        newErrors.firstName = 'First name is required.';
+      } else if (!/^[A-Za-z ]+$/.test(formData.firstName)) {
+        newErrors.firstName = 'First name must contain only letters and spaces.';
+      }
+      
+      if (!formData.lastName.trim()) {
+        newErrors.lastName = 'Last name is required.';
+      } else if (!/^[A-Za-z ]+$/.test(formData.lastName)) {
+        newErrors.lastName = 'Last name must contain only letters and spaces.';
+      }
+      
+      // Email validations
       if (!formData.email.trim()) {
         newErrors.email = 'Email is required.';
       } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
         newErrors.email = 'Email address is invalid.';
+      } else if (/\.co$/i.test(formData.email)) {
+        newErrors.email = '".co" domains are not accepted. Please use a ".com" or other valid domain.';
+      } else if (formData.email !== formData.email.toLowerCase()) {
+        // This is a safety check - the handleChange should already convert to lowercase
+        newErrors.email = 'Email must be in lowercase format.';
       }
+      
+      // Password validations
       if (!formData.password) {
         newErrors.password = 'Password is required.';
       } else if (formData.password.length < 8) {
@@ -118,10 +279,25 @@ const EnhancedRegister = () => {
       if (formData.password !== formData.confirmPassword) {
         newErrors.confirmPassword = 'Passwords do not match.';
       }
+      
+      // Role and phone validations
       if (!formData.primaryRole) newErrors.primaryRole = 'Please select your primary role.';
+      if (formData.phone) {
+        if (!/^\+?[0-9]{7,15}$/.test(formData.phone)) {
+          newErrors.phone = 'Phone number must contain 7-15 digits with an optional leading + symbol.';
+        } else if (formData.phone.indexOf('+') > 0) {
+          // This is a safety check that shouldn't be needed due to handleChange processing
+          newErrors.phone = 'Plus sign (+) is only allowed at the beginning of the number';
+        }
+      }
     }
-
-    if (stepToValidate === 2) {
+    
+    // Step 2: Role-specific details validation
+    else if (stepToValidate === 2) {
+      if (formData.linkedinProfile && !/^https?:\/\/(www\.)?linkedin\.com\/.+/i.test(formData.linkedinProfile)) {
+        newErrors.linkedinProfile = 'LinkedIn URL must be a valid LinkedIn profile link starting with http:// or https://';
+      }
+      
       if (formData.primaryRole === 'alumni') {
         if (!formData.graduationYear) newErrors.graduationYear = 'Graduation year is required.';
         else if (isNaN(parseInt(formData.graduationYear)) || parseInt(formData.graduationYear) < 1950 || parseInt(formData.graduationYear) > new Date().getFullYear()) newErrors.graduationYear = 'Please enter a valid year.';
@@ -137,17 +313,36 @@ const EnhancedRegister = () => {
         if (!formData.industry.trim()) newErrors.industry = 'Industry is required.';
       }
     }
-
-    if (stepToValidate === 3) {
+    
+    // Step 3: Mentorship and terms validation
+    else if (stepToValidate === 3) {
       if (formData.interestedInMentorship) {
-        if (!formData.mentorshipRole) newErrors.mentorshipRole = 'Please select your mentorship preference (Mentor, Mentee, or Both).';
+        if (!formData.mentorshipRole) {
+          newErrors.mentorshipRole = 'Please select your desired mentorship role.';
+        } else {
+          // Validate that the mentorship role is compatible with the primary role
+          const validRoles = {
+            'alumni': ['mentor', 'mentee', 'both'],
+            'employer': ['mentor', 'mentee', 'both'],
+            'student': ['mentee']
+          };
+          
+          const validForCurrentRole = validRoles[formData.primaryRole] || [];
+          
+          if (!validForCurrentRole.includes(formData.mentorshipRole)) {
+            newErrors.mentorshipRole = `This mentorship role is not valid for ${formData.primaryRole} users.`;
+          }
+        }
+        
         if ((formData.mentorshipRole === 'mentor' || formData.mentorshipRole === 'both') && (!formData.experienceYears || parseInt(formData.experienceYears, 10) < 3)) {
           newErrors.experienceYears = 'Mentors require at least 3 years of professional experience.';
         }
-        if (formData.skills.length === 0) newErrors.skills = 'Please select at least one skill or area of expertise.';
+        if (formData.mentorInterests && formData.mentorInterests.length === 0) {
+          newErrors.mentorInterests = 'Please select at least one interest area.';
+        }
         if (!formData.agreeToMentorship) newErrors.agreeToMentorship = 'You must agree to the Mentorship Program Guidelines to participate.';
       }
-      if (!formData.agreeToTerms) newErrors.agreeToTerms = 'You must agree to the Terms of Service and Privacy Policy.';
+      if (!formData.agreeToTerms) newErrors.agreeToTerms = 'You must agree to the Terms of Service and Privacy Policy';
     }
 
     setErrors(newErrors);
@@ -162,101 +357,101 @@ const EnhancedRegister = () => {
   };
 
   const handlePrevious = () => {
+    // Keep the form data when going back a step
     setCurrentStep(currentStep - 1);
     setError(''); // Clear general error message when moving to previous step
+    
+    // Clear specific errors related to the current step
+    if (currentStep === 3) {
+      setErrors(prev => {
+        const newErrors = {...prev};
+        // Clear T&C related errors
+        delete newErrors.agreeToTerms;
+        delete newErrors.agreeToMentorship;
+        return newErrors;
+      });
+    }
   };
 
-const handleSubmit = async (e) => {
-  e.preventDefault();
-  if (!validateStep(3)) {
-    setError('Please fill out all required fields before submitting.');
-    return;
-  }
 
-  setIsLoading(true);
-  setError('');
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (isSubmitting) return; // Prevent double-submit
 
-  try {
-    // Step 1: Sign up the user (trigger will create basic profile)
-    const { data: authData, error: signUpError } = await signUpWithEmail(
-      formData.email,
-      formData.password,
-      {
-        first_name: formData.firstName.trim(),
-        last_name: formData.lastName.trim(),
-        role: formData.primaryRole,
-        account_type: formData.primaryRole,
-      }
-    );
-    
-    console.log('Registration metadata sent:', {
-      role: formData.primaryRole,
-      first_name: formData.firstName.trim(),
-      last_name: formData.lastName.trim()
-    });
-
-    if (signUpError) {
-      if (signUpError.message.includes('User already registered')) {
-        setError('A user with this email already exists. Please try logging in.');
-      } else {
-        throw signUpError;
-      }
-      setIsLoading(false);
+    if (!validateStep(3)) {
+      setError('Please fill out all required fields before submitting.');
       return;
     }
 
-    if (authData.user) {
-      // Step 2: Wait a moment for trigger to complete
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Step 3: Update the profile with additional details (don't insert, update!)
-      const profileUpdates = {
+    setIsSubmitting(true);
+    setError('');
+
+    try {
+      // Consolidate all user data into one object for the signUp call
+      const allUserData = {
+        // Auth data
+        role: formData.primaryRole,
+        first_name: formData.firstName.trim(),
+        last_name: formData.lastName.trim(),
+        // Profile data
         phone: formData.phone.trim() || null,
-        graduation_year: formData.primaryRole === 'alumni' ? parseInt(formData.graduationYear) : null,
+        // Safely handle integer fields by checking for empty values
+        graduation_year: (formData.primaryRole === 'alumni' && formData.graduationYear) ? 
+          (formData.graduationYear.trim ? formData.graduationYear.trim() : formData.graduationYear) : null,
+        expected_graduation_year: (formData.primaryRole === 'student' && formData.expectedGraduationYear) ?
+          (formData.expectedGraduationYear.trim ? formData.expectedGraduationYear.trim() : formData.expectedGraduationYear) : null,
         degree: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.degree.trim() : null,
         department: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.department.trim() : null,
         student_id: formData.primaryRole === 'student' ? formData.studentId.trim() : null,
-        
-        // Store employer data directly in profiles
         is_employer: formData.primaryRole === 'employer',
         company_name: formData.primaryRole === 'employer' ? formData.companyName.trim() : null,
         company_website: formData.primaryRole === 'employer' ? formData.companyWebsite.trim() : null,
         industry: formData.primaryRole === 'employer' ? formData.industry.trim() : null,
-        company_location: formData.primaryRole === 'employer' ? formData.currentLocation.trim() : null,
-        
-        // Other profile fields
+        company_size: formData.primaryRole === 'employer' ? formData.companySize : null,
         job_title: formData.jobTitle?.trim() || null,
         linkedin_url: formData.linkedinProfile.trim() || null,
         skills: formData.skills,
         interests: formData.interests,
         bio: formData.bio.trim() || null,
         location: formData.currentLocation.trim() || null,
-        updated_at: new Date().toISOString(),
+        interested_in_mentorship: formData.interestedInMentorship,
+        mentorship_role: formData.interestedInMentorship ? formData.mentorshipRole : null,
+        mentorship_experience_years: (formData.mentorshipRole === 'mentor' || formData.mentorshipRole === 'both' && formData.experienceYears) ?
+          (formData.experienceYears.trim ? formData.experienceYears.trim() : formData.experienceYears) : null,
+        mentorship_goals: formData.mentorshipGoals.trim() || null,
       };
 
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update(profileUpdates) // ✅ UPDATE instead of INSERT
-        .eq('id', authData.user.id);
+      const { data: { user }, error } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: allUserData,
+        },
+      });
 
-      if (profileError) {
-        console.error('Error updating profile:', profileError);
-        setError('Your account was created, but we failed to save some profile details. You can complete your profile later.');
-        // Don't return here - still show success message
+      if (error) {
+        console.error('Supabase signup error:', error.message);
+        throw new Error(error.message.includes('User already registered')
+          ? 'A user with this email already exists. Please try logging in.'
+          : 'Registration failed. If this keeps happening, try again later or contact support.');
       }
-      
-      setError('Registration successful! Please check your email to verify your account.');
-    } else {
-      setError('An unexpected error occurred during registration. Please try again.');
-    }
 
-  } catch (err) {
-    console.error('Registration failed:', err);
-    setError(err.message || 'An unknown error occurred.');
-  } finally {
-    setIsLoading(false);
-  }
-};
+      if (!user) {
+        // This case might happen if email confirmation is enabled and the user object is not returned immediately.
+        // The backend trigger will still handle profile creation.
+        console.log('Signup successful. User needs to confirm their email.');
+      }
+
+      // On success, show the success modal. The user will be redirected to login after confirming their email.
+      setShowSuccessModal(true);
+
+    } catch (err) {
+      console.error('Registration process error:', err.message);
+      setError(err.message || 'An unexpected error occurred during registration.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleSocialLogin = async (providerAction) => {
     setIsLoading(true);
@@ -264,7 +459,7 @@ const handleSubmit = async (e) => {
     try {
       const { error: socialError } = await providerAction();
       if (socialError) throw socialError;
-      // Supabase handles redirection or session creation. 
+      // Supabase handles redirection or session creation.
       // If direct navigation is needed post-social-login (e.g. to a profile completion step), handle it here or in App.js based on auth state.
       // navigate('/dashboard'); // Example navigation
     } catch (err) {
@@ -300,7 +495,7 @@ const handleSubmit = async (e) => {
     </div>
   );
 
-  const commonInputClass = (hasError) => 
+  const commonInputClass = (hasError) =>
     `w-full px-3 py-2 border ${hasError ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm`;
   const commonLabelClass = "block text-sm font-medium text-gray-700 mb-1";
   const commonErrorClass = "text-red-500 text-xs mt-1";
@@ -318,16 +513,16 @@ const handleSubmit = async (e) => {
         <div className="absolute inset-0 flex items-center" aria-hidden="true"><div className="w-full border-t border-gray-300" /></div>
         <div className="relative flex justify-center"><span className="px-3 bg-white text-sm text-gray-500">Or register with email</span></div>
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
         <div>
           <label htmlFor="firstName" className={commonLabelClass}>First Name *</label>
-          <input id="firstName" name="firstName" type="text" required value={formData.firstName} onChange={handleChange} placeholder="Suresh" className={commonInputClass(errors.firstName)} />
+          <input id="firstName" name="firstName" type="text" required value={formData.firstName} onChange={handleChange} placeholder="Suresh" className={commonInputClass(errors.firstName)} autoCapitalize="off" autoCorrect="off" style={{ textTransform: 'none' }} />
           {errors.firstName && <p className={commonErrorClass}>{errors.firstName}</p>}
         </div>
         <div>
           <label htmlFor="lastName" className={commonLabelClass}>Last Name *</label>
-          <input id="lastName" name="lastName" type="text" required value={formData.lastName} onChange={handleChange} placeholder="Kumar" className={commonInputClass(errors.lastName)} />
+          <input id="lastName" name="lastName" type="text" required value={formData.lastName} onChange={handleChange} placeholder="Kumar" className={commonInputClass(errors.lastName)} autoCapitalize="off" autoCorrect="off" style={{ textTransform: 'none' }} />
           {errors.lastName && <p className={commonErrorClass}>{errors.lastName}</p>}
         </div>
       </div>
@@ -335,16 +530,19 @@ const handleSubmit = async (e) => {
         <label htmlFor="email" className={commonLabelClass}>Email Address *</label>
         <input id="email" name="email" type="email" autoComplete="email" required value={formData.email} onChange={handleChange} placeholder="suresh.kumar@example.com" className={commonInputClass(errors.email)} />
         {errors.email && <p className={commonErrorClass}>{errors.email}</p>}
+        <p className="text-xs text-gray-500 mt-1">Email will be stored in lowercase. '.co' domains are not allowed.</p>
       </div>
       <div>
         <label htmlFor="phone" className={commonLabelClass}>Phone Number</label>
-        <input id="phone" name="phone" type="tel" autoComplete="tel" value={formData.phone} onChange={handleChange} placeholder="+91 98765 43210" className={commonInputClass(false)} />
+        <input id="phone" name="phone" type="tel" autoComplete="tel" value={formData.phone} onChange={handleChange} placeholder="+91 98765 43210" className={commonInputClass(errors.phone)} />
+        {errors.phone && <p className={commonErrorClass}>{errors.phone}</p>}
+        <p className="text-xs text-gray-500 mt-1">Phone can only contain digits with an optional leading + symbol</p>
       </div>
       <div>
         <label htmlFor="primaryRole" className={commonLabelClass}>I am registering as a/an *</label>
         <select id="primaryRole" name="primaryRole" value={formData.primaryRole} onChange={handleChange} required className={`${commonInputClass(errors.primaryRole)} bg-white`}>
           <option value="" disabled>Select your role...</option>
-          {roles.map(role => (<option key={role.name} value={role.name}>{role.description}</option>))}
+          {roles.map((role) => (<option key={role.name} value={role.name}>{role.description}</option>))}
         </select>
         {errors.primaryRole && <p className={commonErrorClass}>{errors.primaryRole}</p>}
       </div>
@@ -361,8 +559,57 @@ const handleSubmit = async (e) => {
         </div>
         <div>
           <label htmlFor="confirmPassword" className={commonLabelClass}>Confirm Password *</label>
-          <input id="confirmPassword" name="confirmPassword" type="password" autoComplete="new-password" required value={formData.confirmPassword} onChange={handleChange} placeholder="••••••••" className={commonInputClass(errors.confirmPassword)} />
+          <div className="relative">
+            <input
+              id="confirmPassword"
+              name="confirmPassword"
+              type="password"
+              autoComplete="new-password"
+              required
+              value={formData.confirmPassword}
+              onChange={handleChange}
+              onPaste={(e) => {
+                e.preventDefault();
+                setErrors((prev) => ({
+                  ...prev,
+                  confirmPassword: 'Pasting is disabled for security reasons. Please type your password again.',
+                }));
+                // Clear error after 3 seconds
+                setTimeout(() => {
+                  setErrors((prev) => {
+                    const newErrors = { ...prev };
+                    if (newErrors.confirmPassword === 'Pasting is disabled for security reasons. Please type your password again.') {
+                      delete newErrors.confirmPassword;
+                    }
+                    return newErrors;
+                  });
+                }, 3000);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setErrors((prev) => ({
+                  ...prev,
+                  confirmPassword: 'Dropping text is disabled for security reasons.',
+                }));
+              }}
+              onCopy={(e) => e.preventDefault()}
+              onCut={(e) => e.preventDefault()}
+              placeholder="••••••••"
+              className={commonInputClass(errors.confirmPassword)}
+            />
+            {showPassword ? (
+              <button type="button" onClick={() => setShowPassword(false)} className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 hover:text-gray-700 focus:outline-none">
+                <EyeSlashIcon className="h-5 w-5" />
+              </button>
+            ) : null}
+          </div>
           {errors.confirmPassword && <p className={commonErrorClass}>{errors.confirmPassword}</p>}
+          <div className="flex items-center text-xs text-yellow-700 mt-1 bg-yellow-50 p-1 rounded">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            Copy-paste is disabled for security reasons - type your password again
+          </div>
         </div>
       </div>
     </div>
@@ -381,7 +628,7 @@ const handleSubmit = async (e) => {
             </div>
             <div>
               <label htmlFor="degree" className={commonLabelClass}>Degree Obtained *</label>
-              <input id="degree" name="degree" type="text" required value={formData.degree} onChange={handleChange} placeholder="e.g., B.Tech Marine Engineering" className={commonInputClass(errors.degree)} />
+              <input id="degree" name="degree" type="text" required value={formData.degree} onChange={handleChange} placeholder="B.E., B.Sc., B.Com., M.Tech., etc." className={commonInputClass(errors.degree)} />
               {errors.degree && <p className={commonErrorClass}>{errors.degree}</p>}
             </div>
           </div>
@@ -460,7 +707,9 @@ const handleSubmit = async (e) => {
       {/* Common fields for Step 2 - can be placed outside role-specific blocks if applicable to all */}
       <div>
         <label htmlFor="linkedinProfile" className={commonLabelClass}>LinkedIn Profile URL</label>
-        <input id="linkedinProfile" name="linkedinProfile" type="url" value={formData.linkedinProfile} onChange={handleChange} placeholder="https://linkedin.com/in/yourname" className={commonInputClass(false)} />
+        <input id="linkedinProfile" name="linkedinProfile" type="url" value={formData.linkedinProfile} onChange={handleChange} placeholder="https://linkedin.com/in/yourname" className={commonInputClass(errors.linkedinProfile)} />
+        <p className="text-xs text-gray-500 mt-1">Must start with http:// or https://</p>
+        {errors.linkedinProfile && <p className={commonErrorClass}>{errors.linkedinProfile}</p>}
       </div>
       <div>
         <label htmlFor="currentLocation" className={commonLabelClass}>Current Location</label>
@@ -479,7 +728,7 @@ const handleSubmit = async (e) => {
       <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-md">
         <h4 className="text-sm font-semibold text-blue-800 mb-1">Join the AMET Mentorship Network!</h4>
         <p className="text-sm text-blue-700 mb-2">
-          Connect with experienced professionals for career guidance, or share your expertise to guide students and junior alumni. 
+          Connect with experienced professionals for career guidance, or share your expertise to guide students and junior alumni.
         </p>
         <ul className="text-xs text-blue-600 space-y-1 list-disc list-inside">
           <li><strong>Mentors:</strong> Experienced alumni & professionals (3+ years) ready to guide.</li>
@@ -505,27 +754,33 @@ const handleSubmit = async (e) => {
         <div className="space-y-6 pl-6 border-l-2 border-blue-200 ml-2 py-4">
           <div>
             <label className={`${commonLabelClass} mb-2`}>I would like to be a: *</label>
+            {formData.primaryRole === 'student' && (
+              <div className="bg-blue-50 border-l-4 border-blue-400 p-3 mb-3 rounded-md">
+                <p className="text-sm text-blue-700">As a Student, you can participate as a Mentee to receive guidance from experienced professionals.</p>
+              </div>
+            )}
             <div className="space-y-3">
-              {[
-                { value: 'mentor', label: 'Mentor', desc: 'Guide and support students/junior alumni.' },
-                { value: 'mentee', label: 'Mentee', desc: 'Receive guidance and career advice.' },
-                { value: 'both', label: 'Both Mentor & Mentee', desc: 'Mentor others while also seeking guidance.' }
-              ].map((roleOpt) => (
-                <label key={roleOpt.value} className="flex items-start p-3 border border-gray-200 rounded-lg cursor-pointer hover:border-blue-300 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-400 transition-colors">
-                  <input
-                    type="radio"
-                    name="mentorshipRole"
-                    value={roleOpt.value}
-                    checked={formData.mentorshipRole === roleOpt.value}
-                    onChange={handleChange}
-                    className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                  />
-                  <div className="ml-3">
-                    <span className="text-sm font-medium text-gray-900">{roleOpt.label}</span>
-                    <p className="text-xs text-gray-500">{roleOpt.desc}</p>
-                  </div>
-                </label>
-              ))}
+              {
+                [
+                  { value: 'mentor', label: 'Mentor', desc: 'Guide and support students/junior alumni.', showFor: ['alumni', 'employer', 'mentor'] },
+                  { value: 'mentee', label: 'Mentee', desc: 'Receive guidance and career advice.', showFor: ['student', 'alumni', 'employer'] },
+                  { value: 'both', label: 'Both Mentor & Mentee', desc: 'Mentor others while also seeking guidance.', showFor: ['alumni', 'employer'] }
+                ].filter((roleOpt) => roleOpt.showFor.includes(formData.primaryRole)).map((roleOpt) => (
+                  <label key={roleOpt.value} className="flex items-start p-3 border border-gray-200 rounded-lg cursor-pointer hover:border-blue-300 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-400 transition-colors">
+                    <input
+                      type="radio"
+                      name="mentorshipRole"
+                      value={roleOpt.value}
+                      checked={formData.mentorshipRole === roleOpt.value}
+                      onChange={handleChange}
+                      className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                    />
+                    <div className="ml-3">
+                      <span className="text-sm font-medium text-gray-900">{roleOpt.label}</span>
+                      <p className="text-xs text-gray-500">{roleOpt.desc}</p>
+                    </div>
+                  </label>
+                ))}
             </div>
             {errors.mentorshipRole && <p className={commonErrorClass}>{errors.mentorshipRole}</p>}
           </div>
@@ -541,6 +796,52 @@ const handleSubmit = async (e) => {
 
           <div>
             <label className={`${commonLabelClass} mb-2`}>Skills & Expertise (select up to 5) *</label>
+
+            {/* Custom Skill Input */}
+            <div className="mb-3">
+              <div className="flex">
+                <input
+                  type="text"
+                  value={customSkill}
+                  onChange={handleCustomSkillChange}
+                  placeholder="Add your own skills (separate by comma or space)"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  disabled={formData.skills.length >= 5}
+                />
+                <button
+                  type="button"
+                  onClick={handleCustomSkillAdd}
+                  disabled={!customSkill.trim() || formData.skills.length >= 5}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-r-lg text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Add
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Add custom skills with commas or spaces (e.g., "Naval Architecture, Ship Design")</p>
+            </div>
+
+            {/* Selected Skills */}
+            {formData.skills.length > 0 && (
+              <div className="mb-3">
+                <p className="text-sm font-medium text-gray-700 mb-2">Your selected skills ({formData.skills.length}/5):</p>
+                <div className="flex flex-wrap gap-2">
+                  {formData.skills.map((skill) => (
+                    <span key={skill} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                      {skill}
+                      <button
+                        type="button"
+                        onClick={() => handleSkillToggle(skill)}
+                        className="ml-1 inline-flex text-blue-500 hover:text-blue-700 focus:outline-none"
+                      >
+                        <XMarkIcon className="h-3 w-3" aria-hidden="true" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Predefined Skills */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {skillOptions.map((skill) => (
                 <label key={skill} className="flex items-center p-2.5 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-400 transition-colors">
@@ -613,7 +914,7 @@ const handleSubmit = async (e) => {
         />
         <label htmlFor="agreeToTerms" className="ml-2 block text-sm text-gray-700">
           I agree to the AMET Alumni Network's{' '}
-          <Link to="/terms-of-service" target="_blank" className="font-medium text-blue-600 hover:text-blue-700 underline">Terms of Service</Link> and 
+          <Link to="/terms-of-service" target="_blank" className="font-medium text-blue-600 hover:text-blue-700 underline">Terms of Service</Link> and
           <Link to="/privacy-policy" target="_blank" className="font-medium text-blue-600 hover:text-blue-700 underline"> Privacy Policy</Link>. *
         </label>
       </div>
@@ -633,7 +934,7 @@ const handleSubmit = async (e) => {
       </div>
       <div className="max-w-2xl w-full space-y-8">
         <div className="text-center">
-          <Link to="/" className="flex items-center justify-center space-x-3 mb-6">
+          <Link to="/" className="flex items-center justify-center space-x-3 mb-6" aria-label="Go to AMET home page">
             <Logo className="h-12 w-auto" />
             <span className="text-2xl font-bold text-gray-900">AMET Alumni</span>
           </Link>
@@ -650,10 +951,9 @@ const handleSubmit = async (e) => {
         <form onSubmit={currentStep === 3 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }}>
           <div className="bg-white rounded-xl shadow-2xl p-6 md:p-10 space-y-8">
             {error && (
-              <div className={`p-4 border rounded-lg text-sm ${ 
-                error.toLowerCase().includes('successful') || error.toLowerCase().includes('submitted') || error.toLowerCase().includes('verify')
-                  ? 'bg-green-50 border-green-300 text-green-700' 
-                  : 'bg-red-50 border-red-300 text-red-700'
+              <div className={`p-4 border rounded-lg text-sm ${error.toLowerCase().includes('successful') || error.toLowerCase().includes('submitted') || error.toLowerCase().includes('verify')
+                ? 'bg-green-50 border-green-300 text-green-700'
+                : 'bg-red-50 border-red-300 text-red-700'
               }`} role="alert">
                 {error}
               </div>
@@ -675,7 +975,7 @@ const handleSubmit = async (e) => {
                 </button>
               )}
               <button
-                type={currentStep === 3 ? "submit" : "button"} 
+                type={currentStep === 3 ? "submit" : "button"}
                 onClick={currentStep < 3 ? handleNext : undefined} // handleSubmit is called by form's onSubmit for last step
                 disabled={isLoading}
                 className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
@@ -703,6 +1003,30 @@ const handleSubmit = async (e) => {
           </p>
         </div>
       </div>
+
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+          <div className="relative mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3 text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
+                <CheckIcon className="h-6 w-6 text-green-600" aria-hidden="true" />
+              </div>
+              <h3 className="text-lg leading-6 font-medium text-gray-900 mt-2">Registration Successful!</h3>
+              <div className="mt-2 px-7 py-3">
+                <p className="text-sm text-gray-500">Please check your email to verify your account. You can now log in.</p>
+              </div>
+              <div className="items-center px-4 py-3">
+                <button
+                  onClick={() => navigate('/login', { replace: true })}
+                  className="px-4 py-2 bg-blue-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

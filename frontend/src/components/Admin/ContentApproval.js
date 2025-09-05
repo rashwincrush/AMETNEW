@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import ContentDetailsModal from './ContentDetailsModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
+import { applyPendingFilters } from '../../utils/pendingFilters';
 import {
   CheckCircleIcon,
   XCircleIcon,
@@ -12,6 +13,7 @@ import {
   DocumentTextIcon,
   PhotoIcon,
   UserCircleIcon,
+  UserGroupIcon,
   CalendarIcon,
   ClockIcon,
   FlagIcon,
@@ -27,57 +29,185 @@ const ContentApproval = () => {
   const [selectedItem, setSelectedItem] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { profile } = useAuth();
-    const [pendingContent, setPendingContent] = useState([]);
+    // Separate state arrays for different content types
+  const [pendingJobs, setPendingJobs] = useState([]);
+  const [pendingEvents, setPendingEvents] = useState([]);
+  const [pendingGroups, setPendingGroups] = useState([]);
+  const [pendingOtherContent, setPendingOtherContent] = useState([]);
+  
+  // Separate loading and error states
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [jobsError, setJobsError] = useState(null);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [eventsError, setEventsError] = useState(null);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [groupsError, setGroupsError] = useState(null);
+  const [otherContentLoading, setOtherContentLoading] = useState(true);
+  const [otherContentError, setOtherContentError] = useState(null);
+  
+  // Combined loading and error states for UI
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // Combined pending content for UI
+  const [pendingContent, setPendingContent] = useState([]);
   const [filter, setFilter] = useState('all');
   const [viewMode, setViewMode] = useState('list');
 
   const fetchPendingContent = useCallback(async () => {
+    // Reset all states
+    setJobsLoading(true);
+    setEventsLoading(true);
+    setGroupsLoading(true);
+    setOtherContentLoading(true);
+    setJobsError(null);
+    setEventsError(null);
+    setGroupsError(null);
+    setOtherContentError(null);
     setLoading(true);
     setError(null);
+    
+    // Fetch pending jobs
     try {
-      // Fetch pending jobs
-      const { data: jobs, error: jobsError } = await supabase
+      const jobsQuery = supabase
         .from('jobs')
-        .select('*, profiles:user_id(first_name, last_name, avatar_url, email)')
-        .eq('is_approved', false)
+        .select('*, profiles:user_id(first_name, last_name, avatar_url, email)');
+      
+      // Apply pending filters
+      const { data: jobs, error: fetchJobsError } = await applyPendingFilters(jobsQuery)
         .order('created_at', { ascending: false });
-      if (jobsError) throw jobsError;
-
-      // Fetch pending events
-      const { data: events, error: eventsError } = await supabase
+      
+      if (fetchJobsError) {
+        setJobsError(fetchJobsError.message);
+        console.error('Error fetching jobs:', fetchJobsError);
+      } else {
+        const normalizedJobs = (jobs || []).map(item => ({ 
+          ...item, 
+          type: 'Job', 
+          content_type: 'job', 
+          creator: item.profiles 
+        }));
+        setPendingJobs(normalizedJobs);
+      }
+    } catch (err) {
+      setJobsError(err.message);
+      console.error('Error in jobs fetch:', err);
+    } finally {
+      setJobsLoading(false);
+    }
+    
+    // Fetch pending events
+    try {
+      const eventsQuery = supabase
         .from('events')
-        .select('*, profiles:user_id(first_name, last_name, avatar_url, email)')
-        .eq('is_approved', false)
+        .select('*, profiles:user_id(first_name, last_name, avatar_url, email)');
+      
+      // Apply pending filters
+      const { data: events, error: fetchEventsError } = await applyPendingFilters(eventsQuery)
         .order('created_at', { ascending: false });
-      if (eventsError) throw eventsError;
-
-      // Fetch other pending content (posts, comments, etc.)
-      const { data: otherContent, error: otherContentError } = await supabase
+      
+      if (fetchEventsError) {
+        setEventsError(fetchEventsError.message);
+        console.error('Error fetching events:', fetchEventsError);
+      } else {
+        const normalizedEvents = (events || []).map(item => ({ 
+          ...item, 
+          type: 'Event', 
+          content_type: 'event', 
+          creator: item.profiles 
+        }));
+        setPendingEvents(normalizedEvents);
+      }
+    } catch (err) {
+      setEventsError(err.message);
+      console.error('Error in events fetch:', err);
+    } finally {
+      setEventsLoading(false);
+    }
+    
+    // Fetch pending groups - with corrected FK embed
+    try {
+      const groupsQuery = supabase
+        .from('groups')
+        .select('*, profiles!groups_created_by_fkey(first_name, last_name, avatar_url, email)');
+      
+      // Apply pending filters
+      const { data: groups, error: fetchGroupsError } = await applyPendingFilters(groupsQuery)
+        .order('created_at', { ascending: false });
+      
+      if (fetchGroupsError) {
+        setGroupsError(fetchGroupsError.message);
+        console.error('Error fetching groups:', fetchGroupsError);
+      } else {
+        const normalizedGroups = (groups || []).map(item => ({ 
+          ...item, 
+          type: 'Group', 
+          content_type: 'group', 
+          creator: item.profiles 
+        }));
+        setPendingGroups(normalizedGroups);
+      }
+    } catch (err) {
+      setGroupsError(err.message);
+      console.error('Error in groups fetch:', err);
+    } finally {
+      setGroupsLoading(false);
+    }
+    
+    // Fetch other pending content (posts, comments, etc.)
+    try {
+      const { data: otherContent, error: fetchOtherContentError } = await supabase
         .from('content_approvals')
         .select('*, profiles:creator_id(first_name, last_name, avatar_url, email)')
         .eq('status', 'pending')
         .order('created_at', { ascending: false });
-      if (otherContentError) throw otherContentError;
-
-      // Normalize and combine data
-      const normalizedJobs = jobs.map(item => ({ ...item, type: 'Job', content_type: 'job', creator: item.profiles }));
-      const normalizedEvents = events.map(item => ({ ...item, type: 'Event', content_type: 'event', creator: item.profiles }));
-      const normalizedOther = otherContent.map(item => ({ ...item, type: item.content_type, creator: item.profiles }));
-
-      const allContent = [...normalizedJobs, ...normalizedEvents, ...normalizedOther];
-      allContent.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-      setPendingContent(allContent);
+      
+      if (fetchOtherContentError) {
+        setOtherContentError(fetchOtherContentError.message);
+        console.error('Error fetching other content:', fetchOtherContentError);
+      } else {
+        const normalizedOther = (otherContent || []).map(item => ({ 
+          ...item, 
+          type: item.content_type, 
+          creator: item.profiles 
+        }));
+        setPendingOtherContent(normalizedOther);
+      }
     } catch (err) {
-      console.error('Error fetching pending content:', err);
-      setError(err.message);
-      toast.error(`Failed to load content: ${err.message}`);
+      setOtherContentError(err.message);
+      console.error('Error in other content fetch:', err);
     } finally {
-      setLoading(false);
+      setOtherContentLoading(false);
     }
   }, []);
+  
+  // Update combined state after all fetches complete
+  useEffect(() => {
+    const isStillLoading = jobsLoading || eventsLoading || groupsLoading || otherContentLoading;
+    setLoading(isStillLoading);
+    
+    // Only combine data when everything is loaded
+    if (!isStillLoading) {
+      // Aggregate errors
+      const errors = [];
+      if (jobsError) errors.push(`Jobs: ${jobsError}`);
+      if (eventsError) errors.push(`Events: ${eventsError}`);
+      if (groupsError) errors.push(`Groups: ${groupsError}`);
+      if (otherContentError) errors.push(`Other content: ${otherContentError}`);
+      
+      if (errors.length > 0) {
+        setError(errors.join('; '));
+        toast.error(`Failed to load some content: ${errors.join('; ')}`);
+      }
+      
+      // Combine and sort all content
+      const allContent = [...pendingJobs, ...pendingEvents, ...pendingGroups, ...pendingOtherContent];
+      allContent.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setPendingContent(allContent);
+    }
+  }, [jobsLoading, eventsLoading, groupsLoading, otherContentLoading, 
+      pendingJobs, pendingEvents, pendingGroups, pendingOtherContent,
+      jobsError, eventsError, groupsError, otherContentError]);
 
   useEffect(() => {
     fetchPendingContent();
@@ -92,26 +222,65 @@ const ContentApproval = () => {
     switch (content_type) {
       case 'job':
         tableName = 'jobs';
-        updateData = { is_approved: true, updated_at: new Date().toISOString() };
+        updateData = { 
+          is_approved: true, 
+          is_rejected: false, 
+          reviewer_id: profile?.id, 
+          reviewed_at: new Date().toISOString() 
+        };
         break;
       case 'event':
         tableName = 'events';
-        updateData = { is_approved: true, updated_at: new Date().toISOString() };
+        updateData = { 
+          is_approved: true, 
+          is_rejected: false, 
+          reviewer_id: profile?.id, 
+          reviewed_at: new Date().toISOString() 
+        };
+        break;
+      case 'group':
+        tableName = 'groups';
+        updateData = { 
+          is_approved: true, 
+          is_rejected: false, 
+          reviewer_id: profile?.id, 
+          reviewed_at: new Date().toISOString() 
+        };
         break;
       default:
         tableName = 'content_approvals';
-        updateData = { status: 'approved', reviewer_id: profile?.id, reviewed_at: new Date().toISOString() };
+        updateData = { 
+          status: 'approved', 
+          reviewer_id: profile?.id, 
+          reviewed_at: new Date().toISOString() 
+        };
     }
 
     try {
       const { error } = await supabase.from(tableName).update(updateData).eq('id', id);
       if (error) throw error;
-
-      setPendingContent(current => current.filter(p => p.id !== id));
+      
       toast.success(`${item.type} approved successfully.`);
+      // Remove from the appropriate state array
+      switch (content_type) {
+        case 'job':
+          setPendingJobs(current => current.filter(p => p.id !== id));
+          break;
+        case 'event':
+          setPendingEvents(current => current.filter(p => p.id !== id));
+          break;
+        case 'group':
+          setPendingGroups(current => current.filter(p => p.id !== id));
+          break;
+        default:
+          setPendingOtherContent(current => current.filter(p => p.id !== id));
+      }
+      
+      // Also remove from the combined UI array
+      setPendingContent(current => current.filter(p => p.id !== id));
     } catch (err) {
       console.error(`Error approving ${content_type}:`, err);
-      toast.error(`Approval failed: ${err.message}`);
+      toast.error(`Failed to approve ${content_type}: ${err.message}`);
     }
   };
   
@@ -129,39 +298,77 @@ const ContentApproval = () => {
 
     switch (content_type) {
       case 'job':
-      case 'event': {
-        // For jobs and events, we might just delete them or mark as rejected
-        // For now, let's delete them as an example of a different workflow
-        tableName = content_type === 'job' ? 'jobs' : 'events';
-        const { error } = await supabase.from(tableName).delete().eq('id', id);
-        if (error) {
-            toast.error(`Failed to delete ${content_type}: ${error.message}`);
-            return;
-        }
-        toast.success(`${item.type} rejected and removed.`);
+        tableName = 'jobs';
+        updateData = { 
+          is_rejected: true, 
+          rejection_reason: reason, 
+          reviewer_id: profile?.id, 
+          reviewed_at: new Date().toISOString() 
+        };
         break;
-      }
-      default: {
+      case 'event':
+        tableName = 'events';
+        updateData = { 
+          is_rejected: true, 
+          rejection_reason: reason, 
+          reviewer_id: profile?.id, 
+          reviewed_at: new Date().toISOString() 
+        };
+        break;
+      case 'group':
+        tableName = 'groups';
+        updateData = { 
+          is_rejected: true, 
+          rejection_reason: reason, 
+          reviewer_id: profile?.id, 
+          reviewed_at: new Date().toISOString() 
+        };
+        break;
+      default:
         tableName = 'content_approvals';
-        updateData = { status: 'rejected', reviewer_id: profile?.id, reviewed_at: new Date().toISOString(), rejection_reason: reason };
-        const { error: defaultError } = await supabase.from(tableName).update(updateData).eq('id', id);
-        if (defaultError) {
-            toast.error(`Failed to reject ${content_type}: ${defaultError.message}`);
-            return;
-        }
-      }
-        toast.success(`${item.type} rejected.`);
+        updateData = { 
+          status: 'rejected', 
+          reviewer_id: profile?.id, 
+          reviewed_at: new Date().toISOString(), 
+          rejection_reason: reason 
+        };
     }
 
-    setPendingContent(current => current.filter(p => p.id !== id));
+    try {
+      const { error } = await supabase.from(tableName).update(updateData).eq('id', id);
+      if (error) throw error;
+      
+      toast.success(`${item.type} rejected successfully.`);
+      // Remove from the appropriate state array
+      switch (content_type) {
+        case 'job':
+          setPendingJobs(current => current.filter(p => p.id !== id));
+          break;
+        case 'event':
+          setPendingEvents(current => current.filter(p => p.id !== id));
+          break;
+        case 'group':
+          setPendingGroups(current => current.filter(p => p.id !== id));
+          break;
+        default:
+          setPendingOtherContent(current => current.filter(p => p.id !== id));
+      }
+      
+      // Also remove from the combined UI array
+      setPendingContent(current => current.filter(p => p.id !== id));
+    } catch (err) {
+      console.error(`Error rejecting ${content_type}:`, err);
+      toast.error(`Failed to reject ${content_type}: ${err.message}`);
+    }
   };
   
   const getContentTypeIcon = (type) => {
     switch(type) {
-            case 'post': return <DocumentTextIcon className="w-6 h-6 text-blue-500" />;
+      case 'post': return <DocumentTextIcon className="w-6 h-6 text-blue-500" />;
       case 'comment': return <ChatBubbleLeftRightIcon className="w-6 h-6 text-green-500" />;
       case 'event': return <CalendarIcon className="w-6 h-6 text-red-500" />;
       case 'job': return <BriefcaseIcon className="w-6 h-6 text-indigo-500" />;
+      case 'group': return <UserGroupIcon className="w-6 h-6 text-purple-500" />;
       case 'profile': return <UserCircleIcon className="w-5 h-5" />;
       case 'image': return <PhotoIcon className="w-5 h-5" />;
       default: return <DocumentTextIcon className="w-5 h-5" />;
@@ -175,6 +382,7 @@ const ContentApproval = () => {
       case 'comment': return 'bg-green-100 text-green-800';
       case 'event': return 'bg-red-100 text-red-800';
       case 'job': return 'bg-indigo-100 text-indigo-800';
+      case 'group': return 'bg-purple-100 text-purple-800';
       case 'profile': return `${baseClasses} bg-indigo-100 text-indigo-800`;
       case 'image': return `${baseClasses} bg-pink-100 text-pink-800`;
       default: return `${baseClasses} bg-gray-100 text-gray-800`;
@@ -201,13 +409,28 @@ const ContentApproval = () => {
         </div>
       </div>
       <div className="flex items-center justify-end space-x-2 mt-4 pt-4 border-t border-gray-200">
-        <button title="View Details" onClick={() => handleViewDetails(item)} className="text-gray-500 hover:text-indigo-600">
+        <button 
+          title="View Details" 
+          onClick={() => handleViewDetails(item)} 
+          className="text-gray-500 hover:text-indigo-600 p-2 rounded-full hover:bg-gray-100"
+          aria-label={`View details for ${item.type} ${item.title || item.job_title || ''}`}
+        >
           <EyeIcon className="h-6 w-6" />
         </button>
-        <button title="Approve" onClick={() => handleApprove(item)} className="text-green-600 hover:text-green-800">
+        <button 
+          title="Approve" 
+          onClick={() => handleApprove(item)} 
+          className="text-green-600 hover:text-green-800 p-2 rounded-full hover:bg-green-100"
+          aria-label={`Approve ${item.type} ${item.title || item.job_title || ''}`}
+        >
           <CheckCircleIcon className="h-6 w-6" />
         </button>
-        <button title="Reject" onClick={() => handleReject(item)} className="text-red-600 hover:text-red-800">
+        <button 
+          title="Reject" 
+          onClick={() => handleReject(item)} 
+          className="text-red-600 hover:text-red-800 p-2 rounded-full hover:bg-red-100"
+          aria-label={`Reject ${item.type} ${item.title || item.job_title || ''}`}
+        >
           <XCircleIcon className="h-6 w-6" />
         </button>
       </div>
@@ -237,13 +460,28 @@ const ContentApproval = () => {
           </div>
         </div>
         <div className="ml-4 flex-shrink-0 flex items-center space-x-2">
-          <button title="View Details" onClick={() => handleViewDetails(item)} className="text-gray-500 hover:text-indigo-600">
+          <button 
+            title="View Details" 
+            onClick={() => handleViewDetails(item)} 
+            className="text-gray-500 hover:text-indigo-600 p-2 rounded-full hover:bg-gray-100"
+            aria-label={`View details for ${item.type} ${item.title || item.job_title || ''}`}
+          >
             <EyeIcon className="h-6 w-6" />
           </button>
-          <button title="Approve" onClick={() => handleApprove(item)} className="text-green-600 hover:text-green-800">
+          <button 
+            title="Approve" 
+            onClick={() => handleApprove(item)} 
+            className="text-green-600 hover:text-green-800 p-2 rounded-full hover:bg-green-100"
+            aria-label={`Approve ${item.type} ${item.title || item.job_title || ''}`}
+          >
             <CheckCircleIcon className="h-6 w-6" />
           </button>
-          <button title="Reject" onClick={() => handleReject(item)} className="text-red-600 hover:text-red-800">
+          <button 
+            title="Reject" 
+            onClick={() => handleReject(item)} 
+            className="text-red-600 hover:text-red-800 p-2 rounded-full hover:bg-red-100"
+            aria-label={`Reject ${item.type} ${item.title || item.job_title || ''}`}
+          >
             <XCircleIcon className="h-6 w-6" />
           </button>
         </div>
@@ -255,6 +493,7 @@ const ContentApproval = () => {
     { value: 'all', label: 'All Content' },
     { value: 'job', label: 'Jobs' },
     { value: 'event', label: 'Events' },
+    { value: 'group', label: 'Groups' },
     { value: 'post', label: 'Posts' },
     { value: 'comment', label: 'Comments' },
     { value: 'profile', label: 'Profiles' },
@@ -277,6 +516,8 @@ const ContentApproval = () => {
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             className="block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            aria-label="Filter content type"
+            aria-controls="content-list"
           >
             {contentFilters.map(type => (
               <option key={type.value} value={type.value}>
@@ -285,7 +526,7 @@ const ContentApproval = () => {
             ))}
           </select>
 
-          <div className="flex rounded-md shadow-sm">
+          <div className="flex rounded-md shadow-sm" role="group" aria-label="View mode selection">
             <button
               type="button"
               onClick={() => setViewMode('list')}
@@ -294,6 +535,8 @@ const ContentApproval = () => {
                   ? 'bg-indigo-600 text-white border-indigo-600'
                   : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
               }`}
+              aria-pressed={viewMode === 'list'}
+              aria-label="List view"
             >
               List
             </button>
@@ -305,6 +548,8 @@ const ContentApproval = () => {
                   ? 'bg-indigo-600 text-white border-indigo-600'
                   : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
               }`}
+              aria-pressed={viewMode === 'grid'}
+              aria-label="Grid view"
             >
               Grid
             </button>
@@ -313,6 +558,7 @@ const ContentApproval = () => {
           <button
             onClick={fetchPendingContent}
             className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            aria-label="Refresh content list"
           >
             <ArrowPathIcon className="w-4 h-4 mr-1" />
             Refresh
@@ -339,19 +585,29 @@ const ContentApproval = () => {
             </div>
           </div>
         </div>
-      ) : filteredContent.length === 0 ? (
+      ) : !loading && filteredContent.length === 0 ? (
                 <div className="text-center py-12 bg-gray-50 rounded-lg">
           <CheckCircleIcon className="mx-auto h-12 w-12 text-green-500" />
           <h3 className="mt-2 text-lg font-medium text-gray-900">Queue Clear!</h3>
           <p className="mt-1 text-sm text-gray-500">There is no content awaiting moderation.</p>
         </div>
       ) : viewMode === 'grid' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div 
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" 
+          role="grid" 
+          aria-label="Content awaiting approval in grid view"
+          id="content-list"
+        >
           {filteredContent.map(renderGridItem)}
         </div>
       ) : (
         <div className="bg-white shadow overflow-hidden sm:rounded-md">
-          <ul className="divide-y divide-gray-200">
+          <ul 
+            className="divide-y divide-gray-200"
+            role="list" 
+            aria-label="Content awaiting approval"
+            id="content-list"
+          >
             {filteredContent.map(renderListItem)}
           </ul>
         </div>

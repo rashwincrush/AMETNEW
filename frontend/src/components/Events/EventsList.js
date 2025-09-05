@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase, useRealtime } from '../../utils/supabase';
+import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { 
   Box, 
   Button, 
@@ -52,6 +52,7 @@ const EventsList = ({ isAdmin = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState('upcoming');
   const [eventType, setEventType] = useState('all');
+  const [sortBy, setSortBy] = useState('start_date_asc'); // New state for sorting
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list' or 'calendar'
   const subscriptionRef = useRef(null);
 
@@ -59,153 +60,43 @@ const EventsList = ({ isAdmin = false }) => {
     setFilter(e.target.value);
   };
 
-  // Keep track of subscription status to prevent duplicate subscriptions
-  const subscriptionStatusRef = useRef({ isSubscribing: false, isActive: false, isUnmounting: false });
+  // Simple ref to track component mount state
+  const isMountedRef = useRef(true);
   
-  // Handle channel status changes separately from setup
-  const handleChannelStatus = useCallback((status, err) => {
-    // Only process status updates if the component is still mounted
-    // This helps avoid state updates after unmounting
-    if (status === 'SUBSCRIBED') {
-      console.log('Successfully subscribed to events and rsvps channel!');
-      subscriptionStatusRef.current.isActive = true;
-      subscriptionStatusRef.current.isSubscribing = false;
-    } else if (status === 'CHANNEL_ERROR') {
-      console.error('Channel error:', err || 'Unknown connection error');
-      subscriptionStatusRef.current.isActive = false;
-      subscriptionStatusRef.current.isSubscribing = false;
-    } else if (status === 'CLOSED') {
-      // This is normal during cleanup, so only log when not during unmount
-      if (subscriptionStatusRef.current.isUnmounting !== true) {
-        console.warn('Channel closed unexpectedly');
-      }
-      subscriptionStatusRef.current.isActive = false;
-      subscriptionStatusRef.current.isSubscribing = false;
-    }
+  // Handle events updates
+  const handleEventsUpdate = useCallback((payload) => {
+    console.log('Real-time change received for events:', payload);
+    fetchEvents();
   }, []);
   
-  // Access realtime connection status and helper from our custom hook
-  const { isRealtimeReady, setupRealtimeSubscription: checkRealtimeConnection } = useRealtime();
-  
-  // Set up real-time subscription with connection status check and fallback support
-  const setupRealtimeSubscription = useCallback(async () => {
-    // Prevent duplicate subscription attempts
-    if (subscriptionStatusRef.current.isSubscribing) {
-      console.log('Subscription setup already in progress, skipping');
-      return;
-    }
-    
-    // If we already have an active subscription, don't create another one
-    if (subscriptionStatusRef.current.isActive && subscriptionRef.current) {
-      console.log('Subscription already active, skipping setup');
-      return;
-    }
-    
-    subscriptionStatusRef.current.isSubscribing = true;
-    
-    try {
-      // First, wait for realtime connection to be ready, with fallback option
-      console.log('Checking if realtime connection is ready...');
-      const connectionSuccess = await checkRealtimeConnection('events-list', { allowFallback: true })
-        .catch(err => {
-          console.warn('Realtime check failed but continuing in fallback mode:', err);
-          return false; // Continue in fallback mode
-        });
-      
-      if (connectionSuccess) {
-        console.log('Realtime connection confirmed ready, creating subscription');
-        
-        // Clean up any existing subscription first
-        if (subscriptionRef.current) {
-          console.log('Removing existing channel before creating new one');
-          await supabase.removeChannel(subscriptionRef.current);
-          subscriptionRef.current = null;
-        }
-        
-        // Create a new subscription
-        const channel = supabase
-          .channel('events-list-subscription')
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'events' },
-            (payload) => {
-              console.log('Real-time change received for events:', payload);
-              fetchEvents();
-            }
-          )
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'event_rsvps' },
-            (payload) => {
-              console.log('Real-time change received for rsvps:', payload);
-              fetchEvents();
-            }
-          )
-          .subscribe(handleChannelStatus);
-
-        subscriptionRef.current = channel;
-      } else {
-        console.log('Operating in non-realtime mode for events - updates will require manual refresh');
-        // Could add a visual indicator here that realtime is disabled
-      }
-    } catch (error) {
-      console.error('Error setting up realtime subscription:', error);
-      // Allow the component to continue working without realtime
-      console.log('Continuing without realtime updates for events');
-    } finally {
-      subscriptionStatusRef.current.isSubscribing = false;
-      // Don't mark as active if we didn't actually set up a subscription
-      if (subscriptionRef.current) {
-        subscriptionStatusRef.current.isActive = true;
-      }
-    }
-  }, [handleChannelStatus, checkRealtimeConnection]);
+  // Handle RSVPs updates
+  const handleRsvpsUpdate = useCallback((payload) => {
+    console.log('Real-time change received for RSVPs:', payload);
+    fetchEvents();
+  }, []);
   
   useEffect(() => {
+    isMountedRef.current = true;
     fetchEvents();
-    
-    // Initialize the subscription
-    setupRealtimeSubscription();
 
-    // Cleanup function
+    onPostgresChangesOnce(
+      'events-list',
+      'events-listener',
+      { event: '*', schema: 'public', table: 'events' },
+      handleEventsUpdate
+    );
+
+    onPostgresChangesOnce(
+      'events-rsvps-list',
+      'rsvps-listener',
+      { event: '*', schema: 'public', table: 'event_rsvps' },
+      handleRsvpsUpdate
+    );
+
     return () => {
-      const cleanupSubscription = async () => {
-        try {
-          // Mark component as unmounting to prevent unnecessary warnings
-          subscriptionStatusRef.current.isUnmounting = true;
-          
-          if (subscriptionRef.current) {
-            console.log('Cleaning up events subscription...');
-            // Mark subscription as inactive before removal
-            subscriptionStatusRef.current.isActive = false;
-            subscriptionStatusRef.current.isSubscribing = false;
-            
-            // Use a try-catch within the async function to handle connection errors
-            try {
-              await supabase.removeChannel(subscriptionRef.current);
-            } catch (removeError) {
-              // Silently handle WebSocket closed errors during unmount
-              if (removeError?.message?.includes('WebSocket') || 
-                  removeError?.message?.includes('connection')) {
-                // Expected during navigation, no need to log
-              } else {
-                console.error('Error removing channel:', removeError);
-              }
-            }
-            
-            subscriptionRef.current = null;
-          }
-        } catch (error) {
-          // Only log critical errors
-          if (error?.name !== 'AbortError') {
-            console.error('Error cleaning up subscription:', error);
-          }
-        }
-      };
-      
-      cleanupSubscription();
+      isMountedRef.current = false;
     };
-  }, [filter, eventType, setupRealtimeSubscription]);
+  }, [handleEventsUpdate, handleRsvpsUpdate]);
 
   const fetchEvents = async () => {
     try {
@@ -304,11 +195,47 @@ const EventsList = ({ isAdmin = false }) => {
     }
   };
 
-  const filteredEvents = events.filter(event => 
-    event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    event.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    event.location.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const formatLocation = (venue, address, eventType) => {
+    // Check if the event is virtual first
+    if (eventType === 'virtual') {
+      return 'Online Event';
+    }
+    
+    // Then check venue name
+    if (venue && venue.toLowerCase() === 'online') {
+      return 'Online Event';
+    }
+    
+    // For in-person or hybrid with venue and address
+    if (venue && address) {
+      return `${venue}, ${address}`;
+    }
+    
+    // Return whatever is available
+    return venue || address || (eventType === 'hybrid' ? 'Hybrid Event' : 'Location not specified');
+  };
+
+  const processedEvents = events
+    .filter(event => 
+      event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (event.description && event.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (event.venue && event.venue.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (event.address && event.address.toLowerCase().includes(searchTerm.toLowerCase()))
+    )
+    .sort((a, b) => {
+      switch (sortBy) {
+        case 'start_date_asc':
+          return new Date(a.start_date) - new Date(b.start_date);
+        case 'start_date_desc':
+          return new Date(b.start_date) - new Date(a.start_date);
+        case 'title_asc':
+          return a.title.localeCompare(b.title);
+        case 'popularity_desc':
+          return (b.attendees_count || 0) - (a.attendees_count || 0);
+        default:
+          return 0;
+      }
+    });
 
   if (loading) {
     return <LoadingSpinner message="Loading events..." />;
@@ -419,10 +346,25 @@ const EventsList = ({ isAdmin = false }) => {
               </Select>
             </FormControl>
           </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <FormControl fullWidth variant="outlined">
+              <InputLabel>Sort By</InputLabel>
+              <Select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                label="Sort By"
+              >
+                <MenuItem value="start_date_asc">Date (Upcoming)</MenuItem>
+                <MenuItem value="start_date_desc">Date (Newest First)</MenuItem>
+                <MenuItem value="title_asc">Title (A-Z)</MenuItem>
+                <MenuItem value="popularity_desc">Popularity</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
         </Grid>
       </Paper>
 
-      {filteredEvents.length === 0 ? (
+      {processedEvents.length === 0 ? (
         <Paper elevation={0} sx={{ p: 4, textAlign: 'center' }}>
           <EventIcon sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
           <Typography variant="h6" color="textSecondary" gutterBottom>
@@ -451,7 +393,7 @@ const EventsList = ({ isAdmin = false }) => {
         <Box>
           {viewMode === 'grid' ? (
             <Grid container spacing={3}>
-              {filteredEvents.map((event) => {
+              {processedEvents.map((event) => {
                 const status = getEventStatus(event.start_date, event.end_date);
                 const statusColor = getStatusColor(status);
                 return (
@@ -478,7 +420,7 @@ const EventsList = ({ isAdmin = false }) => {
                           alt={event.title}
                         />
                       )}
-                      <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                      <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                         <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Chip label={event.event_type || 'General'} size="small" sx={{ bgcolor: 'secondary.light', color: 'white' }} />
                           <Chip label={status} color={statusColor} size="small" />
@@ -493,11 +435,17 @@ const EventsList = ({ isAdmin = false }) => {
                             })()}
                           </Typography>
                         </Box>
+                        <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary', mb: 1 }}>
+                          <LocationIcon sx={{ mr: 1, fontSize: '1rem' }} />
+                          <Typography variant="body2" noWrap title={formatLocation(event.venue, event.address, event.event_type)}>
+                            {formatLocation(event.venue, event.address, event.event_type)}
+                          </Typography>
+                        </Box>
                         <Typography variant="h5" component="div" sx={{ fontWeight: 'bold', mb: 1, flexGrow: 1 }}>
                           {event.title}
                         </Typography>
                         <Typography variant="body2" color="text.secondary" sx={{ mb: 2, flexGrow: 1 }}>
-                          {event.short_description ? event.short_description.substring(0, 100) + '...' : (event.description ? event.description.substring(0, 100) + '...' : 'No description available.')}
+                          {event.description ? `${event.description.substring(0, 100)}...` : 'No description available.'}
                         </Typography>
                         <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary' }}>
                           <PeopleIcon sx={{ mr: 1, fontSize: '1rem' }} />
@@ -537,7 +485,7 @@ const EventsList = ({ isAdmin = false }) => {
           ) : viewMode === 'list' ? (
             <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
               <List disablePadding>
-                {filteredEvents.map((event, index) => {
+                {processedEvents.map((event, index) => { 
                   const status = getEventStatus(event.start_date, event.end_date);
                   const statusColor = getStatusColor(status);
                   return (
@@ -571,13 +519,13 @@ const EventsList = ({ isAdmin = false }) => {
                                 {format(parseISO(event.start_date), 'EEEE, MMM d, yyyy')} at {format(parseISO(event.start_date), 'h:mm a')}
                               </Typography>
                               <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', mt: 0.5 }}>
-                                <LocationIcon fontSize="small" sx={{ mr: 0.5 }} /> {event.location}
+                                <LocationIcon fontSize="small" sx={{ mr: 0.5 }} /> {formatLocation(event.venue, event.address, event.event_type)}
                               </Typography>
                             </React.Fragment>
                           }
                         />
                       </ListItem>
-                      {index < filteredEvents.length - 1 && <Divider component="li" />}
+                      {index < processedEvents.length - 1 && <Divider component="li" />}
                     </React.Fragment>
                   );
                 })}

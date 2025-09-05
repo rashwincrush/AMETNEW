@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../hooks/useNotification'; // Import useAuth
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { supabase } from '../../utils/supabase'; // Assuming supabase client is here
+import { supabase } from '../../utils/supabase'; // Updated Supabase client import
 import toast from 'react-hot-toast'; // For error notifications
 import { 
   UsersIcon, 

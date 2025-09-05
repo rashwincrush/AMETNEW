@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { Box, Typography, Paper, TextField, Button, Alert, CircularProgress } from '@mui/material';
 
 const JobApplyForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [resumeUrl, setResumeUrl] = useState('');
   const [coverLetter, setCoverLetter] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,6 +24,11 @@ const JobApplyForm = () => {
     setError('');
     setSuccess('');
     setLoading(true);
+    if (!user) {
+      setError('You must be logged in to apply.');
+      setLoading(false);
+      return;
+    }
     try {
       let uploadedResumeUrl = resumeUrl;
       if (file) {
@@ -36,10 +43,11 @@ const JobApplyForm = () => {
       const { error: insertError } = await supabase.from('job_applications').insert([
         {
           job_id: id,
+          applicant_id: user.id,
           resume_url: uploadedResumeUrl,
           cover_letter: coverLetter
         }
-      ]);
+      ]).select('*');
       if (insertError) throw insertError;
       setSuccess('Application submitted successfully!');
       setTimeout(() => navigate('/jobs'), 1500);

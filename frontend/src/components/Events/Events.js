@@ -22,14 +22,15 @@ const Events = () => {
   const [viewMode, setViewMode] = useState('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState('all');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedEventType, setSelectedEventType] = useState('all');
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [userRSVPs, setUserRSVPs] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(9);
   const [totalEvents, setTotalEvents] = useState(0);
-  const [sortBy, setSortBy] = useState('start_date,asc');
+  const [sortBy, setSortBy] = useState('start_date,desc');
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -44,13 +45,20 @@ const Events = () => {
           .eq('is_published', true);
 
         if (searchQuery) {
-          query = query.or(`title.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%,tags.cs.{\"${searchQuery}\"}`);
+          query = query.or(
+            `title.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%`,
+            `tags.cs.{${searchQuery}}`
+          );
         }
 
-        if (selectedFilter === 'upcoming') {
+        if (selectedCategory === 'upcoming') {
           query = query.gt('start_date', new Date().toISOString());
-        } else if (selectedFilter !== 'all') {
-          query = query.eq('category', selectedFilter);
+        } else if (selectedCategory !== 'all') {
+          query = query.eq('category', selectedCategory);
+        }
+        
+        if (selectedEventType !== 'all') {
+          query = query.eq('event_type', selectedEventType);
         }
 
         const [sortField, sortOrder] = sortBy.split(',');
@@ -90,16 +98,29 @@ const Events = () => {
     };
 
     fetchEvents();
-  }, [user, currentPage, itemsPerPage, searchQuery, selectedFilter, sortBy]);
+  }, [user, currentPage, itemsPerPage, searchQuery, selectedCategory, selectedEventType, sortBy]);
 
   const categories = [
-    { value: 'all', label: 'All Events' },
+    { value: 'all', label: 'All Categories' },
     { value: 'upcoming', label: 'Upcoming' },
     { value: 'reunion', label: 'Reunions' },
     { value: 'workshop', label: 'Workshops' },
     { value: 'networking', label: 'Networking' },
     { value: 'seminar', label: 'Seminars' },
-    { value: 'sports', label: 'Sports' }
+    { value: 'conference', label: 'Conferences' },
+    { value: 'social', label: 'Social Events' },
+    { value: 'charity', label: 'Charity' },
+    { value: 'career_fair', label: 'Career Fairs' },
+    { value: 'sports', label: 'Sports' },
+    { value: 'cultural', label: 'Cultural' },
+    { value: 'educational', label: 'Educational' }
+  ];
+
+  const eventTypes = [
+    { value: 'all', label: 'All Formats' },
+    { value: 'in-person', label: 'In-Person' },
+    { value: 'virtual', label: 'Virtual' },
+    { value: 'hybrid', label: 'Hybrid' }
   ];
 
   const totalPages = Math.ceil(totalEvents / itemsPerPage);
@@ -307,8 +328,8 @@ const Events = () => {
                 Details
               </Link>
               {isUpcoming && (
-                <button onClick={() => handleRSVP(event.id)} className={`py-1 px-3 rounded text-sm font-medium ${event.isRSVPed ? 'bg-red-100 text-red-800 hover:bg-red-200' : 'btn-ocean'}`}>
-                  {event.isRSVPed ? 'Cancel' : 'RSVP'}
+                <button onClick={() => handleRSVP(event.id)} className={`py-1 px-3 rounded text-sm font-medium ${userRSVPs[event.id] ? 'bg-red-100 text-red-800 hover:bg-red-200' : 'btn-ocean'}`}>
+                  {userRSVPs[event.id] ? 'Cancel' : 'RSVP'}
                 </button>
               )}
             </div>
@@ -395,23 +416,49 @@ const Events = () => {
         </div>
 
         {/* Category Filters */}
-        <div className="flex flex-wrap gap-2 mt-4">
-          {categories.map((category) => (
-            <button
-              key={category.value}
-              onClick={() => {
-                setSelectedFilter(category.value);
-                setCurrentPage(1);
-              }}
-              className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
-                selectedFilter === category.value
-                  ? 'bg-ocean-500 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              {category.label}
-            </button>
-          ))}
+        <div className="mt-4">
+          <h3 className="text-sm font-semibold text-gray-600 mb-2">Categories</h3>
+          <div className="flex flex-wrap gap-2">
+            {categories.map((category) => (
+              <button
+                key={category.value}
+                onClick={() => {
+                  setSelectedCategory(category.value);
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                  selectedCategory === category.value
+                    ? 'bg-ocean-500 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {category.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        {/* Event Type Filters */}
+        <div className="mt-4">
+          <h3 className="text-sm font-semibold text-gray-600 mb-2">Event Format</h3>
+          <div className="flex flex-wrap gap-2">
+            {eventTypes.map((type) => (
+              <button
+                key={type.value}
+                onClick={() => {
+                  setSelectedEventType(type.value);
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                  selectedEventType === type.value
+                    ? 'bg-ocean-500 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {type.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -428,8 +475,8 @@ const Events = () => {
             setCurrentPage(1);
           }}
         >
-          <option value="start_date,asc">Sort by Date (Upcoming)</option>
           <option value="start_date,desc">Sort by Date (Recent)</option>
+          <option value="start_date,asc">Sort by Date (Oldest)</option>
           <option value="title,asc">Sort by Title (A-Z)</option>
           <option value="title,desc">Sort by Title (Z-A)</option>
         </select>

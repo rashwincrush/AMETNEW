@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../../utils/supabase';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -18,44 +18,11 @@ const SessionsCalendar = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('upcoming'); // 'upcoming', 'past', 'all'
   const { user } = useAuth();
-  const sessionListener = useRef(null);
+  // Track component mount state
+  const isMountedRef = useRef(true);
   
-  useEffect(() => {
-    if (user) {
-      fetchSessions();
-      setupRealtimeSubscription();
-    }
-    
-    return () => {
-      if (sessionListener.current) {
-        sessionListener.current.unsubscribe();
-      }
-    };
-  }, [user, activeTab]);
-  
-  const setupRealtimeSubscription = () => {
-    if (sessionListener.current) {
-      sessionListener.current.unsubscribe();
-    }
-    
-    // Subscribe to changes in the mentorship_sessions table
-    sessionListener.current = supabase
-      .channel('mentorship_sessions_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'mentorship_sessions'
-        },
-        (payload) => {
-          fetchSessions(); // Refresh sessions when there are changes
-        }
-      )
-      .subscribe();
-  };
-  
-  const fetchSessions = async () => {
+  // Handle session updates
+  const fetchSessions = useCallback(async () => {
     try {
       setLoading(true);
       
@@ -100,7 +67,36 @@ const SessionsCalendar = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab]);
+
+  // Handle session updates
+  const handleSessionUpdate = useCallback((payload) => {
+    if (!isMountedRef.current) return;
+    console.log('Realtime session update:', payload);
+    fetchSessions(); // Refresh sessions when there are changes
+  }, [fetchSessions]);
+  
+  useEffect(() => {
+    if (!user) return;
+
+    isMountedRef.current = true;
+    fetchSessions();
+
+    onPostgresChangesOnce(
+      'mentorship_sessions_changes',
+      'sessions-listener',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'mentorship_sessions',
+      },
+      handleSessionUpdate
+    );
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [user, fetchSessions, handleSessionUpdate]);
   
   const updateSessionStatus = async (sessionId, newStatus) => {
     try {

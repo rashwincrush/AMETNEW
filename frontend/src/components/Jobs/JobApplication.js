@@ -148,33 +148,76 @@ const JobApplication = () => {
       }
 
       if (resumeFile) {
-        const fileExt = resumeFile.name.split('.').pop();
-        const filePath = `${user.id}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('resumes')
-          .upload(filePath, resumeFile, {
-            cacheControl: '3600',
-            upsert: false
-          });
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('resumes')
-          .getPublicUrl(filePath);
-
-        resumeUrl = publicUrl;
-        // Save the new resume to user_resumes table
-        await supabase.from('user_resumes').insert([{
-          user_id: user.id,
-          file_url: resumeUrl,
-          filename: resumeFile.name,
-          uploaded_at: new Date().toISOString(),
-          is_primary: userResumes.length === 0 // Make primary if it's the first resume
-        }]);
-
-        resumeName = resumeFile.name;
+        try {
+          // Validate file extension
+          const validExtensions = ['pdf', 'doc', 'docx'];
+          const fileExt = resumeFile.name.split('.').pop().toLowerCase();
+          
+          if (!validExtensions.includes(fileExt)) {
+            throw new Error('Invalid file type. Please upload a PDF or Word document.');
+          }
+          
+          // Create a unique file path with timestamp to prevent conflicts
+          const timestamp = new Date().getTime();
+          const filePath = `${user.id}/${timestamp}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+          
+          console.log('Uploading resume file:', resumeFile.name);
+          
+          // Upload the file with better error handling
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('resumes')
+            .upload(filePath, resumeFile, {
+              cacheControl: '3600',
+              upsert: true // Use upsert in case the file already exists
+            });
+          
+          if (uploadError) {
+            console.error('Resume upload error:', uploadError);
+            
+            // Handle different types of storage errors
+            if (uploadError.message.includes('JWT')) {
+              throw new Error('Authentication error. Please try logging out and back in.');
+            } else if (uploadError.message.includes('permission')) {
+              throw new Error('You do not have permission to upload files.');
+            } else if (uploadError.message.includes('bucket')) {
+              throw new Error('Storage error. Please contact support.');
+            }
+            
+            throw uploadError;
+          }
+          
+          // Get the public URL for the uploaded file
+          const { data: urlData } = supabase.storage
+            .from('resumes')
+            .getPublicUrl(filePath);
+          
+          if (!urlData || !urlData.publicUrl) {
+            throw new Error('Failed to get resume URL after upload.');
+          }
+          
+          resumeUrl = urlData.publicUrl;
+          
+          // Save the new resume to user_resumes table with error handling
+          const { error: insertError } = await supabase.from('user_resumes').insert([{
+            user_id: user.id,
+            file_url: resumeUrl,
+            filename: resumeFile.name,
+            uploaded_at: new Date().toISOString(),
+            is_primary: userResumes.length === 0 // Make primary if it's the first resume
+          }]);
+          
+          if (insertError) {
+            console.error('Error saving resume to database:', insertError);
+            // Continue with the application even if saving to user_resumes fails
+            // The file was uploaded successfully, so we can still use it for this application
+          }
+          
+          resumeName = resumeFile.name;
+          console.log('Resume uploaded successfully:', resumeName);
+        } catch (uploadError) {
+          console.error('Resume upload process failed:', uploadError);
+          throw new Error(`Resume upload failed: ${uploadError.message}`);
+        }
       }
 
       const applicationData = {
@@ -186,6 +229,10 @@ const JobApplication = () => {
         created_at: new Date().toISOString()
       };
 
+      // Show a loading toast while submitting the application
+      toast.loading('Submitting your application...', { id: 'job-application' });
+
+      // Try to insert the application data
       const { data, error } = await supabase
         .from('job_applications')
         .insert([applicationData])
@@ -193,12 +240,34 @@ const JobApplication = () => {
 
       if (error) {
         console.error('Error applying for job:', error);
+        toast.dismiss('job-application');
+        
+        // Handle specific database errors
+        if (error.code === '23505') { // Duplicate key violation
+          toast.error('You have already applied for this job');
+          setTimeout(() => navigate(`/jobs/${jobId}`), 1000);
+          return;
+        } else if (error.code === '23503') { // Foreign key violation
+          toast.error('The job you are trying to apply for no longer exists');
+          setTimeout(() => navigate('/jobs'), 1000);
+          return;
+        } else if (error.message.includes('permission')) {
+          toast.error('You do not have permission to apply for this job. Please check your account type.');
+          return;
+        }
+        
         throw error;
       }
 
       console.log('Job application submitted successfully:', data);
+      toast.dismiss('job-application');
       toast.success('Your application has been submitted successfully!');
-      navigate(`/jobs/${jobId}/application-success`);
+      
+      // Log the application for analytics (no sensitive data)
+      console.log(`Application submitted for job ${jobId} by user ${user.id.substring(0,8)}...`);
+      
+      // Navigate to success page after a short delay so the user can see the success message
+      setTimeout(() => navigate(`/jobs/${jobId}/application-success`), 1000);
     } catch (error) {
       console.error('Error applying for job:', error);
       toast.error(`Error applying for job: ${error.message}`);

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
-import { supabase } from '../utils/supabase';
+import { supabase, signOut as supabaseSignOut } from '../utils/supabase';
 
 const AuthContext = createContext({});
 
@@ -81,23 +81,11 @@ export const AuthProvider = ({ children }) => {
 
   const signOut = useCallback(async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      
-      if (error) {
-        console.error('Error signing out:', error);
-      }
-      
-      // Unsubscribe auth listener
-      if (listenerRef.current) {
-        listenerRef.current.unsubscribe();
-        listenerRef.current = null;
-      }
-      setUser(null);
-      setProfile(null);
-      setSession(null);
+      await supabaseSignOut();
+      // State will be cleared by the onAuthStateChange listener
     } catch (error) {
       console.error('Sign out error:', error);
-      // Force logout
+      // Force state clear on error
       setUser(null);
       setProfile(null);
       setSession(null);

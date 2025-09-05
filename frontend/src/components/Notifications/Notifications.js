@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../utils/supabase';
+import { supabase, onPostgresChangesOnce, getOrCreateChannel } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { 
   AcademicCapIcon, 
@@ -30,7 +30,8 @@ const Notifications = () => {
   const [outgoingRequests, setOutgoingRequests] = useState([]);
   const [requestsLoading, setRequestsLoading] = useState(true);
   const [showTypeFilters, setShowTypeFilters] = useState(false);
-  const channelRef = useRef(null);
+  // Track component mount state
+  const isMountedRef = useRef(true);
 
   const notificationTypes = {
     all: { name: 'All Types', icon: BellIcon, color: 'bg-gray-500' },
@@ -132,31 +133,59 @@ const Notifications = () => {
     }
   }, [currentUser, activeTab, activeTypeFilter]);
 
+  // Handle notification events
+  const handleNotificationUpdate = useCallback((payload) => {
+    if (!isMountedRef.current) return;
+    console.log('Realtime notification update:', payload);
+    toast('You have a new notification!');
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  // Handle connection events
+  const handleConnectionUpdate = useCallback((payload) => {
+    if (!isMountedRef.current) return;
+    console.log('Realtime connection request update:', payload);
+    fetchConnectionRequests();
+  }, [fetchConnectionRequests]);
+
+  // Set up realtime subscriptions
   useEffect(() => {
     if (!currentUser) return;
 
-    const channel = supabase
-      .channel('notifications-page-realtime-channel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `profile_id=eq.${currentUser.id}` }, (payload) => {
-        console.log('Realtime notification update:', payload);
-        toast('You have a new notification!');
-        fetchNotifications();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'connections' }, (payload) => {
-        console.log('Realtime connection request update:', payload);
-        fetchConnectionRequests();
-      })
-      .subscribe();
+    isMountedRef.current = true;
 
-    channelRef.current = channel;
-
-    return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
+    const notificationFilter = { 
+      event: '*', 
+      schema: 'public', 
+      table: 'notifications', 
+      filter: `profile_id=eq.${currentUser.id}` 
     };
-  }, [currentUser]);
+    onPostgresChangesOnce(
+      `notifications:${currentUser.id}`,
+      'notifications-listener',
+      notificationFilter,
+      handleNotificationUpdate
+    );
+
+    const connectionFilter = { 
+      event: '*', 
+      schema: 'public', 
+      table: 'connections'
+    };
+    onPostgresChangesOnce(
+      'connections-global',
+      'connections-listener',
+      connectionFilter,
+      handleConnectionUpdate
+    );
+
+    // Cleanup on unmount
+    return () => {
+      isMountedRef.current = false;
+      // The new channel management in utils/supabase handles cleanup via reference counting,
+      // so explicit unsubscription is no longer needed here.
+    };
+  }, [currentUser, handleNotificationUpdate, handleConnectionUpdate]);
 
   const markAsRead = async (notificationId) => {
     try {

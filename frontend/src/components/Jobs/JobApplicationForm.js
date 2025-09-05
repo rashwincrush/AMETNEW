@@ -42,12 +42,12 @@ const JobApplicationForm = ({ jobId }) => {
       const { error: insertError } = await supabase.from('job_applications').insert([
         {
           job_id: jobId,
-          user_id: user.id,
+          applicant_id: user.id,
           cover_letter: coverLetter,
           resume_url: filePath,
           status: 'submitted',
         },
-      ]);
+      ]).select('*');
 
       if (insertError) throw insertError;
 

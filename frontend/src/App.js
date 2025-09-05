@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RealtimeProvider } from './utils/supabase';
 import { Toaster } from 'react-hot-toast';
@@ -18,6 +18,7 @@ import HomePage from './components/Landing/HomePage';
 import Notifications from './components/Notifications/Notifications';
 import { NotificationProvider } from './components/common/NotificationCenter';
 import FeedbackWidget from './components/common/FeedbackWidget';
+import QATogglesBanner from './components/QATools/QATogglesBanner';
 
 // Layout Components
 import Navigation from './components/Layout/Navigation';
@@ -32,6 +33,7 @@ import EnhancedRegister from './components/Auth/EnhancedRegister';
 import Profile from './components/Auth/Profile';
 import ForgotPassword from './components/Auth/ForgotPassword';
 import UpdatePassword from './components/Auth/UpdatePassword';
+import AuthCallback from './components/Auth/AuthCallback';
 import LoadingSpinner from './components/common/LoadingSpinner';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 import AccessDenied from './components/Auth/AccessDenied';
@@ -60,7 +62,7 @@ import PostJob from './components/Jobs/PostJob';
 import PostJobSelection from './components/Jobs/PostJobSelection';
 import PostJobWithLink from './components/Jobs/PostJobWithLink';
 import JobAlerts from './components/Jobs/JobAlerts';
-import MessagesPage from './pages/MessagesPage';
+import Messages from './components/Messages/Messages';
 import JobPostingForm from './components/Jobs/JobPostingForm';
 import ResumeUploadForm from './components/Jobs/ResumeUploadForm';
 import JobApplication from './components/Jobs/JobApplication';
@@ -75,7 +77,6 @@ import MentorProfile from './components/Mentorship/MentorProfile';
 import MentorSettings from './components/Mentorship/MentorSettings';
 import CreateGroup from './components/Networking/CreateGroup';
 import GroupDetails from './components/Networking/GroupDetails';
-import Messages from './components/Messages/Messages';
 import Analytics from './components/Admin/Analytics';
 import UserManagement from './components/Admin/UserManagement';
 
@@ -102,7 +103,20 @@ const queryClient = new QueryClient({
 
 function AppContent() {
   const { user, profile, loading, getUserRole, rejectionStatus } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
 
+  // This effect handles the crucial post-login redirect.
+  // When the `user` object becomes available (meaning login was successful and context is updated)
+  // and the user is still on the login page, we programmatically redirect them.
+  useEffect(() => {
+    if (user && location.pathname === '/login') {
+      console.log('User authenticated, redirecting from login to dashboard...');
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, location.pathname, navigate]);
+
+  // Simple logging of app state
   useEffect(() => {
     console.log('App state:', { 
       loading, 
@@ -110,26 +124,40 @@ function AppContent() {
       hasProfile: !!profile,
       userRole: getUserRole()
     });
-  }, [loading, user, profile]);
+  }, [loading, user, profile, getUserRole]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <LoadingSpinner message="Initializing application..." />
-      </div>
-    );
-  }
 
   const getDashboardComponent = () => {
     const role = getUserRole();
+    console.log('DEBUG DASHBOARD SELECTION:', { 
+      role, 
+      profile: profile ? { 
+        id: profile.id,
+        role: profile.role,
+        is_admin: profile.is_admin,
+        email: profile.email
+      } : 'no-profile',
+      path: window.location.pathname
+    });
+    
+    // Force Alumni Dashboard for all roles to match production
+    console.log('Forcing AlumniDashboard for all roles to match production');
+    return <AlumniDashboard user={profile || user} />;
+    
+    /* Original role-based logic
     switch (role) {
       case 'admin':
+      case 'super_admin':
+        console.log('Selected AdminDashboard for role:', role);
         return <AdminDashboard user={profile || user} />;
       case 'employer':
+        console.log('Redirecting to profile for employer role');
         return <Navigate to="/profile" />;
       default:
+        console.log('Selected AlumniDashboard for role:', role);
         return <AlumniDashboard user={profile || user} />;
     }
+    */
   };
 
   // Check if user is rejected - if so, we'll only render the RejectionPage
@@ -145,6 +173,16 @@ function AppContent() {
     );
   }
 
+  // If loading, show a spinner and wait for auth to resolve
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <LoadingSpinner message="Initializing application..." />
+      </div>
+    );
+  }
+
+  // After loading, render routes based on user authentication
   return user ? (
     <div className="flex h-screen bg-ocean-50">
       <Navigation user={profile || user} />
@@ -152,11 +190,11 @@ function AppContent() {
         <Header user={profile || user} />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gradient-to-br from-ocean-50 to-blue-50 p-6">
           <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" />} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<ProtectedRoute requiredPermission="access:dashboard">{getDashboardComponent()}</ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute requiredPermission="access:profile_settings"><Profile user={profile || user} /></ProtectedRoute>} />
             <Route path="/companies/:id" element={<PublicCompanyProfile />} />
-            <Route path="/company/edit" element={<ProtectedRoute allowedRoles={['employer', 'admin', 'super_admin']}><EditCompanyProfile user={profile || user} /></ProtectedRoute>} />
+            <Route path="/company/edit" element={<ProtectedRoute requiredPermission="manage:company_profile"><EditCompanyProfile user={profile || user} /></ProtectedRoute>} />
             <Route path="/events/*" element={<ProtectedRoute requiredPermission="access:events"><EventsPage /></ProtectedRoute>} />
             <Route path="/events/edit/:id" element={<ProtectedRoute requiredPermission="access:events"><EditEvent /></ProtectedRoute>} />
             <Route path="/events/create" element={<ProtectedRoute requiredPermission="access:events"><CreateEvent /></ProtectedRoute>} />
@@ -191,8 +229,8 @@ function AppContent() {
             <Route path="/mentorship/matching" element={<ProtectedRoute requiredPermission="request:mentorship"><MentorMatching /></ProtectedRoute>} />
             <Route path="/mentorship/mentor/:id" element={<ProtectedRoute requiredPermission="view:alumni_directory"><MentorProfile /></ProtectedRoute>} />
             <Route path="/mentorship/mentor-settings" element={<ProtectedRoute requiredPermission="manage:mentor_profile"><MentorRegistrationForm /></ProtectedRoute>} />
-            <Route path="/groups/*" element={<ProtectedRoute requiredPermission="join:groups"><GroupsPage /></ProtectedRoute>} />
-            <Route path="/messages" element={<ProtectedRoute requiredPermission="message:users"><MessagesPage /></ProtectedRoute>} />
+            <Route path="/groups/*" element={<ProtectedRoute requiredPermission="access:groups"><GroupsPage /></ProtectedRoute>} />
+            <Route path="/messages" element={<ProtectedRoute requiredPermission="message:users"><Messages /></ProtectedRoute>} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/admin/analytics" element={<ProtectedRoute requiredPermission="access:all"><Analytics /></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute requiredPermission="access:all"><UserManagement /></ProtectedRoute>} />
@@ -215,6 +253,7 @@ function AppContent() {
       <Route path="/register" element={<EnhancedRegister />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/update-password" element={<UpdatePassword />} />
+      <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/directory" element={<Navigate to="/login" />} />
       <Route path="/events" element={<HomePage />} />
       <Route path="/jobs" element={<HomePage />} />
@@ -234,6 +273,7 @@ function App() {
             <NotificationProvider>
               <AppContent />
               <FeedbackWidget />
+              <QATogglesBanner />
               <Toaster 
                 position="top-right"
                 toastOptions={{

@@ -1,5 +1,14 @@
-import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
-import { supabase } from '../utils/supabase';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { supabase, mapOAuthToProfileData } from '../utils/supabase';
+
+// Helper for conditional logging
+const isDev = process.env.NODE_ENV === 'development';
+const logger = {
+  log: (...args) => isDev && console.log(...args),
+  error: (...args) => console.error(...args),
+  warn: (...args) => isDev && console.warn(...args)
+};
 
 const AuthContext = createContext({});
 
@@ -11,36 +20,45 @@ export const useAuth = () => {
   return context;
 };
 
+// Store auth session in window to persist across React renders
+if (!window.AMET_AUTH) {
+  window.AMET_AUTH = {
+    initialized: false,
+    profileFetched: null,
+    currentUserId: null,
+    authInProgress: false, // Track auth operations to prevent race conditions
+    lastAuthEvent: null,   // Track last auth event type
+    initTime: Date.now()   // Track when auth was initialized
+  };
+}
+
 // Define permissions for each role
 const PERMISSIONS = {
+  // Alumni role permissions
   alumni: [
-    // Dashboard, Alumni Directory, Job Portal (View), Events, Mentorship, Groups, Messages, Profile Settings
-    'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
-    'request:mentorship', 'become:mentor', 'access:groups', 'message:users',
-    'access:profile_settings'
-  ],
-  mentor: [
-    // Mentor has all Alumni permissions plus mentorship management
     'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
     'request:mentorship', 'become:mentor', 'access:groups', 'message:users',
     'access:profile_settings',
-    // Additional mentor-specific permissions
+    'manage:mentor_profile', 'manage:mentee_requests', 'chat:mentees', 'manage:mentoring_slots'
+  ],
+  // Keep 'user' role mirroring 'alumni' (legacy mapping)
+  user: [
+    'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
+    'request:mentorship', 'become:mentor', 'access:groups', 'message:users',
+    'access:profile_settings',
     'manage:mentor_profile', 'manage:mentee_requests', 'chat:mentees', 'manage:mentoring_slots'
   ],
   employer: [
-    // Dashboard, Alumni Directory, Job Portal (View & Post), Events, Groups, Messages, Profile Settings
-    'access:dashboard', 'view:alumni_directory', 'view:jobs', 'post:jobs',
-    'access:events', 'access:groups', 'message:users', 'access:profile_settings',
-    // Additional employer-specific permissions
-    'manage:job_applications', 'manage:job_alerts'
+    'access:dashboard', 'post:jobs', 'manage:company_profile', 'view:job_applications',
+    'access:events', 'manage:jobs', 'access:profile_settings'
   ],
+  admin: ['access:all'],
+  super_admin: ['access:all'],
   student: [
-    // Dashboard, Alumni Directory, Mentorship (request only), Messages (with mentors), Profile Settings
-    'access:dashboard', 'view:alumni_directory', 'request:mentorship',
-    'message:assigned_mentor', 'access:profile_settings'
+    'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
+    'request:mentorship', 'access:groups', 'message:users',
+    'access:profile_settings'
   ],
-  admin: ['access:all', 'manage:users', 'delete:users'],
-  super_admin: ['access:all', 'manage:users', 'delete:users'],
 };
 
 export const AuthProvider = ({ children }) => {
@@ -49,340 +67,390 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState(null);
   const [rejectionStatus, setRejectionStatus] = useState({ isRejected: false, reason: null });
-  const listenerRef = useRef(null);
-  const initializedRef = useRef(false);
-
-  const getUserRole = useCallback(() => {
-    return profile?.role || 'student'; // Default to 'student' if no role is found
-  }, [profile]);
-
-  const userRole = getUserRole();
-
-  const hasPermission = useCallback((permission) => {
-    const userPermissions = PERMISSIONS[userRole] || [];
-    if (userPermissions.includes('access:all')) return true;
-    return userPermissions.includes(permission);
-  }, [userRole]);
-
-  const hasAnyPermission = useCallback((permissions) => {
-    const userPermissions = PERMISSIONS[userRole] || [];
-    if (userPermissions.includes('access:all')) return true;
-    return permissions.some(p => userPermissions.includes(p));
-  }, [userRole]);
-
-  const hasAllPermissions = useCallback((permissions) => {
-    const userPermissions = PERMISSIONS[userRole] || [];
-    if (userPermissions.includes('access:all')) return true;
-    return permissions.every(p => userPermissions.includes(p));
-  }, [userRole]);
-
-  // Check if user is rejected and should be blocked
-  const checkUserRejectionStatus = useCallback((profileData) => {
-    if (!profileData) return false;
-    
-    // Check for rejection condition: alumni_verification_status === 'rejected'
-    const isRejected = profileData.alumni_verification_status === 'rejected';
-    
-    if (isRejected) {
-      console.log('User account is rejected');
-      
-      // Don't store rejection reason in localStorage, it will be fetched from Supabase in RejectionPage
-      
-      // Update rejection status state
-      setRejectionStatus({ isRejected: true });
-      return true;
-    }
-    
-    return false;
-  }, []);
+  const [updatingProfile, setUpdatingProfile] = useState(false);
+  
+  // Use refs that survive hot reloads but also window.AMET_AUTH for strict mode
+  const initializedRef = useRef(window.AMET_AUTH.initialized);
+  const profileFetchedRef = useRef(window.AMET_AUTH.profileFetched);
 
   const fetchUserProfile = useCallback(async (userId) => {
-    console.log(`Fetching profile for userId: ${userId}`);
+    // If no userId, exit early
     if (!userId) {
-      console.error("fetchUserProfile called with no userId.");
+      logger.log('No userId provided to fetchUserProfile');
       setProfile(null);
       setLoading(false);
-      return null;
+      return;
     }
 
+    // Check if another auth operation is in progress to prevent race conditions
+    if (window.AMET_AUTH.authInProgress) {
+      logger.log(`Auth operation already in progress, deferring fetch for userId: ${userId}`);
+      // We'll set a flag to indicate this was attempted
+      window.AMET_AUTH.pendingFetch = userId;
+      return;
+    }
+    
+    // CRITICAL: Detect when user ID changes during session
+    const previousUserId = window.AMET_AUTH.currentUserId;
+    if (previousUserId && previousUserId !== userId) {
+      logger.log(`⚠️ User ID changed from ${previousUserId} to ${userId}, resetting auth state`);
+      // Clear all state before proceeding with new user
+      setProfile(null);
+    }
+    
+    // Prevent multiple fetches for the same user
+    if (profileFetchedRef.current === userId) {
+      logger.log(`Profile already fetched for userId: ${userId}, skipping fetch`);
+      return;
+    }
+
+    logger.log(`Fetching profile for userId: ${userId}`);
+    
+    // Set operation in progress flag to prevent race conditions
+    window.AMET_AUTH.authInProgress = true;
+    
+    // Store in both ref and window for Strict Mode and HMR survival
+    profileFetchedRef.current = userId;
+    window.AMET_AUTH.profileFetched = userId;
+    window.AMET_AUTH.currentUserId = userId;
+
     try {
-      const { data: profileData } = await supabase
+      // Simple atomic profile fetch - keep this small and focused
+      const { data: profileData, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single()
-        .throwOnError();
+        .maybeSingle();
 
-      // Check if user is rejected. If so, stop here.
-      if (checkUserRejectionStatus(profileData)) {
-        // The checkUserRejectionStatus function already set the rejection state.
-        // We must not set the profile for a rejected user.
-        setLoading(false);
-        return null; // Stop the auth flow for this user
+      if (error) throw error;
+
+      // Check rejection status
+      if (profileData && profileData.alumni_verification_status === 'rejected') {
+        logger.log('User account is rejected');
+        setRejectionStatus({ isRejected: true });
+        setProfile(null); // No profile data for rejected users
+      } else {
+        logger.log('Profile fetched successfully');
+        setProfile(profileData);
       }
-
-      setProfile(profileData);
-      return profileData;
     } catch (error) {
-      console.error('Error fetching profile:', error);
+      logger.error('Error fetching profile:', error);
       setProfile(null);
-      return null;
     } finally {
+      // Clear auth operation flag to allow subsequent operations
+      window.AMET_AUTH.authInProgress = false;
+      
+      // Check for any pending fetch operations that were deferred
+      if (window.AMET_AUTH.pendingFetch && window.AMET_AUTH.pendingFetch !== userId) {
+        const pendingUserId = window.AMET_AUTH.pendingFetch;
+        logger.log(`Processing deferred profile fetch for userId: ${pendingUserId}`);
+        window.AMET_AUTH.pendingFetch = null;
+        // Schedule the deferred fetch after a small delay to avoid state conflicts
+        setTimeout(() => fetchUserProfile(pendingUserId), 50);
+      }
+      
       setLoading(false);
     }
   }, []);
 
   const signOut = useCallback(async () => {
-    try {
-      console.log('Starting complete signout process');
-      
-      // 1. Unsubscribe from auth listener first to prevent callbacks
-      if (listenerRef.current) {
-        listenerRef.current.unsubscribe();
-        listenerRef.current = null;
-        console.log('Auth listener unsubscribed');
+    logger.log('Signing out user');
+    
+    // Record the current session ID before clearing state
+    const currentSessionId = session?.access_token;
+    
+    // Reset all auth state
+    setProfile(null);
+    setUser(null);
+    setSession(null);
+    
+    // Clear stored auth data
+    profileFetchedRef.current = null;
+    window.AMET_AUTH.profileFetched = null;
+    window.AMET_AUTH.currentUserId = null;
+    window.AMET_AUTH.authInProgress = false; // Clear any stuck flags
+    window.AMET_AUTH.lastSessionId = null;   // Clear session tracking
+    
+    // Sign out from Supabase
+    await supabase.auth.signOut();
+    
+    // Clear any legacy localStorage items
+    window.localStorage.removeItem('supabase.auth.token');
+    for (const key in window.localStorage) {
+      if (key.startsWith('sb-')) {
+        window.localStorage.removeItem(key);
       }
-
-      // 2. Clear React state
-      setUser(null);
-      setProfile(null);
-      setSession(null);
-      console.log('React state cleared');
-      
-      // 3. Manually clear all Supabase-related items from localStorage
-      const supabaseKeys = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
-          supabaseKeys.push(key);
-        }
-      }
-      
-      supabaseKeys.forEach(key => {
-        localStorage.removeItem(key);
-        console.log(`Cleared localStorage key: ${key}`);
-      });
-      
-      // 4. Now try the API call (might still fail, but we've cleared local state)
-      try {
-        await supabase.auth.signOut();
-        console.log('Successfully called Supabase signOut API');
-      } catch (supabaseError) {
-        console.error('Supabase signOut API error (continuing anyway):', supabaseError);
-      }
-      
-      // 5. Force a complete page reload to ensure all state is cleared
-      console.log('Forcing complete page reload');
-      setTimeout(() => {
-        localStorage.setItem('force_logout_time', Date.now().toString());
-        window.location.href = '/login';
-      }, 100);
-      
-    } catch (error) {
-      console.error('Sign out error:', error);
-      // Final emergency cleanup
-      setUser(null);
-      setProfile(null);
-      setSession(null);
-      
-      // Clear any possible Supabase storage
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && (key.startsWith('sb-') || key.includes('supabase'))) {
-          localStorage.removeItem(key);
-        }
-      }
-      
-      window.location.href = '/login';
-    }
-  }, []);
-
-  const updateProfile = useCallback(async (updates) => {
-    if (!user) {
-      console.error('Cannot update profile: No authenticated user');
-      throw new Error('No authenticated user');
     }
     
-    try {
-      // Check if profile exists first
-      const { data: existingProfile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-      
-      // Create a copy of updates to avoid mutating the original
-      const updatesToApply = { ...updates };
-      
-      // Always include updated_at
-      updatesToApply.updated_at = new Date().toISOString();
-      
-      console.log('Applying profile updates:', updatesToApply);
-      
-      let result;
-      
-      if (existingProfile) {
-        // Update existing profile
-        const { data, error } = await supabase
-          .from('profiles')
-          .update(updatesToApply)
-          .eq('id', user.id)
-          .select()
-          .single();
-          
-        if (error) {
-          console.error('Error updating profile:', error);
-          throw error;
-        }
-        result = data;
-      } else {
-        // Create new profile
-        const newProfileData = { 
-          id: user.id,
-          ...updatesToApply,
-          created_at: new Date().toISOString()
-        };
-        
-        console.log('Creating new profile with data:', newProfileData);
-        
-        const { data, error } = await supabase
-          .from('profiles')
-          .insert([newProfileData])
-          .select()
-          .single();
-          
-        if (error) {
-          console.error('Error creating profile:', error);
-          throw error;
-        }
-        
-        result = data;
+    // Track that we've explicitly signed out this session
+    if (currentSessionId) {
+      // Remember this session was explicitly logged out to prevent auto-login
+      const loggedOutSessions = JSON.parse(localStorage.getItem('amet_logged_out_sessions') || '[]');
+      loggedOutSessions.push({
+        id: currentSessionId,
+        timestamp: Date.now()
+      });
+      // Keep only the last 5 sessions to prevent localStorage bloat
+      while (loggedOutSessions.length > 5) {
+        loggedOutSessions.shift();
       }
-      
-      // Re-fetch the profile to ensure the auth context has the latest data.
-      if (result) {
-        await fetchUserProfile(user.id);
-      }
-      
-      console.log('Profile updated successfully:', result);
-      return result;
-    } catch (error) {
-      console.error('Error in updateProfile:', error);
-      throw error;
+      localStorage.setItem('amet_logged_out_sessions', JSON.stringify(loggedOutSessions));
     }
+
+    // Redirect to login page
+    window.location.href = '/login';
+  }, [session]);
+
+  const updateProfile = useCallback(async (updates) => {
+    if (!user) throw new Error('No authenticated user');
+    
+    const updatesToApply = { 
+      ...updates, 
+      updated_at: new Date().toISOString() 
+    };
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(updatesToApply)
+      .eq('id', user.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // Re-fetch profile to update context state
+    await fetchUserProfile(user.id);
+    return data;
   }, [user, fetchUserProfile]);
+
+  /**
+   * Handle OAuth profile data by mapping provider data and updating profile
+   */
+  const handleOAuthProfileData = async (userData, provider) => {
+    if (!userData || !provider) return;
+    
+    try {
+      // Map OAuth data to profile fields
+      const mappedData = mapOAuthToProfileData(provider, userData);
+      logger.log('Mapped OAuth profile data:', mappedData);
+      
+      if (Object.keys(mappedData).length > 0) {
+        // Check if profile exists first
+        const { data: existingProfile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userData.id)
+          .single();
+        
+        if (existingProfile) {
+          // Update existing profile with OAuth data
+          // Only update fields that aren't already set
+          const updatesNeeded = {};
+          
+          Object.entries(mappedData).forEach(([key, value]) => {
+            // Only update if the field is empty or null in the existing profile
+            if (value && (!existingProfile[key] || existingProfile[key] === '')) {
+              updatesNeeded[key] = value;
+            }
+          });
+          
+          if (Object.keys(updatesNeeded).length > 0) {
+            logger.log('Updating profile with OAuth data:', updatesNeeded);
+            await updateProfile(updatesNeeded);
+          } else {
+            logger.log('No profile updates needed from OAuth data');
+          }
+        }
+      }
+    } catch (error) {
+      logger.error('Error handling OAuth profile data:', error);
+    }
+  };
+
+  // Centralized timeout management
+  const timeoutRef = useRef({
+    emergency: null,
+    safety: null
+  });
+
+  // Helper to clear all timeouts safely
+  const clearAllTimeouts = useCallback(() => {
+    Object.keys(timeoutRef.current).forEach(key => {
+      if (timeoutRef.current[key]) {
+        clearTimeout(timeoutRef.current[key]);
+        timeoutRef.current[key] = null;
+      }
+    });
+  }, []);
+  
+  // Initialize auth once and set up listener
+  useEffect(() => {
+    // Only run once - check both ref and window global
+    if (initializedRef.current || window.AMET_AUTH.initialized) return;
+    
+    // Mark as initialized in both places
+    initializedRef.current = true;
+    window.AMET_AUTH.initialized = true;
+    
+    logger.log('Initializing AuthContext...');
+    
+    // Single emergency timeout that completely overrides the loading state
+    // This is the final fallback if everything else fails
+    timeoutRef.current.emergency = setTimeout(() => {
+      logger.log('EMERGENCY loading timeout triggered - forcing app to exit loading state');
+      window.AMET_AUTH.authInProgress = false; // Force clear any stuck flags
+      window.AMET_AUTH.pendingFetch = null;
+      setLoading(false);
+    }, 3000);
+
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      // Log auth events and track them to help debug double invocations
+      logger.log(`Auth state changed: ${event}`, newSession?.user?.id || 'no user');
+      window.AMET_AUTH.lastAuthEvent = event;
+      
+      // Debug OAuth profile data if available
+      if (event === 'SIGNED_IN' && newSession?.user?.app_metadata?.provider) {
+        const provider = newSession.user.app_metadata.provider;
+        logger.log(`OAuth sign-in detected from provider: ${provider}`);
+        logger.log('User metadata:', newSession.user.user_metadata);
+        logger.log('App metadata:', newSession.user.app_metadata);
+        
+        // Map and update profile with OAuth data
+        handleOAuthProfileData(newSession.user, provider);
+      }
+      
+      // Check for explicitly logged-out sessions to prevent auto-login conflicts
+      if (event === 'SIGNED_IN' && newSession?.access_token) {
+        const loggedOutSessions = JSON.parse(localStorage.getItem('amet_logged_out_sessions') || '[]');
+        const wasExplicitlyLoggedOut = loggedOutSessions.some(s => s.id === newSession.access_token);
+        
+        if (wasExplicitlyLoggedOut) {
+          logger.log('⚠️ Ignoring auto-login attempt for previously logged out session');
+          return; // Don't process this auth event
+        }
+        
+        // Store current session for tracking
+        window.AMET_AUTH.lastSessionId = newSession.access_token;
+      }
+      
+      // We only care about these events
+      if (['SIGNED_IN', 'SIGNED_OUT', 'INITIAL_SESSION', 'USER_UPDATED'].includes(event)) {
+        // Update session state
+        setSession(newSession);
+        setUser(newSession?.user || null);
+        
+        // Handle profile fetch if we have a user
+        if (newSession?.user?.id) {
+          const currentUserId = window.AMET_AUTH.currentUserId;
+          
+          // Detect user ID change and force a reset
+          if (currentUserId && currentUserId !== newSession.user.id) {
+            logger.log(`⚠️ Auth event with user ID change detected: ${currentUserId} → ${newSession.user.id}`);
+            // Clear the current profile to avoid state confusion
+            setProfile(null);
+            // Reset the profile fetched ref to force a new fetch
+            profileFetchedRef.current = null;
+            window.AMET_AUTH.profileFetched = null;
+          }
+          
+          // Only fetch if this is a new user ID or first fetch
+          if (currentUserId !== newSession.user.id) {
+            fetchUserProfile(newSession.user.id);
+          }
+        } else {
+          // No user, clear profile and exit loading
+          setProfile(null);
+          setLoading(false);
+        }
+      }
+    });
+
+    // Regular safety timeout - will trigger before emergency
+    // but still give enough time for normal auth flow
+    timeoutRef.current.safety = setTimeout(() => {
+      logger.log('Safety timeout triggered - forcing app to exit loading state');
+      setLoading(false);
+    }, 2000);
+
+    // Check for existing session at init
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      if (initialSession?.user) {
+        logger.log('Existing session found, user ID:', initialSession.user.id);
+        setUser(initialSession.user);
+        setSession(initialSession);
+        fetchUserProfile(initialSession.user.id);
+      } else {
+        logger.log('No session found during initialization');
+        setLoading(false);
+      }
+    }).catch(error => {
+      logger.error('Error checking session:', error);
+      setLoading(false);
+    });
+
+    return () => {
+      // Clean up all timeouts using our helper
+      clearAllTimeouts();
+      // Unsubscribe from auth state changes
+      subscription?.unsubscribe();
+    };
+  }, [fetchUserProfile, clearAllTimeouts]);
 
   // Handle automatic redirect for rejected users
   useEffect(() => {
-    if (rejectionStatus.isRejected) {
-      if (window.location.pathname !== '/rejection') {
-        window.location.href = '/rejection';
-      }
+    if (rejectionStatus.isRejected && window.location.pathname !== '/rejection') {
+      window.location.href = '/rejection';
     }
   }, [rejectionStatus.isRejected]);
-
+  
+  // Monitor profile updates
   useEffect(() => {
-    console.log('AuthProvider useEffect started.');
-
-    // Prevent duplicate initialization in development
-    if (initializedRef.current) {
-      console.log('Auth already initialized, skipping duplicate init');
-      return;
+    if (profile) {
+      const role = profile.role || 'student';
+      logger.log(`Profile updated for user ${profile.id}, role: ${role}`);
     }
-    initializedRef.current = true;
+  }, [profile]);
+  
+  // Monitor loading state changes
+  useEffect(() => {
+    logger.log(`Loading state changed to: ${loading}`);
+  }, [loading]);
 
-    // Add a timeout to prevent getting stuck on loading indefinitely
-    const loadingTimeout = setTimeout(() => {
-      console.error('Auth process timed out after 8 seconds.');
-      setLoading(false);
-    }, 8000);
+  // Normalize role handling: prefer explicit role, then fallbacks
+  const getUserRole = useCallback(() => {
+    // If profile doesn't exist, default to 'student'
+    if (!profile) return 'student';
 
-    const initializeAuth = async () => {
-      console.log('1. Initializing authentication...');
-      try {
-        const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-        const supabaseKey = process.env.REACT_APP_SUPABASE_KEY;
+    // Map legacy 'user' to 'alumni'
+    if (profile.role === 'user') return 'alumni';
 
-        if (!supabaseUrl || !supabaseKey) {
-          console.error('CRITICAL: Supabase URL or Key is missing. Check your .env.development file.');
-          setLoading(false);
-          clearTimeout(loadingTimeout);
-          return;
-        }
-        console.log('2. Supabase credentials found.');
+    // Prefer explicit role if present (e.g., 'super_admin', 'admin', 'alumni', 'employer')
+    if (profile.role) return profile.role;
 
-        if (!supabase?.auth) {
-          console.error('CRITICAL: Supabase auth module is not available.');
-          setLoading(false);
-          clearTimeout(loadingTimeout);
-          return;
-        }
-        console.log('3. Supabase client is available.');
+    // Fallback: is_admin flag grants 'admin'
+    if (profile.is_admin === true) return 'admin';
 
-        // Check for existing session first
-        const { data: { session: existingSession } } = await supabase.auth.getSession();
-        if (existingSession) {
-          console.log('3.5. Found existing session');
-          setUser(existingSession.user);
-          setSession(existingSession);
-          await fetchUserProfile(existingSession.user.id);
-        }
-
-        // Set up auth state change listener
-        console.log('4. Setting up onAuthStateChange listener...');
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-          clearTimeout(loadingTimeout);
-          console.log(`5. Auth state change event: ${event}`, { hasSession: !!session });
-          
-          const currentUser = session?.user || null;
-          setUser(currentUser);
-          setSession(session);
-
-          try {
-            if (currentUser) {
-              console.log('6a. User found, checking if profile needs update...');
-              // Only fetch profile if we don't have one or if user changed
-              if (!profile || profile.id !== currentUser.id) {
-                await fetchUserProfile(currentUser.id);
-              }
-            } else {
-              console.log('6b. No user session, resetting profile.');
-              setProfile(null);
-            }
-          } catch (e) {
-            console.error("Error during profile fetch on auth change:", e);
-            setProfile(null);
-          } finally {
-            console.log('7. Auth process finished. Setting loading to false.');
-            setLoading(false);
-          }
-        });
-
-        listenerRef.current = subscription;
-
-      } catch (error) {
-        console.error('CRITICAL: Error during auth initialization:', error);
-        setLoading(false);
-        clearTimeout(loadingTimeout);
-      }
-    };
-
-    initializeAuth();
-
-    // Cleanup function
-    return () => {
-      console.log('AuthProvider cleanup function called.');
-      clearTimeout(loadingTimeout);
-      if (listenerRef.current) {
-        console.log('Unsubscribing auth listener');
-        listenerRef.current.unsubscribe();
-        listenerRef.current = null;
-      }
-      initializedRef.current = false;
-    };
-  }, [profile?.id, fetchUserProfile]); // Only re-run if profile ID changes
-
+    // Final default
+    return 'alumni';
+  }, [profile]);
+  const userRole = getUserRole();
   const isAdmin = userRole === 'admin' || userRole === 'super_admin';
+
+  const hasPermission = useCallback((permission) => {
+    const userPermissions = PERMISSIONS[userRole] || [];
+    return userPermissions.includes('access:all') || userPermissions.includes(permission);
+  }, [userRole]);
+
+  const hasAnyPermission = useCallback((permissions) => {
+    const userPermissions = PERMISSIONS[userRole] || [];
+    return userPermissions.includes('access:all') || permissions.some(p => userPermissions.includes(p));
+  }, [userRole]);
+
+  const hasAllPermissions = useCallback((permissions) => {
+    const userPermissions = PERMISSIONS[userRole] || [];
+    return userPermissions.includes('access:all') || permissions.every(p => userPermissions.includes(p));
+  }, [userRole]);
 
   const value = {
     user,

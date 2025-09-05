@@ -19,8 +19,10 @@ import {
 } from '@heroicons/react/24/outline';
 import { CheckBadgeIcon } from '@heroicons/react/24/solid';
 import { CircularProgress } from '@mui/material';
-import { supabase, useRealtime } from '../../utils/supabase';
+import { supabase } from '../../utils/supabase';
+import { useRealtime } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { onJobsChange } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { useNotification } from '../common/NotificationCenter';
 import SocialShareButtons from '../common/SocialShareButtons';
@@ -407,75 +409,33 @@ const JobListingsPage = () => {
     fetchJobs();
   }, [fetchJobs]);
 
-  const { setupRealtimeSubscription } = useRealtime();
-
   useEffect(() => {
-    if (jobsSubscription.current) {
-      return;
-    }
-
-    const setupSubscription = async () => {
-      try {
-        // First ensure realtime connection is ready, with fallback option
-        console.log('Setting up realtime subscription for jobs...');
-        const connectionSuccess = await setupRealtimeSubscription('job-listings', { allowFallback: true })
-          .catch(err => {
-            console.warn('Realtime check failed but continuing in fallback mode:', err);
-            return false; // Continue in fallback mode
-          });
-
-        if (connectionSuccess) {
-          console.log('Realtime connection confirmed ready, creating jobs subscription');
-          
-          jobsSubscription.current = supabase
-            .channel('job-listings-realtime')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, (payload) => {
-              console.log('Change received in jobs table!', payload);
-              toast.success('Job listings have been updated. Refreshing...');
-              fetchJobs();
-            })
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'job_applications' }, (payload) => {
-              if (process.env.NODE_ENV !== 'production') {
-                console.log('New application detected, refetching jobs');
-              }
-              toast.success('A new application was submitted. Refreshing list...');
-              fetchJobs();
-            })
-            .subscribe(status => {
-              if (status === 'SUBSCRIBED') {
-                console.log('Realtime channel subscribed for jobs and applications.');
-              } else {
-                console.log('Realtime subscription status:', status);
-              }
-            });
-        } else {
-          console.log('Operating in non-realtime mode for jobs - updates will require manual refresh');
-          // Consider adding a visual indicator to let users know realtime is disabled
+    console.log('Attaching jobs listener...');
+    const unsubscribe = onJobsChange(supabase, (payload) => {
+      console.log('Change received in jobs table!', payload);
+      const { eventType, new: newRecord, old: oldRecord } = payload;
+      setJobs(currentJobs => {
+        if (eventType === 'INSERT') {
+          toast.info('A new job has been posted.');
+          return [newRecord, ...currentJobs];
         }
-      } catch (error) {
-        console.error('Failed to setup realtime subscription:', error);
-        console.log('Continuing without realtime updates for jobs');
-      }
-    };
+        if (eventType === 'UPDATE') {
+          toast.info('A job listing has been updated.');
+          return currentJobs.map(job => job.id === newRecord.id ? newRecord : job);
+        }
+        if (eventType === 'DELETE') {
+          toast.info('A job listing has been removed.');
+          return currentJobs.filter(job => job.id !== oldRecord.id);
+        }
+        return currentJobs;
+      });
+    });
 
-    // Start the subscription setup
-    setupSubscription();
-
-    // Cleanup subscription on component unmount
     return () => {
-      if (jobsSubscription.current) {
-        console.log('Cleaning up realtime subscription...');
-        try {
-          supabase.removeChannel(jobsSubscription.current).then(() => {
-            jobsSubscription.current = null;
-          });
-        } catch (e) {
-          console.log('Error during channel cleanup:', e);
-          jobsSubscription.current = null;
-        }
-      }
+      console.log('Detaching jobs listener...');
+      unsubscribe();
     };
-  }, [fetchJobs]);
+  }, [supabase]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);

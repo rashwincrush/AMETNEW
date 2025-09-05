@@ -195,7 +195,11 @@ const EventDetails = () => {
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between">
             <div className="flex-1">
               <h1 className="text-3xl font-bold text-gray-900 mb-2">{event.title}</h1>
-              <p className="text-gray-600 text-lg mb-4">{event.description}</p>
+              <div className="text-gray-600 text-lg mb-4">
+                {event.description && event.description.split('\n').map((paragraph, index) => (
+                  <p key={index} className="mb-2">{paragraph}</p>
+                ))}
+              </div>
 
               {/* Event Details */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -423,33 +427,78 @@ const EventDetails = () => {
           <div className="glass-card rounded-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Event Organizers</h3>
             <div className="space-y-4">
-              {Array.isArray(event.organizers) && event.organizers.map((organizer, index) => (
-                <div key={index} className="flex items-start space-x-3">
-                  <img 
-                    src={organizer.avatar} 
-                    alt={organizer.name}
-                    className="w-12 h-12 rounded-full object-cover"
-                  />
-                  <div className="flex-1">
-                    <h4 className="font-medium text-gray-900">{organizer.name}</h4>
-                    <p className="text-sm text-gray-600">{organizer.role}</p>
-                    <div className="flex space-x-2 mt-2">
-                      <a 
-                        href={`mailto:${organizer.email}`}
-                        className="text-ocean-600 hover:text-ocean-700"
-                      >
-                        <EnvelopeIcon className="w-4 h-4" />
-                      </a>
-                      <a 
-                        href={`tel:${organizer.phone}`}
-                        className="text-ocean-600 hover:text-ocean-700"
-                      >
-                        <PhoneIcon className="w-4 h-4" />
-                      </a>
+              {(() => {
+                // Handle different possible organizer data formats
+                if (Array.isArray(event.organizers) && event.organizers.length > 0) {
+                  return event.organizers.map((organizer, index) => (
+                    <div key={index} className="flex items-start space-x-3">
+                      {organizer.avatar ? (
+                        <img 
+                          src={organizer.avatar} 
+                          alt={organizer.name || 'Organizer'}
+                          className="w-12 h-12 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium">
+                          {(organizer.name || '?').charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="flex-1">
+                        <h4 className="font-medium text-gray-900">{organizer.name || 'Event Organizer'}</h4>
+                        <p className="text-sm text-gray-600">{organizer.role || 'Organizer'}</p>
+                        <div className="flex space-x-2 mt-2">
+                          {organizer.email && (
+                            <a 
+                              href={`mailto:${organizer.email}`}
+                              className="text-ocean-600 hover:text-ocean-700"
+                            >
+                              <EnvelopeIcon className="w-4 h-4" />
+                            </a>
+                          )}
+                          {organizer.phone && (
+                            <a 
+                              href={`tel:${organizer.phone}`}
+                              className="text-ocean-600 hover:text-ocean-700"
+                            >
+                              <PhoneIcon className="w-4 h-4" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))}
+                  ));
+                } else if (event.organizer_id || event.organizer_name || event.organizer_email) {
+                  // Handle case where organizer info is stored directly in the event object
+                  return (
+                    <div className="flex items-start space-x-3">
+                      <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium">
+                        {((event.organizer_name || event.creator_name || '?').charAt(0) || '?').toUpperCase()}
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-medium text-gray-900">{event.organizer_name || event.creator_name || 'Event Organizer'}</h4>
+                        <p className="text-sm text-gray-600">{event.organizer_role || 'Event Host'}</p>
+                        {event.organizer_email && (
+                          <div className="flex space-x-2 mt-2">
+                            <a 
+                              href={`mailto:${event.organizer_email}`}
+                              className="text-ocean-600 hover:text-ocean-700"
+                            >
+                              <EnvelopeIcon className="w-4 h-4" />
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                } else {
+                  // Fallback when no organizer information is available
+                  return (
+                    <div className="text-gray-500 text-sm italic">
+                      Organizer information not available
+                    </div>
+                  );
+                }
+              })()}
             </div>
           </div>
 

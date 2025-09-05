@@ -95,13 +95,15 @@ const AlumniProfile = () => {
           verified: data.is_verified || false,
           joinedDate: new Date(data.created_at || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
           about: data.bio || '',
-          experience: data.experience || [],
-          education: data.education || [],
-          skills: data.skills || [],
-          achievements: data.achievements || [],
+          // Correctly parse new JSONB columns, providing empty arrays as fallback.
+          experience: Array.isArray(data.work_experience) ? data.work_experience : [],
+          education: Array.isArray(data.education) ? data.education : [],
+          skills: Array.isArray(data.skills) ? data.skills : [],
+          achievements: Array.isArray(data.achievements) ? data.achievements : [],
           interests: data.interests || [],
           languages: data.languages || [],
-          socialLinks: {
+          // Use the new social_links JSONB object, fallback to old fields if needed.
+          socialLinks: data.social_links || {
             linkedin: data.linkedin_url || '',
             website: data.website || '',
             twitter: data.twitter || ''
@@ -282,8 +284,15 @@ const AlumniProfile = () => {
         {/* Basic Info */}
         <div className="flex-1 mb-4">
           <h1 className="text-3xl font-bold text-gray-900">{alumnus.name}</h1>
-          <p className="text-xl text-ocean-600 font-medium">{alumnus.currentPosition}</p>
-          <p className="text-gray-600">{alumnus.company}</p>
+          {alumnus.currentPosition && alumnus.currentPosition !== 'Not specified' ? (
+            <p className="text-xl text-ocean-600 font-medium">{alumnus.currentPosition}</p>
+          ) : null}
+          {alumnus.company && alumnus.company !== 'Not specified' ? (
+            <p className="text-gray-600">
+              {alumnus.currentPosition && alumnus.currentPosition !== 'Not specified' ? 'at ' : ''}
+              {alumnus.company}
+            </p>
+          ) : null}
           
           <div className="flex flex-wrap justify-center items-center text-gray-600 mt-2 gap-x-4 gap-y-1">
             <div className="flex items-center">
@@ -384,7 +393,9 @@ const AlumniProfile = () => {
             <div className="glass-card rounded-lg p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Key Achievements</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {alumnus.achievements.map((achievement, index) => (
+                {alumnus.achievements
+                  .filter(achievement => achievement && (achievement.title || typeof achievement === 'string')) // Filter out empty/invalid achievements
+                  .map((achievement, index) => (
                   <AchievementCard key={index} achievement={achievement} />
                 ))}
               </div>
@@ -402,7 +413,21 @@ const AlumniProfile = () => {
                 <BriefcaseIcon className="w-6 h-6 mr-4 text-ocean-600" />
                 <div>
                   <div className="text-sm text-gray-500">Currently</div>
-                  <div className="font-medium">{alumnus.currentPosition} at {alumnus.company}</div>
+                  <div className="font-medium">
+                    {(alumnus.currentPosition && alumnus.currentPosition !== 'Not specified' && alumnus.currentPosition !== 'Unknown') ? (
+                      <>
+                        {alumnus.currentPosition}
+                        {(alumnus.company && alumnus.company !== 'Not specified' && alumnus.company !== 'Unknown') ? (
+                          <> at {alumnus.company}</>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>{(alumnus.company && alumnus.company !== 'Not specified' && alumnus.company !== 'Unknown') ? 
+                        <>Works at {alumnus.company}</> : 
+                        'Career information not provided'}
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -418,7 +443,7 @@ const AlumniProfile = () => {
                 <AcademicCapIcon className="w-6 h-6 mr-4 text-ocean-600" />
                 <div>
                   <div className="text-sm text-gray-500">Education</div>
-                  <div className="font-medium">{alumnus.degree}, {alumnus.department} ({alumnus.batch})</div>
+                  <div className="font-medium">{alumnus.degree}{alumnus.department ? `, ${alumnus.department}` : ''} ({alumnus.graduationYear})</div>
                 </div>
               </div>
             </div>

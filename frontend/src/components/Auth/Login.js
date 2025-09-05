@@ -1,12 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import Logo from '../common/Logo';
-import { Link, useNavigate, Navigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link, Navigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
+import Logo from '../common/Logo';
 import { signInWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 
 const Login = () => {
-  const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
@@ -18,7 +17,6 @@ const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [requiresTwoFactor, setRequiresTwoFactor] = useState(false);
-  const [loginSuccess, setLoginSuccess] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -46,44 +44,61 @@ const Login = () => {
       }
 
       if (data.user) {
-        // Mark login as successful but don't navigate yet
-        // Let AuthContext fully process the auth state change
-        console.log('Login successful, waiting for auth context to update...');
-        setLoginSuccess(true);
+        console.log('Login successful, forcing redirect to dashboard...');
+        // Force direct navigation to dashboard without waiting for AuthContext
+        setIsLoading(true); // Keep loading state while we redirect
+        
+        // Small timeout to ensure Supabase has time to save the session
+        setTimeout(() => {
+          window.location.href = '/dashboard';
+        }, 500);
+        return; // Exit early since we're redirecting
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
       console.error('Login error:', err);
     } finally {
-      setIsLoading(false);
+      if (!requiresTwoFactor) { // Don't disable loading if we're redirecting
+        setIsLoading(false);
+      }
     }
   };
 
   const handleGoogleLogin = async () => {
     setError('');
+    setIsLoading(true);
     try {
       const { error } = await signInWithGoogle();
       if (error) {
         setError(error.message);
+        setIsLoading(false);
+        return;
       }
-      // Don't navigate here - will be handled by effect
+      console.log('Google login successful, redirecting to dashboard...');
+      // Redirect will happen via the OAuth flow and return URL
     } catch (err) {
       setError('Failed to sign in with Google');
       console.error('Google login error:', err);
+      setIsLoading(false);
     }
   };
 
   const handleLinkedInLogin = async () => {
     setError('');
+    setIsLoading(true);
     try {
       const { error } = await signInWithLinkedIn();
       if (error) {
         setError(error.message);
+        setIsLoading(false);
+        return;
       }
-      // Don't navigate here - will be handled by effect
+      console.log('LinkedIn login successful, redirecting to dashboard...');
+      // Redirect will happen via the OAuth flow and return URL
     } catch (err) {
       setError('Failed to sign in with LinkedIn');
       console.error('LinkedIn login error:', err);
+      setIsLoading(false);
     }
   };
 
@@ -95,18 +110,11 @@ const Login = () => {
     }));
   };
 
-  // Effect to handle redirect after auth state is updated
-  useEffect(() => {
-    // Redirect if login was successful and auth is no longer loading
-    if (loginSuccess && user && !authLoading) {
-      console.log('Auth state updated after login, redirecting to dashboard...');
-      navigate('/dashboard');
-    }
-  }, [user, authLoading, navigate, loginSuccess]);
-  
-  // If user is already authenticated, redirect to dashboard
+
+
+  // If a user is already authenticated when the component mounts, redirect immediately.
   if (user && !authLoading) {
-    return <Navigate to="/dashboard" />;
+    return <Navigate to="/dashboard" replace />;
   }
   
   return (

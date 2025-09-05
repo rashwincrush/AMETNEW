@@ -6,18 +6,28 @@ import CreateGroup from '../components/Groups/CreateGroup';
 import GroupDetail from '../components/Groups/GroupDetail';
 
 const GroupsPage = () => {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
+  
+  // Check if user has permission to access groups
+  const hasGroupAccess = hasPermission('access:groups');
 
   return (
     <Routes>
-      <Route path="/" element={<GroupsList />} />
+      <Route 
+        path="/" 
+        element={hasGroupAccess ? <GroupsList /> : <Navigate to="/dashboard" replace />} 
+      />
       <Route
         path="new"
         element={
-          user ? (
+          user && hasGroupAccess ? (
             <CreateGroup />
           ) : (
-            <Navigate to="/login" replace state={{ from: window.location.pathname }} />
+            <Navigate 
+              to={user ? "/dashboard" : "/login"} 
+              replace 
+              state={{ from: window.location.pathname }} 
+            />
           )
         }
       />

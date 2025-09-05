@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../../utils/supabase';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { supabase, checkRealtimeConnection } from '../../lib/supabase';
+import { subscribeOnce, unsubscribeChannel } from '../../lib/realtime';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
@@ -11,52 +12,11 @@ const NotificationsPage = ({ currentUser }) => {
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [outgoingRequests, setOutgoingRequests] = useState([]);
   const [requestsLoading, setRequestsLoading] = useState(true);
-  const channelRef = useRef(null);
+  // Track component mount state
+  const isMountedRef = useRef(true);
 
-  useEffect(() => {
-    if (!currentUser) return;
-
-    fetchNotifications();
-    fetchConnectionRequests();
-
-    // Set up realtime subscription for new notifications
-    const setupRealtimeSubscription = () => {
-      // Clean up any existing subscription first
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-      }
-
-      channelRef.current = supabase
-        .channel('notifications_page')
-        .on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'notifications' }, 
-          () => {
-            // Refresh notifications on any changes
-            fetchNotifications();
-          }
-        )
-        .on('postgres_changes',
-          { event: '*', schema: 'public', table: 'connections' },
-          () => {
-            // Refresh connection requests on any changes
-            fetchConnectionRequests();
-          }
-        )
-        .subscribe();
-    };
-
-    setupRealtimeSubscription();
-
-    return () => {
-      // Clean up subscription
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-      }
-    };
-  }, [currentUser]);
-
-  const fetchNotifications = async () => {
-    if (!currentUser) return;
+  const fetchNotifications = useCallback(async () => {
+    if (!currentUser || !isMountedRef.current) return;
 
     setLoading(true);
     try {
@@ -66,7 +26,6 @@ const NotificationsPage = ({ currentUser }) => {
         .eq('profile_id', currentUser.id)
         .order('created_at', { ascending: false });
       
-      // Filter based on active tab
       if (activeTab === 'unread') {
         query = query.eq('is_read', false);
       } else if (activeTab === 'read') {
@@ -76,57 +35,100 @@ const NotificationsPage = ({ currentUser }) => {
       const { data, error } = await query;
 
       if (error) throw error;
-      setNotifications(data || []);
+      if (isMountedRef.current) {
+        setNotifications(data || []);
+      }
     } catch (err) {
       console.error('Error fetching notifications:', err);
       toast.error('Failed to load notifications');
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
-  };
+  }, [currentUser, activeTab]);
 
-  const fetchConnectionRequests = async () => {
-    if (!currentUser) return;
+  const fetchConnectionRequests = useCallback(async () => {
+    if (!currentUser || !isMountedRef.current) return;
 
     setRequestsLoading(true);
     try {
-      // Fetch incoming requests
       const { data: incoming, error: incomingError } = await supabase
         .from('connections')
-        .select(`
-          id,
-          status,
-          created_at,
-          requester:requester_id(id, full_name, avatar_url, job_title, company)
-        `)
+        .select(`id, status, created_at, requester:requester_id(id, full_name, avatar_url, job_title, company)`)
         .eq('recipient_id', currentUser.id)
         .eq('status', 'pending');
 
       if (incomingError) throw incomingError;
-      setIncomingRequests(incoming || []);
+      if (isMountedRef.current) {
+        setIncomingRequests(incoming || []);
+      }
 
-      // Fetch outgoing requests
       const { data: outgoing, error: outgoingError } = await supabase
         .from('connections')
-        .select(`
-          id,
-          status,
-          created_at,
-          recipient:recipient_id(id, full_name, avatar_url, job_title, company)
-        `)
+        .select(`id, status, created_at, recipient:recipient_id(id, full_name, avatar_url, job_title, company)`)
         .eq('requester_id', currentUser.id)
         .eq('status', 'pending');
 
       if (outgoingError) throw outgoingError;
-      setOutgoingRequests(outgoing || []);
+      if (isMountedRef.current) {
+        setOutgoingRequests(outgoing || []);
+      }
 
     } catch (error) {
       console.error('Error fetching connection requests:', error);
       toast.error('Failed to load connection requests.');
     } finally {
-      setRequestsLoading(false);
+      if (isMountedRef.current) {
+        setRequestsLoading(false);
+      }
     }
-  };
+  }, [currentUser]);
+
+  const handleNotificationsUpdate = useCallback((payload) => {
+    if (!isMountedRef.current) return;
+    console.log('Realtime notification update:', payload);
+    fetchNotifications();
+  }, [fetchNotifications]);
+
+  const handleConnectionsUpdate = useCallback((payload) => {
+    if (!isMountedRef.current) return;
+    console.log('Realtime connection update:', payload);
+    fetchConnectionRequests();
+  }, [fetchConnectionRequests]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    isMountedRef.current = true;
+    
+    fetchNotifications();
+    fetchConnectionRequests();
+    
+    const setupRealtimeSubscription = async () => {
+      try {
+        await checkRealtimeConnection();
+        if (!isMountedRef.current) return;
+        
+        subscribeOnce('notifications_realtime', { event: '*', schema: 'public', table: 'notifications' }, handleNotificationsUpdate);
+        subscribeOnce('connections_realtime', { event: '*', schema: 'public', table: 'connections' }, handleConnectionsUpdate);
+        
+      } catch (error) {
+        console.error('Error setting up realtime subscriptions:', error);
+        toast.error('Could not connect to real-time updates.');
+      }
+    };
+    
+    setupRealtimeSubscription();
+    
+    return () => {
+      isMountedRef.current = false;
+      unsubscribeChannel('notifications_realtime', handleNotificationsUpdate);
+      unsubscribeChannel('connections_realtime', handleConnectionsUpdate);
+    };
+  }, [currentUser, fetchNotifications, fetchConnectionRequests, handleNotificationsUpdate, handleConnectionsUpdate]);
+
+
 
   const markAsRead = async (notificationId) => {
     try {
@@ -217,11 +219,6 @@ const NotificationsPage = ({ currentUser }) => {
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    // We need to refetch with the new filter
-    setLoading(true);
-    setTimeout(() => {
-      fetchNotifications();
-    }, 100);
   };
 
   return (

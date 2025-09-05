@@ -11,20 +11,58 @@ BEGIN
     is_verified,
     first_name,
     last_name,
-    phone
+    phone,
+    graduation_year,
+    expected_graduation_year,
+    degree,
+    department,
+    student_id,
+    is_employer,
+    company_name,
+    company_website,
+    industry,
+    company_size,
+    job_title,
+    linkedin_url,
+    skills,
+    interests,
+    bio,
+    location,
+    interested_in_mentorship,
+    mentorship_role,
+    mentorship_experience_years,
+    mentorship_goals
   )
   VALUES (
     NEW.id,
     NEW.email,
     NOW(),
-    -- Standardized to use only 'role' metadata key, with 'user' as safer default
     COALESCE(NEW.raw_user_meta_data ->> 'role', 'user'),
     false,
     NEW.raw_user_meta_data ->> 'first_name',
     NEW.raw_user_meta_data ->> 'last_name',
-    NEW.raw_user_meta_data ->> 'phone'
+    NEW.raw_user_meta_data ->> 'phone',
+    NULLIF(NEW.raw_user_meta_data ->> 'graduation_year', '')::integer,
+    NULLIF(NEW.raw_user_meta_data ->> 'expected_graduation_year', '')::integer,
+    NEW.raw_user_meta_data ->> 'degree',
+    NEW.raw_user_meta_data ->> 'department',
+    NEW.raw_user_meta_data ->> 'student_id',
+    NULLIF(NEW.raw_user_meta_data ->> 'is_employer', '')::boolean,
+    NEW.raw_user_meta_data ->> 'company_name',
+    NEW.raw_user_meta_data ->> 'company_website',
+    NEW.raw_user_meta_data ->> 'industry',
+    NEW.raw_user_meta_data ->> 'company_size',
+    NEW.raw_user_meta_data ->> 'job_title',
+    NEW.raw_user_meta_data ->> 'linkedin_url',
+    (SELECT jsonb_agg(elem) FROM jsonb_array_elements_text(NEW.raw_user_meta_data -> 'skills') AS elem),
+    (SELECT jsonb_agg(elem) FROM jsonb_array_elements_text(NEW.raw_user_meta_data -> 'interests') AS elem),
+    NEW.raw_user_meta_data ->> 'bio',
+    NEW.raw_user_meta_data ->> 'location',
+    NULLIF(NEW.raw_user_meta_data ->> 'interested_in_mentorship', '')::boolean,
+    NEW.raw_user_meta_data ->> 'mentorship_role',
+    NULLIF(NEW.raw_user_meta_data ->> 'mentorship_experience_years', '')::integer,
+    NEW.raw_user_meta_data ->> 'mentorship_goals'
   );
-
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

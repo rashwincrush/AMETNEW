@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { supabase } from '../../utils/supabase';
 import { 
   fetchGroupDetails, 
   fetchGroupPosts, 
@@ -64,16 +65,29 @@ const GroupDetail = () => {
       setGroup(groupData);
       
       // Check if user is a member and/or admin
-      const userMembership = groupData.members.find(m => m.profiles.id === user.id);
+      // Find membership data - the membership record contains the role
+      const memberships = groupData.members || [];
+      const userMembership = memberships.find(m => m.profiles?.id === user?.id);
+      
+      // Set member status - a user is a member if they have any membership record
       const memberCheck = !!userMembership;
       setIsMember(memberCheck);
       
-      // Check if user is an admin
-      const adminCheck = memberCheck && userMembership.role === 'admin';
+      // Admin check - user is an admin if they have 'admin' role in their membership
+      // or if they are a site admin (handled via AuthContext)
+      const adminCheck = 
+        (memberCheck && userMembership.role === 'admin') || 
+        user.is_admin === true;
       setIsAdmin(adminCheck);
 
-      // Fetch posts if user is a member
-      if (memberCheck) {
+      console.log('Group membership status:', { 
+        isMember: memberCheck, 
+        isAdmin: adminCheck,
+        membershipData: userMembership
+      });
+
+      // Fetch posts if user is a member or the group is public
+      if (memberCheck || !groupData.is_private) {
         const { data: postsData, error: postsError } = await fetchGroupPosts(id);
         if (postsError) throw postsError;
         setPosts(postsData || []);
@@ -84,20 +98,47 @@ const GroupDetail = () => {
     } finally {
       setLoading(false);
     }
-  }, [id, user.id]);
+  }, [id, user?.id]);
 
   useEffect(() => {
     loadGroupData();
   }, [loadGroupData]);
 
   const handleMembership = async () => {
-    const action = isMember ? leaveGroup : joinGroup;
-    const { error } = await action(id, user.id);
-    if (error) {
-      setError(error.message);
-    } else {
-      setIsMember(!isMember);
-      loadGroupData(); // Refresh data after changing membership
+    try {
+      if (!user) {
+        // Redirect to login if not logged in
+        window.location.href = `/login?redirect=/groups/${id}`;
+        return;
+      }
+      
+      const action = isMember ? leaveGroup : joinGroup;
+      
+      // For joining: only pass group ID (backend handles current user)
+      // For leaving: pass both group ID and user ID
+      const { error } = isMember 
+        ? await leaveGroup(id, user.id)
+        : await joinGroup(id);
+      
+      if (error) {
+        // Handle specific error cases
+        if (error.code === "23505") {
+          // Duplicate key error - user is already a member
+          setError("You're already a member of this group");
+        } else if (error.code === "42501") {
+          // Permission error
+          setError("You don't have permission to join this group");
+        } else {
+          setError(error.message);
+        }
+      } else {
+        // Toggle membership status and refresh data
+        setIsMember(!isMember);
+        loadGroupData();
+      }
+    } catch (err) {
+      console.error("Error handling membership change:", err);
+      setError("An unexpected error occurred. Please try again.");
     }
   };
   

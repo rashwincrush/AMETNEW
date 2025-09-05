@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { supabase } from '../../utils/supabase';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { UserPlusIcon, ClockIcon } from '@heroicons/react/24/outline';
 
@@ -7,63 +7,86 @@ const ConnectionManager = ({ currentUser }) => {
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [outgoingRequests, setOutgoingRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Track component mount state
+  const isMountedRef = useRef(true);
 
+  const fetchRequests = useCallback(async () => {
+    if (!currentUser || !isMountedRef.current) return;
+    
+    setLoading(true);
+    try {
+      // Fetch incoming requests
+      const { data: incoming, error: incomingError } = await supabase
+        .from('connections')
+        .select(`
+          id,
+          status,
+          requester:requester_id(id, full_name, avatar_url, job_title)
+        `)
+        .eq('recipient_id', currentUser.id)
+        .eq('status', 'pending');
+
+      if (incomingError) throw incomingError;
+      if (isMountedRef.current) {
+        setIncomingRequests(incoming || []);
+      }
+
+      // Fetch outgoing requests
+      const { data: outgoing, error: outgoingError } = await supabase
+        .from('connections')
+        .select(`
+          id,
+          status,
+          recipient:recipient_id(id, full_name, avatar_url, job_title)
+        `)
+        .eq('requester_id', currentUser.id)
+        .eq('status', 'pending');
+
+      if (outgoingError) throw outgoingError;
+      if (isMountedRef.current) {
+        setOutgoingRequests(outgoing || []);
+      }
+
+    } catch (error) {
+      console.error('Error fetching connection requests:', error);
+      if (isMountedRef.current) {
+        toast.error('Failed to load connection requests.');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [currentUser]);
+
+  // Create a callback function for connection updates
+  const handleConnectionUpdate = useCallback((payload) => {
+    if (!isMountedRef.current) return;
+    console.log('Realtime connection update:', payload);
+    fetchRequests();
+  }, [fetchRequests]);
+  
   useEffect(() => {
     if (!currentUser) return;
 
-    const fetchRequests = async () => {
-      setLoading(true);
-      try {
-        // Fetch incoming requests
-        const { data: incoming, error: incomingError } = await supabase
-          .from('connections')
-          .select(`
-            id,
-            status,
-            requester:requester_id(id, full_name, avatar_url, job_title)
-          `)
-          .eq('recipient_id', currentUser.id)
-          .eq('status', 'pending');
-
-        if (incomingError) throw incomingError;
-        setIncomingRequests(incoming || []);
-
-        // Fetch outgoing requests
-        const { data: outgoing, error: outgoingError } = await supabase
-          .from('connections')
-          .select(`
-            id,
-            status,
-            recipient:recipient_id(id, full_name, avatar_url, job_title)
-          `)
-          .eq('requester_id', currentUser.id)
-          .eq('status', 'pending');
-
-        if (outgoingError) throw outgoingError;
-        setOutgoingRequests(outgoing || []);
-
-      } catch (error) {
-        console.error('Error fetching connection requests:', error);
-        toast.error('Failed to load connection requests.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
+    isMountedRef.current = true;
     fetchRequests();
 
-    // Set up a real-time listener for changes
-    const subscription = supabase
-      .channel('public:connections')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'connections' }, payload => {
-        fetchRequests();
-      })
-      .subscribe();
+    onPostgresChangesOnce(
+      'connections_realtime',
+      'connections-listener',
+      { 
+        event: '*', 
+        schema: 'public', 
+        table: 'connections'
+      },
+      handleConnectionUpdate
+    );
 
     return () => {
-      supabase.removeChannel(subscription);
+      isMountedRef.current = false;
     };
-  }, [currentUser]);
+  }, [currentUser, fetchRequests, handleConnectionUpdate]);
 
   const handleResponse = async (requestId, newStatus) => {
     try {

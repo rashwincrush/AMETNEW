@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../../utils/supabase';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import ConversationList from './ConversationList';
 import ChatWindow from './ChatWindow';
 import ConnectionManager from './ConnectionManager';
@@ -15,6 +15,8 @@ const MessagingSystem = () => {
   const [error, setError] = useState(null);
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const [activeTab, setActiveTab] = useState('conversations');
+  // Track component mount state
+  const isMountedRef = useRef(true);
 
   // Fetch current user
   useEffect(() => {
@@ -121,60 +123,67 @@ const MessagingSystem = () => {
     }
   }, [currentUser, fetchUserConversations]);
 
+  // Handle new messages with useCallback
+  const handleNewMessage = useCallback(async (payload) => {
+    if (!isMountedRef.current || !currentUser) return;
+
+    const newMessage = payload.new;
+    const conversationId = newMessage.conversation_id;
+
+    setConversations(prevConvs => {
+      const convIndex = prevConvs.findIndex(c => c.id === conversationId);
+      let updatedConvs = [...prevConvs];
+
+      if (convIndex !== -1) {
+        // Conversation exists, update it and move to top
+        const conv = { ...updatedConvs[convIndex] };
+        updatedConvs.splice(convIndex, 1);
+
+        conv.lastMessageAt = newMessage.created_at;
+        conv.latestMessage = newMessage.content;
+
+        if (newMessage.sender_id === currentUser.id) {
+          conv.latestMessageSender = 'You';
+        } else {
+          conv.latestMessageSender = conv.name;
+          conv.unreadCount = (conv.unreadCount || 0) + 1;
+
+          // Show notification if chat is not open
+          if (selectedConversation !== conversationId) {
+            showInfo(`New message from ${conv.name}`);
+            // The notification creation logic can be triggered here if needed
+          }
+        }
+        return [conv, ...updatedConvs];
+      } else {
+        // New conversation, refetch everything. This is an edge case.
+        fetchUserConversations();
+        return prevConvs;
+      }
+    });
+  }, [currentUser, selectedConversation, fetchUserConversations, showInfo]);
+
   // Real-time listener for new messages
   useEffect(() => {
     if (!currentUser) return;
 
-    const handleNewMessage = async (payload) => {
-      const newMessage = payload.new;
-      const conversationId = newMessage.conversation_id;
+    isMountedRef.current = true;
 
-      if (newMessage.sender_id === currentUser.id) {
-        // If sender is current user, just update the last message time and move to top
-        setConversations(prev => {
-          const conv = prev.find(c => c.id === conversationId);
-          if (!conv) return prev;
-          const otherConvs = prev.filter(c => c.id !== conversationId);
-          return [{ ...conv, lastMessageAt: newMessage.created_at, latestMessage: newMessage.content, latestMessageSender: 'You' }, ...otherConvs];
-        });
-        return;
-      }
-
-      // If the message is for the current user
-      await fetchUserConversations(); // Refetch all conversations to get the latest state
-
-      if (selectedConversation !== conversationId) {
-        const conversation = conversations.find(c => c.id === conversationId);
-        const senderName = conversation ? conversation.name : 'Someone';
-        
-        showInfo(`New message from ${senderName}`);
-
-        const { error: notificationError } = await supabase.from('notifications').insert({
-          user_id: currentUser.id,
-          type: 'new_message',
-          message: `You have a new message from ${senderName}.`,
-          link_to: `/messages?conversationId=${conversationId}`,
-        });
-
-        if (notificationError) {
-          console.error('Error creating notification:', notificationError);
-        }
-      }
-    };
-
-    const channel = supabase
-      .channel('public:messages')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, handleNewMessage)
-      .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') {
-          showError('Real-time connection failed. Please refresh.');
-        }
-      });
+    onPostgresChangesOnce(
+      'public:messages',
+      'messages-listener',
+      { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'messages' 
+      },
+      handleNewMessage
+    );
 
     return () => {
-      supabase.removeChannel(channel);
+      isMountedRef.current = false;
     };
-  }, [currentUser, selectedConversation, fetchUserConversations, showError, showInfo, conversations]);
+  }, [currentUser, handleNewMessage]);
 
   const handleSelectConversation = (conversationId) => {
     setSelectedConversation(conversationId);

@@ -1,4 +1,5 @@
 import React from 'react';
+import { supabase } from '../../utils/supabase';
 import { Link } from 'react-router-dom';
 import { 
   UsersIcon, 

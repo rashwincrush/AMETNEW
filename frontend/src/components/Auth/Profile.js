@@ -66,6 +66,9 @@ const Profile = () => {
     }
   });
 
+  // Track validation errors for form fields
+  const [validationErrors, setValidationErrors] = useState({});
+
   // Define isEmployer constant
   const isEmployer = getUserRole() === 'employer';
   
@@ -184,6 +187,41 @@ const Profile = () => {
     return true;
   };
 
+  const validateForm = () => {
+    const errors = {};
+    
+    if (!formData.first_name) {
+      errors.first_name = 'First name is required';
+    }
+    
+    if (!formData.last_name) {
+      errors.last_name = 'Last name is required';
+    }
+    
+    if (!formData.email) {
+      errors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      errors.email = 'Email is invalid';
+    }
+    
+    // Validate achievements if any exist
+    if (Array.isArray(formData.achievements)) {
+      // Filter out empty achievements
+      const validAchievements = formData.achievements.filter(achievement => 
+        achievement && typeof achievement === 'object' && achievement.title && achievement.title.trim() !== ''
+      );
+      
+      // Replace achievements array with only valid ones
+      formData.achievements = validAchievements;
+    } else {
+      // Ensure achievements is an array
+      formData.achievements = [];
+    }
+    
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   // Initialize form with user data
   useEffect(() => {
     if (user && profile) {
@@ -231,13 +269,42 @@ const Profile = () => {
             date_of_birth: cleanedProfile.date_of_birth || '',
             skills: Array.isArray(cleanedProfile.skills) ? cleanedProfile.skills : [],
             achievements: Array.isArray(cleanedProfile.achievements) ? cleanedProfile.achievements.map(achievement => {
+              // Handle null or undefined achievement
+              if (achievement === null || achievement === undefined) {
+                return { title: '', description: '' };
+              }
+              
+              // Handle achievement as object
               if (typeof achievement === 'object' && achievement !== null) {
                 return {
                   title: achievement.title || '',
                   description: achievement.description || ''
                 };
+              } 
+              
+              // Handle achievement as string (possibly JSON)
+              if (typeof achievement === 'string') {
+                if (achievement.trim() === '') {
+                  return { title: '', description: '' };
+                }
+                
+                try {
+                  // Try to parse if it's a JSON string
+                  const parsed = JSON.parse(achievement);
+                  if (parsed && typeof parsed === 'object') {
+                    return {
+                      title: parsed.title || '',
+                      description: parsed.description || ''
+                    };
+                  }
+                } catch (e) {
+                  // If not valid JSON, use as title
+                  return { title: achievement, description: '' };
+                }
               }
-              return { title: String(achievement), description: '' };
+              
+              // Default fallback for any other type
+              return { title: String(achievement || ''), description: '' };
             }) : [],
             interests: Array.isArray(cleanedProfile.interests) ? cleanedProfile.interests : [],
             languages: Array.isArray(cleanedProfile.languages) ? cleanedProfile.languages : [],
@@ -338,7 +405,7 @@ const Profile = () => {
         student_id: formData.student_id,
         date_of_birth: formData.date_of_birth,
         skills: formData.skills,
-        achievements: formData.achievements,
+        achievements: Array.isArray(formData.achievements) ? formData.achievements.filter(a => a && typeof a === 'object' && a.title) : [],
         interests: formData.interests,
         languages: formData.languages,
         social_links: formData.socialLinks,
@@ -348,13 +415,26 @@ const Profile = () => {
 
       Object.entries(possibleFields).forEach(([key, value]) => {
         if ((currentProfile && key in currentProfile) || value !== undefined) {
-          profileUpdates[key] = value;
+          // Handle empty strings for integer fields
+          if (key === 'graduation_year' && (value === '' || value === undefined)) {
+            profileUpdates[key] = null;
+          } else {
+            profileUpdates[key] = value;
+          }
         }
       });
 
-      // Handle empty date string before sending to Supabase
-    if (profileUpdates.date_of_birth === '') {
-      profileUpdates.date_of_birth = null;
+      // Handle empty strings for fields that need to be null in the database
+    ['date_of_birth', 'graduation_year', 'student_id'].forEach(field => {
+      if (profileUpdates[field] === '') {
+        profileUpdates[field] = null;
+      }
+    });
+    
+    // Convert graduation_year to integer if it exists and is not null
+    if (profileUpdates.graduation_year !== null && profileUpdates.graduation_year !== undefined) {
+      const yearValue = parseInt(profileUpdates.graduation_year, 10);
+      profileUpdates.graduation_year = isNaN(yearValue) ? null : yearValue;
     }
 
     if (formData.socialLinks) {
@@ -487,19 +567,63 @@ const Profile = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     
-    // Handle nested socialLinks object
+    // Handle nested socialLinks object and validate for duplicate URLs
     if (name.startsWith('socialLinks.')) {
-      const [_, field] = name.split('.');
+      const field = name.split('.')[1];
+      let trimmedValue = value.trim();
+      let validationError = null;
+      
+      // If URL is not empty, validate and check for duplicates
+      if (trimmedValue !== '') {
+        // Validate URL format if provided
+        if (trimmedValue.length > 0) {
+          // Check if URL has http/https prefix
+          if (!/^https?:\/\//i.test(trimmedValue)) {
+            trimmedValue = 'https://' + trimmedValue;
+          }
+          
+          // Check if it's a valid URL format
+          try {
+            new URL(trimmedValue);
+          } catch (e) {
+            validationError = 'Please enter a valid URL';
+          }
+        }
+        
+        // Check if same URL is used in other fields
+        if (!validationError) {
+          const otherFields = Object.entries(formData.socialLinks || {}).filter(([key]) => key !== field);
+          const duplicateField = otherFields.find(([_, url]) => 
+            url && url.trim().toLowerCase() === trimmedValue.toLowerCase());
+          
+          if (duplicateField) {
+            validationError = `This URL is already used for your ${duplicateField[0]} profile`;
+          }
+        }
+      }
+      
+      // Update validation errors
+      setValidationErrors(prev => {
+        const newErrors = { ...prev };
+        if (validationError) {
+          newErrors[name] = validationError;
+        } else {
+          delete newErrors[name];
+        }
+        return newErrors;
+      });
+      
+      // Update form data with potentially modified URL
       setFormData(prev => ({
         ...prev,
         socialLinks: {
           ...prev.socialLinks,
-          [field]: value
+          [field]: trimmedValue
         }
       }));
-    } 
-    // Handle array fields
-        else if (['skills', 'interests', 'languages'].includes(name)) {
+    }
+    // Handle array fields that need to be split (comma-separated values)
+    else if (['skills', 'interests', 'languages'].includes(name)) {
       const items = value.split(',').map(item => item.trim()).filter(item => item);
       setFormData(prev => ({ ...prev, [name]: items }));
     } 
@@ -510,25 +634,46 @@ const Profile = () => {
   };
 
     const handleAddAchievement = () => {
-    setFormData(prev => ({
-      ...prev,
-      achievements: [...(prev.achievements || []), { title: '', description: '' }]
-    }));
+    setFormData(prev => {
+      // Ensure achievements array exists
+      const currentAchievements = Array.isArray(prev.achievements) ? prev.achievements : [];
+      return {
+        ...prev,
+        achievements: [...currentAchievements, { title: '', description: '' }]
+      };
+    });
   };
 
     const handleAchievementChange = (index, field, value) => {
     setFormData(prev => {
-      const newAchievements = [...prev.achievements];
-      newAchievements[index] = { ...newAchievements[index], [field]: value };
-      return { ...prev, achievements: newAchievements };
+      // Ensure achievements array exists
+      const currentAchievements = Array.isArray(prev.achievements) ? [...prev.achievements] : [];
+      
+      // Ensure the achievement at this index exists
+      if (!currentAchievements[index]) {
+        currentAchievements[index] = { title: '', description: '' };
+      }
+      
+      // Update the field
+      currentAchievements[index] = { 
+        ...currentAchievements[index], 
+        [field]: value 
+      };
+      
+      return { ...prev, achievements: currentAchievements };
     });
   };
 
   const handleRemoveAchievement = (index) => {
-    setFormData(prev => ({
-      ...prev,
-      achievements: prev.achievements.filter((_, i) => i !== index)
-    }));
+    setFormData(prev => {
+      // Ensure achievements array exists
+      const currentAchievements = Array.isArray(prev.achievements) ? [...prev.achievements] : [];
+      
+      return {
+        ...prev,
+        achievements: currentAchievements.filter((_, i) => i !== index)
+      };
+    });
   };
 
   const uploadAvatar = async (file) => {
@@ -696,7 +841,15 @@ const Profile = () => {
                 type="number"
                 name="graduation_year"
                 value={formData.graduation_year || ''}
-                onChange={handleChange}
+                onChange={(e) => {
+                  // Handle empty string specifically for number inputs
+                  const val = e.target.value;
+                  const fieldName = e.target.name;
+                  setFormData(prev => ({
+                    ...prev,
+                    [fieldName]: val === '' ? '' : val
+                  }));
+                }}
                 min="1900"
                 max={new Date().getFullYear()}
                 className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
@@ -813,7 +966,7 @@ const Profile = () => {
             <div className="mt-4 space-y-2">
               <label className="block text-sm font-medium text-gray-700">Achievements</label>
               <div className="space-y-3">
-                {formData.achievements && formData.achievements.map((achievement, index) => (
+                {Array.isArray(formData.achievements) && formData.achievements.map((achievement, index) => (
                   <div key={index} className="p-3 border rounded-md bg-gray-50 relative space-y-2">
                     <input
                       type="text"
@@ -1033,14 +1186,16 @@ const Profile = () => {
                     </div>
                   </div>
                 )}
-                {hasValue(formData.achievements) && formData.achievements.length > 0 && (
+                {Array.isArray(formData.achievements) && formData.achievements.length > 0 && (
                   <div>
                     <h3 className="font-medium text-gray-900 mb-2">Achievements</h3>
                     <div className="space-y-3">
-                      {formData.achievements.map((achievement, index) => (
+                      {Array.isArray(formData.achievements) && formData.achievements.map((achievement, index) => (
                         <div key={index} className="border-l-4 border-ocean-500 pl-3">
-                          <h4 className="font-medium">{achievement.title || ''}</h4>
-                          <p className="text-sm text-gray-700">{achievement.description || ''}</p>
+                          <h4 className="font-medium">{typeof achievement === 'object' ? achievement.title || '' : achievement}</h4>
+                          {typeof achievement === 'object' && achievement.description && 
+                            <p className="text-sm text-gray-700">{achievement.description}</p>
+                          }
                         </div>
                       ))}
                     </div>

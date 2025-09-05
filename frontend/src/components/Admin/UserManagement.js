@@ -27,7 +27,7 @@ import EditUserModal from './EditUserModal';
 import RejectUserModal from './RejectUserModal';
 
 const UserManagement = () => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user: currentUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTab, setSelectedTab] = useState('all');
@@ -39,6 +39,103 @@ const UserManagement = () => {
   });
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  
+  const softDeleteUser = async (userId) => {
+    setDeletingId(userId);
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('admin_soft_delete_user', { target: userId });
+      if (error) {
+        console.error('Soft delete failed:', error);
+        toast.error(`Delete failed: ${error.message}`);
+        return { success: false, error };
+      }
+      
+      toast.success('User soft-deleted');
+      await fetchUsers(); // refresh the users list
+      return { success: true };
+    } catch (err) {
+      console.error('Error in soft delete:', err);
+      toast.error(`Delete failed: ${err.message}`);
+      return { success: false, error: err };
+    } finally {
+      setDeletingId(null);
+      setLoading(false);
+    }
+  };
+
+  // Final step: delete Supabase Auth user via Edge Function
+  const deleteAuthUser = async (userId) => {
+    // Prevent self-delete safety
+    if (userId === currentUser?.id) {
+      toast.error('You cannot delete your own account.');
+      return { success: false };
+    }
+
+    const ok = window.confirm('This will permanently delete the user from Supabase Auth. Continue?');
+    if (!ok) return { success: false, cancelled: true };
+
+    setDeletingId(userId);
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-delete-user', {
+        body: { userId },
+      });
+      if (error) {
+        console.error('Auth delete failed:', error);
+        toast.error(`Auth delete failed: ${error.message || error}`);
+        return { success: false, error };
+      }
+      if (!data?.ok) {
+        toast.error(`Auth delete failed: ${data?.error || 'Unknown error'}`);
+        return { success: false, error: data };
+      }
+      toast.success('Auth user deleted successfully');
+      await fetchUsers();
+      return { success: true };
+    } catch (err) {
+      console.error('Error invoking admin-delete-user:', err);
+      toast.error(`Auth delete failed: ${err.message}`);
+      return { success: false, error: err };
+    } finally {
+      setDeletingId(null);
+      setLoading(false);
+    }
+  };
+  
+  const purgeUserData = async (userId) => {
+    const ok = window.confirm('Purge will permanently remove user-owned data in app DB. Continue?');
+    if (!ok) return { success: false, cancelled: true };
+    
+    setDeletingId(userId);
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('admin_purge_user_data', { target: userId });
+      if (error) {
+        console.error('Purge failed:', error);
+        toast.error(`Purge failed: ${error.message}`);
+        return { success: false, error };
+      }
+      
+      toast.success('User data purged');
+      await fetchUsers(); // refresh the users list
+      return { success: true };
+    } catch (err) {
+      console.error('Error in purge:', err);
+      toast.error(`Purge failed: ${err.message}`);
+      return { success: false, error: err };
+    } finally {
+      setDeletingId(null);
+      setLoading(false);
+    }
+  };
+  
+  // Legacy function - keep for compatibility but convert to soft delete
+  const callAdminDeleteUser = async (userId) => {
+    console.log(`Converting deletion to soft delete for user ${userId}`);
+    return softDeleteUser(userId);
+  };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
@@ -83,6 +180,8 @@ const UserManagement = () => {
         tabMatch = user.is_mentor;
       } else if (selectedTab === 'employers') {
         tabMatch = user.is_employer;
+      } else if (selectedTab === 'deleted') {
+        tabMatch = user.is_deleted === true;
       }
 
       return searchMatch && roleMatch && statusMatch && tabMatch;
@@ -97,6 +196,8 @@ const UserManagement = () => {
         return 'bg-yellow-100 text-yellow-800';
       case 'rejected':
         return 'bg-red-100 text-red-800';
+      case 'deleted':
+        return 'bg-gray-100 text-gray-600';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -139,6 +240,7 @@ const UserManagement = () => {
     { name: 'Pending Approval', id: 'pending' },
     { name: 'Mentors', id: 'mentors' },
     { name: 'Employers', id: 'employers' },
+    { name: 'Deleted Users', id: 'deleted' },
   ];
 
   const handleUserAction = async (action, userId) => {
@@ -181,19 +283,52 @@ const UserManagement = () => {
         }
         break;
       case 'delete':
-        if (window.confirm(`Are you sure you want to permanently delete user ${user.email || user.id}?`)) {
+        // Prevent self-delete
+        if (userId === currentUser?.id) {
+          toast.error('You cannot delete your own account.');
+          return;
+        }
+        
+        if (window.confirm(`Are you sure you want to soft delete user ${user.email || user.id}? They can be restored later.`)) {
           try {
-            const { error } = await supabase
-              .from('profiles')
-              .delete()
-              .eq('id', userId);
-            if (error) throw error;
-            toast.success(`User has been permanently deleted`);
-            fetchUsers(); // Refresh the list
+            await softDeleteUser(userId);
+            // Don't filter out the user - instead update the UI to show deleted status
+            setUsers(prev => prev.map(u => u.id === userId ? {...u, is_deleted: true} : u));
           } catch (err) {
-            console.error('Error deleting user:', err);
+            console.error('Error soft-deleting user:', err);
             toast.error(`Failed to delete user: ${err.message}`);
           }
+        }
+        break;
+      case 'purge':
+        // Prevent self-purge
+        if (userId === currentUser?.id) {
+          toast.error('You cannot purge your own account data.');
+          return;
+        }
+        
+        if (window.confirm(`Are you sure you want to PERMANENTLY PURGE all data for user ${user.email || user.id}? This cannot be undone!`)) {
+          try {
+            await purgeUserData(userId);
+            // After purging, keep the user in the list but mark data as purged
+            setUsers(prev => prev.map(u => u.id === userId ? {...u, is_data_purged: true} : u));
+          } catch (err) {
+            console.error('Error purging user data:', err);
+            toast.error(`Failed to purge user data: ${err.message}`);
+          }
+        }
+        break;
+      case 'delete-auth':
+        // Prevent self-delete
+        if (userId === currentUser?.id) {
+          toast.error('You cannot delete your own account.');
+          return;
+        }
+        try {
+          await deleteAuthUser(userId);
+        } catch (err) {
+          console.error('Error deleting auth user:', err);
+          toast.error(`Failed to delete auth user: ${err.message}`);
         }
         break;
       default: {
@@ -224,9 +359,38 @@ const UserManagement = () => {
     }
   };
 
-  const handleBulkAction = (action) => {
-    console.log(`Bulk Action: ${action}, Selected Users:`, selectedUsers);
-    toast.success(`Bulk action ${action} will be implemented soon!`);
+  const handleBulkAction = async (action) => {
+    if (action !== 'delete') {
+      console.log(`Bulk Action: ${action}, Selected Users:`, selectedUsers);
+      return toast.success(`Bulk action ${action} will be implemented soon!`);
+    }
+    
+    if (!selectedUsers.length) return;
+    
+    if (!window.confirm(`Soft delete ${selectedUsers.length} user(s)? They can be restored later.`)) return;
+    
+    // Check if trying to delete self
+    if (selectedUsers.includes(currentUser?.id)) {
+      toast.error('You cannot delete your own account.');
+      return;
+    }
+    
+    setLoading(true);
+    // Use our enhanced softDeleteUser function for each deletion
+    const results = await Promise.allSettled(
+      selectedUsers.map(id => softDeleteUser(id))
+    );
+
+    const ok = results.filter(r => r.status === 'fulfilled' && r.value?.success).length;
+    const failed = results.length - ok;
+    
+    // Update users to show deleted status instead of removing them
+    setUsers(prev => prev.map(u => selectedUsers.includes(u.id) ? {...u, is_deleted: true} : u));
+    setSelectedUsers([]);
+    setLoading(false);
+    
+    if (ok) toast.success(`Soft-deleted ${ok} user(s).`);
+    if (failed) toast.error(`Failed to delete ${failed} user(s).`);
   };
 
   const handleSelectUser = (userId) => {
@@ -362,6 +526,7 @@ const UserManagement = () => {
                 <option value="approved">Approved</option>
                 <option value="pending">Pending</option>
                 <option value="rejected">Rejected</option>
+                <option value="deleted">Deleted</option>
               </select>
             </div>
           </div>
@@ -464,9 +629,15 @@ const UserManagement = () => {
                       </span>
                     </td>
                     <td className="py-4 px-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(user.alumni_verification_status)}`}>
-                        {user.alumni_verification_status || 'N/A'}
-                      </span>
+                      {user.is_deleted ? (
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge('deleted')}`}>
+                          Deleted
+                        </span>
+                      ) : (
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(user.alumni_verification_status)}`}>
+                          {user.alumni_verification_status || 'N/A'}
+                        </span>
+                      )}
                     </td>
                     <td className="py-4 px-4">
                       <div className="flex items-center text-sm text-gray-600">
@@ -515,14 +686,53 @@ const UserManagement = () => {
                             </button>
                           </>
                         )}
-                        {hasPermission('delete:users') && (
-                          <button 
-                            title="Delete User"
-                            onClick={() => handleUserAction('delete', user.id)}
-                            className="p-1 text-gray-400 hover:text-red-600"
-                          >
-                            <TrashIcon className="w-4 h-4" />
-                          </button>
+                        {hasPermission('delete:users') && user.id !== currentUser?.id && (
+                          <>
+                            {user.is_deleted ? (
+                              <button 
+                                title="Purge User Data"
+                                onClick={() => handleUserAction('purge', user.id)}
+                                disabled={deletingId === user.id}
+                                className={`p-1 ${deletingId === user.id ? 'opacity-50 cursor-not-allowed' : 'text-gray-400 hover:text-red-800'}`}
+                                aria-label="Purge user data permanently"
+                              >
+                                {deletingId === user.id ? (
+                                  <div className="w-4 h-4 border-t-2 border-b-2 border-gray-500 rounded-full animate-spin"></div>
+                                ) : (
+                                  <DocumentArrowDownIcon className="w-4 h-4" />
+                                )}
+                              </button>
+                              ) : null}
+                              {user.is_deleted ? (
+                              <button 
+                                title="Delete Auth User"
+                                onClick={() => handleUserAction('delete-auth', user.id)}
+                                disabled={deletingId === user.id}
+                                className={`p-1 ${deletingId === user.id ? 'opacity-50 cursor-not-allowed' : 'text-gray-400 hover:text-red-900'}`}
+                                aria-label="Delete user from Supabase Auth"
+                              >
+                                {deletingId === user.id ? (
+                                  <div className="w-4 h-4 border-t-2 border-b-2 border-gray-500 rounded-full animate-spin"></div>
+                                ) : (
+                                  <DocumentArrowUpIcon className="w-4 h-4" />
+                                )}
+                              </button>
+                            ) : (
+                              <button 
+                                title="Soft Delete User"
+                                onClick={() => handleUserAction('delete', user.id)}
+                                disabled={deletingId === user.id}
+                                className={`p-1 ${deletingId === user.id ? 'opacity-50 cursor-not-allowed' : 'text-gray-400 hover:text-red-600'}`}
+                                aria-label="Soft delete user"
+                              >
+                                {deletingId === user.id ? (
+                                  <div className="w-4 h-4 border-t-2 border-b-2 border-gray-500 rounded-full animate-spin"></div>
+                                ) : (
+                                  <TrashIcon className="w-4 h-4" />
+                                )}
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>

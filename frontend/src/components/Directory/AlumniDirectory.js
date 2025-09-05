@@ -12,20 +12,20 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import AlumniCard from './AlumniCard';
 import AlumniListItem from './AlumniListItem';
+import { mapProfileToCard } from '../../utils/mapProfileToCard.ts';
 
-// Column names mapped to user-friendly labels
-const FILTER_CONFIG = {
-  batch: { label: 'Graduation Year', type: 'number', placeholder: 'e.g., 2015' },
-  degree_program: { label: 'Degree', type: 'text', placeholder: 'e.g., Marine Engineering' },
-  company_name: { label: 'Company', type: 'text', placeholder: 'e.g., Maersk' },
-  city: { label: 'Location', type: 'text', placeholder: 'e.g., Singapore' },
-  current_job_title: { label: 'Job Title', type: 'text', placeholder: 'e.g., Chief Engineer' },
-  is_mentor: { label: 'Is a Mentor', type: 'boolean' },
-  is_employer: { label: 'Is an Employer', type: 'boolean' },
-};
+// Static filter configuration based on the new v_profiles_directory_card view
+const FILTERABLE_COLUMNS = [
+  { name: 'graduation_year', label: 'Graduation Year', type: 'number', placeholder: 'e.g., 2015' },
+  { name: 'degree_department', label: 'Degree/Dept', type: 'text', placeholder: 'e.g., Marine Engineering' },
+  { name: 'current_company', label: 'Company', type: 'text', placeholder: 'e.g., Maersk' },
+  { name: 'location_label', label: 'Location', type: 'text', placeholder: 'e.g., Singapore' },
+  { name: 'current_title', label: 'Job Title', type: 'text', placeholder: 'e.g., Chief Engineer' },
+  // is_mentor is handled separately via approvedMentorIds
+];
 
 const AlumniDirectory = () => {
-  const { isAuthenticated, profile } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [viewMode, setViewMode] = useState('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [alumni, setAlumni] = useState([]);
@@ -36,42 +36,13 @@ const AlumniDirectory = () => {
   const [totalAlumni, setTotalAlumni] = useState(0);
   const [filters, setFilters] = useState({});
   const [showFilters, setShowFilters] = useState(false);
-  const [sortBy, setSortBy] = useState('first_name,asc');
+  const [sortBy, setSortBy] = useState('full_name,asc');
   const [approvedMentorIds, setApprovedMentorIds] = useState(new Set());
-  const [filterableColumns, setFilterableColumns] = useState([]);
-  // Use this to force refresh when needed
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  // Track if initial data has been loaded
-  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
-
-  // Watch for profile changes that might affect directory data
-  useEffect(() => {
-    if (profile) {
-      // If profile changed, trigger a refresh of alumni data
-      setRefreshTrigger(prev => prev + 1);
-    }
-  }, [profile]);
 
   useEffect(() => {
-    const fetchInitialData = async () => {
-      if (initialDataLoaded) return;
+    const fetchMentorIds = async () => {
       try {
-        const { data: columns, error: schemaError } = await supabase.rpc('get_view_columns', {
-          view_name: 'public_profiles_view'
-        });
-
-        if (schemaError) {
-          console.error('Error fetching view schema:', schemaError);
-          throw new Error('Could not load filter configuration.');
-        }
-
-        const availableColumns = columns.map(c => c.column_name);
-        const dynamicFilters = Object.entries(FILTER_CONFIG)
-          .filter(([key]) => availableColumns.includes(key))
-          .map(([key, config]) => ({ ...config, name: key }));
-
-        setFilterableColumns(dynamicFilters);
-
         const { data: mentorData, error: mentorError } = await supabase
           .from('mentors')
           .select('user_id')
@@ -79,50 +50,36 @@ const AlumniDirectory = () => {
         
         if (mentorError) throw mentorError;
         setApprovedMentorIds(new Set(mentorData.map(m => m.user_id)));
-        setInitialDataLoaded(true);
-
       } catch (err) {
-        console.error('Error initializing directory:', err);
-        setError(err.message || 'An error occurred during setup.');
+        console.error('Error fetching mentor IDs:', err);
+        setError('Could not load mentor information.');
       }
     };
 
-    fetchInitialData();
-  }, [initialDataLoaded]);
+    fetchMentorIds();
+  }, []);
 
   const fetchAlumniData = useCallback(async () => {
-    // Only set loading if we're not already loading
-    if (!loading) {
-      setLoading(true);
-    }
+    setLoading(true);
     setError(null);
+
     try {
+      // First, fetch profiles data
       let query = supabase
-        .from('public_profiles_view')
+        .from('v_profiles_directory_card')
         .select('*', { count: 'exact' });
 
       if (searchTerm) {
-        query = query.or(`full_name.ilike.%${searchTerm}%,degree_program.ilike.%${searchTerm}%,company_name.ilike.%${searchTerm}%,current_job_title.ilike.%${searchTerm}%`);
+        query = query.or(`full_name.ilike.%${searchTerm}%,degree_department.ilike.%${searchTerm}%,current_company.ilike.%${searchTerm}%,current_title.ilike.%${searchTerm}%`);
       }
 
-      for (const { name, type } of filterableColumns) {
+      for (const { name, type } of FILTERABLE_COLUMNS) {
         const value = filters[name];
-
         if (value !== undefined && value !== '' && value !== null) {
-          // Special case for is_mentor: filter using the approvedMentorIds
-          if (name === 'is_mentor' && value === true) {
-            // Only apply if there are approved mentor IDs
-            if (approvedMentorIds.size > 0) {
-              // Convert Set to Array for the 'in' query
-              const mentorIdsArray = Array.from(approvedMentorIds);
-              query = query.in('id', mentorIdsArray);
-            }
-          } else if (type === 'text') {
+          if (type === 'text') {
             query = query.ilike(name, `%${value}%`);
           } else if (type === 'number') {
-            query = query.eq(name, value);
-          } else if (type === 'boolean') {
-            query = query.eq(name, value);
+            query = query.eq(name, Number(value));
           }
         }
       }
@@ -137,8 +94,64 @@ const AlumniDirectory = () => {
       const { data, error: fetchError, count } = await query;
 
       if (fetchError) throw fetchError;
-
-      setAlumni(data || []);
+      
+      // For each profile, fetch the most recent education history
+      const profileIds = (data || []).map(profile => profile.id);
+      
+      // Only fetch education history if we have profiles
+      let educationData = [];
+      if (profileIds.length > 0) {
+        const { data: educationResults, error: educationError } = await supabase
+          .from('education_history')
+          .select('profile_id, degree, major, specialization, graduation_year')
+          .in('profile_id', profileIds)
+          .order('graduation_year', { ascending: false });
+        
+        if (educationError) {
+          console.error('Error fetching education history:', educationError);
+        } else {
+          educationData = educationResults || [];
+        }
+      }
+      
+      // Group education data by profile_id, keeping only the most recent for each profile
+      const latestEducationByProfile = {};
+      educationData.forEach(edu => {
+        if (!latestEducationByProfile[edu.profile_id] || 
+            edu.graduation_year > latestEducationByProfile[edu.profile_id].graduation_year) {
+          latestEducationByProfile[edu.profile_id] = edu;
+        }
+      });
+      
+      // Map data using the utility function and merge with education data
+      const mappedAlumni = (data || []).map(profile => {
+        const latestEducation = latestEducationByProfile[profile.id];
+        
+        // Format degree and department/major from education history
+        let degreeDepartment;
+        if (latestEducation) {
+          const degree = latestEducation.degree || '';
+          const major = latestEducation.major || latestEducation.specialization || '';
+          
+          if (degree && major) {
+            degreeDepartment = `${degree}, ${major}`;
+          } else if (degree) {
+            degreeDepartment = degree;
+          } else if (major) {
+            degreeDepartment = major;
+          }
+        }
+        
+        // Use the mapProfileToCard function and override degreeDepartment if we have education data
+        const mappedProfile = mapProfileToCard(profile);
+        if (degreeDepartment) {
+          mappedProfile.degreeDepartment = degreeDepartment;
+        }
+        
+        return mappedProfile;
+      });
+      
+      setAlumni(mappedAlumni);
       setTotalAlumni(count || 0);
     } catch (err) {
       console.error('Error fetching alumni data:', err);
@@ -146,13 +159,11 @@ const AlumniDirectory = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, itemsPerPage, filters, sortBy, searchTerm, filterableColumns, refreshTrigger]);
+  }, [currentPage, itemsPerPage, filters, sortBy, searchTerm, refreshTrigger]);
 
   useEffect(() => {
-    if (filterableColumns.length > 0) { 
-        fetchAlumniData();
-    }
-  }, [fetchAlumniData, filterableColumns]);
+    fetchAlumniData();
+  }, [fetchAlumniData]);
   
   // Separate useEffect for visibility change to avoid unnecessary data fetching
   useEffect(() => {
@@ -185,18 +196,21 @@ const AlumniDirectory = () => {
 
   const handleApplyFilters = () => {
     setCurrentPage(1);
-    fetchAlumniData(); 
+    setRefreshTrigger(prev => prev + 1); // Trigger a fetch with new filters
+    setShowFilters(false);
   };
 
   const handleClearSingleFilter = (filterName) => {
     const { [filterName]: cleared, ...rest } = filters;
     setFilters(rest);
     setCurrentPage(1);
+    setRefreshTrigger(prev => prev + 1);
   };
 
   const handleClearAllFilters = () => {
     setFilters({});
     setCurrentPage(1);
+    setRefreshTrigger(prev => prev + 1);
   };
 
   const renderFilterInput = (filter) => {
@@ -264,8 +278,8 @@ const AlumniDirectory = () => {
               <span>Filters</span>
             </button>
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50">
-              <option value="first_name,asc">Name (A-Z)</option>
-              <option value="first_name,desc">Name (Z-A)</option>
+              <option value="full_name,asc">Name (A-Z)</option>
+              <option value="full_name,desc">Name (Z-A)</option>
               <option value="graduation_year,desc">Graduation (Newest)</option>
               <option value="graduation_year,asc">Graduation (Oldest)</option>
             </select>
@@ -283,10 +297,10 @@ const AlumniDirectory = () => {
         <div className="mb-6 flex flex-wrap items-center gap-2">
           {Object.entries(filters).map(([key, value]) => {
             if (!value) return null;
-            const filterConfig = filterableColumns.find(f => f.name === key);
+            const filterConfig = FILTERABLE_COLUMNS.find(f => f.name === key);
             return (
               <span key={key} className="flex items-center gap-1.5 pl-2.5 pr-1 py-1 bg-indigo-100 text-indigo-800 rounded-full text-sm font-medium">
-                {filterConfig?.label || key}: <span className="font-semibold">{typeof value === 'boolean' ? 'Yes' : value}</span>
+                {filterConfig?.label || key}: <span className="font-semibold">{String(value)}</span>
                 <button onClick={() => handleClearSingleFilter(key)} className="p-0.5 bg-indigo-200 rounded-full hover:bg-indigo-300">
                   <XMarkIcon className="h-3 w-3" />
                 </button>
@@ -324,49 +338,16 @@ const AlumniDirectory = () => {
                 : 'space-y-4'
               }>
                 {alumni.map(user => {
-                  // Transform fields to match component expectations
-                  const transformedUser = {
-                    ...user,
-                    // Basic info
-                    name: user.full_name || user.name || 'Unknown',
-                    avatar: user.avatar_url || null,
-                    email: user.email || null,
-                    phone: user.phone || null,
-                    // Set graduation year from batch field
-                    graduationYear: user.graduation_year || 'Unknown',
-                    // Work info
+                  // The user object is now pre-mapped by mapProfileToCard
+                  const finalUser = {
+                    ...user, // Contains all fields from CardProfile type
                     isMentor: approvedMentorIds.has(user.id),
-                    isEmployer: user.is_employer || false,
-                    company: user.company_name || 'Unknown',
-                    currentPosition: user.current_job_title || 'Unknown',
-                    headline: user.headline || null,
-                    bio: user.about || null,
-                    experience: user.experience || null,
-                    // Location
-                    location: user.city || 'Unknown',
-                    country: user.country || null,
-                    // Education
-                    degree: user.degree_program || 'Unknown',
-                    department: user.department || null,
-                    student_id: user.student_id || null,
-                    // Skills & achievements
-                    skills: user.skills || [],
-                    achievements: user.achievements || [],
-                    interests: user.interests || [],
-                    languages: user.languages || [],
-                    // Social links
-                    socialLinks: user.social_links || {
-                      linkedin: user.linkedin_url || null,
-                      github: user.github_url || null,
-                      twitter: user.twitter_url || null,
-                      website: user.website_url || null
-                    }
                   };
-                  
+
                   return viewMode === 'grid' ? (
-                    <AlumniCard key={user.id} alumnus={transformedUser} />
+                    <AlumniCard key={user.id} alumnus={finalUser} />
                   ) : (
-                    <AlumniListItem key={user.id} alumnus={transformedUser} />
+                    <AlumniListItem key={user.id} alumnus={finalUser} />
                   );
                 })}
               </div>
@@ -405,7 +386,7 @@ const AlumniDirectory = () => {
                   </button>
               </div>
               <div className="flex-grow overflow-y-auto pr-2 space-y-6">
-                  {filterableColumns.map(filter => (
+                  {FILTERABLE_COLUMNS.map(filter => (
                       <div key={filter.name}>
                           <label className="block text-sm font-medium text-gray-700 mb-1">{filter.label}</label>
                           {renderFilterInput(filter)}

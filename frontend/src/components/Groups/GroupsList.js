@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchGroups, joinGroup, leaveGroup } from '../../utils/supabase';
+import { supabase, fetchGroups, joinGroup, leaveGroup } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Users, Search, Tag, Calendar, Filter } from 'lucide-react';
 
@@ -84,7 +84,7 @@ const GroupCard = ({ group, isMember, onJoinLeave, currentUserId }) => {
           
           {!group.is_private || isCreator ? (
             <button
-              onClick={() => onJoinLeave(group.id, isMember)}
+              onClick={() => onJoinLeave(group.id, isMember, group.is_private)}
               className={`text-xs px-3 py-1.5 rounded-md ${isMember 
                 ? 'bg-red-50 text-red-600 hover:bg-red-100' 
                 : 'bg-blue-600 text-white hover:bg-blue-700'}`}
@@ -117,13 +117,17 @@ const GroupCard = ({ group, isMember, onJoinLeave, currentUserId }) => {
 };
 
 const GroupsList = () => {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, hasPermission } = useAuth();
   const [groups, setGroups] = useState([]);
   const [userMemberships, setUserMemberships] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState([]);
+  const [filter, setFilter] = useState('all'); // 'all', 'joined', 'created'
+  
+  // Check if user can manage all groups (admin privilege)
+  const canManageAllGroups = isAdmin || hasPermission('manage:all_groups');
   
   // Get all unique tags from groups
   const allTags = [...new Set(groups.flatMap(group => group.tags || []))];
@@ -133,27 +137,49 @@ const GroupsList = () => {
       setLoading(true);
       setError(null);
       try {
+        // Fetch groups with proper filters based on role and permissions
         const { data, error } = await fetchGroups({
           searchQuery: searchQuery,
           tags: selectedTags.length > 0 ? selectedTags : undefined,
-          isAdmin // Pass the admin status to control visibility
+          isAdmin: canManageAllGroups // Pass the admin status to control visibility
         });
         
         if (error) throw error;
-        setGroups(data || []);
         
-        // If user is logged in, get their group memberships
+        let filteredData = data || [];
+        
+        // Apply client-side filtering based on the selected filter
+        if (user && filter !== 'all' && filteredData.length > 0) {
+          if (filter === 'joined') {
+            // Show only groups the user is a member of
+            filteredData = filteredData.filter(group => {
+              return group.group_members && 
+                     group.group_members.some(member => 
+                       member && member.user_id === user.id
+                     );
+            });
+          } else if (filter === 'created') {
+            // Show only groups created by the user
+            filteredData = filteredData.filter(group => group.created_by === user.id);
+          }
+        }
+        
+        setGroups(filteredData);
+        
+        // If user is logged in, identify their group memberships
         if (user) {
+          // Extract membership IDs from the full dataset (not filtered)
           const memberships = data
             .filter(group => {
               return group.group_members && 
                      group.group_members.some(member => 
-                       member.user_id === user.id
+                       member && member.user_id === user.id
                      );
             })
             .map(group => group.id);
           
           setUserMemberships(memberships);
+          console.log(`User is a member of ${memberships.length} groups:`, memberships);
         }
       } catch (err) {
         setError(err.message);
@@ -164,26 +190,53 @@ const GroupsList = () => {
     };
 
     getGroups();
-  }, [user, searchQuery, selectedTags]);
+  }, [user, searchQuery, selectedTags, filter, canManageAllGroups]);
 
-  const handleJoinLeave = async (groupId, isMember) => {
+  const handleJoinLeave = async (groupId, isMember, isPrivate) => {
     if (!user) {
       // Redirect to login if not authenticated
       window.location.href = '/login?redirect=/groups';
       return;
     }
     
+    // Block joining private groups unless user is admin
+    if (!isMember && isPrivate && !canManageAllGroups) {
+      setError("This is a private group. You need an invitation to join.");
+      setTimeout(() => setError(null), 3000); // Clear error after 3 seconds
+      return;
+    }
+    
     try {
       if (isMember) {
-        await leaveGroup(groupId, user.id);
+        // Leave group - need to pass both groupId and userId
+        const { error } = await leaveGroup(groupId, user.id);
+        if (error) throw error;
+        
         setUserMemberships(prev => prev.filter(id => id !== groupId));
+        console.log(`User left group ${groupId}`);
       } else {
-        await joinGroup(groupId);
+        // Join group - supabase backend will handle current user assignment
+        const { error } = await joinGroup(groupId);
+        
+        // Handle potential errors
+        if (error) {
+          if (error.code === "23505") { // Duplicate membership
+            setError("You're already a member of this group.");
+          } else if (error.code === "42501") { // Permission denied
+            setError("You don't have permission to join this group.");
+          } else {
+            setError(error.message);
+          }
+          return;
+        }
+        
         setUserMemberships(prev => [...prev, groupId]);
+        console.log(`User joined group ${groupId}`);
       }
     } catch (err) {
       console.error("Error joining/leaving group:", err);
-      // Show error notification
+      setError("An error occurred while trying to join/leave the group.");
+      setTimeout(() => setError(null), 3000);
     }
   };
 
@@ -227,7 +280,23 @@ const GroupsList = () => {
             </div>
           </div>
           
-
+          {/* Filter dropdown for logged in users */}
+          {user && (
+            <div className="flex-shrink-0">
+              <div className="relative">
+                <select
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  className="pl-8 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
+                >
+                  <option value="all">All Groups</option>
+                  <option value="joined">My Groups</option>
+                  <option value="created">Created By Me</option>
+                </select>
+                <Filter className="absolute left-2 top-2.5 text-gray-400 w-4 h-4" />
+              </div>
+            </div>
+          )}
         </div>
         
         {/* Tags filter */}

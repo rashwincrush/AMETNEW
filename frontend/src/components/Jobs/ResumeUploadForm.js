@@ -107,27 +107,64 @@ const ResumeUploadForm = () => {
   const uploadFile = async (file, bucket) => {
     if (!file) return null;
     
-    const fileExt = file.name.split('.').pop();
-    const filePath = `${user.id}/${Math.random().toString(36).substring(2)}.${fileExt}`;
-    
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .upload(filePath, file, {
-        upsert: true,
-        cacheControl: '3600'
-      });
+    try {
+      // Validate file size and type
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error(`File size exceeds 5MB limit`);
+      }
       
-    if (error) {
-      console.error(`Error uploading ${bucket} file:`, error);
+      const validExtensions = ['pdf', 'doc', 'docx'];
+      const fileExt = file.name.split('.').pop().toLowerCase();
+      
+      if (!validExtensions.includes(fileExt)) {
+        throw new Error(`Invalid file type. Please upload PDF or Word documents only.`);
+      }
+      
+      // Create a unique filename to prevent collisions
+      const timestamp = new Date().getTime();
+      const filePath = `${user.id}/${timestamp}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+      
+      // We don't need to check if bucket exists - we just try to upload
+      // If bucket doesn't exist, it will fail with appropriate error
+      console.log(`Attempting to upload to ${bucket} bucket...`);
+      
+      // Try to upload the file
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .upload(filePath, file, {
+          upsert: true,
+          cacheControl: '3600'
+        });
+        
+      if (error) {
+        console.error(`Error uploading ${bucket} file:`, error);
+        
+        // Handle common storage errors
+        if (error.message.includes('JWT')) {
+          throw new Error('Authentication error. Please try logging out and back in.');
+        } else if (error.message.includes('permission')) {
+          throw new Error('You do not have permission to upload files.');
+        } else if (error.message.includes('bucket')) {
+          throw new Error(`Storage location '${bucket}' is unavailable. Please contact support.`);
+        }
+        
+        throw error;
+      }
+      
+      // Get public URL for the file
+      const { data: urlData } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(filePath);
+      
+      if (!urlData || !urlData.publicUrl) {
+        throw new Error('Failed to get file URL after upload.');
+      }
+        
+      return urlData.publicUrl;
+    } catch (error) {
+      console.error(`Error in uploadFile:`, error);
       throw error;
     }
-    
-    // Get public URL for the file
-    const { data: { publicUrl } } = supabase.storage
-      .from(bucket)
-      .getPublicUrl(filePath);
-      
-    return publicUrl;
   };
   
   const handleSubmit = async (e) => {
@@ -138,46 +175,88 @@ const ResumeUploadForm = () => {
       return;
     }
     
+    // Simple URL validation for external links
+    const validateURL = (url) => {
+      if (!url || url.trim() === '') return true; // Empty URLs are valid (optional fields)
+      try {
+        new URL(url);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    };
+    
+    // Validate URLs before proceeding
+    if (!validateURL(formData.portfolioLink)) {
+      toast.error('Please enter a valid portfolio URL or leave it empty');
+      return;
+    }
+    
+    if (!validateURL(formData.linkedinProfile)) {
+      toast.error('Please enter a valid LinkedIn profile URL or leave it empty');
+      return;
+    }
+    
+    // Show uploading state
     setIsSubmitting(true);
+    toast.loading('Uploading your profile...', { id: 'profile-upload' });
     
     try {
       console.log('Starting resume profile submission...');
       
-      // Upload resume if provided
+      // Upload resume if provided (wrapped in try/catch for better error handling)
       let resumeUrl = existingProfile?.resume_url || null;
       if (resumeFile) {
-        resumeUrl = await uploadFile(resumeFile, 'resumes');
+        try {
+          resumeUrl = await uploadFile(resumeFile, 'resumes');
+          console.log('Resume uploaded successfully');
+        } catch (uploadError) {
+          console.error('Resume upload failed:', uploadError);
+          toast.error(`Resume upload failed: ${uploadError.message}`);
+          setIsSubmitting(false);
+          toast.dismiss('profile-upload');
+          return;
+        }
       }
       
-      // Upload cover letter if provided
+      // Upload cover letter if provided (wrapped in try/catch)
       let coverLetterUrl = existingProfile?.cover_letter_url || null;
       if (coverLetterFile) {
-        coverLetterUrl = await uploadFile(coverLetterFile, 'cover-letters');
+        try {
+          coverLetterUrl = await uploadFile(coverLetterFile, 'cover-letters');
+          console.log('Cover letter uploaded successfully');
+        } catch (uploadError) {
+          console.error('Cover letter upload failed:', uploadError);
+          toast.error(`Cover letter upload failed: ${uploadError.message}`);
+          setIsSubmitting(false);
+          toast.dismiss('profile-upload');
+          return;
+        }
       }
       
-      // Convert comma-separated strings to arrays
-      const desiredJobTitles = formData.desiredJobTitles.split(',')
-        .map(item => item.trim())
-        .filter(Boolean);
-        
-      const desiredIndustries = formData.desiredIndustries.split(',')
-        .map(item => item.trim())
-        .filter(Boolean);
-        
-      const preferredLocations = formData.preferredLocations.split(',')
-        .map(item => item.trim())
-        .filter(Boolean);
-        
-      const jobAlertKeywords = formData.jobAlertKeywords.split(',')
-        .map(item => item.trim())
-        .filter(Boolean);
-        
+      // Convert comma-separated strings to arrays and clean the data
+      const splitAndClean = (str) => {
+        return str ? str.split(',').map(item => item.trim()).filter(Boolean) : [];
+      };
+      
+      const desiredJobTitles = splitAndClean(formData.desiredJobTitles);
+      const desiredIndustries = splitAndClean(formData.desiredIndustries);
+      const preferredLocations = splitAndClean(formData.preferredLocations);
+      const jobAlertKeywords = splitAndClean(formData.jobAlertKeywords);
+      
+      // Clean URLs by ensuring they have proper http/https prefix
+      const cleanUrl = (url) => {
+        if (!url || url.trim() === '') return '';
+        let trimmedUrl = url.trim();
+        return trimmedUrl.startsWith('http') ? trimmedUrl : `https://${trimmedUrl}`;
+      };
+      
       const profileData = {
         user_id: user.id,
         resume_url: resumeUrl,
         cover_letter_url: coverLetterUrl,
-        portfolio_link: formData.portfolioLink,
-        linkedin_profile: formData.linkedinProfile,
+        portfolio_link: cleanUrl(formData.portfolioLink),
+        linkedin_profile: cleanUrl(formData.linkedinProfile),
         desired_job_titles: desiredJobTitles,
         desired_industries: desiredIndustries,
         preferred_locations: preferredLocations,
@@ -188,6 +267,7 @@ const ResumeUploadForm = () => {
         updated_at: new Date().toISOString()
       };
       
+      // Save profile data to database
       let result;
       
       if (existingProfile) {
@@ -209,14 +289,18 @@ const ResumeUploadForm = () => {
       
       if (error) {
         console.error('Error saving resume profile:', error);
-        throw error;
+        throw new Error(`Database error: ${error.message}`);
       }
       
       console.log('Resume profile saved successfully:', data);
+      toast.dismiss('profile-upload');
       toast.success(`Resume profile ${existingProfile ? 'updated' : 'created'} successfully!`);
-      navigate('/jobs');
+      
+      // Short delay before navigation to ensure toast is seen
+      setTimeout(() => navigate('/jobs'), 1000);
     } catch (error) {
       console.error('Error saving resume profile:', error);
+      toast.dismiss('profile-upload');
       toast.error(`Error saving profile: ${error.message}`);
     } finally {
       setIsSubmitting(false);

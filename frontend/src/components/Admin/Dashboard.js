@@ -30,29 +30,41 @@ const Dashboard = () => {
   }, []);
 
   const fetchAllDashboardData = async () => {
-    try {
-      setLoading(true);
-      
-      const { data: statsData, error: statsError } = await supabase.rpc('get_dashboard_stats');
-      if (statsError) throw statsError;
-      
-      const { data: analyticsData, error: analyticsError } = await supabase.rpc('get_user_analytics');
-      if (analyticsError) throw analyticsError;
-      
-      const { data: pendingData, error: pendingError } = await supabase.rpc('get_pending_content');
-      if (pendingError) throw pendingError;
+    setLoading(true);
 
-      setStats(statsData);
-      setAnalytics(analyticsData);
-      setPendingContent(pendingData || []);
-      setRecentActivity(statsData.recentActivity || []);
-      
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-      toast.error('Failed to load dashboard data');
-    } finally {
-      setLoading(false);
+    const [statsResult, analyticsResult, pendingResult] = await Promise.allSettled([
+      supabase.rpc('get_dashboard_stats'),
+      supabase.rpc('get_user_analytics'),
+      supabase.rpc('get_pending_content'),
+    ]);
+
+    if (statsResult.status === 'fulfilled' && !statsResult.value.error) {
+      setStats(statsResult.value.data);
+      setRecentActivity(statsResult.value.data?.recentActivity || []);
+    } else {
+      console.error('Error fetching dashboard stats:', statsResult.value?.error || statsResult.reason);
+      toast.error('Failed to load dashboard stats.');
+      setStats(null); // Clear old data on failure
+      setRecentActivity([]);
     }
+
+    if (analyticsResult.status === 'fulfilled' && !analyticsResult.value.error) {
+      setAnalytics(analyticsResult.value.data);
+    } else {
+      console.error('Error fetching user analytics:', analyticsResult.value?.error || analyticsResult.reason);
+      toast.error('Failed to load user analytics.');
+      setAnalytics(null);
+    }
+
+    if (pendingResult.status === 'fulfilled' && !pendingResult.value.error) {
+      setPendingContent(pendingResult.value.data || []);
+    } else {
+      console.error('Error fetching pending content:', pendingResult.value?.error || pendingResult.reason);
+      toast.error('Failed to load pending content.');
+      setPendingContent([]);
+    }
+
+    setLoading(false);
   };
 
   const handleModerateContent = async (contentId, contentType, action) => {

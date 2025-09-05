@@ -12,7 +12,7 @@ BEGIN
     SELECT COUNT(*)
     INTO count
     FROM public.notifications
-    WHERE profile_id = uid
+    WHERE recipient_id = uid
     AND is_read = false;
     
     RETURN count;

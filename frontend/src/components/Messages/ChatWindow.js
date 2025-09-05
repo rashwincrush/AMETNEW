@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../../utils/supabase';
+import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { 
   PaperAirplaneIcon, 
   PaperClipIcon, 
@@ -29,223 +29,93 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // Fetch messages when conversation id changes
+  const handleNewMessage = React.useCallback((payload) => {
+    const newMsg = payload.new;
+    setMessages(prev => {
+      if (prev.some(msg => msg.id === newMsg.id)) {
+        return prev;
+      }
+      return [...prev, newMsg];
+    });
+
+    if (newMsg.sender_id !== currentUser?.id) {
+      setTimeout(() => {
+        supabase
+          .from('messages')
+          .update({ read_at: new Date().toISOString() })
+          .eq('id', newMsg.id)
+          .then(({ error }) => {
+            if (error) console.error('Error marking message as read:', error);
+          });
+      }, 300);
+    }
+  }, [currentUser?.id]);
+
   useEffect(() => {
     if (!conversationId || !currentUser) return;
-    
-    setMessages([]);
-    setLoading(true);
-    
-    const fetchMessagesAndParticipants = async () => {
+
+    const fetchAndSubscribe = async () => {
+      setLoading(true);
       try {
-        // First fetch the conversation to get participants
         const { data: conversation, error: convError } = await supabase
           .from('conversations')
-          .select(`
-            participant_1:profiles!conversations_participant_1_fkey(id, full_name, avatar_url, job_title, is_online),
-            participant_2:profiles!conversations_participant_2_fkey(id, full_name, avatar_url, job_title, is_online)
-          `)
+          .select('participant_1:profiles!conversations_participant_1_fkey(id, full_name, avatar_url, job_title, is_online), participant_2:profiles!conversations_participant_2_fkey(id, full_name, avatar_url, job_title, is_online)')
           .eq('id', conversationId)
           .single();
-          
-        if (convError) {
-          console.error('Error fetching conversation:', convError);
-          toast.error('Failed to load conversation details');
-          setLoading(false);
-          return;
-        }
-        
-        // Determine which participant is not the current user
-        const other = 
-          conversation.participant_1.id === currentUser.id 
-            ? conversation.participant_2 
-            : conversation.participant_1;
-            
+
+        if (convError) throw convError;
+
+        const other = conversation.participant_1.id === currentUser.id ? conversation.participant_2 : conversation.participant_1;
         setOtherParticipant(other);
-        
-        // Check if a connection exists with status = 'accepted'
-        const { data: connection, error: connectionError } = await supabase
+
+        const { data: connection } = await supabase
           .from('connections')
           .select('status')
           .or(`requester_id.eq.${currentUser.id},recipient_id.eq.${currentUser.id}`)
           .eq('recipient_id', other.id)
           .eq('status', 'accepted')
           .maybeSingle();
-        
-        if (connectionError) {
-          console.error('Error checking connection:', connectionError);
-        }
-        
-        // Update connection status
         setIsConnected(connection && connection.status === 'accepted');
-        
-        // Fetch messages
+
         const { data: messagesData, error: messagesError } = await supabase
           .from('messages')
           .select('*')
           .eq('conversation_id', conversationId)
           .order('created_at', { ascending: true });
-          
-        if (messagesError) {
-          console.error('Error fetching messages:', messagesError);
-          toast.error('Failed to load messages');
-          setLoading(false);
-          return;
-        }
-        
+
+        if (messagesError) throw messagesError;
         setMessages(messagesData || []);
-        
-        // Mark messages as read using our new function
-        try {
-          const { error: rpcError } = await supabase.rpc('mark_conversation_as_read', {
-            p_conversation_id: conversationId,
-            p_user_id: currentUser.id
-          });
-          
-          if (rpcError) {
-            throw rpcError;
-          }
-        } catch (markError) {
-          console.error('Error marking messages as read:', markError);
-          
-          // Fallback: Manually mark messages as read
-          const unreadMessages = messagesData.filter(
-            msg => msg.sender_id !== currentUser.id && msg.read_at === null
-          );
-          
-          console.log(`Manually marking ${unreadMessages.length} messages as read`);
-          
-          if (unreadMessages.length > 0) {
-            const now = new Date().toISOString();
-            await Promise.all(unreadMessages.map(msg => 
-              supabase
-                .from('messages')
-                .update({ read_at: now })
-                .eq('id', msg.id)
-            ));
-          }
-        }
+
+        await supabase.rpc('mark_conversation_as_read', { p_conversation_id: conversationId, p_user_id: currentUser.id });
+
       } catch (err) {
-        console.error('Error in message fetching process:', err);
-        toast.error('Failed to load conversation');
+        console.error('Error loading conversation:', err);
+        toast.error('Failed to load conversation.');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchMessagesAndParticipants();
-    
-    // Subscribe to new messages
-    let messagesChannel;
-    try {
-      messagesChannel = supabase.channel(`messages-${conversationId}`);
-      
-      // Listen for new messages in this conversation
-      messagesChannel.on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`
-        },
-        (payload) => handleNewMessage(payload)
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`Successfully subscribed to messages for conversation ${conversationId}`);
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error(`Error subscribing to messages for conversation ${conversationId}`);
-          // Set up a polling fallback if realtime fails
-          setupPollingFallback();
-        }
-      });
-    } catch (err) {
-      console.error('Error setting up realtime subscription:', err);
-      // Set up a polling fallback if realtime fails
-      setupPollingFallback();
-    }
-    
-    // Polling fallback for when WebSockets fail
-    let pollingInterval = null;
-    
-    const setupPollingFallback = () => {
-      // Poll every 5 seconds
-      pollingInterval = setInterval(async () => {
-        try {
-          // Fetch the latest messages
-          const { data, error } = await supabase
-            .from('messages')
-            .select('*')
-            .eq('conversation_id', conversationId)
-            .order('created_at', { ascending: true });
-            
-          if (error) throw error;
-          
-          // If there are new messages we don't have, update the state
-          if (data && data.length > messages.length) {
-            setMessages(data);
-          }
-        } catch (err) {
-          console.error('Error polling for messages:', err);
-        }
-      }, 5000);
-    };
-    
-    console.log(`Setting up subscription for conversation ${conversationId}`);
-      
-    return () => {
-      // Clean up realtime subscription
-      if (messagesChannel) {
-        supabase.removeChannel(messagesChannel);
-      }
-      
-      // Clean up polling interval
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-      }
-    };
-  }, [conversationId, currentUser]);
+    fetchAndSubscribe();
 
-  const handleNewMessage = (payload) => {
-    const newMsg = payload.new;
-    
-    // Only add the message if it's not already in the messages array
-    const messageExists = messages.some(msg => msg.id === newMsg.id);
-    if (!messageExists) {
-      setMessages(prev => [...prev, newMsg]);
-      
-      // If not sent by current user, mark as read
-      if (newMsg.sender_id !== currentUser?.id) {
-        // Add a small delay to ensure message is processed first
-        setTimeout(() => {
-          supabase
-            .from('messages')
-            .update({ read_at: new Date().toISOString() })
-            .eq('id', newMsg.id)
-            .then(({ error }) => {
-              if (error) {
-                console.error('Error marking message as read:', error);
-                
-                // If we hit an error with the direct update, try the RPC function as backup
-                supabase.rpc('mark_conversation_as_read', {
-                  p_conversation_id: conversationId,
-                  p_user_id: currentUser.id
-                }).then(({ error: rpcError }) => {
-                  if (rpcError) {
-                    console.error('RPC fallback also failed:', rpcError);
-                  }
-                });
-              }
-            });
-        }, 300);
-        // Note: Removed conflicting await statement from previous code
-      }
-    }
-    
-    // Scroll to the new message
-    scrollToBottom();
-  };
+    const channelName = `messages-conv-${conversationId}`;
+    onPostgresChangesOnce(
+      channelName,
+      'messages-insert-listener',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: `conversation_id=eq.${conversationId}`
+      },
+      handleNewMessage
+    );
+
+    return () => {
+      // Cleanup is handled by the utility, which will remove the listener
+      // when the component unmounts or dependencies change.
+    };
+  }, [conversationId, currentUser, handleNewMessage]);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();

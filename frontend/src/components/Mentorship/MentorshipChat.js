@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabase } from '../../utils/supabase';
+// Import new realtime utilities
+import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { Box, TextField, Button, Paper, Typography, CircularProgress, Avatar } from '@mui/material';
@@ -13,6 +14,8 @@ const MentorshipChat = () => {
   const [loading, setLoading] = useState(true);
   const [requestDetails, setRequestDetails] = useState(null);
   const messagesEndRef = useRef(null);
+  // Track component mount state
+  const isMountedRef = useRef(true);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -57,18 +60,35 @@ const MentorshipChat = () => {
     });
   }, [fetchRequestDetails, fetchMessages]);
 
-  useEffect(() => {
-    const subscription = supabase
-      .channel(`mentorship-chat-${requestId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mentorship_messages', filter: `request_id=eq.${requestId}` }, (payload) => {
-        setMessages((prevMessages) => [...prevMessages, payload.new]);
-      })
-      .subscribe();
+  // Handle new messages callback
+  const handleNewMessage = useCallback((payload) => {
+    if (!isMountedRef.current) return;
+    setMessages((prevMessages) => [...prevMessages, payload.new]);
+  }, []);
 
+  // Set up realtime subscription
+  useEffect(() => {
+    if (!requestId) return;
+
+    isMountedRef.current = true;
+
+    onPostgresChangesOnce(
+      `mentorship-chat-${requestId}`,
+      `mentorship-messages-listener-${requestId}`,
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'mentorship_messages',
+        filter: `request_id=eq.${requestId}`,
+      },
+      handleNewMessage
+    );
+
+    // Cleanup on unmount
     return () => {
-      supabase.removeChannel(subscription);
+      isMountedRef.current = false;
     };
-  }, [requestId]);
+  }, [requestId, handleNewMessage]);
 
   useEffect(() => {
     scrollToBottom();

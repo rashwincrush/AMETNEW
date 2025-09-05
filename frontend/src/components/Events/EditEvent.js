@@ -90,26 +90,10 @@ const EditEvent = () => {
       if (!data) throw new Error('Event not found');
 
       // Format the data to match our form structure
-      // Parse the description field into short and detailed descriptions for UI purposes
-      let shortDesc = '';
-      let longDesc = '';
-      
-      if (data.description) {
-        // Split by double newline to separate short and long descriptions
-        const parts = data.description.split(/\n\s*\n/);
-        if (parts.length > 1) {
-          shortDesc = parts[0];
-          longDesc = parts.slice(1).join('\n\n');
-        } else {
-          // If there's only one part, use it as the short description
-          shortDesc = data.description;
-        }
-      }
-      
       const eventData = {
         title: data.title || '',
-        description: shortDesc, // Short description for the form field
-        longDescription: longDesc, // Long description for the form field
+        description: data.description || '',
+        longDescription: data.long_description || '',
         category: data.category || 'networking',
         type: data.event_type || 'in-person',
         // Convert UTC database times to IST for form display
@@ -232,7 +216,7 @@ const EditEvent = () => {
   const filterValidFields = (data) => {
     // Updated allowed fields based on actual schema
     const allowed = [
-      'title', 'description', 'start_date', 'end_date', 'venue', 'address',
+      'title', 'description', 'long_description', 'start_date', 'end_date', 'venue', 'address',
       'virtual_link', 'max_attendees', 'price', 'requires_approval',
       'tags', 'category', 'event_type', 'organizer_name', 'organizer_email', 'organizer_phone',
       'agenda', 'featured_image_url', 'updated_at', 'updated_by'
@@ -251,26 +235,10 @@ const EditEvent = () => {
     setIsSubmitting(true);
     
     try {
-      // Only save the description field since short_description doesn't exist in the database
-      // We'll format the description to include both short and long descriptions if needed
-      
-      // Prepare data for Supabase
-      let finalDescription = '';
-      
-      // If both descriptions exist, format them together
-      if (formData.description.trim() && formData.longDescription.trim()) {
-        finalDescription = `${formData.description.trim()}\n\n${formData.longDescription.trim()}`;
-      } else if (formData.longDescription.trim()) {
-        // If only long description exists
-        finalDescription = formData.longDescription.trim();
-      } else {
-        // If only short description exists or both are empty
-        finalDescription = formData.description.trim();
-      }
-      
       const eventData = {
         title: formData.title,
-        description: finalDescription, // Save combined description
+        description: formData.description.trim(),
+        long_description: formData.longDescription.trim(),
         category: formData.category,
         event_type: formData.type,
         // Use mergeAndConvertToUTC to properly convert dates to UTC
@@ -398,14 +366,14 @@ const EditEvent = () => {
               </label>
               <textarea
                 name="longDescription"
-                value={formData.longDescription}
+                value={formData.longDescription || ''}
                 onChange={handleInputChange}
                 rows="5"
                 className="form-textarea w-full px-3 py-2 rounded-lg"
                 placeholder="Provide more details about your event"
               ></textarea>
               <p className="text-sm text-gray-500 mt-1">
-                Note: This will be combined with the short description when saving.
+                Note: This will be shown in the event details page.
               </p>
             </div>
             

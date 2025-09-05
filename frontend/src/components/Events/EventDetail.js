@@ -129,8 +129,16 @@ const EventDetail = () => {
       if (error) throw error;
 
       setRsvpSuccess(`Successfully RSVP'd as ${attendance_status}!`);
-      setShowFeedback(true);
-      setFeedbackSubmitted(false);
+      
+      // Only show feedback option for completed events
+      const isCompleted = event.end_date && isPast(parseISO(event.end_date));
+      if (isCompleted && attendance_status === 'going') {
+        setShowFeedback(true);
+        setFeedbackSubmitted(false);
+      } else {
+        setShowFeedback(false);
+      }
+      
       await Promise.all([fetchEventData(), fetchCurrentUser()]);
       setTimeout(() => setRsvpSuccess(''), 3000);
     } catch (err) {
@@ -296,7 +304,7 @@ const EventDetail = () => {
                       {rsvpLoading ? 'Processing...' : 'Attend Event'}
                     </button>
                   )}
-                  {showFeedback && !feedbackSubmitted && (
+                  {showFeedback && !feedbackSubmitted && event.end_date && isPast(parseISO(event.end_date)) && (
                     <form onSubmit={handleFeedbackSubmit} className="mt-4 pt-4 border-t">
                       <h4 className="font-bold text-md mb-2 text-center">How was your experience?</h4>
                       <div className="flex justify-center items-center mb-3">

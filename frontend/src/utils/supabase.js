@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
 const supabaseKey = process.env.REACT_APP_SUPABASE_KEY;
@@ -12,249 +12,331 @@ if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-// Create the client with realtime configuration
-export const supabase = createClient(supabaseUrl, supabaseKey, {
-  global: {
-    headers: { 
-      'apikey': supabaseKey 
+// Create the client with realtime configuration as a singleton to guard against HMR/rehydration
+export const supabase = (() => {
+  // guard against HMR/rehydration multipliers
+  if (window.__sb__) return window.__sb__;
+  const client = createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
     },
-  },
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-  },
-  realtime: {
-    params: {
-      eventsPerSecond: 5
-    },
-
-  }
-});
+    realtime: {
+      params: {
+        eventsPerSecond: 5
+      },
+    }
+  });
+  
+  // Store the client as a singleton
+  window.__sb__ = client;
+  
+  return client;
+})();
 
 // Log current configuration to help with debugging
 console.log('Supabase client initialized with:', {
   url: supabaseUrl ? `${supabaseUrl.substring(0, 15)}...` : 'undefined',  // Only log partial URL for security
-  hasKey: !!supabaseKey,
-  realtimeEnabled: true
+  key: supabaseKey ? 'defined' : 'undefined',
+  autoRefreshToken: true,
+  persistSession: true,
 });
 
-// Create a context for WebSocket connection status
+// --- REALTIME CONTEXT AND PROVIDER ---
+
+// Realtime context for system status
 export const RealtimeContext = createContext({
-  isRealtimeReady: false,
-  setupRealtimeSubscription: async () => {},
+  supabase,
+  isReady: false,
 });
 
-// Realtime status provider component
-export const RealtimeProvider = ({ children }) => {
-  const [isRealtimeReady, setIsRealtimeReady] = useState(false);
-  const [connectionAttempts, setConnectionAttempts] = useState(0);
-  const statusRef = useRef(null);
-  
-  // Track realtime status to prevent multiple connections
-  const channelRef = useRef(null);
-  
-  // Initialize and setup realtime connection
-  useEffect(() => {
-    // If there's already a status channel, don't create another one
-    if (channelRef.current) return;
-    
-    // First check if we have an auth session before attempting realtime connection
-    const checkSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!data?.session) {
-        console.log('No auth session found, delaying realtime connection');
-        // Schedule a retry after a delay
-        setTimeout(() => setConnectionAttempts(prev => prev + 1), 2000);
-        return false;
-      }
-      return true;
-    };
-    
-    // Only proceed with realtime setup if we have a session
-    checkSession().then(hasSession => {
-      if (!hasSession) return;
-      
-      console.log('Auth session found, setting up realtime status channel...');
-      
-      try {
-        // Log Supabase client status
-        console.log('Supabase client status:', {
-          authUrl: supabase.auth.url,
-          hasAuthSession: !!supabase.auth.session,
-          realtimeUrl: supabase.realtime?.url || '(using default)'
-        });
-        
-        // Create a status channel to monitor connection
-        const statusChannel = supabase.channel('system:status');
-        channelRef.current = statusChannel;
-        
-        // Subscribe to status events
-        statusChannel
-          .on('system', { event: '*' }, (status) => {
-            console.log('Realtime status event:', status);
-            if (status.event === 'connected') {
-              console.log('Realtime connected successfully!');
-              setIsRealtimeReady(true);
-            } else if (status.event === 'disconnected') {
-              console.warn('Realtime disconnected!');
-              setIsRealtimeReady(false);
-              // Only attempt reconnect if not unmounting
-              if (!statusRef.current?.unmounting) {
-                // Increment connection attempts
-                setConnectionAttempts(prev => prev + 1);
-              }
-            }
-          })
-          .subscribe(status => {
-            console.log('Realtime subscription status:', status);
-            if (status === 'SUBSCRIBED') {
-              console.log('Successfully subscribed to system status channel');
-              setIsRealtimeReady(true);
-            } else if (status === 'CHANNEL_ERROR') {
-              console.error('Error connecting to realtime:', status);
-              setIsRealtimeReady(false);
-              // Only attempt reconnect if not unmounting
-              if (!statusRef.current?.unmounting) {
-                // Increment connection attempts
-                setConnectionAttempts(prev => prev + 1);
-              }
-            }
-          });
-      } catch (error) {
-        console.error('Error setting up realtime channel:', error);
-        // Set a retry attempt on error
-        setTimeout(() => {
-          setConnectionAttempts(prev => prev + 1);
-        }, 2000);
-      }
-    }).catch(error => {
-      console.error('Error checking session:', error);
-    });
+// Global channel registry to manage channels across component remounts
+// Persist on window to survive Strict Mode double-mounts and Fast Refresh
+const _channelRegistry = (() => {
+  if (typeof window !== 'undefined') {
+    if (!window.__sb_channels__) {
+      window.__sb_channels__ = {};
+    }
+    return window.__sb_channels__;
+  }
+  return {};
+})();
 
-    statusRef.current = { unmounting: false };
-    
-    // Clean up function
-    return () => {
-      if (statusRef.current) {
-        statusRef.current.unmounting = true;
-      }
-      
-      if (channelRef.current) {
-        console.log('Cleaning up realtime status channel');
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
+/**
+ * Get or create a channel from the registry.
+ * This is idempotent and safe to call multiple times.
+ */
+export function getOrCreateChannel(name) {
+  if (!_channelRegistry[name]) {
+    console.log(`Creating new channel: ${name}`);
+    _channelRegistry[name] = {
+      channel: supabase.channel(name),
+      // Whether the SUBSCRIBED status callback has fired
+      subscribed: false,
+      // Whether we have ever invoked channel.subscribe on this instance
+      hasSubscribeCall: false,
+      // Track attached listener keys to avoid duplicate .on bindings
+      listeners: new Set(),
+      refCount: 0
     };
-  }, []);
+  }
   
-  // Auto reconnect with exponential backoff
+  _channelRegistry[name].refCount++;
+  return _channelRegistry[name].channel;
+}
+
+/**
+ * Ensures a channel is subscribed exactly once.
+ * Safe to call multiple times; subsequent calls are no-ops.
+ */
+export function ensureChannelSubscribed(name) {
+  const entry = _channelRegistry[name] || { hasSubscribeCall: false, subscribed: false };
+  if (!entry.hasSubscribeCall) {
+    const channel = getOrCreateChannel(name);
+    console.log(`Subscribing to ${name}`);
+    entry.hasSubscribeCall = true;
+    _channelRegistry[name] = { ...entry, channel };
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        console.log('Realtime is ready');
+        _channelRegistry[name].subscribed = true;
+      }
+    });
+  }
+  return _channelRegistry[name].channel;
+}
+
+/**
+ * Idempotently attach a postgres_changes listener to a channel.
+ * key should uniquely describe this listener (e.g., `${event}:${schema}:${table}:${filter}`).
+ */
+export function onPostgresChangesOnce(channelName, key, params, handler) {
+  const channel = ensureChannelSubscribed(channelName);
+  const entry = _channelRegistry[channelName];
+  if (!entry.listeners) entry.listeners = new Set();
+  if (entry.listeners.has(key)) {
+    return channel;
+  }
+  entry.listeners.add(key);
+  channel.on('postgres_changes', params, handler);
+  return channel;
+}
+
+/**
+ * A simplified RealtimeProvider that only handles core system status.
+ * It's designed to be resilient to React Strict Mode double-invocation.
+ */
+export const RealtimeProvider = ({ children }) => {
+  const [isReady, setReady] = useState(false);
+  
   useEffect(() => {
-    if (connectionAttempts === 0) return;
+    const channelName = 'system-status';
+    const channel = ensureChannelSubscribed(channelName);
     
-    // Increase max attempts to 8 for more resilience
-    const maxAttempts = 8;
-    if (connectionAttempts > maxAttempts) {
-      console.warn(`Realtime connection failed after ${maxAttempts} attempts. Manual refresh may be needed.`);
-      // Even after max attempts, still allow components to render without realtime
-      // Mark realtime as "available" to prevent components from waiting indefinitely
-      setIsRealtimeReady(true); 
-      return;
+    if (_channelRegistry[channelName]?.subscribed) {
+      setReady(true);
     }
     
-    // Exponential backoff (1s, 2s, 4s, 8s, 16s, 32s, 60s, 60s)
-    const backoff = Math.min(1000 * Math.pow(2, connectionAttempts - 1), 60000);
-    
-    console.log(`Attempting to reconnect realtime in ${backoff/1000}s (attempt ${connectionAttempts}/${maxAttempts})`);
-    
-    const timer = setTimeout(() => {
-      if (channelRef.current) {
-        // Remove old channel
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
+    // Cleanup function - note we don't actually unsubscribe or remove the channel
+    // We just decrement the reference count
+    return () => {
+      if (_channelRegistry[channelName]) {
+        _channelRegistry[channelName].refCount--;
+        
+        // Only actually clean up if no components are using this channel
+        if (_channelRegistry[channelName].refCount <= 0) {
+          console.log(`No more refs to ${channelName}, cleaning up`);
+          // We intentionally don't remove the subscription here
+          // to prevent issues with React Strict Mode
+        }
       }
-      
-      // Create new channel
-      const statusChannel = supabase.channel('system:status');
-      channelRef.current = statusChannel;
-      
-      statusChannel
-        .on('system', { event: '*' }, (status) => {
-          console.log('Realtime status:', status);
-          if (status.event === 'connected') {
-            setIsRealtimeReady(true);
-            // Reset connection attempts on success
-            setConnectionAttempts(0);
-          } else if (status.event === 'disconnected') {
-            setIsRealtimeReady(false);
-          }
-        })
-        .subscribe();
-        
-    }, backoff);
-    
-    return () => clearTimeout(timer);
-  }, [connectionAttempts]);
-  
-  // Function to safely setup a realtime subscription with extended timeout and retries
-  const setupRealtimeSubscription = async (channelName, options) => {
-    return new Promise((resolve, reject) => {
-      if (!options?.skipReadyCheck && !isRealtimeReady) {
-        console.log(`Realtime not ready yet for ${channelName}, waiting...`);
-        
-        // Wait up to 15 seconds for connection to be ready (increased from 5s)
-        let attempts = 0;
-        const maxAttempts = 30; // 30 attempts * 500ms = 15 seconds max wait
-        
-        const checkInterval = setInterval(() => {
-          attempts++;
-          
-          if (isRealtimeReady) {
-            clearInterval(checkInterval);
-            console.log(`Realtime connection ready, proceeding with subscription to ${channelName}`);
-            resolve(true);
-          } else if (attempts >= maxAttempts) {
-            clearInterval(checkInterval);
-            // Log more detailed diagnostic information
-            console.warn(`Timed out waiting for realtime connection after ${maxAttempts * 500}ms for ${channelName}`);
-            console.warn('Connection state:', {
-              connectionAttempts, 
-              isRealtimeReady,
-              hasStatusChannel: !!channelRef.current
-            });
-            
-            // Allow component to proceed even without realtime - better UX than total failure
-            if (options?.allowFallback) {
-              console.log('Proceeding without realtime connection (fallback mode)');
-              resolve(false);
-            } else {
-              reject(new Error('Realtime connection timed out'));
-            }
-          } else if (attempts % 5 === 0) { // Log every 2.5 seconds
-            console.log(`Still waiting for realtime connection... (${attempts}/${maxAttempts})`);
-          }
-        }, 500);
-      } else {
-        // Already connected, proceed immediately
-        resolve(true);
-      }
-    });
-  };
-  
+    };
+  }, [])
+
   return (
-    <RealtimeContext.Provider value={{ isRealtimeReady, setupRealtimeSubscription }}>
+    <RealtimeContext.Provider value={{ supabase, isReady }}>
       {children}
     </RealtimeContext.Provider>
   );
 };
 
-// Custom hook for accessing the realtime status
+export const setupRealtimeSubscription = (channelName, options = {}) => {
+  const { allowFallback = false } = options;
+  try {
+    const channel = ensureChannelSubscribed(channelName);
+    console.log(`Realtime subscription setup for channel: ${channelName}`);
+    return channel;
+  } catch (error) {
+    console.error(`Failed to setup realtime subscription for ${channelName}:`, error);
+    if (allowFallback) {
+      console.warn(`Falling back to non-realtime mode for ${channelName}.`);
+      return null;
+    }
+    throw error;
+  }
+};
+
 export const useRealtime = () => {
   const context = useContext(RealtimeContext);
   if (context === undefined) {
     throw new Error('useRealtime must be used within a RealtimeProvider');
   }
-  return context;
+  return { ...context, setupRealtimeSubscription };
+};
+
+/**
+ * Checks if the realtime connection is established and ready.
+ * @returns {Promise<void>} - A promise that resolves when the connection is ready
+ */
+export function checkRealtimeConnection() {
+  return new Promise((resolve, reject) => {
+    try {
+      // If channel registry has system-status and it's subscribed, resolve immediately
+      if (_channelRegistry['system-status']?.subscribed) {
+        console.log('Realtime connection already confirmed ready');
+        resolve();
+        return;
+      }
+      
+      // Otherwise set up the channel and wait for subscription
+      const channel = ensureChannelSubscribed('system-status');
+      
+      // Set a reasonable timeout
+      const timeout = setTimeout(() => {
+        console.warn('Realtime connection check timed out after 5 seconds');
+        // Resolve anyway to prevent blocking UI
+        resolve();
+      }, 5000);
+      
+      // Check for subscription status
+      const checkInterval = setInterval(() => {
+        if (_channelRegistry['system-status']?.subscribed) {
+          clearInterval(checkInterval);
+          clearTimeout(timeout);
+          console.log('Realtime connection confirmed ready');
+          resolve();
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Error checking realtime connection:', error);
+      reject(error);
+    }
+  });
+}
+
+// --- Jobs Channel Singleton --- 
+let jobsChannel = null;
+const jobsChangeListeners = new Map();
+
+export function ensureJobsChannel(supabase) {
+  if (jobsChannel && jobsChannel.state !== 'closed') return jobsChannel;
+  
+  jobsChannel = supabase
+    .channel('job-listings')
+    .on('postgres_changes', { schema: 'public', table: 'jobs', event: '*' }, payload => {
+      // Dispatch to all registered listeners
+      jobsChangeListeners.forEach(listener => {
+        try {
+          listener(payload);
+        } catch (error) {
+          console.error('Error in jobs change listener:', error);
+        }
+      });
+    })
+    .subscribe((status) => console.log('jobs channel status:', status));
+    
+  return jobsChannel;
+}
+
+// Use a unique ID for each listener to prevent duplicate subscriptions
+let nextListenerId = 1;
+
+export function onJobsChange(supabase, cb) {
+  // Ensure the channel exists
+  ensureJobsChannel(supabase);
+  
+  // Register this callback
+  const id = `listener_${nextListenerId++}`;
+  jobsChangeListeners.set(id, cb);
+  
+  // Return an unsubscribe function
+  return () => {
+    jobsChangeListeners.delete(id);
+    console.log(`Removed jobs listener ${id}, ${jobsChangeListeners.size} listeners remaining`);
+  };
+}
+
+export async function closeJobsChannel(supabase) {
+  if (jobsChannel) {
+    // Clear all listeners
+    jobsChangeListeners.clear();
+    
+    const ch = jobsChannel;
+    jobsChannel = null;
+    
+    try {
+      await supabase.removeChannel(ch);
+    } catch (error) {
+      console.warn('Error removing jobs channel:', error);
+    }
+  }
+}
+
+// Helper for conditional logging
+const isDev = process.env.NODE_ENV === 'development';
+const logger = {
+  log: (...args) => isDev && console.log(...args),
+  error: (...args) => console.error(...args),
+  warn: (...args) => isDev && console.warn(...args)
+};
+
+/**
+ * Maps OAuth provider data to a standardized profile format
+ * for consistent profile creation and updates
+ */
+export const mapOAuthToProfileData = (provider, userData) => {
+  const userMetadata = userData?.user_metadata || {};
+  const appMetadata = userData?.app_metadata || {};
+  const mappedData = {};
+  
+  // Common fields across providers
+  if (userMetadata.full_name) mappedData.full_name = userMetadata.full_name;
+  if (userMetadata.email) mappedData.email = userMetadata.email;
+  if (userMetadata.avatar_url) mappedData.avatar_url = userMetadata.avatar_url;
+  
+  // Provider-specific mapping
+  if (provider === 'google') {
+    // Map Google profile data
+    if (userMetadata.name) mappedData.full_name = userMetadata.name;
+    if (userMetadata.email) mappedData.email = userMetadata.email;
+    if (userMetadata.picture) mappedData.avatar_url = userMetadata.picture;
+    
+    // Parse name into components if available
+    if (userMetadata.given_name) mappedData.first_name = userMetadata.given_name;
+    if (userMetadata.family_name) mappedData.last_name = userMetadata.family_name;
+  } 
+  else if (provider === 'linkedin') {
+    // Map LinkedIn profile data
+    if (userMetadata.name) mappedData.full_name = userMetadata.name;
+    if (userMetadata.email) mappedData.email = userMetadata.email;
+    if (userMetadata.picture) mappedData.avatar_url = userMetadata.picture;
+    
+    // LinkedIn may provide these separately
+    if (userMetadata.given_name) mappedData.first_name = userMetadata.given_name;
+    if (userMetadata.family_name) mappedData.last_name = userMetadata.family_name;
+    
+    // Professional data if available
+    if (userMetadata.headline) mappedData.job_title = userMetadata.headline;
+    if (userMetadata.linkedInUrl) mappedData.linkedin_url = userMetadata.linkedInUrl;
+  }
+  
+  // Log the mapping for debugging
+  if (isDev) {
+    logger.log(`OAuth profile data mapped from ${provider}:`, mappedData);
+  }
+  
+  return mappedData;
 };
 
 // Auth helper functions
@@ -293,12 +375,25 @@ export const signUpWithEmail = async (email, password, options = {}) => {
 };
 
 export const signInWithGoogle = async () => {
+  // Fix Google sign-in access denied issue by properly configuring OAuth
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: `${window.location.origin}/dashboard`,
+      redirectTo: `${window.location.origin}/dashboard`, // Direct to dashboard
+      scopes: 'email profile',
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'consent',
+      },
+      // Pass additional data to be stored in user_metadata
+      // This will help with profile creation
+      meta: {
+        provider_name: 'google',
+        provider_type: 'oauth' 
+      }
     },
   });
+  
   return { data, error };
 };
 
@@ -306,14 +401,22 @@ export const signInWithLinkedIn = async () => {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'linkedin',
     options: {
-      redirectTo: `${window.location.origin}/dashboard`,
+      redirectTo: `${window.location.origin}/dashboard`, // Direct to dashboard
+      scopes: 'r_liteprofile r_emailaddress',
+      // Pass additional data to be stored in user_metadata
+      // This will help with profile creation
+      meta: {
+        provider_name: 'linkedin',
+        provider_type: 'oauth'
+      }
     },
   });
+  
   return { data, error };
 };
 
 export const signOut = async () => {
-  const { error } = await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut({ scope: 'local' });
   return { error };
 };
 
@@ -346,9 +449,27 @@ export const fetchProfile = async (id) => {
 };
 
 export const updateProfile = async (id, updates) => {
+  // Clean updates object by removing null/undefined and converting empty strings for numbers to null
+  const cleanUpdates = {};
+  
+  Object.entries(updates).forEach(([key, value]) => {
+    // Skip null/undefined values
+    if (value === null || value === undefined) return;
+    
+    // Handle empty strings for numeric fields
+    if (value === '' && ['graduation_year', 'expected_graduation_year', 'mentorship_experience_years'].includes(key)) {
+      cleanUpdates[key] = null;
+    } else {
+      cleanUpdates[key] = value;
+    }
+  });
+  
+  // Set updated_at timestamp
+  cleanUpdates.updated_at = new Date().toISOString();
+  
   const { data, error } = await supabase
     .from('profiles')
-    .update(updates)
+    .update(cleanUpdates)
     .eq('id', id)
     .select()
     .single();
@@ -801,7 +922,6 @@ export const uploadPostImage = async (file, userId) => {
   }
 };
 
-
 export const fetchMentorshipRequests = async (userId) => {
   const { data, error } = await supabase
     .from('mentorship_requests')
@@ -813,3 +933,4 @@ export const fetchMentorshipRequests = async (userId) => {
     .or(`mentor_id.eq.${userId},mentee_id.eq.${userId}`);
   return { data, error };
 };
+

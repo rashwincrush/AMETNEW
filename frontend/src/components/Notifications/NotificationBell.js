@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../../utils/supabase';
+import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { BellIcon, EnvelopeIcon, UserIcon, CalendarIcon, BriefcaseIcon, ChatBubbleLeftRightIcon, UserGroupIcon } from '@heroicons/react/24/outline';
 import { Link } from 'react-router-dom';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -7,12 +7,10 @@ import toast from 'react-hot-toast';
 
 const NotificationBell = ({ currentUser }) => {
   const [unreadCount, setUnreadCount] = useState(0);
-  const [unreadByType, setUnreadByType] = useState({});
   const [notifications, setNotifications] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef(null);
-  const channelRef = useRef(null);
   
   // Icons mapping for each notification type
   const typeIcons = {
@@ -25,122 +23,70 @@ const NotificationBell = ({ currentUser }) => {
     default: BellIcon
   };
 
-  // Fetch unread notification count
+  // Handle notification count updates and fetch initial count
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser?.id) return;
 
     const fetchUnreadCount = async () => {
       try {
-        // Get total count
-        const { data: totalCount, error } = await supabase
-          .rpc('get_unread_notifications_count');
-        
+        const { data, error } = await supabase
+          .rpc('get_unread_notifications_count_by_type', { type_filter: '' });
+
         if (error) throw error;
-        setUnreadCount(totalCount || 0);
-        
-        // Get count by type
-        try {
-          const { data: typeCount, error: typeError } = await supabase
-            .rpc('get_unread_notifications_count_by_type');
-            
-          if (typeError) throw typeError;
-          
-          // Convert array to object for easier access
-          const countByType = {};
-          (typeCount || []).forEach(item => {
-            countByType[item.notification_type] = item.count;
-          });
-          
-          setUnreadByType(countByType);
-        } catch (typeErr) {
-          console.error('Error fetching notification count by type:', typeErr);
-          // Fallback: Use total count as default type
-          setUnreadByType({
-            'default': totalCount || 0
-          });
-        }
+        setUnreadCount(data || 0);
       } catch (err) {
         console.error('Error fetching notification count:', err);
       }
     };
 
     fetchUnreadCount();
+  }, [currentUser?.id]);
 
-    // Set up realtime subscription for new notifications
-    const setupRealtimeSubscription = async () => {
-      try {
-        // First check if we have an auth session before attempting realtime connection
-        const { data } = await supabase.auth.getSession();
-        if (!data?.session) {
-          console.log('No auth session found, delaying notifications subscription');
-          return;
+  // Set up realtime notifications (idempotent listener attach)
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    const channelName = `notifications:${currentUser.id}`;
+
+    const handleNewNotification = (payload) => {
+      if (payload.new) {
+        console.log('New notification received:', payload.new.id);
+        setUnreadCount(prev => prev + 1);
+        toast(payload.new.title || 'New notification', {
+          icon: '🔔',
+          duration: 4000
+        });
+        if (showDropdown) {
+          fetchNotifications();
         }
-
-        // Clean up any existing subscription first
-        if (channelRef.current) {
-          try {
-            await supabase.removeChannel(channelRef.current);
-            console.log('Removed existing notifications channel');
-          } catch (error) {
-            console.error('Error removing existing channel:', error);
-          }
-          // Reset the ref to ensure we don't try to use it again
-          channelRef.current = null;
-        }
-
-        // Create a unique channel name with userId to avoid conflicts
-        const channelName = `notifications:${currentUser.id}`;
-        console.log(`Setting up notifications channel: ${channelName}`);
-        
-        // Create and subscribe to the channel
-        const channel = supabase
-          .channel(channelName)
-          .on('postgres_changes', 
-            { event: 'INSERT', schema: 'public', table: 'notifications' }, 
-            (payload) => {
-              if (payload.new && payload.new.profile_id === currentUser.id) {
-                // Update count and show toast
-                setUnreadCount(prev => prev + 1);
-                
-                // Update type-specific count
-                setUnreadByType(prev => {
-                  const type = payload.new.type || 'default';
-                  return {
-                    ...prev,
-                    [type]: (prev[type] || 0) + 1
-                  };
-                });
-                
-                toast.success(payload.new.title, {
-                  duration: 4000,
-                  position: 'top-right',
-                });
-                // Refresh notifications list if dropdown is open
-                if (showDropdown) {
-                  fetchNotifications();
-                }
-              }
-            }
-          );
-
-        // Only after the channel is created, save it to the ref and subscribe
-        channelRef.current = channel;
-        const status = await channel.subscribe();
-        console.log(`Notification channel subscription status: ${status}`);
-      } catch (error) {
-        console.error('Error setting up notification subscription:', error);
       }
     };
 
-    setupRealtimeSubscription();
-
-    return () => {
-      // Clean up subscription
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-      }
+    // Set up the change listener - this is idempotent
+    const changes = {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'notifications',
+      filter: `recipient_id=eq.${currentUser.id}`
     };
-  }, [currentUser]);
+    
+    // Attach listener exactly once per user-specific key
+    onPostgresChangesOnce(
+      channelName,
+      `insert:public:notifications:recipient=${currentUser.id}`,
+      changes,
+      handleNewNotification
+    );
+
+    // Nothing to clean up - our global registry handles this now
+  }, [currentUser?.id]);
+
+  // Fetch notifications when dropdown opens
+  useEffect(() => {
+    if (showDropdown && currentUser?.id) {
+      fetchNotifications();
+    }
+  }, [showDropdown, currentUser?.id]);
 
   // Handle clicks outside the dropdown to close it
   useEffect(() => {
@@ -165,7 +111,7 @@ const NotificationBell = ({ currentUser }) => {
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
-        .eq('profile_id', currentUser.id)
+        .eq('recipient_id', currentUser.id)
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -212,7 +158,7 @@ const NotificationBell = ({ currentUser }) => {
       const { error } = await supabase
         .from('notifications')
         .update({ is_read: true })
-        .eq('profile_id', currentUser.id)
+        .eq('recipient_id', currentUser.id)
         .eq('is_read', false);
 
       if (error) throw error;
