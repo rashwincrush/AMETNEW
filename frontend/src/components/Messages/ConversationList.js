@@ -49,7 +49,7 @@ const ConversationList = ({
 
   if (loading) {
     return (
-      <div className="w-full sm:w-1/3 lg:w-1/4 border-r border-gray-200 bg-white p-4 space-y-4">
+      <div className="w-full bg-white p-4 space-y-4">
         <div className="animate-pulse space-y-4">
           <div className="h-10 bg-gray-200 rounded"></div>
           {[...Array(6)].map((_, i) => (
@@ -67,7 +67,7 @@ const ConversationList = ({
   }
 
   return (
-    <div className="w-full sm:w-1/3 lg:w-1/4 border-r border-gray-200 bg-white flex flex-col overflow-hidden">
+    <div className="w-full bg-white flex flex-col">
       {/* Search input */}
       <div className="px-4 pb-2">
         <div className="relative">
@@ -86,8 +86,8 @@ const ConversationList = ({
         </div>
       </div>
 
-      {/* Conversations list */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Conversations list (no inner scrollbar) */}
+      <div className="flex-1">
         {loading ? (
           // Loading placeholders
           <>

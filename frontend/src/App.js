@@ -90,6 +90,8 @@ import MentorDirectory from './components/Mentorship/MentorDirectory';
 import MentorshipStatus from './components/Mentorship/MentorshipStatus';
 import MentorshipChat from './components/Mentorship/MentorshipChat';
 import MentorMatching from './components/Mentorship/MentorMatching';
+import TermsOfService from './pages/TermsOfService';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -139,25 +141,20 @@ function AppContent() {
       } : 'no-profile',
       path: window.location.pathname
     });
-    
-    // Force Alumni Dashboard for all roles to match production
-    console.log('Forcing AlumniDashboard for all roles to match production');
-    return <AlumniDashboard user={profile || user} />;
-    
-    /* Original role-based logic
+
+    // Role-based dashboard selection
     switch (role) {
       case 'admin':
       case 'super_admin':
         console.log('Selected AdminDashboard for role:', role);
         return <AdminDashboard user={profile || user} />;
       case 'employer':
-        console.log('Redirecting to profile for employer role');
-        return <Navigate to="/profile" />;
+        console.log('Redirecting to Employer dashboard (jobs applications) for employer role');
+        return <Navigate to="/jobs/applications" />;
       default:
         console.log('Selected AlumniDashboard for role:', role);
         return <AlumniDashboard user={profile || user} />;
     }
-    */
   };
 
   // Check if user is rejected - if so, we'll only render the RejectionPage
@@ -191,6 +188,8 @@ function AppContent() {
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gradient-to-br from-ocean-50 to-blue-50 p-6">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/terms-of-service" element={<TermsOfService />} />
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/dashboard" element={<ProtectedRoute requiredPermission="access:dashboard">{getDashboardComponent()}</ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute requiredPermission="access:profile_settings"><Profile user={profile || user} /></ProtectedRoute>} />
             <Route path="/companies/:id" element={<PublicCompanyProfile />} />
@@ -251,6 +250,8 @@ function AppContent() {
       <Route path="/home" element={<HomePage />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<EnhancedRegister />} />
+      <Route path="/terms-of-service" element={<TermsOfService />} />
+      <Route path="/privacy-policy" element={<PrivacyPolicy />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/update-password" element={<UpdatePassword />} />
       <Route path="/auth/callback" element={<AuthCallback />} />

@@ -35,7 +35,7 @@ const UserManagement = () => {
 
   const [filters, setFilters] = useState({
     role: 'all',
-    alumni_verification_status: 'all',
+    alumni_verification_status: 'all', // legacy key kept; mapped to approval_status
   });
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -171,11 +171,11 @@ const UserManagement = () => {
                         (filters.role === 'employer' && user.is_employer) ||
                         (filters.role === 'admin' && user.is_admin);
 
-      const statusMatch = filters.alumni_verification_status === 'all' || user.alumni_verification_status === filters.alumni_verification_status;
+      const statusMatch = filters.alumni_verification_status === 'all' || user.approval_status === filters.alumni_verification_status;
 
       let tabMatch = true;
       if (selectedTab === 'pending') {
-        tabMatch = user.alumni_verification_status === 'pending' || user.mentor_status === 'pending';
+        tabMatch = user.approval_status === 'pending' || user.mentor_status === 'pending';
       } else if (selectedTab === 'mentors') {
         tabMatch = user.is_mentor;
       } else if (selectedTab === 'employers') {
@@ -262,19 +262,17 @@ const UserManagement = () => {
         setIsRejectModalOpen(true);
         break;
       case 'approve':
-        if (user.alumni_verification_status === 'approved') return;
+        if (user.approval_status === 'approved') return;
         try {
-          const { error } = await supabase
-            .from('profiles')
-            .update({ 
-              alumni_verification_status: 'approved',
-              rejection_reason: null  // Clear any previous rejection reason
-            })
-            .eq('id', userId);
+          const { error } = await supabase.rpc('admin_set_profile_approval', {
+            target: userId,
+            new_status: 'approved',
+            reason: null
+          });
           if (error) throw error;
           setUsers(currentUsers => currentUsers.map(u => u.id === userId ? { 
             ...u, 
-            alumni_verification_status: 'approved',
+            approval_status: 'approved',
             rejection_reason: null 
           } : u));
           toast.success(`${user.full_name || user.email} has been approved.`);
@@ -339,9 +337,11 @@ const UserManagement = () => {
 
   const handleSaveUser = async (userId, newRole) => {
     try {
-      const { error } = await supabase.rpc('update_user_role', {
-        user_id: userId,
+      const makeAdmin = newRole === 'admin' || newRole === 'super_admin';
+      const { error } = await supabase.rpc('admin_set_user_role', {
+        target: userId,
         new_role: newRole,
+        make_admin: makeAdmin
       });
 
       if (error) {
@@ -409,15 +409,11 @@ const UserManagement = () => {
 
   const handleRejectUser = async (userId, rejectionComment) => {
     try {
-      // Update both status and rejection reason fields
-      const { data, error } = await supabase
-        .from('profiles')
-        .update({
-          alumni_verification_status: 'rejected',
-          rejection_reason: rejectionComment // Store rejection reason in the database
-        })
-        .eq('id', userId);
-        
+      const { error } = await supabase.rpc('admin_set_profile_approval', {
+        target: userId,
+        new_status: 'rejected',
+        reason: rejectionComment || null
+      });
       if (error) throw error;
       
       // Remove any stored rejection comments from localStorage if they exist

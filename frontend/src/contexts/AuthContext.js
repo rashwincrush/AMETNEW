@@ -411,6 +411,40 @@ export const AuthProvider = ({ children }) => {
       logger.log(`Profile updated for user ${profile.id}, role: ${role}`);
     }
   }, [profile]);
+
+  // Realtime: listen for changes to the current user's profile so role/flags update without re-login
+  useEffect(() => {
+    if (!user?.id) return;
+    logger.log('Subscribing to realtime profile changes for user:', user.id);
+
+    const channel = supabase
+      .channel(`profile-changes-${user.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'profiles',
+        filter: `id=eq.${user.id}`
+      }, async (payload) => {
+        logger.log('Realtime profile update received:', payload.eventType);
+        try {
+          await fetchUserProfile(user.id);
+        } catch (err) {
+          logger.error('Failed to refresh profile after realtime update:', err);
+        }
+      })
+      .subscribe((status) => {
+        logger.log('Realtime channel status:', status);
+      });
+
+    return () => {
+      try {
+        supabase.removeChannel(channel);
+        logger.log('Unsubscribed from realtime profile changes for user:', user.id);
+      } catch (e) {
+        // ignore
+      }
+    };
+  }, [user?.id, fetchUserProfile]);
   
   // Monitor loading state changes
   useEffect(() => {

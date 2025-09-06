@@ -67,7 +67,9 @@ const AlumniDirectory = () => {
       // First, fetch profiles data
       let query = supabase
         .from('v_profiles_directory_card')
-        .select('*', { count: 'exact' });
+        .select('*', { count: 'exact' })
+        // Front-end guard: rely on view exposing is_approved and filter here too
+        .eq('is_approved', true);
 
       if (searchTerm) {
         query = query.or(`full_name.ilike.%${searchTerm}%,degree_department.ilike.%${searchTerm}%,current_company.ilike.%${searchTerm}%,current_title.ilike.%${searchTerm}%`);
@@ -134,7 +136,7 @@ const AlumniDirectory = () => {
           const major = latestEducation.major || latestEducation.specialization || '';
           
           if (degree && major) {
-            degreeDepartment = `${degree}, ${major}`;
+            degreeDepartment = `${degree} ${major}`;
           } else if (degree) {
             degreeDepartment = degree;
           } else if (major) {
@@ -165,6 +167,49 @@ const AlumniDirectory = () => {
     fetchAlumniData();
   }, [fetchAlumniData]);
   
+  // Realtime refresh when profiles change in ways that affect directory membership
+  useEffect(() => {
+    const channel = supabase
+      .channel('alumni-directory-refresh')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'profiles'
+      }, (payload) => {
+        try {
+          const evt = payload.eventType;
+          if (evt === 'INSERT' || evt === 'DELETE') {
+            setRefreshTrigger(prev => prev + 1);
+            return;
+          }
+          if (evt === 'UPDATE') {
+            const oldRow = payload.old || {};
+            const newRow = payload.new || {};
+            // Refresh if approval, role, or employer flag changed; or if fields used in view changed
+            if (
+              oldRow.is_approved !== newRow.is_approved ||
+              oldRow.role !== newRow.role ||
+              oldRow.is_employer !== newRow.is_employer ||
+              oldRow.positions !== newRow.positions ||
+              oldRow.first_name !== newRow.first_name ||
+              oldRow.last_name !== newRow.last_name ||
+              oldRow.degree !== newRow.degree ||
+              oldRow.department !== newRow.department
+            ) {
+              setRefreshTrigger(prev => prev + 1);
+            }
+          }
+        } catch (e) {
+          console.error('Realtime directory refresh error:', e);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      try { supabase.removeChannel(channel); } catch (e) { console.warn('Failed to remove channel', e); }
+    };
+  }, []);
+
   // Separate useEffect for visibility change to avoid unnecessary data fetching
   useEffect(() => {
     // Setup visibility change detection to refresh data when user returns to page

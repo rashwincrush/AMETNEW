@@ -177,44 +177,27 @@ const BecomeMentorForm = () => {
     const toastId = toast.loading(existingMentor ? 'Updating mentor profile...' : 'Creating mentor profile...');
 
     try {
-      const mentorData = {
-        user_id: user.id,
-        mentoring_statement: formData.mentoring_statement,
-        expertise: formData.expertise,
-        max_mentees: formData.max_mentees,
-        mentoring_experience_years: formData.mentoring_experience_years,
-        availability: formData.availability,
-        preferences: formData.preferences,
-        status: existingMentor?.status || 'pending' // Keep existing status or default to pending
-      };
-
-      let result;
-      
-      if (existingMentor) {
-        // Update existing mentor
-        result = await supabase
-          .from('mentors')
-          .update(mentorData)
-          .eq('id', existingMentor.id);
-      } else {
-        // Create new mentor
-        result = await supabase
-          .from('mentors')
-          .insert([mentorData]);
-      }
-
-      const { error } = result;
+      // Use secure RPC: create_or_update_mentor_profile
+      const { data, error } = await supabase.rpc('create_or_update_mentor_profile', {
+        p_expertise: formData.expertise || [],
+        p_mentoring_statement: formData.mentoring_statement || null,
+        p_max_mentees: formData.max_mentees ?? null,
+        // Backend expects a simple text; join array selections as a comma separated string for now
+        p_availability: (formData.availability && formData.availability.length > 0)
+          ? formData.availability.join(', ')
+          : null,
+      });
 
       if (error) {
-        console.error('Error saving mentor profile:', error);
+        console.error('Error saving mentor profile via RPC:', error);
         toast.error(`Error: ${error.message}`, { id: toastId });
         return;
       }
 
       toast.success(
-        existingMentor ? 
-        'Mentor profile updated successfully!' : 
-        'Mentor profile created successfully! Your application is pending approval.', 
+        existingMentor ?
+          'Mentor profile updated successfully!' :
+          'Mentor profile created successfully! Your application is pending approval.',
         { id: toastId }
       );
 

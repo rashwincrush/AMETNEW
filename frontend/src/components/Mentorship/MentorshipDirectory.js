@@ -21,12 +21,14 @@ const MentorshipDirectory = () => {
       .from('profiles')
       .select('*')
       .eq('is_mentor', true)
+      .eq('is_approved', true)
       .order('full_name');
     // Fetch mentees
     const { data: menteeData } = await supabase
       .from('profiles')
       .select('*')
       .eq('is_mentor', false)
+      .eq('is_approved', true)
       .order('full_name');
     setMentors(mentorData || []);
     setMentees(menteeData || []);

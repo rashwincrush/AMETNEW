@@ -13,6 +13,40 @@ const AlumniCard = ({ alumnus }) => {
 
   const initials = getInitials(alumnus.fullName);
 
+  // Normalize key fields coming from either a directory view or raw profile
+  const professionNormalized = alumnus.profession || alumnus.currentProfession || alumnus.occupation || alumnus.profession_title || '';
+
+  const primaryPosition = Array.isArray(alumnus.positions) && alumnus.positions.length > 0
+    ? alumnus.positions[0]
+    : null;
+
+  const posTitle = (primaryPosition?.title || alumnus.job_title || '').toString().trim();
+  const posCompany = (primaryPosition?.company || primaryPosition?.company_name || alumnus.company_name || '').toString().trim();
+
+  let currentRoleCompany = '';
+  if (posCompany && posTitle) currentRoleCompany = `${posCompany} — ${posTitle}`;
+  else if (posCompany) currentRoleCompany = posCompany;
+  else if (posTitle) currentRoleCompany = posTitle;
+  else if (alumnus.titleAtCompany) currentRoleCompany = alumnus.titleAtCompany;
+  else if (professionNormalized) currentRoleCompany = professionNormalized;
+
+  const clean = (s) => (typeof s === 'string' ? s.replace(/[.\s]+$/, '').trim() : '');
+  const degree = clean(alumnus.degree || alumnus.education_degree || alumnus.degree_name || alumnus.degreeShort);
+  const department = clean(alumnus.department || alumnus.education_department || alumnus.branch || alumnus.department_name);
+  const degreeDepartment = degree && department ? `${degree} ${department}` : (degree || department || '');
+
+  const city = alumnus.location_city || alumnus.city;
+  const country = alumnus.location_country || alumnus.country;
+  const locationLabel = (city || country || '') || '';
+
+  const skills = Array.isArray(alumnus.skills)
+    ? alumnus.skills.filter(Boolean)
+    : (typeof alumnus.skills === 'string' ? alumnus.skills.split(',').map(s => s.trim()).filter(Boolean) : []);
+
+  const interests = Array.isArray(alumnus.interests)
+    ? alumnus.interests.filter(Boolean)
+    : (typeof alumnus.interests === 'string' ? alumnus.interests.split(',').map(s => s.trim()).filter(Boolean) : []);
+
   return (
     <div className="bg-white rounded-xl shadow-md hover:shadow-xl overflow-hidden transition-all duration-300 border border-gray-200/80 flex flex-col h-full">
       {/* Card Header with Avatar */}
@@ -54,8 +88,8 @@ const AlumniCard = ({ alumnus }) => {
               </span>
             )}
           </div>
-          {alumnus.profession && !alumnus.isPrivate?.profession && (
-            <p className="text-sm font-medium text-indigo-600">{alumnus.profession}</p>
+          {professionNormalized && !alumnus.isPrivate?.profession && (
+            <p className="text-sm font-medium text-indigo-600">{professionNormalized}</p>
           )}
           <div className="flex items-center justify-center text-sm text-gray-500 mt-1">
             <AcademicCapIcon className="h-4 w-4 mr-1.5 text-gray-400" />
@@ -68,49 +102,59 @@ const AlumniCard = ({ alumnus }) => {
       <div className="px-6 py-4 flex-grow">
         <div className="space-y-3 text-gray-700">
           {/* Current Position */}
-          {alumnus.titleAtCompany && !alumnus.isPrivate?.job_title && (
+          {currentRoleCompany && !alumnus.isPrivate?.job_title && (
             <div className="flex items-start">
               <BriefcaseIcon className="h-5 w-5 mr-2 text-indigo-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm font-medium">{alumnus.titleAtCompany}</p>
+              <p className="text-sm font-medium">{currentRoleCompany}</p>
             </div>
           )}
 
           {/* Education */}
-          {alumnus.degreeDepartment && !alumnus.isPrivate?.education && (
+          {degreeDepartment && !alumnus.isPrivate?.education && (
             <div className="flex items-start">
               <AcademicCapIcon className="h-5 w-5 mr-2 text-indigo-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm">{alumnus.degreeDepartment}</p>
+              <p className="text-sm">{degreeDepartment}</p>
             </div>
           )}
 
           {/* Location */}
-          {alumnus.locationLabel && !alumnus.isPrivate?.location && (
+          {locationLabel && !alumnus.isPrivate?.location && (
             <div className="flex items-start">
               <MapPinIcon className="h-5 w-5 mr-2 text-indigo-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm">{alumnus.locationLabel}</p>
+              <p className="text-sm">{locationLabel}</p>
             </div>
           )}
-          
-          {/* Industry/Department */}
-          {alumnus.profession && !alumnus.isPrivate?.profession && (
-            <div className="flex items-start">
-              <BuildingOfficeIcon className="h-5 w-5 mr-2 text-indigo-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm">{alumnus.profession}</p>
-            </div>
-          )}
+
           
           {/* Skills */}
-          {alumnus.skills && alumnus.skills.length > 0 && !alumnus.isPrivate?.skills && (
+          {skills.length > 0 && !alumnus.isPrivate?.skills && (
             <div className="pt-1">
               <p className="text-xs font-medium text-gray-500 mb-1.5">Skills</p>
               <div className="flex flex-wrap gap-1.5">
-                {alumnus.skills.slice(0, 4).map((skill, index) => (
+                {skills.slice(0, 3).map((skill, index) => (
                   <span key={index} className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded-full">
                     {skill}
                   </span>
                 ))}
-                {alumnus.skills.length > 4 && (
-                  <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-full">+{alumnus.skills.length - 4}</span>
+                {skills.length > 3 && (
+                  <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-full">+{skills.length - 3}</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Interests */}
+          {interests.length > 0 && !alumnus.isPrivate?.interests && (
+            <div className="pt-1">
+              <p className="text-xs font-medium text-gray-500 mb-1.5">Interests</p>
+              <div className="flex flex-wrap gap-1.5">
+                {interests.slice(0, 3).map((interest, index) => (
+                  <span key={index} className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded-full">
+                    {interest}
+                  </span>
+                ))}
+                {interests.length > 3 && (
+                  <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-full">+{interests.length - 3}</span>
                 )}
               </div>
             </div>

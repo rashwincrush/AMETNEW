@@ -15,23 +15,23 @@ export type CardProfile = {
 export function mapProfileToCard(row: any): CardProfile {
   const fullName = row.full_name ?? `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim();
   
-  // Format "title at company" instead of "title @ company"
+  // Format as "Company — Title" (company first)
   const title = row.current_job_title ?? row.current_title ?? row.title ?? '';
   const company = row.current_company ?? row.company ?? '';
-  let titleAtCompany;
-  if (title && company) {
-    titleAtCompany = `${title} at ${company}`;
-  } else if (title) {
-    titleAtCompany = title;
+  let titleAtCompany: string | undefined;
+  if (company && title) {
+    titleAtCompany = `${company} — ${title}`;
   } else if (company) {
     titleAtCompany = company;
+  } else if (title) {
+    titleAtCompany = title;
   } else {
     titleAtCompany = undefined;
   }
   
-  // Format location as "City, Country"
-  const city = row.current_city ?? row.city ?? '';
-  const country = row.current_country ?? row.country ?? '';
+  // Format location as "City, Country"; support alternative keys
+  const city = row.location_city ?? row.current_city ?? row.city ?? '';
+  const country = row.location_country ?? row.current_country ?? row.country ?? '';
   let locationLabel;
   if (city && country) {
     locationLabel = `${city}, ${country}`;
@@ -53,16 +53,22 @@ export function mapProfileToCard(row: any): CardProfile {
   // Handle privacy settings
   const isPrivate = row.is_private ?? row.isPrivate ?? {};
 
+  // Normalize degree/department; prefer explicit fields, else try provided aggregate
+  const clean = (s: any) => (typeof s === 'string' ? s.replace(/[\.\s]+$/, '').trim() : '');
+  const deg = clean(row.degree);
+  const dept = clean(row.department);
+  const degreeDepartment = (deg && dept)
+    ? `${deg} ${dept}`
+    : (deg || dept || (typeof row.degree_department === 'string' ? row.degree_department.replace(/,\s*/g, ' ') : undefined));
+
   return {
     id: row.id,
     fullName,
     gradYear: row.graduation_year ?? row.gradYear,
     titleAtCompany,
-    profession: row.industry ?? row.department ?? row.profession ?? undefined,
+    profession: row.profession ?? row.industry ?? row.department ?? undefined,
     locationLabel,
-    degreeDepartment: row.degree_department ?? (
-      [row.degree, row.department].filter(Boolean).join(', ') || undefined
-    ),
+    degreeDepartment,
     skills: skills.map(String).filter(Boolean),
     isPrivate,
   };

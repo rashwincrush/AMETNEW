@@ -21,7 +21,7 @@ const AuthCallback = () => {
           const { data: profileData, error: profileError } = await supabase
             .from('profiles')
             .select('*')
-            .eq('user_id', data.session.user.id)
+            .eq('id', data.session.user.id)
             .single();
             
           if (profileError && profileError.code !== 'PGRST116') {

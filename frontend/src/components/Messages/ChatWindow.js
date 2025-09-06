@@ -14,6 +14,7 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const [otherParticipant, setOtherParticipant] = useState(null);
   const [fileAttachment, setFileAttachment] = useState(null);
   const [isConnected, setIsConnected] = useState(true); // Added connection status state
@@ -57,22 +58,25 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
     const fetchAndSubscribe = async () => {
       setLoading(true);
       try {
-        const { data: conversation, error: convError } = await supabase
-          .from('conversations')
-          .select('participant_1:profiles!conversations_participant_1_fkey(id, full_name, avatar_url, job_title, is_online), participant_2:profiles!conversations_participant_2_fkey(id, full_name, avatar_url, job_title, is_online)')
-          .eq('id', conversationId)
-          .single();
+        // Fetch the other participant via the join table
+        const { data: otherRow, error: otherErr } = await supabase
+          .from('conversation_participants')
+          .select('user_id, user:profiles(id, full_name, avatar_url, job_title, is_online)')
+          .eq('conversation_id', conversationId)
+          .neq('user_id', currentUser.id)
+          .maybeSingle();
 
-        if (convError) throw convError;
+        if (otherErr) throw otherErr;
 
-        const other = conversation.participant_1.id === currentUser.id ? conversation.participant_2 : conversation.participant_1;
+        const other = otherRow?.user || null;
         setOtherParticipant(other);
 
         const { data: connection } = await supabase
           .from('connections')
           .select('status')
-          .or(`requester_id.eq.${currentUser.id},recipient_id.eq.${currentUser.id}`)
-          .eq('recipient_id', other.id)
+          .or(
+            `and(requester_id.eq.${currentUser.id},recipient_id.eq.${other?.id}),and(requester_id.eq.${other?.id},recipient_id.eq.${currentUser.id})`
+          )
           .eq('status', 'accepted')
           .maybeSingle();
         setIsConnected(connection && connection.status === 'accepted');
@@ -86,7 +90,17 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
         if (messagesError) throw messagesError;
         setMessages(messagesData || []);
 
-        await supabase.rpc('mark_conversation_as_read', { p_conversation_id: conversationId, p_user_id: currentUser.id });
+        try {
+          await supabase.rpc('mark_conversation_as_read', { p_conversation_id: conversationId, p_user_id: currentUser.id });
+        } catch (rpcErr) {
+          // Fallback if RPC doesn't exist: mark messages as read manually
+          await supabase
+            .from('messages')
+            .update({ read_at: new Date().toISOString() })
+            .eq('conversation_id', conversationId)
+            .neq('sender_id', currentUser.id)
+            .is('read_at', null);
+        }
 
       } catch (err) {
         console.error('Error loading conversation:', err);
@@ -118,8 +132,9 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
   }, [conversationId, currentUser, handleNewMessage]);
 
   const handleSendMessage = async (e) => {
-    e.preventDefault();
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
     
+    if (isSending) return; // guard against double-dispatch
     if ((!newMessage.trim() && !fileAttachment) || !currentUser || !conversationId) return;
     
     // Check if users are connected first
@@ -129,6 +144,7 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
     }
     
     try {
+      setIsSending(true);
       // Show loading indicator
       toast.loading('Sending message...');
       
@@ -167,12 +183,14 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
       const messageType = attachmentUrl ? 'file' : 'text';
       
       // Prepare message object
+      const messageUuid = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const messageObject = {
         conversation_id: conversationId,
         sender_id: currentUser.id,
         content: newMessage.trim() || (attachmentUrl ? 'Sent an attachment' : ''),
         message_type: messageType,
         attachment_url: attachmentUrl,
+        client_uuid: messageUuid,
       };
       
       // Send message
@@ -184,14 +202,18 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
         
       if (error) {
         console.error('Error sending message:', error);
-        // Check for permission errors (RLS blocking)
-        if (error.code === '42501' || error.message?.includes('permission denied')) {
+        // Unique violation (idempotent retry) — treat as success
+        if (error.code === '23505' || /duplicate key value/.test(error.message || '')) {
+          // noop — message will arrive via realtime listener
+        } else if (error.code === '42501' || error.message?.includes('permission denied')) {
+          // Check for permission errors (RLS blocking)
           // Recheck connection status as it might have changed
           const { data: connection } = await supabase
             .from('connections')
             .select('status')
-            .or(`requester_id.eq.${currentUser.id},recipient_id.eq.${currentUser.id}`)
-            .eq('recipient_id', otherParticipant.id)
+            .or(
+              `and(requester_id.eq.${currentUser.id},recipient_id.eq.${otherParticipant?.id}),and(requester_id.eq.${otherParticipant?.id},recipient_id.eq.${currentUser.id})`
+            )
             .eq('status', 'accepted')
             .maybeSingle();
           
@@ -214,6 +236,8 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
       console.error('Error sending message:', err);
       toast.dismiss();
       toast.error('Failed to send message. Please try again.');
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -242,7 +266,7 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
 
   if (!conversationId) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-gray-50">
+      <div className="flex-1 flex items-center justify-center bg-white">
         <div className="text-center">
           <ChatBubbleLeftRightIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No conversation selected</h3>
@@ -255,7 +279,7 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-gray-50">
+    <div className="flex-1 flex flex-col bg-white">
       {/* Header with recipient info */}
       {otherParticipant && (
         <div className="bg-white border-b border-gray-200 p-4 flex items-center">
@@ -289,8 +313,8 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
         </div>
       )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Messages (no inner scrollbar) */}
+      <div className="flex-1 p-4 space-y-4">
         {loading ? (
           <div className="flex justify-center items-center h-full">
             <div className="text-center">
@@ -350,16 +374,16 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
       
       {/* Message Input */}
       <div className="p-4 border-t border-gray-200 bg-white">
-        <form onSubmit={handleSendMessage} className="flex items-end space-x-2">
+        <form onSubmit={(e) => { e.preventDefault(); if (!isSending) handleSendMessage(e); }} className="flex items-end space-x-2">
           <div className="flex-1">
             <div className="relative">
               <textarea
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
-                onKeyPress={(e) => {
+                onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey && isConnected) {
                     e.preventDefault();
-                    handleSendMessage(e);
+                    if (!isSending) handleSendMessage(e);
                   }
                 }}
                 className={`form-input w-full pr-20 py-3 rounded-lg resize-none ${!isConnected ? 'bg-gray-100 cursor-not-allowed' : ''}`}

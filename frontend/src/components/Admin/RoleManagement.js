@@ -144,10 +144,12 @@ const RoleManagement = () => {
     const newRole = e.target.role.value;
     
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ role: newRole, updated_at: new Date().toISOString() })
-        .eq('id', selectedUser.id);
+      const makeAdmin = newRole === 'admin' || newRole === 'super_admin';
+      const { error } = await supabase.rpc('admin_set_user_role', {
+        target: selectedUser.id,
+        new_role: newRole,
+        make_admin: makeAdmin
+      });
 
       if (error) throw error;
 

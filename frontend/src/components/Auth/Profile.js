@@ -575,19 +575,35 @@ const Profile = () => {
       
       // If URL is not empty, validate and check for duplicates
       if (trimmedValue !== '') {
-        // Validate URL format if provided
-        if (trimmedValue.length > 0) {
-          // Check if URL has http/https prefix
-          if (!/^https?:\/\//i.test(trimmedValue)) {
-            trimmedValue = 'https://' + trimmedValue;
+        // Ensure http(s) prefix
+        if (!/^https?:\/\//i.test(trimmedValue)) {
+          trimmedValue = 'https://' + trimmedValue;
+        }
+        // Basic URL parse
+        try {
+          const u = new URL(trimmedValue);
+          const host = (u.hostname || '').toLowerCase();
+          const path = (u.pathname || '').toLowerCase();
+          const isHttps = u.protocol === 'https:';
+
+          // Per-field domain allow lists
+          if (field === 'linkedin') {
+            // Enforce no subdomain (no www), https only, and valid path prefix with a handle
+            const pathOk = /^\/(in|pub|company|school)\/[A-Za-z0-9][A-Za-z0-9._%/-]*\/?$/.test(path);
+            if (!isHttps || host !== 'linkedin.com' || !pathOk) {
+              validationError = 'Invalid LinkedIn URL. Use https://linkedin.com/(in|pub|company|school)/... (no www)';
+            }
+          } else if (field === 'github') {
+            if (!isHttps || host !== 'github.com' || !/^\/[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])(\/.*)?$/i.test(path)) {
+              validationError = 'Use a valid GitHub profile URL (e.g., https://github.com/username)';
+            }
+          } else if (field === 'website') {
+            if (!isHttps) {
+              validationError = 'Website must start with https://';
+            }
           }
-          
-          // Check if it's a valid URL format
-          try {
-            new URL(trimmedValue);
-          } catch (e) {
-            validationError = 'Please enter a valid URL';
-          }
+        } catch (e) {
+          validationError = 'Please enter a valid URL';
         }
         
         // Check if same URL is used in other fields
@@ -624,7 +640,7 @@ const Profile = () => {
     }
     // Handle array fields that need to be split (comma-separated values)
     else if (['skills', 'interests', 'languages'].includes(name)) {
-      const items = value.split(',').map(item => item.trim()).filter(item => item);
+      const items = value.split(/[\s,]+/).map(item => item.trim()).filter(item => item);
       setFormData(prev => ({ ...prev, [name]: items }));
     } 
     // Handle all other fields
@@ -715,6 +731,15 @@ const Profile = () => {
   };
 
   // Main render logic
+  // Compute approval status badge styles
+  const approvalStatus = profile?.approval_status || profile?.alumni_verification_status || (profile?.is_approved ? 'approved' : undefined);
+  const statusLabel = approvalStatus ? (approvalStatus.charAt(0).toUpperCase() + approvalStatus.slice(1)) : null;
+  const statusColor = approvalStatus === 'approved'
+    ? 'bg-green-100 text-green-800'
+    : approvalStatus === 'rejected'
+      ? 'bg-red-100 text-red-800'
+      : 'bg-yellow-100 text-yellow-800';
+
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 bg-gray-50">
       <h1 className="text-3xl font-bold text-gray-800 mb-6">Profile Settings</h1>
@@ -748,6 +773,13 @@ const Profile = () => {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">{formData.first_name} {formData.last_name}</h1>
               <p className="text-ocean-600 font-medium">{formData.headline}</p>
+              {statusLabel && (
+                <div className="mt-2">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusColor}`}>
+                    {statusLabel}
+                  </span>
+                </div>
+              )}
               {/* Contact information removed from here to avoid duplication */}
             </div>
           </div>
@@ -1016,6 +1048,11 @@ const Profile = () => {
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   placeholder="https://linkedin.com/in/yourname"
                 />
+                {validationErrors['socialLinks.linkedin'] ? (
+                  <p className="text-red-500 text-xs mt-1">{validationErrors['socialLinks.linkedin']}</p>
+                ) : (
+                  <p className="text-gray-500 text-xs mt-1">Use https://linkedin.com/in/... (no www).</p>
+                )}
               </div>
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">GitHub</label>

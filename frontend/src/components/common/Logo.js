@@ -1,15 +1,17 @@
 import React from 'react';
 
-const Logo = ({ className = 'h-10 w-auto', alt = 'Logo' }) => {
-  // Logo is actually a JPEG despite .png extension
-  // We'll use it directly without the error fallback that was showing
-  
+const Logo = ({ className = 'h-10 w-auto', alt = 'AMET University' }) => {
+  // Use the color-accurate logo placed under public/static
+  // Primary: /static/Logo.png (existing), fallback to legacy /logo.png
+  const [src, setSrc] = React.useState('/static/Logo.png');
+
   return (
-    <div className={className} style={{display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
+    <div className={className} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
       <img
-        src="/logo.png"
+        src={src}
         alt={alt}
-        style={{maxWidth: '100%', maxHeight: '100%', objectFit: 'contain'}}
+        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+        onError={() => setSrc('/logo.png')}
       />
     </div>
   );

@@ -379,7 +379,7 @@ export const signInWithGoogle = async () => {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: `${window.location.origin}/dashboard`, // Direct to dashboard
+      redirectTo: `${window.location.origin}/auth/callback`, // Send to OAuth callback route for processing
       scopes: 'email profile',
       queryParams: {
         access_type: 'offline',
@@ -401,7 +401,7 @@ export const signInWithLinkedIn = async () => {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'linkedin',
     options: {
-      redirectTo: `${window.location.origin}/dashboard`, // Direct to dashboard
+      redirectTo: `${window.location.origin}/auth/callback`, // Send to OAuth callback route for processing
       scopes: 'r_liteprofile r_emailaddress',
       // Pass additional data to be stored in user_metadata
       // This will help with profile creation
@@ -554,58 +554,89 @@ export const applyForJob = async (jobId, applicationData) => {
   return { data, error };
 };
 
-// Conversation functions
+// Conversation functions (aligned with conversation_participants schema)
 export const fetchConversations = async (userId) => {
-  const { data, error } = await supabase
-    .from('conversations')
-    .select(`
-      id, 
-      last_message_at,
-      created_at,
-      participant_1:participant_1(id, full_name, avatar_url),
-      participant_2:participant_2(id, full_name, avatar_url)
-    `)
-    .or(`participant_1.eq.${userId},participant_2.eq.${userId}`)
-    .order('last_message_at', { ascending: false });
-  
-  if (error) {
-    console.error('Error fetching conversations:', error);
+  // Prefer RPC if available for efficient fetching
+  try {
+    const { data, error } = await supabase.rpc('get_user_conversations_v2', { p_user_id: userId });
+    if (error) throw error;
+    return { data, error: null };
+  } catch (rpcErr) {
+    // Fallback: derive conversations via conversation_participants
+    try {
+      const { data: myConvs, error: convsError } = await supabase
+        .from('conversation_participants')
+        .select('conversation_id, conversation:conversations(id, last_message_at, created_at)')
+        .eq('user_id', userId);
+      if (convsError) return { data: null, error: convsError };
+
+      // Deduplicate conversation IDs
+      const seen = new Set();
+      const convIds = [];
+      (myConvs || []).forEach(r => {
+        if (!seen.has(r.conversation_id)) {
+          seen.add(r.conversation_id);
+          convIds.push({ id: r.conversation_id, last_message_at: r.conversation?.last_message_at || null, created_at: r.conversation?.created_at || null });
+        }
+      });
+
+      // For each conversation, fetch the other participant profile
+      const detailed = await Promise.all(convIds.map(async (c) => {
+        const { data: otherRow } = await supabase
+          .from('conversation_participants')
+          .select('user:profiles(id, full_name, avatar_url, is_online)')
+          .eq('conversation_id', c.id)
+          .neq('user_id', userId)
+          .limit(1)
+          .maybeSingle();
+        return {
+          conversation_id: c.id,
+          last_message_at: c.last_message_at,
+          created_at: c.created_at,
+          other_participant: otherRow?.user || null,
+        };
+      }));
+
+      return { data: detailed, error: null };
+    } catch (fbErr) {
+      console.error('Error fetching conversations (fallback):', fbErr);
+      return { data: null, error: fbErr };
+    }
   }
-  
-  return { data, error };
 };
 
 export const createConversation = async (user1Id, user2Id) => {
-  // First check if conversation already exists
-  const { data: existingConv, error: checkError } = await supabase
-    .from('conversations')
-    .select('id')
-    .or(
-      `and(participant_1.eq.${user1Id},participant_2.eq.${user2Id}),` +
-      `and(participant_1.eq.${user2Id},participant_2.eq.${user1Id})`
-    )
-    .maybeSingle();
-    
-  if (checkError) {
-    return { data: null, error: checkError };
+  // Check for existing conversation via join table: conversations having both users
+  const { data: parts, error: partsErr } = await supabase
+    .from('conversation_participants')
+    .select('conversation_id, user_id')
+    .in('user_id', [user1Id, user2Id]);
+  if (partsErr) return { data: null, error: partsErr };
+
+  const counts = {};
+  (parts || []).forEach(r => {
+    counts[r.conversation_id] = (counts[r.conversation_id] || 0) + 1;
+  });
+  const existingId = Object.keys(counts).find(cid => counts[cid] >= 2);
+  if (existingId) {
+    return { data: { id: existingId }, error: null };
   }
-  
-  if (existingConv) {
-    return { data: existingConv, error: null };
-  }
-  
-  const { data, error } = await supabase
-    .from('conversations')
-    .insert([
-      { 
-        participant_1: user1Id, 
-        participant_2: user2Id,
-        last_message_at: new Date().toISOString()
-      }
-    ])
-    .select()
-    .single();
-  
+
+  // Use RPC to create or get conversation relative to current auth user
+  // Determine which of the provided IDs matches the current user
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) return { data: null, error: authErr || new Error('Not authenticated') };
+
+  const currentId = user.id;
+  let otherId = null;
+  if (currentId === user1Id) otherId = user2Id;
+  else if (currentId === user2Id) otherId = user1Id;
+  else return { data: null, error: new Error('Current user must be one of the participants') };
+
+  const { data, error } = await supabase.rpc('get_or_create_conversation', {
+    user_1_id: currentId,
+    user_2_id: otherId,
+  });
   return { data, error };
 };
 

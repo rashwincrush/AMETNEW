@@ -350,7 +350,8 @@ const JobListingsPage = () => {
     // - Regular users will only see jobs where is_approved = true
     // - Admin users will see all jobs
     // - Employers will see their own posted jobs regardless of approval status
-    let rpcName = isEmployer ? 'get_my_posted_jobs' : 'get_jobs_with_bookmarks';
+    const isV2 = !isEmployer; // non-employers use v2 unified payload
+    const rpcName = isEmployer ? 'get_my_posted_jobs' : 'get_jobs_with_bookmarks_v2';
     const { data, error } = await supabase.rpc(rpcName, {
       p_search_query: searchQuery,
       p_sort_by: sortField,
@@ -367,38 +368,46 @@ const JobListingsPage = () => {
     } else {
       console.log('Jobs fetched successfully:', data);
       if (data) {
-        const transformedData = data.map(job => ({
-          ...job,
-          companies: { name: job.company_name, logo_url: job.company_logo_url }
-        }));
-
-        if (isEmployer) {
-          setJobs(transformedData);
+        let rows = [];
+        let totalCount = 0;
+        if (isV2) {
+          rows = (data?.items || []).map(job => ({
+            ...job,
+            companies: { name: job.company_name, logo_url: job.company_logo_url }
+          }));
+          totalCount = data?.total_count || 0;
         } else {
-          const uniqueJobs = Array.from(new Map(transformedData.map(job => [job.id, job])).values());
-          setJobs(uniqueJobs);
+          // employer path using get_my_posted_jobs (array shape)
+          rows = data.map(job => ({
+            ...job,
+            companies: { name: job.company_name, logo_url: job.company_logo_url }
+          }));
+          totalCount = data.length > 0 && typeof data[0].total_count !== 'undefined' ? data[0].total_count : data.length;
         }
-        setTotalJobs(data && data.length > 0 ? data[0].total_count : 0);
 
-        // Also update bookmarked jobs state from the fetched data
-        const newBookmarkedJobs = data.filter(j => j.is_bookmarked).map(j => j.id);
+        // Unique by id (safety) and set
+        const uniqueRows = Array.from(new Map(rows.map(job => [job.id, job])).values());
+        setJobs(uniqueRows);
+        setTotalJobs(totalCount);
+        setTotalPages(Math.max(1, Math.ceil(totalCount / pageSize)));
+
+        // Bookmarks
+        const newBookmarkedJobs = uniqueRows.filter(j => j.is_bookmarked).map(j => j.id);
         setBookmarkedJobs(newBookmarkedJobs);
 
-        // Sort jobs to show bookmarked jobs at the top
+        // Keep bookmarked jobs at top in current view
         const bookmarkedJobsIds = new Set(newBookmarkedJobs);
         setJobs(prev => {
-          const currentJobs = isEmployer ? transformedData : Array.from(new Map(transformedData.map(job => [job.id, job])).values());
-          return [...currentJobs].sort((a, b) => {
-            // Bookmarked jobs first
+          return [...uniqueRows].sort((a, b) => {
             if (bookmarkedJobsIds.has(a.id) && !bookmarkedJobsIds.has(b.id)) return -1;
             if (!bookmarkedJobsIds.has(a.id) && bookmarkedJobsIds.has(b.id)) return 1;
-            // Then by the original sort order
             return 0;
           });
         });
       } else {
         setJobs([]);
         setTotalJobs(0);
+        setTotalPages(0);
       }
     }
 
@@ -408,6 +417,15 @@ const JobListingsPage = () => {
   useEffect(() => {
     fetchJobs();
   }, [fetchJobs]);
+
+  // Debounce search term to query string
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearchQuery(searchTerm);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
 
   useEffect(() => {
     console.log('Attaching jobs listener...');
@@ -623,8 +641,10 @@ const JobListingsPage = () => {
         >
           <option value="created_at,desc">Sort by Newest</option>
           <option value="created_at,asc">Sort by Oldest</option>
-          <option value="salary_min,desc">Sort by Salary (High-Low)</option>
-          <option value="salary_min,asc">Sort by Salary (Low-High)</option>
+          <option value="deadline,asc">Deadline (Soonest)</option>
+          <option value="deadline,desc">Deadline (Latest)</option>
+          <option value="title,asc">Title (A-Z)</option>
+          <option value="title,desc">Title (Z-A)</option>
         </select>
       </div>
 

@@ -104,7 +104,9 @@ const Dashboard = () => {
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return '—';
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '—';
     return new Intl.DateTimeFormat('en-US', {
       month: 'short',
       day: 'numeric',
@@ -178,7 +180,9 @@ const Dashboard = () => {
         <div>
           <h3 className="font-semibold">Registrations (last 30 days)</h3>
           <div className="flex space-x-2">
-            {analytics.registrationsByDate.map(d => <div key={d.date}>{d.date}: {d.count}</div>)}
+            {(Array.isArray(analytics?.registrationsByDate) ? analytics.registrationsByDate : []).map((d) => (
+              <div key={d.date}>{d.date}: {d.count}</div>
+            ))}
           </div>
         </div>
       ) : <p>No analytics data.</p>}

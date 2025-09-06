@@ -25,6 +25,8 @@ const EnhancedRegister = () => {
     companySize: '',
     industry: '',
     linkedinProfile: '',
+    githubProfile: '',
+    websiteUrl: '',
     companyWebsite: '',
     interestedInMentorship: false,
     mentorshipRole: '', // mentor, mentee, both
@@ -45,6 +47,37 @@ const EnhancedRegister = () => {
   const [error, setError] = useState(''); // For general form errors or success messages
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [roles, setRoles] = useState([]);
+  const STORAGE_KEY = 'onboarding_registration_v1';
+
+  // Degree program options (consolidated exact set provided)
+  const degreeProgramOptions = [
+    // Undergraduate/Cert/Diploma
+    'HND Marine',
+    'HND Nautical Science',
+    'B.E. Petroleum Engineering',
+    'B.E. Mining Engineering',
+    'B.Sc. Nautical Science',
+    'B.E. Marine Engineering',
+    'B.E. Marine Technology',
+    'B.E. Naval Architecture and Offshore Engineering',
+    'B.E. Mechanical Engineering',
+    'B.E. Electrical and Electronics Engineering – Marine',
+    'B.Com',
+    'B.B.A. Shipping & Logistics',
+    'Electro Technical Officers (ETO)',
+    'Graduate Marine Engineering (GME)',
+    'GP Rating',
+    // P.G. Programmes
+    'M.B.A. Shipping & Logistics Management',
+    'M.E. Naval Architecture and Offshore Engineering',
+    'M.E. Petroleum Engineering',
+    'M.E. Power Systems',
+    'M.E. Marine Engineering',
+    // Additional listed items
+    'HND Marine Engineering',
+    'MBA – Shipping and Logistics Management',
+    'B.E. Harbour Engineer'
+  ];
 
   const skillOptions = [
     'Marine Engineering', 'Naval Architecture', 'Port Operations', 'Shipping Management',
@@ -67,6 +100,52 @@ const EnhancedRegister = () => {
       { name: 'student', description: 'Student' },
     ]);
   }, []);
+
+  // Restore persisted onboarding state from localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          if (parsed.formData && typeof parsed.formData === 'object') {
+            setFormData(prev => ({ ...prev, ...parsed.formData }));
+          }
+          if (parsed.currentStep && [1,2,3].includes(parsed.currentStep)) {
+            setCurrentStep(parsed.currentStep);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to restore onboarding state:', e);
+    }
+  }, []);
+
+  // Persist onboarding state to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ formData, currentStep }));
+    } catch (e) {
+      // Ignore write errors (e.g., storage full)
+    }
+  }, [formData, currentStep]);
+
+  // Warn on unsaved changes if navigating away
+  useEffect(() => {
+    const isDirty = () => {
+      // Consider the form dirty if any input has a value or any array has length
+      const { firstName, lastName, email, password, phone, primaryRole, graduationYear, expectedGraduationYear, degree, department, studentId, companyName, jobTitle, linkedinProfile, githubProfile, websiteUrl, bio } = formData;
+      return [firstName, lastName, email, password, phone, primaryRole, graduationYear, expectedGraduationYear, degree, department, studentId, companyName, jobTitle, linkedinProfile, githubProfile, websiteUrl, bio].some(v => (Array.isArray(v) ? v.length > 0 : (v && String(v).trim() !== '')));
+    };
+    const beforeUnload = (e) => {
+      if (!showSuccessModal && isDirty()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, [formData, showSuccessModal]);
   
   // Reset mentorship role when primaryRole changes to ensure compatibility
   useEffect(() => {
@@ -183,6 +262,18 @@ const EnhancedRegister = () => {
     }
   };
 
+  // Prevent unintended form submission via Enter key across steps
+  const handleFormKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      const tag = (e.target?.tagName || '').toLowerCase();
+      const isTextarea = tag === 'textarea';
+      const isButtonOrLink = tag === 'button' || tag === 'a';
+      if (!isTextarea && !isButtonOrLink) {
+        e.preventDefault();
+      }
+    }
+  };
+
   const handleSkillToggle = (skill) => {
     setFormData((prev) => ({
       ...prev,
@@ -294,19 +385,36 @@ const EnhancedRegister = () => {
     
     // Step 2: Role-specific details validation
     else if (stepToValidate === 2) {
-      if (formData.linkedinProfile && !/^https?:\/\/(www\.)?linkedin\.com\/.+/i.test(formData.linkedinProfile)) {
-        newErrors.linkedinProfile = 'LinkedIn URL must be a valid LinkedIn profile link starting with http:// or https://';
+      if (
+        formData.linkedinProfile &&
+        !/^https:\/\/(www\.)?linkedin\.com\/(in|pub|company|school)\/.+/i.test(formData.linkedinProfile)
+      ) {
+        newErrors.linkedinProfile = 'LinkedIn URL must start with https:// and be on linkedin.com (e.g., https://linkedin.com/in/yourname)';
+      }
+
+      if (
+        formData.githubProfile &&
+        !/^https:\/\/(www\.)?github\.com\/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?(?:\/.*)?$/i.test(formData.githubProfile)
+      ) {
+        newErrors.githubProfile = 'GitHub URL must start with https://github.com/<username>';
+      }
+
+      if (
+        formData.websiteUrl &&
+        !/^https:\/\/[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:\/.+)?$/i.test(formData.websiteUrl)
+      ) {
+        newErrors.websiteUrl = 'Website must be a valid https URL (e.g., https://example.com)';
       }
       
       if (formData.primaryRole === 'alumni') {
         if (!formData.graduationYear) newErrors.graduationYear = 'Graduation year is required.';
         else if (isNaN(parseInt(formData.graduationYear)) || parseInt(formData.graduationYear) < 1950 || parseInt(formData.graduationYear) > new Date().getFullYear()) newErrors.graduationYear = 'Please enter a valid year.';
-        if (!formData.degree.trim()) newErrors.degree = 'Degree obtained is required.';
+        if (!formData.degree || formData.degree === '') newErrors.degree = 'Degree obtained is required.';
       } else if (formData.primaryRole === 'student') {
         if (!formData.expectedGraduationYear) newErrors.expectedGraduationYear = 'Expected graduation year is required.';
         else if (isNaN(parseInt(formData.expectedGraduationYear)) || parseInt(formData.expectedGraduationYear) < new Date().getFullYear() || parseInt(formData.expectedGraduationYear) > new Date().getFullYear() + 10) newErrors.expectedGraduationYear = 'Please enter a valid year.';
         if (!formData.studentId.trim()) newErrors.studentId = 'Student ID is required.';
-        if (!formData.degree.trim()) newErrors.degree = 'Degree program is required.';
+        if (!formData.degree || formData.degree === '') newErrors.degree = 'Degree program is required.';
       } else if (formData.primaryRole === 'employer') {
         if (!formData.companyName.trim()) newErrors.companyName = 'Company name is required.';
         if (!formData.jobTitle.trim()) newErrors.jobTitle = 'Your job title is required.';
@@ -400,7 +508,9 @@ const EnhancedRegister = () => {
           (formData.graduationYear.trim ? formData.graduationYear.trim() : formData.graduationYear) : null,
         expected_graduation_year: (formData.primaryRole === 'student' && formData.expectedGraduationYear) ?
           (formData.expectedGraduationYear.trim ? formData.expectedGraduationYear.trim() : formData.expectedGraduationYear) : null,
-        degree: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.degree.trim() : null,
+        // Store degree under both keys for compatibility; backend uses degree_program
+        degree: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.degree : null,
+        degree_program: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.degree : null,
         department: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.department.trim() : null,
         student_id: formData.primaryRole === 'student' ? formData.studentId.trim() : null,
         is_employer: formData.primaryRole === 'employer',
@@ -410,6 +520,12 @@ const EnhancedRegister = () => {
         company_size: formData.primaryRole === 'employer' ? formData.companySize : null,
         job_title: formData.jobTitle?.trim() || null,
         linkedin_url: formData.linkedinProfile.trim() || null,
+        about: formData.bio.trim() || null,
+        social_links: {
+          ...(formData.linkedinProfile ? { linkedin: formData.linkedinProfile.trim() } : {}),
+          ...(formData.githubProfile ? { github: formData.githubProfile.trim() } : {}),
+          ...(formData.websiteUrl ? { website: formData.websiteUrl.trim() } : {}),
+        },
         skills: formData.skills,
         interests: formData.interests,
         bio: formData.bio.trim() || null,
@@ -443,6 +559,8 @@ const EnhancedRegister = () => {
       }
 
       // On success, show the success modal. The user will be redirected to login after confirming their email.
+      // Clear persisted state on success and show success modal
+      try { localStorage.removeItem(STORAGE_KEY); } catch (e) { console.warn('Failed to clear registration cache', e); }
       setShowSuccessModal(true);
 
     } catch (err) {
@@ -628,7 +746,19 @@ const EnhancedRegister = () => {
             </div>
             <div>
               <label htmlFor="degree" className={commonLabelClass}>Degree Obtained *</label>
-              <input id="degree" name="degree" type="text" required value={formData.degree} onChange={handleChange} placeholder="B.E., B.Sc., B.Com., M.Tech., etc." className={commonInputClass(errors.degree)} />
+              <select
+                id="degree"
+                name="degree"
+                required
+                value={formData.degree}
+                onChange={handleChange}
+                className={`${commonInputClass(errors.degree)} bg-white`}
+              >
+                <option value="" disabled>Select your program</option>
+                {degreeProgramOptions.map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
               {errors.degree && <p className={commonErrorClass}>{errors.degree}</p>}
             </div>
           </div>
@@ -655,7 +785,19 @@ const EnhancedRegister = () => {
           </div>
           <div>
             <label htmlFor="degree" className={commonLabelClass}>Degree Program *</label>
-            <input id="degree" name="degree" type="text" required value={formData.degree} onChange={handleChange} placeholder="e.g., B.Tech Naval Architecture" className={commonInputClass(errors.degree)} />
+            <select
+              id="degree"
+              name="degree"
+              required
+              value={formData.degree}
+              onChange={handleChange}
+              className={`${commonInputClass(errors.degree)} bg-white`}
+            >
+              <option value="" disabled>Select your program</option>
+              {degreeProgramOptions.map(opt => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
             {errors.degree && <p className={commonErrorClass}>{errors.degree}</p>}
           </div>
           <div>
@@ -708,8 +850,20 @@ const EnhancedRegister = () => {
       <div>
         <label htmlFor="linkedinProfile" className={commonLabelClass}>LinkedIn Profile URL</label>
         <input id="linkedinProfile" name="linkedinProfile" type="url" value={formData.linkedinProfile} onChange={handleChange} placeholder="https://linkedin.com/in/yourname" className={commonInputClass(errors.linkedinProfile)} />
-        <p className="text-xs text-gray-500 mt-1">Must start with http:// or https://</p>
+        <p className="text-xs text-gray-500 mt-1">Must start with https:// and be on linkedin.com</p>
         {errors.linkedinProfile && <p className={commonErrorClass}>{errors.linkedinProfile}</p>}
+      </div>
+      <div>
+        <label htmlFor="githubProfile" className={commonLabelClass}>GitHub Profile URL</label>
+        <input id="githubProfile" name="githubProfile" type="url" value={formData.githubProfile} onChange={handleChange} placeholder="https://github.com/yourusername" className={commonInputClass(errors.githubProfile)} />
+        <p className="text-xs text-gray-500 mt-1">Must start with https://github.com/</p>
+        {errors.githubProfile && <p className={commonErrorClass}>{errors.githubProfile}</p>}
+      </div>
+      <div>
+        <label htmlFor="websiteUrl" className={commonLabelClass}>Personal or Company Website</label>
+        <input id="websiteUrl" name="websiteUrl" type="url" value={formData.websiteUrl} onChange={handleChange} placeholder="https://example.com" className={commonInputClass(errors.websiteUrl)} />
+        <p className="text-xs text-gray-500 mt-1">Must be a valid https URL</p>
+        {errors.websiteUrl && <p className={commonErrorClass}>{errors.websiteUrl}</p>}
       </div>
       <div>
         <label htmlFor="currentLocation" className={commonLabelClass}>Current Location</label>
@@ -717,7 +871,7 @@ const EnhancedRegister = () => {
       </div>
       <div>
         <label htmlFor="bio" className={commonLabelClass}>Brief Bio (Optional)</label>
-        <textarea id="bio" name="bio" rows={3} value={formData.bio} onChange={handleChange} placeholder="Tell us a bit about yourself, your experience, or interests..." className={`${commonInputClass(false)} min-h-[80px]`}></textarea>
+        <textarea id="bio" name="bio" rows={3} value={formData.bio} onChange={handleChange} placeholder="Tell us a bit about yourself, your experience, or interests..." className={`${commonInputClass(false)} min-h-[96px] max-h-[256px] resize-y`}></textarea>
       </div>
     </div>
   );
@@ -844,7 +998,7 @@ const EnhancedRegister = () => {
             {/* Predefined Skills */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {skillOptions.map((skill) => (
-                <label key={skill} className="flex items-center p-2.5 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-400 transition-colors">
+                <label key={skill} className="flex items-center p-2.5 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-400 transition-colors min-h-[44px]">
                   <input
                     type="checkbox"
                     checked={formData.skills.includes(skill)}
@@ -852,7 +1006,7 @@ const EnhancedRegister = () => {
                     disabled={formData.skills.length >= 5 && !formData.skills.includes(skill)}
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                   />
-                  <span className="ml-2 text-sm text-gray-700 truncate" title={skill}>{skill}</span>
+                  <span className="ml-2 text-sm text-gray-700 leading-snug truncate" title={skill}>{skill}</span>
                 </label>
               ))}
             </div>
@@ -864,7 +1018,7 @@ const EnhancedRegister = () => {
             <label className={`${commonLabelClass} mb-2`}>Areas of Interest for Mentorship (select up to 5)</label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {interestOptions.map((interest) => (
-                <label key={interest} className="flex items-center p-2.5 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-400 transition-colors">
+                <label key={interest} className="flex items-center p-2.5 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-400 transition-colors min-h-[44px]">
                   <input
                     type="checkbox"
                     checked={formData.interests.includes(interest)}
@@ -872,7 +1026,7 @@ const EnhancedRegister = () => {
                     disabled={formData.interests.length >= 5 && !formData.interests.includes(interest)}
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                   />
-                  <span className="ml-2 text-sm text-gray-700 truncate" title={interest}>{interest}</span>
+                  <span className="ml-2 text-sm text-gray-700 leading-snug truncate" title={interest}>{interest}</span>
                 </label>
               ))}
             </div>
@@ -880,7 +1034,7 @@ const EnhancedRegister = () => {
 
           <div>
             <label htmlFor="mentorshipGoals" className={commonLabelClass}>Mentorship Goals (Optional)</label>
-            <textarea id="mentorshipGoals" name="mentorshipGoals" rows={3} value={formData.mentorshipGoals} onChange={handleChange} placeholder="What do you hope to achieve or offer through mentorship?" className={`${commonInputClass(false)} min-h-[80px]`}></textarea>
+            <textarea id="mentorshipGoals" name="mentorshipGoals" rows={3} value={formData.mentorshipGoals} onChange={handleChange} placeholder="What do you hope to achieve or offer through mentorship?" className={`${commonInputClass(false)} min-h-[96px] max-h-[256px] resize-y`}></textarea>
           </div>
 
           <div className="flex items-start mt-4">
@@ -926,18 +1080,18 @@ const EnhancedRegister = () => {
     <div className="min-h-screen bg-gradient-to-br from-gray-100 to-blue-50 flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-2xl">
         <div className="mb-4">
-          <Link to="/" className="inline-flex items-center text-sm font-medium text-ocean-600 hover:text-ocean-800">
+          <a href="/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-sm font-medium text-ocean-600 hover:text-ocean-800">
             <ArrowLeftIcon className="h-4 w-4 mr-2" />
             Back to Home
-          </Link>
+          </a>
         </div>
       </div>
       <div className="max-w-2xl w-full space-y-8">
         <div className="text-center">
-          <Link to="/" className="flex items-center justify-center space-x-3 mb-6" aria-label="Go to AMET home page">
+          <a href="/" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center space-x-3 mb-6" aria-label="Open AMET home page in a new tab">
             <Logo className="h-12 w-auto" />
             <span className="text-2xl font-bold text-gray-900">AMET Alumni</span>
-          </Link>
+          </a>
           <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900">Join the AMET Network</h2>
           <p className="mt-2 text-md text-gray-600">
             {currentStep === 1 && "Create your account to get started."}
@@ -948,7 +1102,7 @@ const EnhancedRegister = () => {
 
         {renderStepIndicator()}
 
-        <form onSubmit={currentStep === 3 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }}>
+        <form onSubmit={currentStep === 3 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }} onKeyDown={handleFormKeyDown}>
           <div className="bg-white rounded-xl shadow-2xl p-6 md:p-10 space-y-8">
             {error && (
               <div className={`p-4 border rounded-lg text-sm ${error.toLowerCase().includes('successful') || error.toLowerCase().includes('submitted') || error.toLowerCase().includes('verify')
