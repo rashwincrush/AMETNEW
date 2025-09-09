@@ -17,9 +17,15 @@ const GroupCardSkeleton = () => (
 );
 
 // Group card component
-const GroupCard = ({ group, isMember, onJoinLeave, currentUserId }) => {
+const GroupCard = ({ group, isMember, onJoinLeave, currentUserId, canManageAllGroups }) => {
   const isCreator = group.created_by === currentUserId;
   const formattedDate = new Date(group.created_at).toLocaleDateString();
+  const showModeration = isCreator || canManageAllGroups;
+  const moderationState = group.is_rejected
+    ? 'rejected'
+    : (group.is_approved === true || group.approval_status === 'approved')
+      ? 'approved'
+      : 'pending';
   
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-md overflow-hidden transform transition-transform hover:-translate-y-1 hover:shadow-xl">
@@ -71,9 +77,23 @@ const GroupCard = ({ group, isMember, onJoinLeave, currentUserId }) => {
             <Users className="w-3 h-3 mr-1" />
             <span>{group.group_members[0]?.count ?? 0} Members</span>
           </div>
-          <span className={`px-2 py-1 rounded-full ${group.is_private ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
-            {group.is_private ? 'Private' : 'Public'}
-          </span>
+          <div className="flex items-center gap-2">
+            {group.is_admin_only_posts && (
+              <span className="px-2 py-1 rounded-full bg-purple-50 text-purple-700">Admin-only Posts</span>
+            )}
+            <span className={`px-2 py-1 rounded-full ${group.is_private ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+              {group.is_private ? 'Private' : 'Public'}
+            </span>
+            {showModeration && (
+              moderationState === 'approved' ? (
+                <span className="px-2 py-1 rounded-full bg-green-100 text-green-700">Approved</span>
+              ) : moderationState === 'pending' ? (
+                <span className="px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">Pending</span>
+              ) : (
+                <span className="px-2 py-1 rounded-full bg-red-100 text-red-700" title={group.rejection_reason || ''}>Rejected</span>
+              )
+            )}
+          </div>
         </div>
         
         <div className="mt-3 flex justify-between items-center">
@@ -82,7 +102,7 @@ const GroupCard = ({ group, isMember, onJoinLeave, currentUserId }) => {
             {formattedDate}
           </span>
           
-          {!group.is_private || isCreator ? (
+          {!group.is_private || isCreator || canManageAllGroups ? (
             <button
               onClick={() => onJoinLeave(group.id, isMember, group.is_private)}
               className={`text-xs px-3 py-1.5 rounded-md ${isMember 
@@ -94,6 +114,7 @@ const GroupCard = ({ group, isMember, onJoinLeave, currentUserId }) => {
           ) : (
             <button
               disabled
+              title="Ask a group admin to add you."
               className="text-xs px-3 py-1.5 rounded-md bg-gray-100 text-gray-500 cursor-not-allowed"
             >
               Private
@@ -125,6 +146,7 @@ const GroupsList = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState([]);
   const [filter, setFilter] = useState('all'); // 'all', 'joined', 'created'
+  const [privacyFilter, setPrivacyFilter] = useState('all'); // 'all', 'public', 'private'
   
   // Check if user can manage all groups (admin privilege)
   const canManageAllGroups = isAdmin || hasPermission('manage:all_groups');
@@ -159,6 +181,13 @@ const GroupsList = () => {
             filteredData = filteredData.filter(group => group.created_by === user.id);
           }
         }
+
+        // Apply privacy filter for admins, or for non-admins on the merged view
+        if (privacyFilter !== 'all') {
+          filteredData = filteredData.filter(g =>
+            privacyFilter === 'public' ? g.is_private === false : g.is_private === true
+          );
+        }
         
         setGroups(filteredData);
         
@@ -178,7 +207,7 @@ const GroupsList = () => {
     };
 
     getGroups();
-  }, [user, searchQuery, selectedTags, filter, canManageAllGroups]);
+  }, [user, searchQuery, selectedTags, filter, privacyFilter, canManageAllGroups]);
 
   const handleJoinLeave = async (groupId, isMember, isPrivate) => {
     if (!user) {
@@ -268,23 +297,36 @@ const GroupsList = () => {
             </div>
           </div>
           
-          {/* Filter dropdown for logged in users */}
-          {user && (
-            <div className="flex-shrink-0">
-              <div className="relative">
-                <select
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                  className="pl-8 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
+          {/* Filter pills */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Privacy pills */}
+            <div className="flex items-center gap-1">
+              {['all','public','private'].map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPrivacyFilter(p)}
+                  className={`text-xs px-3 py-1 rounded-full border ${privacyFilter === p ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
                 >
-                  <option value="all">All Groups</option>
-                  <option value="joined">My Groups</option>
-                  <option value="created">Created By Me</option>
-                </select>
-                <Filter className="absolute left-2 top-2.5 text-gray-400 w-4 h-4" />
-              </div>
+                  {p === 'all' ? 'All' : p[0].toUpperCase() + p.slice(1)}
+                </button>
+              ))}
             </div>
-          )}
+
+            {/* Membership pills (if logged in) */}
+            {user && (
+              <div className="flex items-center gap-1 ml-2">
+                {[{k:'all',label:'All'},{k:'joined',label:'Joined'},{k:'created',label:'Created'}].map(opt => (
+                  <button
+                    key={opt.k}
+                    onClick={() => setFilter(opt.k)}
+                    className={`text-xs px-3 py-1 rounded-full border ${filter === opt.k ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         
         {/* Tags filter */}
@@ -325,6 +367,7 @@ const GroupsList = () => {
               isMember={group.is_member === true || userMemberships.includes(group.id)}
               onJoinLeave={handleJoinLeave}
               currentUserId={user?.id}
+              canManageAllGroups={canManageAllGroups}
             />
           ))
         ) : (

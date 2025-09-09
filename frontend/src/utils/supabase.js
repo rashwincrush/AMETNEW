@@ -844,7 +844,7 @@ export const fetchGroupDetails = async (groupId) => {
     .select(`
       *,
       creator:profiles!groups_created_by_fkey(id, full_name, avatar_url),
-      members:group_members(profiles(*))
+      members:group_members(role, profiles(*))
     `)
     .eq('id', groupId)
     .single();
@@ -855,7 +855,7 @@ export const fetchGroupDetails = async (groupId) => {
       .from('groups')
       .select(`
         *,
-        members:group_members(profiles(*))
+        members:group_members(role, profiles(*))
       `)
       .eq('id', groupId)
       .single();
@@ -905,15 +905,23 @@ export const leaveGroup = async (groupId, userId) => {
 };
 
 // Fetch posts from a specific group
-export const fetchGroupPosts = async (groupId) => {
-  const { data, error } = await supabase
+export const fetchGroupPosts = async (groupId, options = {}) => {
+  const { cursor = null, limit = 20 } = options;
+  let q = supabase
     .from('group_posts')
     .select(`
       *,
       author:profiles(*)
     `)
     .eq('group_id', groupId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (cursor) {
+    // For stable pagination, filter to items older than cursor.created_at or equal with id tie-breaker
+    // This requires the caller to pass an object { created_at, id }
+    q = q.lt('created_at', cursor.created_at || new Date().toISOString());
+  }
+  const { data, error } = await q;
   return { data, error };
 };
 
@@ -936,6 +944,27 @@ export const deleteGroupPost = async (postId) => {
   return { data, error };
 };
 
+// Update a post in a group (content and/or image)
+export const updateGroupPost = async (postId, updates) => {
+  const { data, error } = await supabase
+    .from('group_posts')
+    .update(updates)
+    .eq('id', postId)
+    .select()
+    .single();
+  return { data, error };
+};
+
+// Report a group post
+export const reportGroupPost = async ({ post_id, reason }) => {
+  const { data, error } = await supabase
+    .from('group_post_reports')
+    .insert([{ post_id, reason }])
+    .select()
+    .single();
+  return { data, error };
+};
+
 // Remove a member from a group
 export const removeGroupMember = async (groupId, userId) => {
   const { data, error } = await supabase
@@ -951,6 +980,29 @@ export const updateGroupDetails = async (groupId, updates) => {
   const { data, error } = await supabase
     .from('groups')
     .update(updates)
+    .eq('id', groupId)
+    .select()
+    .single();
+  return { data, error };
+};
+
+// Set member role within a group (e.g., 'admin' | 'member')
+export const setMemberRole = async (groupId, userId, role) => {
+  const { data, error } = await supabase
+    .from('group_members')
+    .update({ role })
+    .eq('group_id', groupId)
+    .eq('user_id', userId)
+    .select()
+    .single();
+  return { data, error };
+};
+
+// Delete a group (admin or group-admin only per RLS)
+export const deleteGroup = async (groupId) => {
+  const { data, error } = await supabase
+    .from('groups')
+    .delete()
     .eq('id', groupId)
     .select()
     .single();

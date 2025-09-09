@@ -11,7 +11,11 @@ import {
   removeGroupMember,
   updateGroupDetails,
   uploadGroupAvatar,
-  uploadPostImage
+  uploadPostImage,
+  updateGroupPost,
+  reportGroupPost,
+  setMemberRole,
+  deleteGroup
 } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
@@ -51,6 +55,22 @@ const GroupDetail = () => {
   const [postToDelete, setPostToDelete] = useState(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
+  // Modals: edit and report
+  const [postToEdit, setPostToEdit] = useState(null);
+  const [editText, setEditText] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [reportPostId, setReportPostId] = useState(null);
+  const [reportReason, setReportReason] = useState('');
+  const [showReportModal, setShowReportModal] = useState(false);
+  // Paging
+  const [hasMore, setHasMore] = useState(true);
+  // Edit group modal
+  const [showEditGroup, setShowEditGroup] = useState(false);
+  const [editGroupName, setEditGroupName] = useState('');
+  const [editGroupDesc, setEditGroupDesc] = useState('');
+  const [editGroupTags, setEditGroupTags] = useState('');
+  const [editGroupPrivate, setEditGroupPrivate] = useState(false);
+  const [editGroupAdminOnly, setEditGroupAdminOnly] = useState(false);
   
   // Refs
   const fileInputRef = useRef(null);
@@ -86,11 +106,12 @@ const GroupDetail = () => {
         membershipData: userMembership
       });
 
-      // Fetch posts if user is a member or the group is public
+      // Fetch posts if user is a member or the group is public (paged)
       if (memberCheck || !groupData.is_private) {
-        const { data: postsData, error: postsError } = await fetchGroupPosts(id);
+        const { data: postsData, error: postsError } = await fetchGroupPosts(id, { limit: 10 });
         if (postsError) throw postsError;
         setPosts(postsData || []);
+        setHasMore((postsData || []).length === 10);
       }
     } catch (err) {
       setError(err.message);
@@ -141,6 +162,21 @@ const GroupDetail = () => {
       setError("An unexpected error occurred. Please try again.");
     }
   };
+
+  // Delete group (admin or group-admin)
+  const handleDeleteGroup = async () => {
+    try {
+      const { error } = await deleteGroup(id);
+      if (error) throw error;
+      window.location.href = '/groups';
+    } catch (err) {
+      console.error('Error deleting group:', err);
+      setError('Failed to delete group.');
+    } finally {
+      setShowConfirmDialog(false);
+      setConfirmAction(null);
+    }
+  };
   
   // Handle removing a member from the group (admin only)
   const handleRemoveMember = async (memberId) => {
@@ -178,6 +214,60 @@ const GroupDetail = () => {
       setError("Failed to delete post.");
     }
   };
+
+  // Edit post modal handlers
+  const openEditModal = (post) => {
+    setPostToEdit(post);
+    setEditText(post.content || '');
+    setShowEditModal(true);
+  };
+  const submitEditPost = async () => {
+    if (!postToEdit) return;
+    try {
+      const { data, error } = await updateGroupPost(postToEdit.id, { content: editText });
+      if (error) throw error;
+      setPosts(prev => prev.map(p => p.id === postToEdit.id ? { ...p, content: data.content } : p));
+      setShowEditModal(false);
+      setPostToEdit(null);
+      setEditText('');
+    } catch (err) {
+      console.error('Error updating post:', err);
+      setError('Failed to update post.');
+    }
+  };
+
+  // Report post modal handlers
+  const openReportModal = (postId) => {
+    setReportPostId(postId);
+    setReportReason('');
+    setShowReportModal(true);
+  };
+  const submitReportPost = async () => {
+    if (!reportPostId || !reportReason.trim()) return;
+    try {
+      const { error } = await reportGroupPost({ post_id: reportPostId, reason: reportReason.slice(0, 240) });
+      if (error) throw error;
+      setShowReportModal(false);
+      setReportPostId(null);
+      setReportReason('');
+    } catch (err) {
+      console.error('Error reporting post:', err);
+      setError('Failed to submit report.');
+    }
+  };
+
+  const loadMorePosts = async () => {
+    if (!posts.length) return;
+    const last = posts[posts.length - 1];
+    try {
+      const { data, error } = await fetchGroupPosts(id, { cursor: { created_at: last.created_at }, limit: 10 });
+      if (error) throw error;
+      setPosts(prev => [...prev, ...(data || [])]);
+      setHasMore((data || []).length === 10);
+    } catch (err) {
+      console.error('Error loading more posts:', err);
+    }
+  };
   
   // Show confirmation dialog for actions
   const showConfirm = (action, data) => {
@@ -187,6 +277,8 @@ const GroupDetail = () => {
     } else if (action === 'deletePost') {
       setPostToDelete(data);
       setConfirmAction('deletePost');
+    } else if (action === 'deleteGroup') {
+      setConfirmAction('deleteGroup');
     }
     setShowConfirmDialog(true);
   };
@@ -197,6 +289,8 @@ const GroupDetail = () => {
       handleRemoveMember(memberToRemove);
     } else if (confirmAction === 'deletePost' && postToDelete) {
       handleDeletePost(postToDelete);
+    } else if (confirmAction === 'deleteGroup') {
+      handleDeleteGroup();
     }
   };
   
@@ -322,12 +416,14 @@ const GroupDetail = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
             <h3 className="text-lg font-bold mb-4">
-              {confirmAction === 'removeMember' ? 'Remove Member' : 'Delete Post'}
+              {confirmAction === 'removeMember' ? 'Remove Member' : confirmAction === 'deleteGroup' ? 'Delete Group' : 'Delete Post'}
             </h3>
             <p className="mb-6">
               {confirmAction === 'removeMember'
                 ? 'Are you sure you want to remove this member from the group?'
-                : 'Are you sure you want to delete this post? This action cannot be undone.'}
+                : confirmAction === 'deleteGroup'
+                  ? 'Are you sure you want to delete this group? This action cannot be undone.'
+                  : 'Are you sure you want to delete this post? This action cannot be undone.'}
             </p>
             <div className="flex justify-end space-x-3">
               <button
@@ -341,6 +437,98 @@ const GroupDetail = () => {
                 className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
               >
                 {confirmAction === 'removeMember' ? 'Remove' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Post Modal */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+            <h3 className="text-lg font-bold mb-4">Edit Post</h3>
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              className="w-full p-2 border rounded mb-4"
+              maxLength={1000}
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowEditModal(false)} className="px-4 py-2 border rounded">Cancel</button>
+              <button onClick={submitEditPost} className="px-4 py-2 bg-blue-600 text-white rounded">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Post Modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+            <h3 className="text-lg font-bold mb-4">Report Post</h3>
+            <p className="text-sm text-gray-600 mb-2">Please describe the issue (max 240 chars).</p>
+            <textarea
+              value={reportReason}
+              onChange={(e) => setReportReason(e.target.value)}
+              className="w-full p-2 border rounded mb-4"
+              maxLength={240}
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowReportModal(false)} className="px-4 py-2 border rounded">Cancel</button>
+              <button onClick={submitReportPost} disabled={!reportReason.trim()} className="px-4 py-2 bg-red-600 text-white rounded disabled:opacity-50">Submit</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Group Modal */}
+      {showEditGroup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-lg w-full">
+            <h3 className="text-lg font-bold mb-4">Edit Group</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm text-gray-700">Name</label>
+                <input value={editGroupName} onChange={(e) => setEditGroupName(e.target.value)} className="w-full p-2 border rounded" />
+              </div>
+              <div>
+                <label className="text-sm text-gray-700">Description</label>
+                <textarea value={editGroupDesc} onChange={(e) => setEditGroupDesc(e.target.value)} className="w-full p-2 border rounded" />
+              </div>
+              <div>
+                <label className="text-sm text-gray-700">Tags (comma-separated)</label>
+                <input value={editGroupTags} onChange={(e) => setEditGroupTags(e.target.value)} className="w-full p-2 border rounded" />
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editGroupPrivate} onChange={(e) => setEditGroupPrivate(e.target.checked)} /> Private</label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editGroupAdminOnly} onChange={(e) => setEditGroupAdminOnly(e.target.checked)} /> Admin-only Posts</label>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setShowEditGroup(false)} className="px-4 py-2 border rounded">Cancel</button>
+              <button
+                onClick={async () => {
+                  try {
+                    const updates = {
+                      name: editGroupName,
+                      description: editGroupDesc,
+                      is_private: editGroupPrivate,
+                      is_admin_only_posts: editGroupAdminOnly,
+                      tags: editGroupTags.split(',').map(t => t.trim()).filter(Boolean),
+                    };
+                    const { data, error } = await updateGroupDetails(id, updates);
+                    if (error) throw error;
+                    setGroup(prev => ({ ...prev, ...data }));
+                    setShowEditGroup(false);
+                  } catch (err) {
+                    console.error('Error updating group:', err);
+                    setError('Failed to update group');
+                  }
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded"
+              >
+                Save
               </button>
             </div>
           </div>
@@ -398,17 +586,60 @@ const GroupDetail = () => {
               </div>
               
               <div className="flex-grow">
-                <h1 className="text-3xl font-bold text-gray-800">{group.name}</h1>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-3xl font-bold text-gray-800 mr-2">{group.name}</h1>
+                  {/* Privacy badge */}
+                  <span className={`px-2 py-1 rounded-full text-xs ${group.is_private ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                    {group.is_private ? 'Private' : 'Public'}
+                  </span>
+                  {/* Admin-only posts badge */}
+                  {group.is_admin_only_posts && (
+                    <span className="px-2 py-1 rounded-full text-xs bg-purple-50 text-purple-700">Admin-only Posts</span>
+                  )}
+                  {/* Moderation chip (creator/admin only) */}
+                  {(user?.id === group.created_by || isAdmin) && (
+                    group.is_rejected ? (
+                      <span className="px-2 py-1 rounded-full text-xs bg-red-100 text-red-700" title={group.rejection_reason || ''}>Rejected</span>
+                    ) : (group.is_approved || group.approval_status === 'approved') ? (
+                      <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-700">Approved</span>
+                    ) : (
+                      <span className="px-2 py-1 rounded-full text-xs bg-yellow-100 text-yellow-700">Pending</span>
+                    )
+                  )}
+                </div>
                 <p className="text-gray-600 mt-1">{group.description}</p>
               </div>
             </div>
             
-            <div className="flex-shrink-0 mt-4 md:mt-0 md:ml-4">
+            <div className="flex-shrink-0 mt-4 md:mt-0 md:ml-4 flex items-center gap-2">
               <button 
                 onClick={handleMembership}
                 className={`px-6 py-2 rounded-lg font-semibold text-white transition-all ${isMember ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
                 {isMember ? 'Leave Group' : 'Join Group'}
               </button>
+              {(isAdmin || user?.id === group.created_by) && (
+                <>
+                  <button
+                    onClick={() => {
+                      setEditGroupName(group.name || '');
+                      setEditGroupDesc(group.description || '');
+                      setEditGroupTags(Array.isArray(group.tags) ? group.tags.join(', ') : '');
+                      setEditGroupPrivate(!!group.is_private);
+                      setEditGroupAdminOnly(!!group.is_admin_only_posts);
+                      setShowEditGroup(true);
+                    }}
+                    className="px-4 py-2 rounded border text-sm hover:bg-gray-50"
+                  >
+                    Edit Group
+                  </button>
+                  <button
+                    onClick={() => showConfirm('deleteGroup')}
+                    className="px-4 py-2 rounded border border-red-600 text-red-600 text-sm hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                </>
+              )}
             </div>
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200">
@@ -432,65 +663,72 @@ const GroupDetail = () => {
           {activeTab === 'posts' && (
             isMember ? (
               <div>
-                <div className="bg-white shadow-md rounded-lg p-6 mb-6">
-                  <h2 className="text-xl font-bold mb-4">Create a Post</h2>
-                  <form onSubmit={handleCreatePost}>
-                    <textarea 
-                      value={newPostContent} 
-                      onChange={(e) => setNewPostContent(e.target.value)} 
-                      className="w-full p-2 border rounded" 
-                      placeholder="What's on your mind?" 
-                    />
+                {!group.is_admin_only_posts || isAdmin ? (
+                  <div className="bg-white shadow-md rounded-lg p-6 mb-6">
+                    <h2 className="text-xl font-bold mb-4">Create a Post</h2>
+                    <form onSubmit={handleCreatePost}>
+                      <textarea 
+                        value={newPostContent} 
+                        onChange={(e) => setNewPostContent(e.target.value)} 
+                        className="w-full p-2 border rounded" 
+                        placeholder="What's on your mind?" 
+                        maxLength={1000}
+                      />
                     
-                    {/* Image preview */}
-                    {postImagePreview && (
-                      <div className="relative mt-2 inline-block">
-                        <img 
-                          src={postImagePreview} 
-                          alt="Preview" 
-                          className="max-h-40 rounded border" 
-                        />
-                        <button
-                          type="button"
-                          onClick={removeSelectedImage}
-                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                      {/* Image preview */}
+                      {postImagePreview && (
+                        <div className="relative mt-2 inline-block">
+                          <img 
+                            src={postImagePreview} 
+                            alt="Preview" 
+                            className="max-h-40 rounded border" 
+                          />
+                          <button
+                            type="button"
+                            onClick={removeSelectedImage}
+                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      )}
+                    
+                      <div className="mt-2 flex items-center justify-between">
+                        <div className="flex items-center">
+                          {/* Image upload button */}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handlePostImageChange}
+                            className="hidden"
+                            ref={fileInputRef}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current.click()}
+                            className="flex items-center text-blue-500 hover:text-blue-700 mr-2"
+                          >
+                            <ImageIcon size={18} className="mr-1" />
+                            Add Image
+                          </button>
+                        </div>
+                        
+                        {/* Post button */}
+                        <button 
+                          type="submit" 
+                          disabled={uploadingPost || (!newPostContent.trim() && !postImage)}
+                          className={`px-4 py-2 text-white rounded ${uploadingPost ? 'bg-gray-400' : 'bg-green-500 hover:bg-green-600'}`}
                         >
-                          <X size={16} />
+                          {uploadingPost ? 'Posting...' : 'Post'}
                         </button>
                       </div>
-                    )}
-                    
-                    <div className="mt-2 flex items-center justify-between">
-                      <div className="flex items-center">
-                        {/* Image upload button */}
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handlePostImageChange}
-                          className="hidden"
-                          ref={fileInputRef}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current.click()}
-                          className="flex items-center text-blue-500 hover:text-blue-700 mr-2"
-                        >
-                          <ImageIcon size={18} className="mr-1" />
-                          Add Image
-                        </button>
-                      </div>
-                      
-                      {/* Post button */}
-                      <button 
-                        type="submit" 
-                        disabled={uploadingPost || (!newPostContent.trim() && !postImage)}
-                        className={`px-4 py-2 text-white rounded ${uploadingPost ? 'bg-gray-400' : 'bg-green-500 hover:bg-green-600'}`}
-                      >
-                        {uploadingPost ? 'Posting...' : 'Post'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
+                    </form>
+                  </div>
+                ) : (
+                  <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded p-4 mb-6 text-sm">
+                    Only group admins can post in this group.
+                  </div>
+                )}
                 <div className="space-y-4">
                   {posts.length > 0 ? posts.map(post => (
                     <div key={post.id} className="bg-white shadow-md rounded-lg p-4">
@@ -507,16 +745,38 @@ const GroupDetail = () => {
                           </div>
                         </div>
                         
-                        {/* Delete post button (for admins or post owner) */}
-                        {(isAdmin || post.user_id === user.id) && (
-                          <button 
-                            onClick={() => showConfirm('deletePost', post.id)}
-                            className="text-red-500 hover:text-red-700"
-                            title="Delete post"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {/* Edit post (owner/admin) */}
+                          {(isAdmin || post.user_id === user.id) && (
+                            <button 
+                              onClick={() => openEditModal(post)}
+                              className="text-gray-500 hover:text-gray-700"
+                              title="Edit post"
+                            >
+                              <Edit size={18} />
+                            </button>
+                          )}
+                          {/* Delete post (owner/admin) */}
+                          {(isAdmin || post.user_id === user.id) && (
+                            <button 
+                              onClick={() => showConfirm('deletePost', post.id)}
+                              className="text-red-500 hover:text-red-700"
+                              title="Delete post"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          )}
+                          {/* Report (non-owner) */}
+                          {post.user_id !== user.id && (
+                            <button
+                              onClick={() => openReportModal(post.id)}
+                              className="text-orange-500 hover:text-orange-700"
+                              title="Report post"
+                            >
+                              <Shield size={18} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       
                       {/* Post content */}
@@ -534,6 +794,11 @@ const GroupDetail = () => {
                       )}
                     </div>
                   )) : <p>No posts yet. Be the first!</p>}
+                  {hasMore && (
+                    <div className="text-center">
+                      <button onClick={loadMorePosts} className="px-4 py-2 text-sm rounded bg-gray-100 hover:bg-gray-200">Load more</button>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : <p className="text-center text-gray-600">You must be a member to view and create posts.</p>
@@ -560,17 +825,52 @@ const GroupDetail = () => {
                   </div>
                   
                   {/* Remove member button (admin only, can't remove self or other admins) */}
-                  {isAdmin && 
-                   member.profiles.id !== user.id && 
-                   member.role !== 'admin' && (
-                    <div className="mt-2 text-center">
-                      <button
-                        onClick={() => showConfirm('removeMember', member.profiles.id)}
-                        className="text-red-500 hover:text-red-700 text-sm flex items-center justify-center mx-auto"
-                      >
-                        <UserMinus size={14} className="mr-1" />
-                        Remove
-                      </button>
+                  {isAdmin && member.profiles.id !== user.id && (
+                    <div className="mt-2 text-center space-y-2">
+                      {member.role !== 'admin' ? (
+                        <button
+                          onClick={async () => {
+                            try {
+                              await setMemberRole(id, member.profiles.id, 'admin');
+                              setGroup(prev => ({
+                                ...prev,
+                                members: prev.members.map(m => m.profiles.id === member.profiles.id ? { ...m, role: 'admin' } : m)
+                              }));
+                            } catch (e) {
+                              setError('Failed to promote member');
+                            }
+                          }}
+                          className="text-blue-600 hover:text-blue-800 text-sm flex items-center justify-center mx-auto"
+                        >
+                          Promote to Admin
+                        </button>
+                      ) : (
+                        <button
+                          onClick={async () => {
+                            try {
+                              await setMemberRole(id, member.profiles.id, 'member');
+                              setGroup(prev => ({
+                                ...prev,
+                                members: prev.members.map(m => m.profiles.id === member.profiles.id ? { ...m, role: 'member' } : m)
+                              }));
+                            } catch (e) {
+                              setError('Failed to demote member');
+                            }
+                          }}
+                          className="text-gray-600 hover:text-gray-800 text-sm flex items-center justify-center mx-auto"
+                        >
+                          Demote to Member
+                        </button>
+                      )}
+                      {member.role !== 'admin' && (
+                        <button
+                          onClick={() => showConfirm('removeMember', member.profiles.id)}
+                          className="text-red-500 hover:text-red-700 text-sm flex items-center justify-center mx-auto"
+                        >
+                          <UserMinus size={14} className="mr-1" />
+                          Remove
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
