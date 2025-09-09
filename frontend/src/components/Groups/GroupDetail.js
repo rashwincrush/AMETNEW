@@ -15,8 +15,11 @@ import {
   updateGroupPost,
   reportGroupPost,
   setMemberRole,
-  deleteGroup
+  deleteGroup,
+  fetchGroupMembers,
+  fetchPostComments
 } from '../../utils/supabase';
+import { getMyMembership } from '../../lib/membership';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
   Users, 
@@ -36,11 +39,12 @@ import { format } from 'date-fns';
 
 const GroupDetail = () => {
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [group, setGroup] = useState(null);
   const [posts, setPosts] = useState([]);
   const [isMember, setIsMember] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [newPostContent, setNewPostContent] = useState('');
@@ -64,6 +68,8 @@ const GroupDetail = () => {
   const [showReportModal, setShowReportModal] = useState(false);
   // Paging
   const [hasMore, setHasMore] = useState(true);
+  // Comments per post: { [postId]: { open, loading, items: [], input: '' } }
+  const [comments, setComments] = useState({});
   // Edit group modal
   const [showEditGroup, setShowEditGroup] = useState(false);
   const [editGroupName, setEditGroupName] = useState('');
@@ -84,27 +90,19 @@ const GroupDetail = () => {
       if (groupError) throw groupError;
       setGroup(groupData);
       
-      // Check if user is a member and/or admin
-      // Find membership data - the membership record contains the role
-      const memberships = groupData.members || [];
-      const userMembership = memberships.find(m => m.profiles?.id === user?.id);
-      
-      // Set member status - a user is a member if they have any membership record
-      const memberCheck = !!userMembership;
+      // Determine membership and admin using new helper
+      let memberCheck = false;
+      let adminCheck = false;
+      if (user?.id) {
+        const mem = await getMyMembership(supabase, id);
+        memberCheck = !!mem;
+        const isSiteAdmin = profile?.is_admin === true;
+        adminCheck = (mem?.role === 'admin') || isSiteAdmin;
+      }
       setIsMember(memberCheck);
-      
-      // Admin check - user is an admin if they have 'admin' role in their membership
-      // or if they are a site admin (handled via AuthContext)
-      const adminCheck = 
-        (memberCheck && userMembership.role === 'admin') || 
-        user.is_admin === true;
       setIsAdmin(adminCheck);
 
-      console.log('Group membership status:', { 
-        isMember: memberCheck, 
-        isAdmin: adminCheck,
-        membershipData: userMembership
-      });
+      // console debug removed to avoid referencing undefined variables
 
       // Fetch posts if user is a member or the group is public (paged)
       if (memberCheck || !groupData.is_private) {
@@ -125,6 +123,21 @@ const GroupDetail = () => {
     loadGroupData();
   }, [loadGroupData]);
 
+  // Load members when Members tab is active (admins only)
+  useEffect(() => {
+    const loadMembers = async () => {
+      if (activeTab !== 'members') return;
+      if (!isAdmin) return; // Only admins
+      try {
+        const { data, error } = await fetchGroupMembers(id, 200, 0);
+        if (!error) setMembers(data || []);
+      } catch(e) {
+        console.error('Failed to load members', e);
+      }
+    };
+    loadMembers();
+  }, [activeTab, id, isAdmin]);
+
   const handleMembership = async () => {
     try {
       if (!user) {
@@ -132,6 +145,28 @@ const GroupDetail = () => {
         window.location.href = `/login?redirect=/groups/${id}`;
         return;
       }
+      // Enforce showJoin/showLeave rules
+      const isSiteAdmin = profile?.is_admin === true;
+      const isApproved = group.is_approved === true;
+      const isPrivate = group.is_private === true;
+      const showJoin = !isMember && isApproved && !isPrivate;
+      const showLeave = isMember && !isAdmin; // isAdmin here means group/site admin
+      // Last-admin guard: if current user is an admin trying to leave, ensure another admin exists
+      if (isMember && isAdmin) {
+        const { count, error } = await supabase
+          .from('group_members')
+          .select('role', { count: 'exact', head: true })
+          .eq('group_id', id)
+          .eq('role', 'admin')
+          .neq('user_id', user.id);
+        if (!error && ((count ?? 0) === 0)) {
+          setError('Every group needs at least one admin. Transfer admin role before leaving.');
+          return;
+        }
+      }
+      
+      if (!isMember && !showJoin) return; // no-op if join not allowed
+      if (isMember && !showLeave) return;  // no-op if leave not allowed
       
       const action = isMember ? leaveGroup : joinGroup;
       
@@ -143,7 +178,7 @@ const GroupDetail = () => {
       
       if (error) {
         // Handle specific error cases
-        if (error.code === "23505") {
+        if (error.code === "23505" || error.status === 409) {
           // Duplicate key error - user is already a member
           setError("You're already a member of this group");
         } else if (error.code === "42501") {
@@ -163,7 +198,7 @@ const GroupDetail = () => {
     }
   };
 
-  // Delete group (admin or group-admin)
+  // Delete group (site admin only)
   const handleDeleteGroup = async () => {
     try {
       const { error } = await deleteGroup(id);
@@ -171,7 +206,11 @@ const GroupDetail = () => {
       window.location.href = '/groups';
     } catch (err) {
       console.error('Error deleting group:', err);
-      setError('Failed to delete group.');
+      if (err?.message?.includes('Each group must have at least one admin')) {
+        alert('Cannot delete: archive the group instead (safer), or ask a site admin.');
+      } else {
+        setError('Failed to delete group.');
+      }
     } finally {
       setShowConfirmDialog(false);
       setConfirmAction(null);
@@ -183,12 +222,8 @@ const GroupDetail = () => {
     try {
       const { error } = await removeGroupMember(id, memberId);
       if (error) throw error;
-      
-      // Update the group members list
-      setGroup(prev => ({
-        ...prev,
-        members: prev.members.filter(member => member.profiles.id !== memberId)
-      }));
+      // Update local members list
+      setMembers(prev => prev.filter(m => m.user.id !== memberId));
       
       setMemberToRemove(null);
       setShowConfirmDialog(false);
@@ -245,11 +280,12 @@ const GroupDetail = () => {
   const submitReportPost = async () => {
     if (!reportPostId || !reportReason.trim()) return;
     try {
-      const { error } = await reportGroupPost({ post_id: reportPostId, reason: reportReason.slice(0, 240) });
+      const { error } = await reportGroupPost({ post_id: reportPostId, reason: reportReason.slice(0, 240), reporter_id: user.id });
       if (error) throw error;
       setShowReportModal(false);
       setReportPostId(null);
       setReportReason('');
+      alert('Report sent to admins.');
     } catch (err) {
       console.error('Error reporting post:', err);
       setError('Failed to submit report.');
@@ -332,7 +368,7 @@ const GroupDetail = () => {
     }
   };
   
-  // Handle group avatar upload
+  // Handle group avatar upload (PNG/JPG only, 5MB, upsert true)
   const handleAvatarChange = async (e) => {
     if (!user) {
       alert('You must be logged in to change the group avatar.');
@@ -342,19 +378,31 @@ const GroupDetail = () => {
       const file = e.target.files[0];
       if (!file) return;
 
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
-        alert('File is too large. Please select a file smaller than 5MB.');
+      const ACCEPT = ['image/png','image/jpeg'];
+      const MAX = 5 * 1024 * 1024;
+      if (!ACCEPT.includes(file.type)) {
+        alert('Only PNG or JPG images are allowed.');
+        return;
+      }
+      if (file.size > MAX) {
+        alert('Image must be 5 MB or smaller.');
         return;
       }
 
       setUploadingAvatar(true);
       try {
-        const { url } = await uploadGroupAvatar(file, id);
-        // Update group data with new avatar URL
-        setGroup(prev => ({ ...prev, group_avatar_url: url }));
+        const ext = file.type === 'image/png' ? 'png' : 'jpg';
+        const path = `${id}/avatar.${ext}`;
+        const { error } = await supabase.storage
+          .from('group_avatars')
+          .upload(path, file, { upsert: true, contentType: file.type, cacheControl: '3600' });
+        if (error) throw error;
+        const { data } = supabase.storage.from('group_avatars').getPublicUrl(path);
+        const busted = `${data.publicUrl}?v=${Date.now()}`;
+        setGroup(prev => ({ ...prev, group_avatar_url: busted }));
       } catch (err) {
-        console.error("Error uploading avatar:", err);
-        setError("Failed to upload group avatar.");
+        console.error('Error uploading avatar:', err);
+        setError('Failed to upload group avatar.');
       } finally {
         setUploadingAvatar(false);
       }
@@ -372,29 +420,22 @@ const GroupDetail = () => {
     
     setUploadingPost(true);
     try {
-      let imageUrl = null;
-      
-      // Upload image if selected
+      // First create the post without image to obtain postId
+      const basePost = { group_id: id, content: newPostContent, user_id: user.id };
+      const { data: created, error: createErr } = await createGroupPost(basePost);
+      if (createErr) throw createErr;
+
+      let finalPost = created;
+      // If image selected, upload and update the post
       if (postImage) {
-        const { url, error: uploadError } = await uploadPostImage(postImage, user.id);
+        const { url, error: uploadError } = await uploadPostImage(postImage, id, created.id);
         if (uploadError) throw uploadError;
-        imageUrl = url;
+        const { data: withImg, error: updErr } = await updateGroupPost(created.id, { image_url: url, has_image: true });
+        if (updErr) throw updErr;
+        finalPost = withImg;
       }
-      
-      // Create post with image URL if available
-      const postData = { 
-        group_id: id, 
-        content: newPostContent,
-        user_id: user.id,
-        image_url: imageUrl,
-        has_image: !!imageUrl
-      };
-      
-      const { data, error: postError } = await createGroupPost(postData);
-      if (postError) throw postError;
-      
-      // Update posts list and reset form
-      setPosts([data, ...posts]);
+
+      setPosts(prev => [finalPost, ...prev]);
       setNewPostContent('');
       removeSelectedImage();
     } catch (err) {
@@ -592,6 +633,10 @@ const GroupDetail = () => {
                   <span className={`px-2 py-1 rounded-full text-xs ${group.is_private ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
                     {group.is_private ? 'Private' : 'Public'}
                   </span>
+                  {/* Archived badge */}
+                  {group.is_archived && (
+                    <span className="px-2 py-1 rounded-full text-xs bg-red-100 text-red-700">Archived</span>
+                  )}
                   {/* Admin-only posts badge */}
                   {group.is_admin_only_posts && (
                     <span className="px-2 py-1 rounded-full text-xs bg-purple-50 text-purple-700">Admin-only Posts</span>
@@ -612,34 +657,51 @@ const GroupDetail = () => {
             </div>
             
             <div className="flex-shrink-0 mt-4 md:mt-0 md:ml-4 flex items-center gap-2">
-              <button 
-                onClick={handleMembership}
-                className={`px-6 py-2 rounded-lg font-semibold text-white transition-all ${isMember ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
-                {isMember ? 'Leave Group' : 'Join Group'}
-              </button>
-              {(isAdmin || user?.id === group.created_by) && (
-                <>
-                  <button
-                    onClick={() => {
-                      setEditGroupName(group.name || '');
-                      setEditGroupDesc(group.description || '');
-                      setEditGroupTags(Array.isArray(group.tags) ? group.tags.join(', ') : '');
-                      setEditGroupPrivate(!!group.is_private);
-                      setEditGroupAdminOnly(!!group.is_admin_only_posts);
-                      setShowEditGroup(true);
-                    }}
-                    className="px-4 py-2 rounded border text-sm hover:bg-gray-50"
-                  >
-                    Edit Group
-                  </button>
-                  <button
-                    onClick={() => showConfirm('deleteGroup')}
-                    className="px-4 py-2 rounded border border-red-600 text-red-600 text-sm hover:bg-red-50"
-                  >
-                    Delete
-                  </button>
-                </>
-              )}
+              {(() => {
+                const isSiteAdmin = profile?.is_admin === true;
+                const isApproved = group.is_approved === true;
+                const isPrivate = group.is_private === true;
+                const showManage = isAdmin && !group.is_archived;
+                const showJoin = !group.is_archived && !isMember && isApproved && !isPrivate;
+                const showLeave = !group.is_archived && isMember && !isAdmin;
+                return (
+                  <>
+                    {showJoin && (
+                      <button 
+                        onClick={handleMembership}
+                        className="px-6 py-2 rounded-lg font-semibold text-white transition-all bg-blue-600 hover:bg-blue-700">
+                        Join Group
+                      </button>
+                    )}
+                    {showLeave && (
+                      <button 
+                        onClick={handleMembership}
+                        className="px-6 py-2 rounded-lg font-semibold text-white transition-all bg-red-500 hover:bg-red-600">
+                        Leave Group
+                      </button>
+                    )}
+                    {showManage && (
+                      <>
+                        <Link
+                          to={`/groups/${id}/manage`}
+                          className="px-4 py-2 rounded border text-sm hover:bg-gray-50"
+                        >
+                          Manage
+                        </Link>
+                        {profile?.is_admin === true && (
+                          <button
+                            onClick={() => showConfirm('deleteGroup')}
+                            className="px-4 py-2 rounded border border-red-600 text-red-600 text-sm hover:bg-red-50"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </>
+                );
+              })()}
+              
             </div>
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200">
@@ -652,7 +714,7 @@ const GroupDetail = () => {
           <div className="border-b border-gray-200">
             <nav className="-mb-px flex space-x-8" aria-label="Tabs">
               <button onClick={() => setActiveTab('posts')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'posts' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}><MessageSquare className="inline-block w-5 h-5 mr-2"/>Posts</button>
-              <button onClick={() => setActiveTab('members')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'members' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}><Users className="inline-block w-5 h-5 mr-2"/>Members ({group.members.length})</button>
+              <button onClick={() => setActiveTab('members')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'members' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}><Users className="inline-block w-5 h-5 mr-2"/>Members ({members.length})</button>
               <button onClick={() => setActiveTab('about')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'about' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}><Info className="inline-block w-5 h-5 mr-2"/>About</button>
             </nav>
           </div>
@@ -661,9 +723,26 @@ const GroupDetail = () => {
         {/* Tab Content */}
         <div>
           {activeTab === 'posts' && (
-            isMember ? (
+            (() => {
+              const adminOnlyPost = group.is_admin_only_posts === true;
+              const publicApproved = (group.is_private === false && group.is_approved === true);
+              const canViewPosts = (isMember || publicApproved) && !group.is_archived;
+              const showPostBox = !group.is_archived && isMember && (isAdmin || !adminOnlyPost);
+              if (!canViewPosts) {
+                if (group.is_archived) {
+                  return <p className="text-center text-gray-600">This group is archived.</p>;
+                }
+                if (group.is_private && !isMember) {
+                  return <p className="text-center text-gray-600">This group is private. Ask an admin for access.</p>;
+                }
+                if (!group.is_approved) {
+                  return <p className="text-center text-gray-600">This group is pending review.</p>;
+                }
+                return <p className="text-center text-gray-600">You don't have access to view posts.</p>;
+              }
+              return (
               <div>
-                {!group.is_admin_only_posts || isAdmin ? (
+                {showPostBox ? (
                   <div className="bg-white shadow-md rounded-lg p-6 mb-6">
                     <h2 className="text-xl font-bold mb-4">Create a Post</h2>
                     <form onSubmit={handleCreatePost}>
@@ -735,12 +814,12 @@ const GroupDetail = () => {
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center">
                           <img 
-                            src={post.profiles?.avatar_url || '/default-avatar.png'} 
-                            alt={post.profiles?.full_name} 
+                            src={post.author?.avatar_url || '/default-avatar.png'} 
+                            alt={post.author?.full_name} 
                             className="w-10 h-10 rounded-full mr-3"
                           />
                           <div>
-                            <p className="font-bold">{post.profiles?.full_name || 'Amet User'}</p>
+                            <p className="font-bold">{post.author?.full_name || 'Amet User'}</p>
                             <p className="text-gray-500 text-sm">{format(new Date(post.created_at), 'PPpp')}</p>
                           </div>
                         </div>
@@ -792,6 +871,79 @@ const GroupDetail = () => {
                           />
                         </div>
                       )}
+
+                      {/* Comments toggle and list */}
+                      <div className="mt-2">
+                        <button
+                          className="text-sm text-blue-600 hover:underline"
+                          onClick={async () => {
+                            setComments(prev => ({
+                              ...prev,
+                              [post.id]: { ...(prev[post.id] || {}), open: !prev[post.id]?.open }
+                            }));
+                            const entry = comments[post.id];
+                            if (!entry || (!entry.items && !entry.loading)) {
+                              setComments(prev => ({ ...prev, [post.id]: { ...(prev[post.id] || {}), loading: true } }));
+                              const { data } = await fetchPostComments(post.id);
+                              setComments(prev => ({ ...prev, [post.id]: { open: true, loading: false, items: data || [], input: '' } }));
+                            }
+                          }}
+                        >
+                          {comments[post.id]?.open ? 'Hide comments' : 'Comments'}
+                        </button>
+                        {comments[post.id]?.open && (
+                          <div className="mt-2 space-y-2">
+                            {(comments[post.id]?.items || []).map(c => (
+                              <div key={c.id} className="border-t pt-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center">
+                                    <img src={c.author?.avatar_url || '/default-avatar.png'} alt={c.author?.full_name} className="w-6 h-6 rounded-full mr-2" />
+                                    <span className="text-sm font-medium">{c.author?.full_name || 'Amet User'}</span>
+                                    <span className="text-xs text-gray-500 ml-2">{format(new Date(c.created_at), 'PPpp')}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {(isAdmin || c.user_id === user.id) && (
+                                      <button onClick={() => openEditModal(c)} aria-label="Edit comment" className="text-gray-500 hover:text-gray-700"><Edit size={14} /></button>
+                                    )}
+                                    {(isAdmin || c.user_id === user.id) && (
+                                      <button onClick={() => showConfirm('deletePost', c.id)} aria-label="Delete comment" className="text-red-500 hover:text-red-700"><Trash2 size={14} /></button>
+                                    )}
+                                  </div>
+                                </div>
+                                <p className="text-sm mt-1">{c.content}</p>
+                              </div>
+                            ))}
+                            {isMember && (!group.is_admin_only_posts || isAdmin) && (
+                              <div className="flex items-center gap-2 mt-2">
+                                <input
+                                  type="text"
+                                  value={comments[post.id]?.input || ''}
+                                  onChange={(e) => setComments(prev => ({ ...prev, [post.id]: { ...(prev[post.id] || {}), input: e.target.value } }))}
+                                  className="flex-1 border rounded px-2 py-1 text-sm"
+                                  placeholder="Write a comment..."
+                                  maxLength={500}
+                                />
+                                <button
+                                  className="text-sm px-3 py-1 bg-blue-600 text-white rounded"
+                                  onClick={async () => {
+                                    const text = (comments[post.id]?.input || '').trim();
+                                    if (!text) return;
+                                    const { data, error } = await createGroupPost({ group_id: id, user_id: user.id, content: text, parent_post_id: post.id });
+                                    if (!error && data) {
+                                      setComments(prev => ({
+                                        ...prev,
+                                        [post.id]: { open: true, loading: false, input: '', items: [...(prev[post.id]?.items || []), data] }
+                                      }));
+                                    }
+                                  }}
+                                >
+                                  Send
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )) : <p>No posts yet. Be the first!</p>}
                   {hasMore && (
@@ -801,13 +953,14 @@ const GroupDetail = () => {
                   )}
                 </div>
               </div>
-            ) : <p className="text-center text-gray-600">You must be a member to view and create posts.</p>
+              );
+            })()
           )}
 
           {activeTab === 'members' && (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {group.members.map(member => (
-                <div key={member.profiles.id} className="bg-white p-4 rounded-lg shadow relative">
+              {members.map(member => (
+                <div key={member.user.id} className="bg-white p-4 rounded-lg shadow relative">
                   {/* Admin badge */}
                   {member.role === 'admin' && (
                     <span className="absolute top-2 right-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full flex items-center">
@@ -817,25 +970,22 @@ const GroupDetail = () => {
                   
                   <div className="text-center">
                     <img 
-                      src={member.profiles.avatar_url || '/default-avatar.png'} 
-                      alt={member.profiles.full_name} 
+                      src={member.user.avatar_url || '/default-avatar.png'} 
+                      alt={member.user.full_name} 
                       className="w-20 h-20 rounded-full mx-auto mb-2"
                     />
-                    <p className="font-semibold">{member.profiles.full_name}</p>
+                    <p className="font-semibold">{member.user.full_name}</p>
                   </div>
                   
                   {/* Remove member button (admin only, can't remove self or other admins) */}
-                  {isAdmin && member.profiles.id !== user.id && (
+                  {isAdmin && member.user.id !== user.id && (
                     <div className="mt-2 text-center space-y-2">
                       {member.role !== 'admin' ? (
                         <button
                           onClick={async () => {
                             try {
-                              await setMemberRole(id, member.profiles.id, 'admin');
-                              setGroup(prev => ({
-                                ...prev,
-                                members: prev.members.map(m => m.profiles.id === member.profiles.id ? { ...m, role: 'admin' } : m)
-                              }));
+                              await setMemberRole(id, member.user.id, 'admin');
+                              setMembers(prev => prev.map(m => m.user.id === member.user.id ? { ...m, role: 'admin' } : m));
                             } catch (e) {
                               setError('Failed to promote member');
                             }
@@ -848,11 +998,8 @@ const GroupDetail = () => {
                         <button
                           onClick={async () => {
                             try {
-                              await setMemberRole(id, member.profiles.id, 'member');
-                              setGroup(prev => ({
-                                ...prev,
-                                members: prev.members.map(m => m.profiles.id === member.profiles.id ? { ...m, role: 'member' } : m)
-                              }));
+                              await setMemberRole(id, member.user.id, 'member');
+                              setMembers(prev => prev.map(m => m.user.id === member.user.id ? { ...m, role: 'member' } : m));
                             } catch (e) {
                               setError('Failed to demote member');
                             }
@@ -864,7 +1011,7 @@ const GroupDetail = () => {
                       )}
                       {member.role !== 'admin' && (
                         <button
-                          onClick={() => showConfirm('removeMember', member.profiles.id)}
+                          onClick={() => showConfirm('removeMember', member.user.id)}
                           className="text-red-500 hover:text-red-700 text-sm flex items-center justify-center mx-auto"
                         >
                           <UserMinus size={14} className="mr-1" />

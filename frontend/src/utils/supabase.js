@@ -57,6 +57,7 @@ const _channelRegistry = (() => {
   if (typeof window !== 'undefined') {
     if (!window.__sb_channels__) {
       window.__sb_channels__ = {};
+
     }
     return window.__sb_channels__;
   }
@@ -755,14 +756,15 @@ export const fetchGroups = async (options = {}) => {
     currentUserId = null,
   } = options;
 
-  // Base selection with creator explicit embed and member count
-  const baseSelect = `*, creator:profiles!groups_created_by_fkey(id, full_name, avatar_url), group_members(count)`;
+  // Base selection with creator explicit embed using profiles via FK
+  const baseSelect = `*, creator:profiles!groups_created_by_fkey(id, full_name, avatar_url)`;
 
   // Admin path: fetch all groups
   if (isAdmin) {
     let adminQ = supabase
       .from('groups')
       .select(baseSelect)
+      .eq('is_archived', false)
       .order(sortBy, { ascending: sortOrder === 'asc' })
       .limit(limit);
     if (searchQuery) adminQ = adminQ.ilike('name', `%${searchQuery}%`);
@@ -775,6 +777,7 @@ export const fetchGroups = async (options = {}) => {
   let publicQ = supabase
     .from('groups')
     .select(baseSelect)
+    .eq('is_archived', false)
     .eq('is_private', false)
     .eq('is_approved', true)
     .order(sortBy, { ascending: sortOrder === 'asc' })
@@ -792,7 +795,8 @@ export const fetchGroups = async (options = {}) => {
         .select(`
           group:groups(${baseSelect})
         `)
-        .eq('user_id', currentUserId);
+        .eq('user_id', currentUserId)
+        .eq('groups.is_archived', false);
       if (error) return { data: null, error };
       // Map to group rows and mark membership
       const groups = (data || []).map(r => ({ ...r.group, is_member: true }));
@@ -819,7 +823,8 @@ export const fetchGroups = async (options = {}) => {
   });
 
   // Apply client-side filters that weren't applicable to member join select
-  let filtered = merged;
+  // Also exclude archived groups from listings
+  let filtered = merged.filter(g => g && g.is_archived === false);
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     filtered = filtered.filter(g => (g.name || '').toLowerCase().includes(q));
@@ -838,13 +843,12 @@ export const fetchPublicGroups = async () => {
 
 // Fetch a single group's details, including members
 export const fetchGroupDetails = async (groupId) => {
-  // Try explicit FK embed for creator; fallback if relation name differs
+  // Fetch group with creator only (avoid members embed that can trigger RLS recursion)
   let { data, error } = await supabase
     .from('groups')
     .select(`
       *,
-      creator:profiles!groups_created_by_fkey(id, full_name, avatar_url),
-      members:group_members(role, profiles(*))
+      creator:profiles!groups_created_by_fkey(id, full_name, avatar_url)
     `)
     .eq('id', groupId)
     .single();
@@ -853,10 +857,7 @@ export const fetchGroupDetails = async (groupId) => {
     // Fallback: fetch without creator embed, then resolve creator manually
     const { data: base, error: baseErr } = await supabase
       .from('groups')
-      .select(`
-        *,
-        members:group_members(role, profiles(*))
-      `)
+      .select(`*`)
       .eq('id', groupId)
       .single();
     if (baseErr) return { data: null, error: baseErr };
@@ -872,6 +873,34 @@ export const fetchGroupDetails = async (groupId) => {
     data = { ...base, creator };
     error = null;
   }
+  // Attach members (role, joined_at, user) without embedding to avoid recursive policy path
+  const { data: members, error: membersErr } = await fetchGroupMembers(groupId, 200, 0);
+  if (!membersErr) data = { ...data, members };
+  return { data, error };
+};
+
+// Fetch current user's membership (role) for a group
+export const getMyGroupMembership = async (groupId) => {
+  const { data: authData, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !authData?.user) return { data: null, error: authErr || new Error('Not authenticated') };
+  const userId = authData.user.id;
+  const { data, error } = await supabase
+    .from('group_members')
+    .select('role')
+    .eq('group_id', groupId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  return { data, error };
+};
+
+// Fetch members for a group (role + profile), load on-demand for Members tab
+export const fetchGroupMembers = async (groupId, limit = 200, offset = 0) => {
+  const { data, error } = await supabase
+    .from('group_members')
+    .select('role, joined_at, user:profiles!group_members_user_id_fkey(id, full_name, avatar_url, email, headline)')
+    .eq('group_id', groupId)
+    .order('joined_at', { ascending: false })
+    .range(offset, offset + limit - 1);
   return { data, error };
 };
 
@@ -906,22 +935,34 @@ export const leaveGroup = async (groupId, userId) => {
 
 // Fetch posts from a specific group
 export const fetchGroupPosts = async (groupId, options = {}) => {
-  const { cursor = null, limit = 20 } = options;
+  const { cursor = null, limit = 10 } = options;
   let q = supabase
     .from('group_posts')
     .select(`
       *,
-      author:profiles(*)
+      author:profiles!group_posts_user_id_fkey(id, full_name, avatar_url, headline)
     `)
     .eq('group_id', groupId)
+    .is('parent_post_id', null)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (cursor) {
-    // For stable pagination, filter to items older than cursor.created_at or equal with id tie-breaker
-    // This requires the caller to pass an object { created_at, id }
     q = q.lt('created_at', cursor.created_at || new Date().toISOString());
   }
   const { data, error } = await q;
+  return { data, error };
+};
+
+// Fetch comments (replies) for a post
+export const fetchPostComments = async (postId) => {
+  const { data, error } = await supabase
+    .from('group_posts')
+    .select(`
+      *,
+      author:profiles!group_posts_user_id_fkey(id, full_name, avatar_url, headline)
+    `)
+    .eq('parent_post_id', postId)
+    .order('created_at', { ascending: true });
   return { data, error };
 };
 
@@ -930,7 +971,7 @@ export const createGroupPost = async (postData) => {
   const { data, error } = await supabase
     .from('group_posts')
     .insert([postData])
-    .select()
+    .select('*, author:profiles!group_posts_user_id_fkey(id, full_name, avatar_url, headline)')
     .single();
   return { data, error };
 };
@@ -950,16 +991,16 @@ export const updateGroupPost = async (postId, updates) => {
     .from('group_posts')
     .update(updates)
     .eq('id', postId)
-    .select()
+    .select('*, author:profiles!group_posts_user_id_fkey(id, full_name, avatar_url, headline)')
     .single();
   return { data, error };
 };
 
 // Report a group post
-export const reportGroupPost = async ({ post_id, reason }) => {
+export const reportGroupPost = async ({ post_id, reason, reporter_id }) => {
   const { data, error } = await supabase
     .from('group_post_reports')
-    .insert([{ post_id, reason }])
+    .insert([{ post_id, reason, reporter_id }])
     .select()
     .single();
   return { data, error };
@@ -1013,11 +1054,8 @@ export const deleteGroup = async (groupId) => {
 export const uploadGroupAvatar = async (file, groupId) => {
   try {
     const fileExt = file.name.split('.').pop();
-    const fileName = `group_avatar_${groupId}_${Date.now()}.${fileExt}`;
-    const filePath = fileName;
-    
-    // Use post_images bucket for all uploads
-    const bucketName = 'post_images';
+    const filePath = `${groupId}/avatar.${fileExt}`;
+    const bucketName = 'group_avatars';
     
     const { error: uploadError } = await supabase.storage
       .from(bucketName)
@@ -1048,16 +1086,12 @@ export const uploadGroupAvatar = async (file, groupId) => {
   }
 };
 
-// Upload post image
-export const uploadPostImage = async (file, userId) => {
+// Upload post image to group_posts/{groupId}/{postId}/...
+export const uploadPostImage = async (file, groupId, postId) => {
   try {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `post_image_${userId}_${Date.now()}.${fileExt}`;
-    const filePath = fileName;
-    
-    // Use post_images bucket for all uploads
-    const bucketName = 'post_images';
-    
+    const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
+    const filePath = `${groupId}/${postId}/${Date.now()}-${safeName}`;
+    const bucketName = 'group_posts';
     const { error: uploadError } = await supabase.storage
       .from(bucketName)
       .upload(filePath, file, {
@@ -1065,19 +1099,14 @@ export const uploadPostImage = async (file, userId) => {
         upsert: false,
         contentType: file.type || 'image/png',
       });
-      
     if (uploadError) {
-      console.error('Post image upload error:', uploadError);
       return { error: uploadError };
     }
-    
-    const { data } = supabase.storage
+    const { data: urlData } = supabase.storage
       .from(bucketName)
       .getPublicUrl(filePath);
-      
-    return { url: data.publicUrl };
+    return { url: urlData.publicUrl, error: null };
   } catch (err) {
-    console.error('Error in uploadPostImage:', err);
     return { error: err };
   }
 };

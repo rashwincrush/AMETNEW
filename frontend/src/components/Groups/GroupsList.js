@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase, fetchGroups, joinGroup, leaveGroup } from '../../utils/supabase';
+import { fetchMembershipMap } from '../../utils/memberships';
 import { useAuth } from '../../contexts/AuthContext';
 import { Users, Search, Tag, Calendar, Filter } from 'lucide-react';
 
@@ -17,7 +18,7 @@ const GroupCardSkeleton = () => (
 );
 
 // Group card component
-const GroupCard = ({ group, isMember, onJoinLeave, currentUserId, canManageAllGroups }) => {
+const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, canManageAllGroups }) => {
   const isCreator = group.created_by === currentUserId;
   const formattedDate = new Date(group.created_at).toLocaleDateString();
   const showModeration = isCreator || canManageAllGroups;
@@ -26,6 +27,12 @@ const GroupCard = ({ group, isMember, onJoinLeave, currentUserId, canManageAllGr
     : (group.is_approved === true || group.approval_status === 'approved')
       ? 'approved'
       : 'pending';
+  const isApproved = group.is_approved === true || group.approval_status === 'approved';
+  const isPrivate = group.is_private === true;
+  const isSiteAdmin = !!canManageAllGroups;
+  const showManage = (isGroupAdmin || isSiteAdmin) && !group.is_archived;
+  const showJoin = !group.is_archived && !isMember && isApproved && !isPrivate;
+  const showLeave = !group.is_archived && isMember && !(isGroupAdmin || isSiteAdmin);
   
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-md overflow-hidden transform transition-transform hover:-translate-y-1 hover:shadow-xl">
@@ -75,11 +82,14 @@ const GroupCard = ({ group, isMember, onJoinLeave, currentUserId, canManageAllGr
         <div className="flex items-center justify-between text-xs text-gray-500 border-t pt-3">
           <div className="flex items-center">
             <Users className="w-3 h-3 mr-1" />
-            <span>{group.group_members[0]?.count ?? 0} Members</span>
+            <span>Members</span>
           </div>
           <div className="flex items-center gap-2">
             {group.is_admin_only_posts && (
               <span className="px-2 py-1 rounded-full bg-purple-50 text-purple-700">Admin-only Posts</span>
+            )}
+            {group.is_archived && (
+              <span className="px-2 py-1 rounded-full bg-red-100 text-red-700">Archived</span>
             )}
             <span className={`px-2 py-1 rounded-full ${group.is_private ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
               {group.is_private ? 'Private' : 'Public'}
@@ -102,16 +112,23 @@ const GroupCard = ({ group, isMember, onJoinLeave, currentUserId, canManageAllGr
             {formattedDate}
           </span>
           
-          {!group.is_private || isCreator || canManageAllGroups ? (
+          {showJoin && (
             <button
               onClick={() => onJoinLeave(group.id, isMember, group.is_private)}
-              className={`text-xs px-3 py-1.5 rounded-md ${isMember 
-                ? 'bg-red-50 text-red-600 hover:bg-red-100' 
-                : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+              className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700"
             >
-              {isMember ? 'Leave' : 'Join'}
+              Join
             </button>
-          ) : (
+          )}
+          {showLeave && (
+            <button
+              onClick={() => onJoinLeave(group.id, isMember, group.is_private)}
+              className="text-xs px-3 py-1.5 rounded-md bg-red-50 text-red-600 hover:bg-red-100"
+            >
+              Leave
+            </button>
+          )}
+          {!showJoin && !showLeave && isPrivate && !isSiteAdmin && !isCreator && (
             <button
               disabled
               title="Ask a group admin to add you."
@@ -122,7 +139,7 @@ const GroupCard = ({ group, isMember, onJoinLeave, currentUserId, canManageAllGr
           )}
         </div>
         
-        {isCreator && (
+        {showManage && (
           <div className="mt-2 text-right">
             <Link 
               to={`/groups/${group.id}/manage`}
@@ -138,9 +155,10 @@ const GroupCard = ({ group, isMember, onJoinLeave, currentUserId, canManageAllGr
 };
 
 const GroupsList = () => {
-  const { user, isAdmin, hasPermission } = useAuth();
+  const { user, isAdmin, hasPermission, profile } = useAuth();
   const [groups, setGroups] = useState([]);
   const [userMemberships, setUserMemberships] = useState([]);
+  const [membershipMap, setMembershipMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -197,6 +215,15 @@ const GroupsList = () => {
             .filter(group => group.is_member === true)
             .map(group => group.id);
           setUserMemberships(memberships);
+          // Build membership map for all visible groups to drive accurate CTAs
+          const ids = (filteredData || []).map(g => g.id);
+          try {
+            const mm = await fetchMembershipMap(supabase, ids);
+            setMembershipMap(mm);
+          } catch (mmErr) {
+            console.warn('Failed to load membership map:', mmErr);
+            setMembershipMap({});
+          }
         }
       } catch (err) {
         setError(err.message);
@@ -225,6 +252,21 @@ const GroupsList = () => {
     
     try {
       if (isMember) {
+        // If member is an admin, ensure another admin exists before leaving
+        const mm = membershipMap[groupId];
+        if (mm?.isAdmin) {
+          const { count, error } = await supabase
+            .from('group_members')
+            .select('role', { count: 'exact', head: true })
+            .eq('group_id', groupId)
+            .eq('role', 'admin')
+            .neq('user_id', user.id);
+          if (!error && ((count ?? 0) === 0)) {
+            setError('Every group needs at least one admin. Transfer admin role before leaving.');
+            setTimeout(() => setError(null), 3000);
+            return;
+          }
+        }
         // Leave group - need to pass both groupId and userId
         const { error } = await leaveGroup(groupId, user.id);
         if (error) throw error;
@@ -360,16 +402,20 @@ const GroupsList = () => {
         {loading ? (
           Array.from({ length: 8 }).map((_, index) => <GroupCardSkeleton key={index} />)
         ) : groups.length > 0 ? (
-          groups.map(group => (
-            <GroupCard 
-              key={group.id} 
-              group={group} 
-              isMember={group.is_member === true || userMemberships.includes(group.id)}
-              onJoinLeave={handleJoinLeave}
-              currentUserId={user?.id}
-              canManageAllGroups={canManageAllGroups}
-            />
-          ))
+          groups.map(group => {
+            const mm = membershipMap[group.id] || { isMember: group.is_member === true || userMemberships.includes(group.id), isAdmin: false };
+            return (
+              <GroupCard 
+                key={group.id} 
+                group={group} 
+                isMember={!!mm.isMember}
+                isGroupAdmin={!!mm.isAdmin}
+                onJoinLeave={handleJoinLeave}
+                currentUserId={user?.id}
+                canManageAllGroups={canManageAllGroups}
+              />
+            );
+          })
         ) : (
           <div className="col-span-full text-center py-12">
             <h2 className="text-xl text-gray-600">No groups found.</h2>

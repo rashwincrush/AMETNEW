@@ -49,6 +49,8 @@ import AlumniDirectory from './components/Directory/AlumniDirectory';
 import AlumniProfile from './components/Directory/AlumniProfile';
 import EventsPage from './pages/EventsPage';
 import GroupsPage from './pages/GroupsPage';
+import GroupManage from './pages/GroupManage';
+import RequireGroupAdmin from './routes/RequireGroupAdmin';
 import JobListingsPage from './components/Jobs/JobListingsPage';
 import JobDetails from './components/Jobs/JobDetails';
 import BookmarkedJobs from './components/Jobs/BookmarkedJobs';
@@ -214,6 +216,16 @@ function AppContent() {
             <Route path="/mentorship/mentor/:id" element={<ProtectedRoute requiredPermission="view:alumni_directory"><MentorProfile /></ProtectedRoute>} />
             <Route path="/mentorship/mentor-settings" element={<ProtectedRoute requiredPermission="manage:mentor_profile"><MentorSettings /></ProtectedRoute>} />
             <Route path="/groups/*" element={<ProtectedRoute requiredPermission="access:groups"><GroupsPage /></ProtectedRoute>} />
+            <Route
+              path="/groups/:id/manage"
+              element={
+                <ProtectedRoute requiredPermission="access:groups">
+                  <RequireGroupAdmin>
+                    <GroupManage />
+                  </RequireGroupAdmin>
+                </ProtectedRoute>
+              }
+            />
             <Route path="/messages" element={<ProtectedRoute requiredPermission="message:users"><Messages /></ProtectedRoute>} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/admin/analytics" element={<ProtectedRoute requiredPermission="access:all"><Analytics /></ProtectedRoute>} />
