@@ -1,6 +1,35 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { MagnifyingGlassIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import { formatDistanceToNow } from 'date-fns';
+
+// Simple in-memory cache of failed avatar URLs to avoid retry storms
+const failedAvatarCache = new Set();
+
+const Avatar = ({ url, name }) => {
+  const [failed, setFailed] = useState(() => (url ? failedAvatarCache.has(url) : true));
+  const initial = useMemo(() => (name ? name.charAt(0).toUpperCase() : '?'), [name]);
+
+  if (!url || failed) {
+    return (
+      <div className="w-12 h-12 bg-ocean-100 rounded-full flex items-center justify-center text-ocean-600 font-bold overflow-hidden">
+        {initial}
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt={name || 'avatar'}
+      className="w-12 h-12 rounded-full object-cover"
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      width={48}
+      height={48}
+      onError={() => { failedAvatarCache.add(url); setFailed(true); }}
+    />
+  );
+};
 
 const ConversationList = ({ 
   conversations, 
@@ -114,13 +143,7 @@ const ConversationList = ({
               <div className="flex items-center">
                 {/* Avatar */}
                 <div className="relative">
-                  <div className="w-12 h-12 bg-ocean-100 rounded-full flex items-center justify-center text-ocean-600 font-bold overflow-hidden">
-                    {conversation.avatar ? (
-                      <img src={conversation.avatar} alt={conversation.name} className="w-full h-full object-cover" />
-                    ) : (
-                      conversation.name.charAt(0).toUpperCase()
-                    )}
-                  </div>
+                  <Avatar url={conversation.avatar} name={conversation.name} />
                   
                   {/* Online status indicator */}
                   {conversation.isOnline && (

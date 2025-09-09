@@ -37,7 +37,7 @@ const AlumniCard = ({ alumnus }) => {
 
   const city = alumnus.location_city || alumnus.city;
   const country = alumnus.location_country || alumnus.country;
-  const locationLabel = (city || country || '') || '';
+  const locationLabel = alumnus.locationLabel || city || country || '';
 
   const skills = Array.isArray(alumnus.skills)
     ? alumnus.skills.filter(Boolean)
@@ -91,10 +91,12 @@ const AlumniCard = ({ alumnus }) => {
           {professionNormalized && !alumnus.isPrivate?.profession && (
             <p className="text-sm font-medium text-indigo-600">{professionNormalized}</p>
           )}
-          <div className="flex items-center justify-center text-sm text-gray-500 mt-1">
-            <AcademicCapIcon className="h-4 w-4 mr-1.5 text-gray-400" />
-            <span>Graduated: {alumnus.graduationYear || 'N/A'}</span>
-          </div>
+          {(alumnus.graduationYear || alumnus.gradYear) && (
+            <div className="flex items-center justify-center text-sm text-gray-500 mt-1">
+              <AcademicCapIcon className="h-4 w-4 mr-1.5 text-gray-400" />
+              <span>Graduated: {alumnus.graduationYear || alumnus.gradYear}</span>
+            </div>
+          )}
         </div>
       </div>
       

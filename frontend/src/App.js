@@ -41,7 +41,7 @@ import RejectionPage from './components/Auth/RejectionPage';
 
 // Dashboard Components
 import AlumniDashboard from './components/Dashboard/AlumniDashboard';
-import AdminDashboard from './components/Admin/Dashboard';
+// Always use the production dashboard for all roles
 
 
 // Feature Components
@@ -82,16 +82,18 @@ import UserManagement from './components/Admin/UserManagement';
 
 import AdminSettings from './components/Admin/AdminSettings';
 import FeedbackReport from './components/Admin/FeedbackReport';
+import ActivityLogs from './components/Admin/ActivityLogs';
 import MenteeRegistrationForm from './components/Mentorship/MenteeRegistrationForm';
 import JobApplicationStatus from './components/Jobs/JobApplicationStatus';
 import ManageJobApplications from './components/Jobs/ManageJobApplications';
 import MentorshipDashboard from './components/Mentorship/MentorshipDashboard';
-import MentorDirectory from './components/Mentorship/MentorDirectory';
 import MentorshipStatus from './components/Mentorship/MentorshipStatus';
 import MentorshipChat from './components/Mentorship/MentorshipChat';
-import MentorMatching from './components/Mentorship/MentorMatching';
+import AdminMentorApprovals from './components/Mentorship/AdminMentorApprovals';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
+import Onboarding from './components/Auth/Onboarding';
+import MyMentorship from './components/Mentorship/MyMentorship';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -130,31 +132,13 @@ function AppContent() {
 
 
   const getDashboardComponent = () => {
-    const role = getUserRole();
-    console.log('DEBUG DASHBOARD SELECTION:', { 
-      role, 
-      profile: profile ? { 
-        id: profile.id,
-        role: profile.role,
-        is_admin: profile.is_admin,
-        email: profile.email
-      } : 'no-profile',
+    // Force Production Dashboard for all roles
+    console.log('DEBUG DASHBOARD SELECTION: forcing Production (AlumniDashboard) for all roles', {
+      role: getUserRole(),
+      hasProfile: !!profile,
       path: window.location.pathname
     });
-
-    // Role-based dashboard selection
-    switch (role) {
-      case 'admin':
-      case 'super_admin':
-        console.log('Selected AdminDashboard for role:', role);
-        return <AdminDashboard user={profile || user} />;
-      case 'employer':
-        console.log('Redirecting to Employer dashboard (jobs applications) for employer role');
-        return <Navigate to="/jobs/applications" />;
-      default:
-        console.log('Selected AlumniDashboard for role:', role);
-        return <AlumniDashboard user={profile || user} />;
-    }
+    return <AlumniDashboard user={profile || user} />;
   };
 
   // Check if user is rejected - if so, we'll only render the RejectionPage
@@ -221,22 +205,25 @@ function AppContent() {
             <Route path="/mentorship/become-mentor" element={<ProtectedRoute requiredPermission="manage:mentor_profile"><MentorRegistrationForm /></ProtectedRoute>} />
             <Route path="/mentorship/become-mentee" element={<ProtectedRoute requiredPermission="request:mentorship"><MenteeRegistrationForm /></ProtectedRoute>} />
             <Route path="/mentorship" element={<ProtectedRoute requiredPermission="request:mentorship"><Mentorship /></ProtectedRoute>} />
+            <Route path="/mentorship/me" element={<ProtectedRoute requiredPermission="request:mentorship"><MyMentorship /></ProtectedRoute>} />
             <Route path="/mentorship/dashboard" element={<ProtectedRoute requiredPermission="request:mentorship"><MentorshipDashboard /></ProtectedRoute>} />
-            <Route path="/mentorship/directory" element={<ProtectedRoute requiredPermission="request:mentorship"><MentorDirectory /></ProtectedRoute>} />
+            { /* Deprecated: MentorDirectory route removed */ }
             <Route path="/mentorship/requests" element={<ProtectedRoute requiredPermission="manage:mentee_requests"><MentorshipStatus /></ProtectedRoute>} />
             <Route path="/mentorship/chat/:requestId" element={<ProtectedRoute requiredPermission="chat:mentees"><MentorshipChat /></ProtectedRoute>} />
-            <Route path="/mentorship/matching" element={<ProtectedRoute requiredPermission="request:mentorship"><MentorMatching /></ProtectedRoute>} />
+            { /* Deprecated: MentorMatching route removed */ }
             <Route path="/mentorship/mentor/:id" element={<ProtectedRoute requiredPermission="view:alumni_directory"><MentorProfile /></ProtectedRoute>} />
-            <Route path="/mentorship/mentor-settings" element={<ProtectedRoute requiredPermission="manage:mentor_profile"><MentorRegistrationForm /></ProtectedRoute>} />
+            <Route path="/mentorship/mentor-settings" element={<ProtectedRoute requiredPermission="manage:mentor_profile"><MentorSettings /></ProtectedRoute>} />
             <Route path="/groups/*" element={<ProtectedRoute requiredPermission="access:groups"><GroupsPage /></ProtectedRoute>} />
             <Route path="/messages" element={<ProtectedRoute requiredPermission="message:users"><Messages /></ProtectedRoute>} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/admin/analytics" element={<ProtectedRoute requiredPermission="access:all"><Analytics /></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute requiredPermission="access:all"><UserManagement /></ProtectedRoute>} />
+            <Route path="/admin/activity-logs" element={<ProtectedRoute requiredPermission="access:all"><ActivityLogs /></ProtectedRoute>} />
             <Route path="/admin/settings" element={<ProtectedRoute requiredPermission="access:all"><AdminSettings /></ProtectedRoute>} />
             <Route path="/admin/csv" element={<ProtectedRoute requiredPermission="access:all"><CSVImportExport /></ProtectedRoute>} />
             <Route path="/admin/events/:id/feedback" element={<ProtectedRoute requiredPermission="access:all"><EventFeedbackReport /></ProtectedRoute>} />
-            <Route path="/admin/feedback" element={<ProtectedRoute isSuperAdminOnly={true}><FeedbackReport /></ProtectedRoute>} />
+            <Route path="/admin/mentor-approvals" element={<ProtectedRoute requiredPermission="access:all"><AdminMentorApprovals /></ProtectedRoute>} />
+            <Route path="/admin/feedback" element={<ProtectedRoute requiredPermission="view:feedback_reports"><FeedbackReport /></ProtectedRoute>} />
             <Route path="/rejection" element={<RejectionPage />} />
             <Route path="/access-denied" element={<AccessDenied />} />
             <Route path="*" element={<Navigate to="/dashboard" />} />
@@ -248,6 +235,7 @@ function AppContent() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/home" element={<HomePage />} />
+      <Route path="/onboarding" element={<Onboarding />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<EnhancedRegister />} />
       <Route path="/terms-of-service" element={<TermsOfService />} />

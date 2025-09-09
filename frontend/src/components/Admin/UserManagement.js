@@ -25,9 +25,10 @@ import toast from 'react-hot-toast';
 import UserDetailsModal from './UserDetailsModal';
 import EditUserModal from './EditUserModal';
 import RejectUserModal from './RejectUserModal';
+import MentorsTab from './MentorsTab';
 
 const UserManagement = () => {
-  const { hasPermission, user: currentUser } = useAuth();
+  const { hasPermission, user: currentUser, getUserRole } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTab, setSelectedTab] = useState('all');
@@ -35,7 +36,7 @@ const UserManagement = () => {
 
   const [filters, setFilters] = useState({
     role: 'all',
-    alumni_verification_status: 'all', // legacy key kept; mapped to approval_status
+    alumni_verification_status: 'all', // legacy UI label; we will map to approval_status
   });
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -146,18 +147,36 @@ const UserManagement = () => {
 
   const fetchUsers = async () => {
     setLoading(true);
-    let { data, error } = await supabase
-      .from('profiles')
-      .select('*');
+    try {
+      const [profilesRes, rpcRes] = await Promise.all([
+        supabase.from('profiles').select('*'),
+        // Prefer the new function exposed in migrations: public.get_admin_users()
+        supabase.rpc('get_admin_users')
+      ]);
 
-    if (error) {
+      if (profilesRes.error) throw profilesRes.error;
+
+      const lastMap = new Map();
+      if (!rpcRes.error && Array.isArray(rpcRes.data)) {
+        rpcRes.data.forEach(row => {
+          lastMap.set(row.id, row.last_sign_in_at || null);
+        });
+      } else if (rpcRes.error) {
+        console.warn('get_admin_users RPC not available or failed:', rpcRes.error.message);
+      }
+
+      const merged = (profilesRes.data || []).map(p => ({
+        ...p,
+        last_sign_in_at: lastMap.get(p.id) || null,
+      }));
+      setUsers(merged);
+    } catch (error) {
       console.error('Error fetching users:', error);
       toast.error('Could not fetch users.');
       setUsers([]);
-    } else {
-      setUsers(data || []);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const filteredUsers = useMemo(() => {
@@ -175,9 +194,11 @@ const UserManagement = () => {
 
       let tabMatch = true;
       if (selectedTab === 'pending') {
-        tabMatch = user.approval_status === 'pending' || user.mentor_status === 'pending';
+        // Only include users whose PROFILE approval is pending (source of truth: approval_status)
+        tabMatch = (user.approval_status === 'pending');
       } else if (selectedTab === 'mentors') {
-        tabMatch = user.is_mentor;
+        // Delegated to MentorsTab component; this filter is not used when rendering MentorsTab
+        tabMatch = false;
       } else if (selectedTab === 'employers') {
         tabMatch = user.is_employer;
       } else if (selectedTab === 'deleted') {
@@ -269,10 +290,22 @@ const UserManagement = () => {
             new_status: 'approved',
             reason: null
           });
-          if (error) throw error;
+          if (error) {
+            // Any error -> attempt fallback direct update
+            const { error: updErr } = await supabase
+              .from('profiles')
+              .update({
+                approval_status: 'approved',
+                alumni_verification_status: 'approved',
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', userId);
+            if (updErr) throw updErr;
+          }
           setUsers(currentUsers => currentUsers.map(u => u.id === userId ? { 
             ...u, 
             approval_status: 'approved',
+            alumni_verification_status: 'approved',
             rejection_reason: null 
           } : u));
           toast.success(`${user.full_name || user.email} has been approved.`);
@@ -337,6 +370,17 @@ const UserManagement = () => {
 
   const handleSaveUser = async (userId, newRole) => {
     try {
+      // Guard: prevent demoting the last super_admin
+      if (selectedUser?.id === userId && selectedUser?.role === 'super_admin' && newRole !== 'super_admin') {
+        const { count, error: cntErr } = await supabase
+          .from('profiles')
+          .select('*', { count: 'exact', head: true })
+          .eq('role', 'super_admin');
+        if (!cntErr && (count || 0) <= 1) {
+          toast.error('Cannot demote the last Super Admin. Please assign another Super Admin first.');
+          return;
+        }
+      }
       const makeAdmin = newRole === 'admin' || newRole === 'super_admin';
       const { error } = await supabase.rpc('admin_set_user_role', {
         target: userId,
@@ -352,6 +396,17 @@ const UserManagement = () => {
       fetchUsers(); // Refresh the user list
       setIsEditModalOpen(false);
       setSelectedUser(null);
+
+      // If the current actor changed their own role away from super_admin, refresh session & reload
+      if (userId === currentUser?.id && newRole !== 'super_admin') {
+        try {
+          await supabase.auth.refreshSession();
+        } catch (e) {
+          console.warn('refreshSession failed, proceeding to hard reload');
+        }
+        // Hard reload to ensure guards and context re-evaluate permissions
+        setTimeout(() => window.location.reload(), 300);
+      }
 
     } catch (error) {
       console.error('Error updating user role:', error);
@@ -414,8 +469,28 @@ const UserManagement = () => {
         new_status: 'rejected',
         reason: rejectionComment || null
       });
-      if (error) throw error;
+      if (error) {
+        // Any error -> attempt fallback direct update
+        const { error: updErr } = await supabase
+          .from('profiles')
+          .update({
+            approval_status: 'rejected',
+            alumni_verification_status: 'rejected',
+            rejection_reason: rejectionComment || null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', userId);
+        if (updErr) throw updErr;
+      }
       
+      // Update local UI immediately
+      setUsers(prev => prev.map(u => u.id === userId ? {
+        ...u,
+        approval_status: 'rejected',
+        alumni_verification_status: 'rejected',
+        rejection_reason: rejectionComment || null
+      } : u));
+
       // Remove any stored rejection comments from localStorage if they exist
       // This is to clean up any legacy localStorage items
       try {
@@ -476,7 +551,13 @@ const UserManagement = () => {
             </nav>
           </div>
 
-          {/* Search and Filters */}
+          {/* Render Mentors sub-tab using dedicated MentorsTab */}
+          {selectedTab === 'mentors' ? (
+            <div className="mt-2">
+              <MentorsTab />
+            </div>
+          ) : (
+          /* Search and Filters */
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <div className="md:col-span-2">
               <label htmlFor="search" className="sr-only">Search</label>
@@ -526,6 +607,7 @@ const UserManagement = () => {
               </select>
             </div>
           </div>
+          )}
 
           {/* Bulk Actions */}
           {selectedUsers.length > 0 && (
@@ -557,6 +639,7 @@ const UserManagement = () => {
           )}
 
           {/* Users Table */}
+          {selectedTab !== 'mentors' && (
           <div className="overflow-x-auto rounded-lg border border-gray-200">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -630,8 +713,8 @@ const UserManagement = () => {
                           Deleted
                         </span>
                       ) : (
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(user.alumni_verification_status)}`}>
-                          {user.alumni_verification_status || 'N/A'}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(user.approval_status)}`}>
+                          {user.approval_status || 'N/A'}
                         </span>
                       )}
                     </td>
@@ -642,8 +725,8 @@ const UserManagement = () => {
                       </div>
                     </td>
                     <td className="py-4 px-4">
-                      <span className="text-sm text-gray-600">
-                        {user.last_seen ? new Date(user.last_seen).toLocaleDateString() : 'N/A'}
+                      <span className="text-sm text-gray-600" title={user.last_sign_in_at || ''}>
+                        {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleString() : 'N/A'}
                       </span>
                     </td>
                     <td className="py-4 px-4">
@@ -665,18 +748,18 @@ const UserManagement = () => {
                         {hasPermission('manage:users') && (
                           <>
                             <button 
-                              title={user.alumni_verification_status === 'approved' ? 'Already approved' : 'Approve User'}
-                              disabled={user.alumni_verification_status === 'approved'}
+                              title={user.approval_status === 'approved' ? 'Already approved' : 'Approve User'}
+                              disabled={user.approval_status === 'approved'}
                               onClick={() => handleUserAction('approve', user.id)}
-                              className={`p-1 ${user.alumni_verification_status === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600'}`}
+                              className={`p-1 ${user.approval_status === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600'}`}
                             >
                               <CheckCircleIcon className="w-4 h-4" />
                             </button>
                             <button 
-                              title={user.alumni_verification_status === 'rejected' ? 'Already rejected' : 'Reject User'}
-                              disabled={user.alumni_verification_status === 'rejected'}
+                              title={user.approval_status === 'rejected' ? 'Already rejected' : 'Reject User'}
+                              disabled={user.approval_status === 'rejected'}
                               onClick={() => handleUserAction('reject', user.id)}
-                              className={`p-1 ${user.alumni_verification_status === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600'}`}
+                              className={`p-1 ${user.approval_status === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600'}`}
                             >
                               <XCircleIcon className="w-4 h-4" />
                             </button>
@@ -737,28 +820,25 @@ const UserManagement = () => {
               </tbody>
             </table>
           </div>
+          )}
 
           {/* Pagination */}
-          <div className="flex items-center justify-between mt-6">
-            <p className="text-sm text-gray-600">
-              Showing <span className="font-medium">{filteredUsers.length}</span> of{' '}
-              <span className="font-medium">{users.length}</span> users
-            </p>
-            <div className="flex space-x-2">
-              <button className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
-                Previous
-              </button>
-              <button className="px-3 py-2 bg-ocean-500 text-white rounded-lg text-sm">
-                1
-              </button>
-              <button className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
-                2
-              </button>
-              <button className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
-                Next
-              </button>
+          {selectedTab !== 'mentors' && (
+            <div className="flex items-center justify-between mt-6">
+              <p className="text-sm text-gray-600">
+                Showing <span className="font-medium">{filteredUsers.length}</span> of{' '}
+                <span className="font-medium">{users.length}</span> users
+              </p>
+              <div className="flex space-x-2">
+                <button className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
+                  Previous
+                </button>
+                <button className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
+                  Next
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -773,6 +853,7 @@ const UserManagement = () => {
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         onSave={handleSaveUser}
+        isSuperAdminActor={getUserRole && getUserRole() === 'super_admin'}
       />
       
       <RejectUserModal 

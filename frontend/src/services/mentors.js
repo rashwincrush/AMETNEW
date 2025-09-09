@@ -116,16 +116,37 @@ export const upsertMentor = async (payload) => {
   };
 
   try {
-    const { data, error } = await supabase
+    // RLS-friendly flow: check if a mentor row exists for this user. If yes, UPDATE; else INSERT.
+    const { data: existing, error: selErr } = await supabase
       .from('mentors')
-      .upsert(mentorData, { onConflict: 'user_id' })
-      .select()
-      .single(); // Using single() here is safe because upsert returns the row.
+      .select('id, user_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
 
-    if (error) throw error;
-    return { data, error: null };
+    if (selErr) throw selErr;
+
+    if (existing) {
+      // UPDATE path (allowed by mentors_update policy when user owns the row)
+      const { data, error } = await supabase
+        .from('mentors')
+        .update(mentorData)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return { data, error: null };
+    } else {
+      // INSERT path (allowed by mentors_insert policy only if no existing row)
+      const { data, error } = await supabase
+        .from('mentors')
+        .insert([mentorData])
+        .select()
+        .single();
+      if (error) throw error;
+      return { data, error: null };
+    }
   } catch (error) {
-    console.error('Error upserting mentor profile:', error);
+    console.error('Error saving mentor profile (insert/update):', error);
     return { data: null, error: handlePostgrestError(error) };
   }
 };

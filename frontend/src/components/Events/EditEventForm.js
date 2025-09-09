@@ -40,7 +40,7 @@ const EditEventForm = () => {
   // Form state
   const [formData, setFormData] = useState({
     title: '',
-    description: '',
+    description: '', // UI textarea bound to DB long_description
     event_type: 'workshop',
     start_date: new Date(),
     end_date: new Date(new Date().setHours(new Date().getHours() + 2)),
@@ -49,7 +49,10 @@ const EditEventForm = () => {
     is_public: true,
     registration_required: true,
     registration_deadline: new Date(new Date().setDate(new Date().getDate() + 7)),
-    additional_info: ''
+    additional_info: '',
+    organizer_name: '',
+    organizer_email: '',
+    organizer_phone: ''
   });
 
   const eventTypes = [
@@ -83,6 +86,11 @@ const EditEventForm = () => {
         // Convert string dates to Date objects
         setFormData({
           ...data,
+          // Ensure the textarea shows the long description if present
+          description: data.long_description ?? data.description ?? '',
+          organizer_name: data.organizer_name || '',
+          organizer_email: data.organizer_email || '',
+          organizer_phone: data.organizer_phone || '',
           start_date: parseISO(data.start_date),
           end_date: parseISO(data.end_date),
           registration_deadline: data.registration_deadline ? parseISO(data.registration_deadline) : null
@@ -132,7 +140,8 @@ const EditEventForm = () => {
         .from('events')
         .update({
           title: formData.title,
-          description: formData.description, // Save description as-is without any concatenation
+          // Map UI description to DB long_description to match audit doc
+          long_description: formData.description,
           event_type: formData.event_type,
           start_date: startUtc,
           end_date: endUtc,
@@ -143,6 +152,9 @@ const EditEventForm = () => {
           registration_deadline: registrationDeadlineUTC,
           additional_info: formData.additional_info,
           featured_image_url: formData.featured_image_url,
+          organizer_name: formData.organizer_name,
+          organizer_email: formData.organizer_email,
+          organizer_phone: formData.organizer_phone,
           updated_at: new Date().toISOString(),
         })
         .eq('id', id);
@@ -210,6 +222,38 @@ const EditEventForm = () => {
                 label="Description"
                 name="description"
                 value={formData.description}
+                onChange={handleChange}
+                variant="outlined"
+              />
+            </Grid>
+
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Organizer Name"
+                name="organizer_name"
+                value={formData.organizer_name}
+                onChange={handleChange}
+                variant="outlined"
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Organizer Email"
+                name="organizer_email"
+                type="email"
+                value={formData.organizer_email}
+                onChange={handleChange}
+                variant="outlined"
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <TextField
+                fullWidth
+                label="Organizer Phone"
+                name="organizer_phone"
+                value={formData.organizer_phone}
                 onChange={handleChange}
                 variant="outlined"
               />

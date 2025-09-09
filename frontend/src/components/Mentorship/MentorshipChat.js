@@ -25,7 +25,11 @@ const MentorshipChat = () => {
     try {
       const { data, error } = await supabase
         .from('mentorship_requests')
-        .select('*, mentor:mentor_id(full_name, avatar_url), mentee:mentee_id(full_name, avatar_url)')
+        .select(`
+          *,
+          mentor:profiles!mentorship_requests_mentor_id_fkey(full_name, avatar_url),
+          mentee:profiles!mentorship_requests_mentee_id_fkey(full_name, avatar_url)
+        `)
         .eq('id', requestId)
         .eq('status', 'accepted')
         .single();
@@ -42,9 +46,9 @@ const MentorshipChat = () => {
     try {
       const { data, error } = await supabase
         .from('mentorship_messages')
-        .select('*, sender:sender_id(full_name, avatar_url)')
-        .eq('request_id', requestId)
-        .order('created_at', { ascending: true });
+        .select('*')
+        .eq('mentorship_request_id', requestId)
+        .order('sent_at', { ascending: true });
       if (error) throw error;
       setMessages(data || []);
     } catch (error) {
@@ -79,7 +83,7 @@ const MentorshipChat = () => {
         event: 'INSERT',
         schema: 'public',
         table: 'mentorship_messages',
-        filter: `request_id=eq.${requestId}`,
+        filter: `mentorship_request_id=eq.${requestId}`,
       },
       handleNewMessage
     );
@@ -98,13 +102,10 @@ const MentorshipChat = () => {
     e.preventDefault();
     if (!newMessage.trim() || !requestDetails) return;
 
-    const receiverId = user.id === requestDetails.mentor_id ? requestDetails.mentee_id : requestDetails.mentor_id;
-
     const message = {
-      request_id: requestId,
+      mentorship_request_id: requestId,
       sender_id: user.id,
-      receiver_id: receiverId,
-      message_content: newMessage.trim(),
+      message: newMessage.trim(),
     };
 
     const { error } = await supabase.from('mentorship_messages').insert(message);
@@ -119,7 +120,8 @@ const MentorshipChat = () => {
   if (loading) return <CircularProgress sx={{ display: 'block', margin: 'auto', mt: 4 }} />;
   if (!requestDetails) return <Typography sx={{ textAlign: 'center', mt: 4 }}>This chat is not available.</Typography>;
 
-  const otherParty = user.id === requestDetails.mentor.id ? requestDetails.mentee : requestDetails.mentor;
+  // Determine the other participant's profile from the request details
+  const otherParty = user.id === requestDetails.mentor_id ? requestDetails.mentee : requestDetails.mentor;
 
   return (
     <Box sx={{ maxWidth: 800, margin: 'auto', mt: 4, mb: 4 }}>
@@ -130,12 +132,9 @@ const MentorshipChat = () => {
         <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2, backgroundColor: '#fafafa' }}>
           {messages.map((msg) => (
             <Box key={msg.id} sx={{ mb: 2, display: 'flex', justifyContent: msg.sender_id === user.id ? 'flex-end' : 'flex-start' }}>
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, flexDirection: msg.sender_id === user.id ? 'row-reverse' : 'row' }}>
-                <Avatar src={msg.sender.avatar_url} />
-                <Paper sx={{ p: 1.5, borderRadius: '10px', backgroundColor: msg.sender_id === user.id ? '#1976d2' : '#e0e0e0', color: msg.sender_id === user.id ? 'white' : 'black' }}>
-                  <Typography variant="body1">{msg.message_content}</Typography>
-                </Paper>
-              </Box>
+              <Paper sx={{ p: 1.5, borderRadius: '10px', backgroundColor: msg.sender_id === user.id ? '#1976d2' : '#e0e0e0', color: msg.sender_id === user.id ? 'white' : 'black' }}>
+                <Typography variant="body1">{msg.message}</Typography>
+              </Paper>
             </Box>
           ))}
           <div ref={messagesEndRef} />

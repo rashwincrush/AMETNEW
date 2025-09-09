@@ -184,10 +184,13 @@ const MentorRegistrationForm = () => {
       if (error) {
         notification.showError(`Failed to save profile: ${error}`);
       } else {
-        notification.showSuccess('Your mentor profile has been saved successfully!');
+        // Success popup and redirect to My Mentorship hub
+        notification.showSuccess('Mentor details saved. Redirecting to My Mentorship...');
         if (isNewMentor) setIsNewMentor(false);
         // Update status for subsequent saves
         setExistingMentorStatus(data.status);
+        // Navigate to My Mentorship after a short delay to allow the toast to be seen
+        setTimeout(() => navigate('/mentorship/me'), 800);
       }
     } finally {
       setSaving(false);

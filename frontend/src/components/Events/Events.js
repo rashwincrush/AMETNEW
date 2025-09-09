@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { 
   CalendarIcon,
   MapPinIcon,
@@ -14,23 +14,72 @@ import {
   BuildingOfficeIcon
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
+import { formatInIST } from '../../utils/timezone';
+import { logActivity } from '../../utils/activityLogger';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 
 const Events = () => {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [viewMode, setViewMode] = useState('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
-  const [selectedEventType, setSelectedEventType] = useState('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedStatus, setSelectedStatus] = useState(searchParams.get('status') || 'upcoming'); // all | upcoming | past
+  const [selectedEventType, setSelectedEventType] = useState(searchParams.get('type') || 'all');
+  const [customEventType, setCustomEventType] = useState(searchParams.get('type') === 'other' ? (searchParams.get('other') || '') : '');
+
+  // List/pagination/sort
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [userRSVPs, setUserRSVPs] = useState({});
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(9);
   const [totalEvents, setTotalEvents] = useState(0);
-  const [sortBy, setSortBy] = useState('start_date,desc');
+  const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'start_date,desc');
+
+  // Debounce search term -> searchQuery (250ms)
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setSearchQuery(searchTerm.trim());
+    }, 250);
+    return () => clearTimeout(id);
+  }, [searchTerm]);
+
+  // Initialize search from URL on first mount
+  useEffect(() => {
+    const q = searchParams.get('q');
+    if (q) {
+      setSearchTerm(q);
+      setSearchQuery(q);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync filters to URL
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams);
+    params.set('status', selectedStatus);
+    if (searchQuery) params.set('q', searchQuery); else params.delete('q');
+    if (selectedEventType) params.set('type', selectedEventType);
+    if (selectedEventType === 'other' && customEventType) params.set('other', customEventType); else params.delete('other');
+    if (sortBy) params.set('sort', sortBy);
+    setSearchParams(params, { replace: true });
+  }, [selectedStatus, searchQuery, selectedEventType, customEventType, sortBy]);
+
+  // Log filter/view changes
+  useEffect(() => {
+    logActivity({
+      action: 'events_list_view',
+      meta: {
+        status: selectedStatus,
+        type: selectedEventType,
+        other: selectedEventType === 'other' ? customEventType : null,
+        sort: sortBy,
+        q: searchQuery || null,
+      }
+    });
+  }, [selectedStatus, selectedEventType, customEventType, sortBy, searchQuery]);
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -41,51 +90,59 @@ const Events = () => {
 
         let query = supabase
           .from('events')
-          .select('*', { count: 'exact' })
-          .eq('is_published', true);
+          .select('*', { count: 'exact' });
 
+        // Visibility rules
+        if (!isAdmin) {
+          query = query.eq('is_published', true).eq('approval_status', 'approved');
+        }
+
+        // Search across specific columns
         if (searchQuery) {
+          const sq = searchQuery.replace(/%/g, '\\%').replace(/_/g, '\\_');
           query = query.or(
-            `title.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%`,
-            `tags.cs.{${searchQuery}}`
+            `title.ilike.%${sq}%,short_description.ilike.%${sq}%,long_description.ilike.%${sq}%,location.ilike.%${sq}%`
           );
         }
 
-        if (selectedCategory === 'upcoming') {
-          query = query.gt('start_date', new Date().toISOString());
-        } else if (selectedCategory !== 'all') {
-          query = query.eq('category', selectedCategory);
-        }
-        
-        if (selectedEventType !== 'all') {
-          query = query.eq('event_type', selectedEventType);
+        // Status time boundary using UTC
+        const nowIso = new Date().toISOString();
+        if (selectedStatus === 'upcoming') {
+          query = query.gte('start_date', nowIso);
+        } else if (selectedStatus === 'past') {
+          query = query.lt('start_date', nowIso);
         }
 
-        const [sortField, sortOrder] = sortBy.split(',');
+        // Type filter
+        if (selectedEventType !== 'all') {
+          if (selectedEventType === 'other' && customEventType.trim()) {
+            query = query.eq('event_type', customEventType.trim());
+          } else if (selectedEventType !== 'other') {
+            query = query.eq('event_type', selectedEventType);
+          }
+        }
+
+        // Sorting
+        const [sortField, sortOrder] = (sortBy || 'start_date,desc').split(',');
         query = query.order(sortField, { ascending: sortOrder === 'asc' });
 
         const { data, error, count } = await query.range(from, to);
-
         if (error) throw error;
 
         setEvents(data || []);
         setTotalEvents(count || 0);
 
-        if (user && data) {
-          const eventIds = data.map(event => event.id);
+        // User RSVPs for visible items
+        if (user && data && data.length) {
+          const eventIds = data.map((e) => e.id);
           const { data: rsvpData, error: rsvpError } = await supabase
             .from('event_attendees')
             .select('event_id, status')
             .eq('user_id', user.id)
             .in('event_id', eventIds);
-
-          if (rsvpError) {
-            console.error('Error fetching user RSVPs:', rsvpError);
-          } else {
+          if (!rsvpError && rsvpData) {
             const rsvps = {};
-            rsvpData.forEach(rsvp => {
-              rsvps[rsvp.event_id] = rsvp.status;
-            });
+            rsvpData.forEach((r) => { rsvps[r.event_id] = r.status; });
             setUserRSVPs(rsvps);
           }
         }
@@ -98,29 +155,20 @@ const Events = () => {
     };
 
     fetchEvents();
-  }, [user, currentPage, itemsPerPage, searchQuery, selectedCategory, selectedEventType, sortBy]);
+  }, [user, isAdmin, currentPage, itemsPerPage, searchQuery, selectedStatus, selectedEventType, customEventType, sortBy]);
 
-  const categories = [
-    { value: 'all', label: 'All Categories' },
+  const statusOptions = [
+    { value: 'all', label: 'All' },
     { value: 'upcoming', label: 'Upcoming' },
-    { value: 'reunion', label: 'Reunions' },
-    { value: 'workshop', label: 'Workshops' },
-    { value: 'networking', label: 'Networking' },
-    { value: 'seminar', label: 'Seminars' },
-    { value: 'conference', label: 'Conferences' },
-    { value: 'social', label: 'Social Events' },
-    { value: 'charity', label: 'Charity' },
-    { value: 'career_fair', label: 'Career Fairs' },
-    { value: 'sports', label: 'Sports' },
-    { value: 'cultural', label: 'Cultural' },
-    { value: 'educational', label: 'Educational' }
+    { value: 'past', label: 'Past' },
   ];
 
   const eventTypes = [
-    { value: 'all', label: 'All Formats' },
+    { value: 'all', label: 'All Types' },
     { value: 'in-person', label: 'In-Person' },
     { value: 'virtual', label: 'Virtual' },
-    { value: 'hybrid', label: 'Hybrid' }
+    { value: 'hybrid', label: 'Hybrid' },
+    { value: 'other', label: 'Other' },
   ];
 
   const totalPages = Math.ceil(totalEvents / itemsPerPage);
@@ -221,27 +269,29 @@ const Events = () => {
           <span className="text-ocean-600 font-medium text-sm">{event.price > 0 ? `$${event.price}` : 'Free'}</span>
         </div>
         
-        <p className="text-gray-600 text-sm mb-4 line-clamp-2">{event.description}</p>
+        <p className="text-gray-600 text-sm mb-4 line-clamp-2">{event.short_description || event.long_description || ''}</p>
         
         <div className="space-y-2 mb-4">
           <div className="flex items-center text-sm text-gray-600">
             <CalendarIcon className="w-4 h-4 mr-2" />
-            <span>{new Date(event.start_date).toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+            <span>{formatInIST(event.start_date, 'MMMM d, yyyy')}</span>
           </div>
           
           <div className="flex items-center text-sm text-gray-600">
             <ClockIcon className="w-4 h-4 mr-2" />
-            <span>{new Date(event.start_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <span>{formatInIST(event.start_date, 'h:mm a')}</span>
           </div>
           
-          <div className="flex items-center text-sm text-gray-600">
-            {event.event_type === 'virtual' ? (
-              <VideoCameraIcon className="w-4 h-4 mr-2" />
-            ) : (
-              <MapPinIcon className="w-4 h-4 mr-2" />
-            )}
-            <span>{event.location}</span>
-          </div>
+          {event.location && (
+            <div className="flex items-center text-sm text-gray-600">
+              {event.event_type === 'virtual' ? (
+                <VideoCameraIcon className="w-4 h-4 mr-2" />
+              ) : (
+                <MapPinIcon className="w-4 h-4 mr-2" />
+              )}
+              <span>{event.location}</span>
+            </div>
+          )}
           
           <div className="flex items-center text-sm text-gray-600">
             <UserGroupIcon className="w-4 h-4 mr-2" />
@@ -305,16 +355,18 @@ const Events = () => {
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm text-gray-600">
             <div className="flex items-center">
               <CalendarIcon className="w-4 h-4 mr-2 flex-shrink-0" />
-              <span>{new Date(event.start_date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+              <span>{formatInIST(event.start_date, 'MMM d, yyyy')}</span>
             </div>
             <div className="flex items-center">
               <ClockIcon className="w-4 h-4 mr-2 flex-shrink-0" />
-              <span>{new Date(event.start_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              <span>{formatInIST(event.start_date, 'h:mm a')}</span>
             </div>
-            <div className="flex items-center col-span-2">
-              {event.event_type === 'virtual' ? <VideoCameraIcon className="w-4 h-4 mr-2 flex-shrink-0" /> : <MapPinIcon className="w-4 h-4 mr-2 flex-shrink-0" />}
-              <span className="truncate">{event.location}</span>
-            </div>
+            {event.location && (
+              <div className="flex items-center col-span-2">
+                {event.event_type === 'virtual' ? <VideoCameraIcon className="w-4 h-4 mr-2 flex-shrink-0" /> : <MapPinIcon className="w-4 h-4 mr-2 flex-shrink-0" />}
+                <span className="truncate">{event.location}</span>
+              </div>
+            )}
           </div>
           
           <div className="flex items-center justify-between mt-auto pt-3">
@@ -369,19 +421,14 @@ const Events = () => {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    setCurrentPage(1);
-                    setSearchQuery(searchTerm);
-                  }
-                }}
                 className="form-input w-full pl-10 pr-24 py-2 rounded-lg"
-                placeholder="Search events, topics, or tags..."
+                placeholder="Search title, description, or location..."
+                aria-label="Search events"
               />
               <button
                 onClick={() => {
                   setCurrentPage(1);
-                  setSearchQuery(searchTerm);
+                  setSearchQuery(searchTerm.trim());
                 }}
                 className="absolute right-2 top-1/2 transform -translate-y-1/2 btn-ocean px-3 py-1 rounded-md text-sm"
               >
@@ -415,24 +462,20 @@ const Events = () => {
           </Link>
         </div>
 
-        {/* Category Filters */}
+        {/* Status Filter */}
         <div className="mt-4">
-          <h3 className="text-sm font-semibold text-gray-600 mb-2">Categories</h3>
-          <div className="flex flex-wrap gap-2">
-            {categories.map((category) => (
+          <h3 className="text-sm font-semibold text-gray-600 mb-2">Status</h3>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Event status filter">
+            {statusOptions.map((opt) => (
               <button
-                key={category.value}
-                onClick={() => {
-                  setSelectedCategory(category.value);
-                  setCurrentPage(1);
-                }}
+                key={opt.value}
+                onClick={() => { setSelectedStatus(opt.value); setCurrentPage(1); }}
                 className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
-                  selectedCategory === category.value
-                    ? 'bg-ocean-500 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  selectedStatus === opt.value ? 'bg-ocean-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
+                aria-pressed={selectedStatus === opt.value}
               >
-                {category.label}
+                {opt.label}
               </button>
             ))}
           </div>
@@ -447,6 +490,7 @@ const Events = () => {
                 key={type.value}
                 onClick={() => {
                   setSelectedEventType(type.value);
+                  if (type.value !== 'other') setCustomEventType('');
                   setCurrentPage(1);
                 }}
                 className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
@@ -458,6 +502,16 @@ const Events = () => {
                 {type.label}
               </button>
             ))}
+            {selectedEventType === 'other' && (
+              <input
+                type="text"
+                value={customEventType}
+                onChange={(e) => setCustomEventType(e.target.value)}
+                placeholder="Specify type"
+                className="form-input px-3 py-1 rounded text-sm"
+                aria-label="Custom event type"
+              />
+            )}
           </div>
         </div>
       </div>
@@ -484,8 +538,8 @@ const Events = () => {
 
       {/* Events Grid/List */}
       {loading ? (
-        <div className="text-center py-10">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="text-center py-10" role="status" aria-live="polite">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" aria-hidden="true"></div>
           <p className="mt-4 text-gray-600">Loading events...</p>
         </div>
       ) : events.length > 0 ? (

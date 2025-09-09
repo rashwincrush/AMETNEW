@@ -11,38 +11,16 @@ const AuthCallback = () => {
     // Process OAuth callback
     const handleAuthCallback = async () => {
       try {
-        // Get session from URL hash fragment
+        // Ensure session/JWT is fresh to avoid timing issues
+        try { await supabase.auth.refreshSession(); } catch (e) { /* ignore refresh errors */ }
         const { data, error } = await supabase.auth.getSession();
         
         if (error) throw error;
         
         if (data?.session) {
-          // Check if profile exists
-          const { data: profileData, error: profileError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', data.session.user.id)
-            .single();
-            
-          if (profileError && profileError.code !== 'PGRST116') {
-            // PGRST116 means no rows returned - expected for new users
-            console.error('Error checking profile:', profileError);
-            setError('Error accessing your profile. Please try again.');
-            return;
-          }
-          
-          // If profile doesn't exist, user needs to complete registration
-          if (!profileData) {
-            navigate('/profile', { 
-              state: { 
-                newUser: true, 
-                message: 'Please complete your profile to continue.' 
-              } 
-            });
-          } else {
-            // User already has a profile, redirect to dashboard
-            navigate('/dashboard');
-          }
+          // Always route to a lightweight onboarding page (non-protected).
+          // That page will check profile existence and route accordingly.
+          navigate('/onboarding', { replace: true });
         } else {
           // No session, redirect to login
           navigate('/login', { 

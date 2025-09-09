@@ -64,7 +64,7 @@ const RejectionPage = () => {
         ) : (
           <p className="mb-4 text-gray-800">{rejectionReason}</p>
         )}
-        <p className="mb-6 text-gray-600">If you believe this is a mistake, please contact <a href="mailto:support@email.com" className="text-blue-600">support@email.com</a>.</p>
+        <p className="mb-6 text-gray-600">If you believe this is a mistake, please contact <a href="mailto:Alumni@ametuniv.ac.in" className="text-blue-600">Alumni@ametuniv.ac.in</a>.</p>
         <button
           onClick={handleLogout}
           className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"

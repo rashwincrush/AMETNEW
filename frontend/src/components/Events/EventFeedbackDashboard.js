@@ -28,6 +28,7 @@ import {
   ChatBubble as ChatBubbleIcon
 } from '@mui/icons-material';
 import LoadingSpinner from '../common/LoadingSpinner';
+import { formatInIST } from '../../utils/timezone';
 
 const EventFeedbackDashboard = () => {
   const { id } = useParams();
@@ -137,7 +138,7 @@ const EventFeedbackDashboard = () => {
   const exportFeedbackCSV = () => {
     const headers = ['Submitted At', 'Full Name', 'Rating', 'Comments'];
     const rows = feedback.map(item => [
-      item.submitted_at ? new Date(item.submitted_at).toLocaleString() : 'N/A',
+      item.submitted_at ? formatInIST(item.submitted_at, 'yyyy-MM-dd HH:mm:ss') : 'N/A',
       item.profiles?.full_name || 'Anonymous',
       item.rating,
       `"${item.comments ? item.comments.replace(/"/g, '""') : ''}"`
@@ -180,7 +181,7 @@ const EventFeedbackDashboard = () => {
           {event?.title || 'Event Feedback'}
         </Typography>
         <Typography variant="subtitle1" color="text.secondary">
-          {event?.date ? new Date(event.date).toLocaleDateString() : 'Date not available'}
+          {event?.date ? formatInIST(event.date, 'PPP') : 'Date not available'}
         </Typography>
       </Paper>
 
@@ -259,7 +260,7 @@ const EventFeedbackDashboard = () => {
                   secondary={
                     <>
                       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        {item.submitted_at ? new Date(item.submitted_at).toLocaleDateString() : 'No date available'}
+                        {item.submitted_at ? formatInIST(item.submitted_at, 'PPP') : 'No date available'}
                       </Typography>
                       {item.comments && (
                         <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.50' }}>

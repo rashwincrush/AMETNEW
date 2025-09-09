@@ -225,7 +225,7 @@ const ContentApproval = () => {
         updateData = { 
           is_approved: true, 
           is_rejected: false, 
-          reviewer_id: profile?.id, 
+          reviewed_by: profile?.id, 
           reviewed_at: new Date().toISOString() 
         };
         break;
@@ -234,7 +234,7 @@ const ContentApproval = () => {
         updateData = { 
           is_approved: true, 
           is_rejected: false, 
-          reviewer_id: profile?.id, 
+          reviewed_by: profile?.id, 
           reviewed_at: new Date().toISOString() 
         };
         break;
@@ -243,7 +243,7 @@ const ContentApproval = () => {
         updateData = { 
           is_approved: true, 
           is_rejected: false, 
-          reviewer_id: profile?.id, 
+          reviewed_by: profile?.id, 
           reviewed_at: new Date().toISOString() 
         };
         break;
@@ -302,7 +302,7 @@ const ContentApproval = () => {
         updateData = { 
           is_rejected: true, 
           rejection_reason: reason, 
-          reviewer_id: profile?.id, 
+          reviewed_by: profile?.id, 
           reviewed_at: new Date().toISOString() 
         };
         break;
@@ -311,7 +311,7 @@ const ContentApproval = () => {
         updateData = { 
           is_rejected: true, 
           rejection_reason: reason, 
-          reviewer_id: profile?.id, 
+          reviewed_by: profile?.id, 
           reviewed_at: new Date().toISOString() 
         };
         break;
@@ -320,7 +320,7 @@ const ContentApproval = () => {
         updateData = { 
           is_rejected: true, 
           rejection_reason: reason, 
-          reviewer_id: profile?.id, 
+          reviewed_by: profile?.id, 
           reviewed_at: new Date().toISOString() 
         };
         break;

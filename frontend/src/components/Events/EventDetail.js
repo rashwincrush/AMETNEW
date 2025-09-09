@@ -15,6 +15,7 @@ const EventDetail = () => {
   const [rsvpLoading, setRsvpLoading] = useState(false);
   const [rsvpSuccess, setRsvpSuccess] = useState('');
   const [attendees, setAttendees] = useState([]);
+  const [attendeesOpen, setAttendeesOpen] = useState(false);
   const [userRsvp, setUserRsvp] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -49,7 +50,7 @@ const EventDetail = () => {
         // Then fetch profile data for these users
         const { data: profilesData, error: profilesError } = await supabase
           .from('profiles')
-          .select('id, full_name, avatar_url, current_position')
+          .select('id, full_name, avatar_url, current_position, role')
           .in('id', userIds);
         
         if (profilesError) throw profilesError;
@@ -190,6 +191,7 @@ const EventDetail = () => {
   if (!event) return <div className="text-center p-4">Event not found.</div>;
 
   const eventStatus = getEventStatus(event.start_date, event.end_date);
+  const canViewFeedback = (event.end_date && isPast(parseISO(event.end_date))) || event.status === 'completed';
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -250,17 +252,20 @@ const EventDetail = () => {
                   </span>
                 </div>
 
-                {event.is_virtual ? (
+                {event.is_virtual && event.virtual_link ? (
                   <div className="flex items-center text-gray-600 mb-2">
                     <MapPin className="w-5 h-5 mr-3 text-green-500"/>
                     <a href={event.virtual_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Join Virtual Event</a>
                   </div>
-                ) : (
-                  <>
-                    {event.venue_name && <div className="flex items-center text-gray-600 mb-1"><MapPin className="w-5 h-5 mr-3 text-red-500"/><span>{event.venue_name}</span></div>}
-                    {event.address && <div className="flex items-center text-gray-600 mb-2 pl-8"><span>{event.address}</span></div>}
-                  </>
-                )}
+                ) : ((event.venue || event.address) && (
+                  <div className="flex items-start text-gray-600 mb-2">
+                    <MapPin className="w-5 h-5 mr-3 text-red-500 mt-0.5"/>
+                    <div>
+                      {event.venue && <div className="mb-1">{event.venue}</div>}
+                      {event.address && <div className="text-sm text-gray-700">{event.address}</div>}
+                    </div>
+                  </div>
+                ))}
 
                 {event.category && <div className="flex items-center text-gray-600 mb-2"><BarChart2 className="w-5 h-5 mr-3 text-purple-500"/><span>Category: {event.category}</span></div>}
 
@@ -300,7 +305,7 @@ const EventDetail = () => {
                       <button onClick={() => handleRsvp('not_going')} disabled={rsvpLoading} className="text-sm text-red-500 hover:underline">Cancel RSVP</button>
                     </div>
                   ) : (
-                    <button onClick={() => handleRsvp('going')} disabled={rsvpLoading || (event.end_time && isPast(parseISO(event.end_time)))} className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 disabled:bg-gray-400 transition duration-200">
+                    <button onClick={() => handleRsvp('going')} disabled={rsvpLoading || (event.end_date && isPast(parseISO(event.end_date)))} className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 disabled:bg-gray-400 transition duration-200">
                       {rsvpLoading ? 'Processing...' : 'Attend Event'}
                     </button>
                   )}
@@ -348,9 +353,15 @@ const EventDetail = () => {
                       <button onClick={handleDelete} disabled={loading} className="flex items-center justify-center w-full bg-red-600 text-white font-bold py-2 px-4 rounded hover:bg-red-700 disabled:bg-gray-400 transition duration-200">
                         <Trash2 className="w-4 h-4 mr-2"/> Delete
                       </button>
-                      <Link to={`/admin/events/${id}/feedback`} className="flex items-center justify-center w-full bg-indigo-500 text-white font-bold py-2 px-4 rounded hover:bg-indigo-600 transition duration-200">
-                        <BarChart2 className="w-4 h-4 mr-2"/> View Feedback
-                      </Link>
+                      {canViewFeedback ? (
+                        <Link to={`/admin/events/${id}/feedback`} className="flex items-center justify-center w-full bg-indigo-500 text-white font-bold py-2 px-4 rounded hover:bg-indigo-600 transition duration-200">
+                          <BarChart2 className="w-4 h-4 mr-2"/> View Feedback
+                        </Link>
+                      ) : (
+                        <button aria-disabled className="flex items-center justify-center w-full bg-gray-300 text-gray-600 font-bold py-2 px-4 rounded cursor-not-allowed" title="Feedback available after event ends">
+                          <BarChart2 className="w-4 h-4 mr-2"/> View Feedback
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -362,21 +373,42 @@ const EventDetail = () => {
             </div>
 
             <div className="mt-8 pt-6 border-t">
-              <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center"><Users className="w-6 h-6 mr-3"/>Attendees ({attendees.length})</h3>
-              {attendees.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                  {attendees.map(attendee => (
-                    <Link to={`/profile/${attendee.profiles.id}`} key={attendee.id} className="text-center">
-                      <img src={attendee.profiles.avatar_url || `https://api.dicebear.com/6.x/initials/svg?seed=${attendee.profiles.full_name}` } alt={attendee.profiles.full_name} className="w-20 h-20 rounded-full mx-auto mb-2 object-cover"/>
-                      <p className="font-semibold text-sm text-gray-700">{attendee.profiles.full_name}</p>
-                      <p className="text-xs text-gray-500">{attendee.profiles.current_position}</p>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
+              <div className="flex items-center justify-between">
+                <h3 className="text-2xl font-bold text-gray-800 mb-4 flex items-center"><Users className="w-6 h-6 mr-3"/>Attendees ({attendees.length})</h3>
+                <button onClick={() => setAttendeesOpen(true)} className="btn-ocean px-4 py-2 rounded-lg">View Attendees</button>
+              </div>
+              {attendees.length === 0 && (
                 <p className="text-gray-500">No attendees yet. Be the first to RSVP!</p>
               )}
             </div>
+
+            {/* Attendees Modal */}
+            {attendeesOpen && (
+              <div role="dialog" aria-modal="true" aria-labelledby="attendees-title" className="fixed inset-0 z-50 flex items-center justify-center">
+                <div className="absolute inset-0 bg-black bg-opacity-50" onClick={() => setAttendeesOpen(false)}></div>
+                <div className="relative bg-white rounded-lg shadow-xl max-w-3xl w-full mx-4 p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 id="attendees-title" className="text-xl font-semibold">Attendees ({attendees.length})</h4>
+                    <button onClick={() => setAttendeesOpen(false)} className="text-gray-600 hover:text-gray-900" aria-label="Close attendees list">✕</button>
+                  </div>
+                  {attendees.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 max-h-96 overflow-auto">
+                      {attendees.map(attendee => (
+                        <Link to={`/profile/${attendee.profiles.id}`} key={attendee.id} className="flex items-center gap-3 p-2 rounded hover:bg-gray-50">
+                          <img src={attendee.profiles.avatar_url || `https://api.dicebear.com/6.x/initials/svg?seed=${attendee.profiles.full_name}` } alt={attendee.profiles.full_name} className="w-12 h-12 rounded-full object-cover"/>
+                          <div>
+                            <p className="font-semibold text-sm text-gray-800">{attendee.profiles.full_name}</p>
+                            <p className="text-xs text-gray-500">{attendee.profiles.role || attendee.profiles.current_position}</p>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500">No attendees yet.</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

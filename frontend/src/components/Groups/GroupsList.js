@@ -141,7 +141,8 @@ const GroupsList = () => {
         const { data, error } = await fetchGroups({
           searchQuery: searchQuery,
           tags: selectedTags.length > 0 ? selectedTags : undefined,
-          isAdmin: canManageAllGroups // Pass the admin status to control visibility
+          isAdmin: canManageAllGroups, // Admins can see all
+          currentUserId: user?.id || null, // Non-admins: include private groups where member
         });
         
         if (error) throw error;
@@ -151,13 +152,8 @@ const GroupsList = () => {
         // Apply client-side filtering based on the selected filter
         if (user && filter !== 'all' && filteredData.length > 0) {
           if (filter === 'joined') {
-            // Show only groups the user is a member of
-            filteredData = filteredData.filter(group => {
-              return group.group_members && 
-                     group.group_members.some(member => 
-                       member && member.user_id === user.id
-                     );
-            });
+            // Show only groups the user is a member of (via is_member flag)
+            filteredData = filteredData.filter(group => group.is_member === true);
           } else if (filter === 'created') {
             // Show only groups created by the user
             filteredData = filteredData.filter(group => group.created_by === user.id);
@@ -166,20 +162,12 @@ const GroupsList = () => {
         
         setGroups(filteredData);
         
-        // If user is logged in, identify their group memberships
+        // If user is logged in, identify their group memberships via is_member flag
         if (user) {
-          // Extract membership IDs from the full dataset (not filtered)
-          const memberships = data
-            .filter(group => {
-              return group.group_members && 
-                     group.group_members.some(member => 
-                       member && member.user_id === user.id
-                     );
-            })
+          const memberships = (data || [])
+            .filter(group => group.is_member === true)
             .map(group => group.id);
-          
           setUserMemberships(memberships);
-          console.log(`User is a member of ${memberships.length} groups:`, memberships);
         }
       } catch (err) {
         setError(err.message);
@@ -334,7 +322,7 @@ const GroupsList = () => {
             <GroupCard 
               key={group.id} 
               group={group} 
-              isMember={userMemberships.includes(group.id)}
+              isMember={group.is_member === true || userMemberships.includes(group.id)}
               onJoinLeave={handleJoinLeave}
               currentUserId={user?.id}
             />

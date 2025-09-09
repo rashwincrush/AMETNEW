@@ -3,15 +3,28 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 
-const JobApplicationForm = ({ jobId }) => {
+const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+const ALLOWED_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+
+const JobApplicationForm = ({ jobId, deadline }) => {
   const { user } = useAuth();
   const [coverLetter, setCoverLetter] = useState('');
   const [resumeFile, setResumeFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isDeadlinePassed = deadline ? new Date(deadline) < new Date() : false;
 
   const handleFileChange = (e) => {
     if (e.target.files[0]) {
-      setResumeFile(e.target.files[0]);
+      const f = e.target.files[0];
+      if (f.size > MAX_SIZE_BYTES) {
+        toast.error('File too large. Max 5MB.');
+        return;
+      }
+      if (!ALLOWED_TYPES.includes(f.type)) {
+        toast.error('Invalid file type. Upload PDF/DOC/DOCX.');
+        return;
+      }
+      setResumeFile(f);
     }
   };
 
@@ -25,11 +38,28 @@ const JobApplicationForm = ({ jobId }) => {
       toast.error('Please upload your resume.');
       return;
     }
+    if (isDeadlinePassed) {
+      toast.error('Applications are closed for this job.');
+      return;
+    }
 
     setIsSubmitting(true);
     const toastId = toast.loading('Submitting application...');
 
     try {
+      // 0. Check if already applied
+      const { count: existingCount, error: existingErr } = await supabase
+        .from('job_applications')
+        .select('id', { count: 'exact', head: true })
+        .eq('job_id', jobId)
+        .eq('applicant_id', user.id);
+      if (existingErr) throw existingErr;
+      if ((existingCount || 0) > 0) {
+        toast.dismiss(toastId);
+        toast.success('You have already applied for this job.');
+        return;
+      }
+
       // 1. Upload resume to storage
       const filePath = `${user.id}/${jobId}-${resumeFile.name}`;
       const { error: uploadError } = await supabase.storage

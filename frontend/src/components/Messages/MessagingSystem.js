@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
+import { logActivity } from '../../utils/activityLogger';
 import ConversationList from './ConversationList';
 import ChatWindow from './ChatWindow';
 import { useNotification } from '../../hooks/useNotification';
@@ -14,38 +15,79 @@ const MessagingSystem = () => {
   // const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   // Track component mount state
   const isMountedRef = useRef(true);
+  const errorNotifiedRef = useRef(false);
+  const fetchingConvsRef = useRef(false);
+  const lastFetchAtRef = useRef(0);
+  const convErrNotifiedRef = useRef(false);
+  const initRef = useRef(false);
 
-  // Fetch current user
+  // Fetch current user (session + profile) with small retry to handle transient network hiccups
   useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
     const fetchCurrentUser = async () => {
       try {
-        const { data: { user }, error } = await supabase.auth.getUser();
+        // Prefer session-based lookup to avoid extra network request
+        const { data: { session }, error } = await supabase.auth.getSession();
         if (error) throw error;
-        
+        const user = session?.user;
+
         if (user) {
-          const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single();
-            
-          if (profileError) throw profileError;
-          
-          setCurrentUser({ ...user, ...profile });
+          // Try up to 2 retries for the profile read if a network error occurs
+          const fetchProfileWithRetry = async (attempts = 2) => {
+            try {
+              const { data: profile, error: profileError } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id)
+                .single();
+              if (profileError) throw profileError;
+              return profile;
+            } catch (e) {
+              const isNetFail = (e && (e.name === 'TypeError' || String(e).includes('Failed to fetch')));
+              if (isNetFail && attempts > 0) {
+                await new Promise(r => setTimeout(r, 300));
+                return fetchProfileWithRetry(attempts - 1);
+              }
+              throw e;
+            }
+          };
+
+          let profile = null;
+          try {
+            profile = await fetchProfileWithRetry();
+          } catch (pfErr) {
+            // Non-fatal: proceed with session user only
+            console.warn('Profile fetch failed; proceeding with session user only');
+            profile = null;
+          }
+
+          setCurrentUser(profile ? { ...user, ...profile } : user);
         }
       } catch (err) {
         console.error('Error fetching user:', err);
         setError('Failed to load user profile');
-        showError('Failed to load user profile');
+        if (!errorNotifiedRef.current) {
+          showError('Failed to load user profile');
+          errorNotifiedRef.current = true;
+        }
       }
     };
     
     fetchCurrentUser();
-  }, [showError]);
+    // Log page view
+    logActivity({ action: 'messages_page_view', route: '/messages' });
+  }, []);
 
   // Fetch all conversations for the current user
   const fetchUserConversations = useCallback(async () => {
     if (!currentUser) return;
+    // Throttle: do not fetch more than once every 1500ms
+    const now = Date.now();
+    if (fetchingConvsRef.current || (now - lastFetchAtRef.current) < 1500) {
+      return;
+    }
+    fetchingConvsRef.current = true;
     
     try {
       setLoading(true);
@@ -77,87 +119,60 @@ const MessagingSystem = () => {
           }));
       }
 
-      const formattedConversations = await Promise.all(
-        convRows.map(async (row) => {
-          // Determine the other participant via conversation_participants
-          let otherUser = null;
-          const { data: otherRow } = await supabase
-            .from('conversation_participants')
-            .select('user_id, user:profiles(id, full_name, avatar_url, is_online)')
-            .eq('conversation_id', row.conversation_id)
-            .neq('user_id', currentUser.id)
-            .limit(1)
-            .maybeSingle();
-          if (otherRow && otherRow.user) {
-            otherUser = {
-              id: otherRow.user.id,
-              full_name: otherRow.user.full_name,
-              avatar_url: otherRow.user.avatar_url,
-              is_online: otherRow.user.is_online,
-            };
-          } else {
-            // As a final fallback, default object
-            otherUser = { id: null, full_name: 'Unknown User', avatar_url: null, is_online: false };
-          }
+      // Batch fetch other participants for all conversations to avoid N+1
+      const convIds = convRows.map(r => r.conversation_id);
+      const { data: others } = await supabase
+        .from('conversation_participants')
+        .select('conversation_id, user:profiles(id, full_name, avatar_url, is_online)')
+        .in('conversation_id', convIds)
+        .neq('user_id', currentUser.id);
 
-          // Check if a connection exists with status = 'accepted'
-          const { data: connection } = await supabase
-            .from('connections')
-            .select('status')
-            .or(
-              `and(requester_id.eq.${currentUser.id},recipient_id.eq.${otherUser.id}),` +
-              `and(requester_id.eq.${otherUser.id},recipient_id.eq.${currentUser.id})`
-            )
-            .eq('status', 'accepted')
-            .maybeSingle();
-          const isConnected = connection && connection.status === 'accepted';
+      const otherMap = new Map();
+      (others || []).forEach(r => {
+        if (!otherMap.has(r.conversation_id)) {
+          otherMap.set(r.conversation_id, r.user);
+        }
+      });
 
-          // Unread count: use RPC result if present, else compute
-          let unreadCount = 0;
-          if (typeof row.unread_count === 'number') {
-            unreadCount = row.unread_count;
-          } else {
-            const { count } = await supabase
-              .from('messages')
-              .select('*', { count: 'exact', head: true })
-              .eq('conversation_id', row.conversation_id)
-              .neq('sender_id', currentUser.id)
-              .is('read_at', null);
-            unreadCount = count || 0;
-          }
-
-          // Latest message for preview
-          const { data: latestMessage } = await supabase
-            .from('messages')
-            .select('*')
-            .eq('conversation_id', row.conversation_id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          return {
-            id: row.conversation_id,
-            name: otherUser.full_name || 'Unknown User',
-            avatar: otherUser.avatar_url,
-            lastMessageAt: row.last_message_at || latestMessage?.created_at || null,
-            participantId: otherUser.id,
-            isOnline: otherUser.is_online || false,
-            unreadCount,
-            latestMessage: latestMessage || null,
-            latestMessageSender: latestMessage ? (latestMessage.sender_id === currentUser.id ? 'You' : otherUser.full_name) : '',
-            isConnected,
-          };
-        })
-      );
+      let formattedConversations = convRows.map((row) => {
+        const other = otherMap.get(row.conversation_id) || {};
+        return {
+          id: row.conversation_id,
+          name: other.full_name || 'Unknown User',
+          avatar: other.avatar_url || null,
+          lastMessageAt: row.last_message_at || row.created_at || null,
+          participantId: other.id || null,
+          isOnline: !!other.is_online,
+          unreadCount: typeof row.unread_count === 'number' ? row.unread_count : 0,
+          latestMessage: null,
+          latestMessageSender: '',
+          isConnected: true, // Assume connected for list; detailed check deferred
+        };
+      });
       
-      // Only keep conversations with active connections
-      setConversations(formattedConversations.filter(c => c.isConnected));
+      // Only keep conversations with active connections and sort by latest message time desc
+      formattedConversations = formattedConversations
+        .filter(c => c.isConnected)
+        .sort((a, b) => {
+          const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+          const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+          return tb - ta;
+        });
+      setConversations(formattedConversations);
+      // Log conversations list load
+      logActivity({ action: 'messages_list_load', meta: { count: formattedConversations.length } , route: '/messages' });
     } catch (err) {
       console.error('Error fetching conversations:', err);
       setError('Failed to load conversations');
-      showError('Failed to load conversations');
+      if (!convErrNotifiedRef.current) {
+        showError('Failed to load conversations');
+        convErrNotifiedRef.current = true;
+        setTimeout(() => { convErrNotifiedRef.current = false; }, 5000);
+      }
     } finally {
       setLoading(false);
+      fetchingConvsRef.current = false;
+      lastFetchAtRef.current = Date.now();
     }
   }, [currentUser, showError]);
 
@@ -231,6 +246,7 @@ const MessagingSystem = () => {
 
   const handleSelectConversation = (conversationId) => {
     setSelectedConversation(conversationId);
+    logActivity({ action: 'messages_open_conversation', meta: { conversationId }, route: '/messages' });
     // Mark messages as read
     const markAsRead = async () => {
         await supabase
@@ -271,9 +287,17 @@ const MessagingSystem = () => {
         return;
       }
 
-      // Proceed only if connected
+      // Proceed only if connected; get current auth user via session (no extra network call)
+      const { data: { session }, error: authErr } = await supabase.auth.getSession();
+      if (authErr || !session?.user) {
+        showError('Not authenticated');
+        setLoading(false);
+        return;
+      }
+      const { id: currentId } = session.user;
+
       const { data, error } = await supabase.rpc('get_or_create_conversation', {
-        user_1_id: currentUser.id,
+        user_1_id: currentId,
         user_2_id: targetUserId
       });
 

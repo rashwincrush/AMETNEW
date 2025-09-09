@@ -17,9 +17,7 @@ const SessionScheduler = ({ mentorshipRequestId, onSuccess }) => {
     scheduled_date: '',
     duration_minutes: 30,
     meeting_url: '',
-    meeting_type: 'video',
-    meeting_notes: '',
-    location: ''
+    notes: ''
   });
   
   const [loading, setLoading] = useState(false);
@@ -47,8 +45,8 @@ const SessionScheduler = ({ mentorshipRequestId, onSuccess }) => {
         .from('mentorship_requests')
         .select(`
           *,
-          mentor:mentor_id(id, user_id, profiles:user_id(full_name, avatar_url)),
-          mentee:mentee_id(id, user_id, profiles:user_id(full_name, avatar_url))
+          mentor:profiles!mentorship_requests_mentor_id_fkey(full_name, avatar_url, id),
+          mentee:profiles!mentorship_requests_mentee_id_fkey(full_name, avatar_url, id)
         `)
         .eq('id', mentorshipRequestId)
         .single();
@@ -57,7 +55,7 @@ const SessionScheduler = ({ mentorshipRequestId, onSuccess }) => {
       
       setMentorshipRequest(data);
       // Check if the current user is the mentor for this request
-      if (data && user && data.mentor.user_id === user.id) {
+      if (data && user && data.mentor_id === user.id) {
         setIsMentor(true);
       }
     } catch (error) {
@@ -104,10 +102,7 @@ const SessionScheduler = ({ mentorshipRequestId, onSuccess }) => {
             scheduled_time: scheduled_time,
             duration_minutes: parseInt(formData.duration_minutes),
             meeting_url: formData.meeting_url,
-            meeting_type: formData.meeting_type,
-            meeting_notes: formData.meeting_notes,
-            location: formData.location,
-            created_by: user.id,
+            notes: formData.notes
           }
         ]);
         
@@ -123,9 +118,7 @@ const SessionScheduler = ({ mentorshipRequestId, onSuccess }) => {
         scheduled_date: '',
         duration_minutes: 30,
         meeting_url: '',
-        meeting_type: 'video',
-        meeting_notes: '',
-        location: ''
+        notes: ''
       });
     } catch (error) {
       console.error('Error scheduling session:', error);
@@ -150,8 +143,8 @@ const SessionScheduler = ({ mentorshipRequestId, onSuccess }) => {
     });
   };
 
-  // Only render the scheduler if the user is the mentor and the request is approved
-  if (!isMentor || !mentorshipRequest || mentorshipRequest.status !== 'approved') {
+  // Only render the scheduler if the user is the mentor and the request is accepted
+  if (!isMentor || !mentorshipRequest || mentorshipRequest.status !== 'accepted') {
     // Optionally, return a message or null if the user is not authorized
     return null; 
   }
@@ -181,15 +174,15 @@ const SessionScheduler = ({ mentorshipRequestId, onSuccess }) => {
       {mentorshipRequest && (
         <div className="mb-4 text-gray-700">
           <p>
-            <span className="font-semibold">Mentor:</span> {mentorshipRequest.mentor.profiles.full_name}
+            <span className="font-semibold">Mentor:</span> {mentorshipRequest.mentor.full_name}
           </p>
           <p>
-            <span className="font-semibold">Mentee:</span> {mentorshipRequest.mentee.profiles.full_name}
+            <span className="font-semibold">Mentee:</span> {mentorshipRequest.mentee.full_name}
           </p>
           <p>
             <span className="font-semibold">Status:</span>{' '}
             <span className={`font-medium ${
-              mentorshipRequest.status === 'approved' ? 'text-green-600' : 
+              mentorshipRequest.status === 'accepted' ? 'text-green-600' : 
               mentorshipRequest.status === 'pending' ? 'text-yellow-600' : 'text-red-600'
             }`}>
               {mentorshipRequest.status.charAt(0).toUpperCase() + mentorshipRequest.status.slice(1)}
@@ -264,77 +257,35 @@ const SessionScheduler = ({ mentorshipRequestId, onSuccess }) => {
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Meeting Type
+              Meeting URL (Zoom, Google Meet, etc.)
             </label>
-            <select
-              name="meeting_type"
-              value={formData.meeting_type}
-              onChange={handleChange}
-              className="w-full py-2 px-4 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            >
-              <option value="video">Video Call</option>
-              <option value="phone">Phone Call</option>
-              <option value="in-person">In Person</option>
-              <option value="chat">Chat</option>
-            </select>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                <VideoCameraIcon className="w-5 h-5 text-gray-400" />
+              </div>
+              <input
+                type="url"
+                name="meeting_url"
+                value={formData.meeting_url}
+                onChange={handleChange}
+                placeholder="https://zoom.us/j/123456789"
+                className="pl-10 w-full py-2 px-4 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
           </div>
-          
-          {formData.meeting_type === 'video' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Meeting URL (Zoom, Google Meet, etc.)
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                  <VideoCameraIcon className="w-5 h-5 text-gray-400" />
-                </div>
-                <input
-                  type="url"
-                  name="meeting_url"
-                  value={formData.meeting_url}
-                  onChange={handleChange}
-                  placeholder="https://zoom.us/j/123456789"
-                  className="pl-10 w-full py-2 px-4 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required={formData.meeting_type === 'video'}
-                />
-              </div>
-            </div>
-          )}
-          
-          {formData.meeting_type === 'in-person' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Meeting Location
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                  <MapPinIcon className="w-5 h-5 text-gray-400" />
-                </div>
-                <input
-                  type="text"
-                  name="location"
-                  value={formData.location}
-                  onChange={handleChange}
-                  placeholder="Campus Library, 2nd Floor"
-                  className="pl-10 w-full py-2 px-4 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required={formData.meeting_type === 'in-person'}
-                />
-              </div>
-            </div>
-          )}
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Meeting Notes (optional)
+              Notes (optional)
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
                 <DocumentTextIcon className="w-5 h-5 text-gray-400" />
               </div>
               <textarea
-                name="meeting_notes"
-                value={formData.meeting_notes}
+                name="notes"
+                value={formData.notes}
                 onChange={handleChange}
                 placeholder="Topics to discuss, preparation required, etc."
                 className="pl-10 w-full py-2 px-4 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"

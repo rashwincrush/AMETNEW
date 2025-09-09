@@ -1033,46 +1033,43 @@ const EnhancedRegister = () => {
           </div>
 
           <div>
-            <label htmlFor="mentorshipGoals" className={commonLabelClass}>Mentorship Goals (Optional)</label>
-            <textarea id="mentorshipGoals" name="mentorshipGoals" rows={3} value={formData.mentorshipGoals} onChange={handleChange} placeholder="What do you hope to achieve or offer through mentorship?" className={`${commonInputClass(false)} min-h-[96px] max-h-[256px] resize-y`}></textarea>
+            <label className={commonLabelClass}>Mentorship Goals</label>
+            <textarea
+              name="mentorshipGoals"
+              value={formData.mentorshipGoals}
+              onChange={handleChange}
+              rows={3}
+              style={{ minHeight: '96px', maxHeight: '180px' }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm"
+              placeholder="What would you like to achieve from the mentorship?"
+            />
           </div>
 
-          <div className="flex items-start mt-4">
-            <input
-              id="agreeToMentorship"
-              name="agreeToMentorship"
-              type="checkbox"
-              checked={formData.agreeToMentorship}
-              onChange={handleChange}
-              className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded shadow-sm"
-            />
-            <label htmlFor="agreeToMentorship" className="ml-2 block text-sm text-gray-700">
-              I have read and agree to the{' '}
-              <Link to="/mentorship-guidelines" target="_blank" className="font-medium text-blue-600 hover:text-blue-700 underline">
-                Mentorship Program Guidelines
-              </Link> and commit to participating actively and respectfully. *
-            </label>
+          <div>
+            <label className={`${commonLabelClass} mb-2`}>Terms & Privacy</label>
+            <div className="flex items-start">
+              <input
+                id="agreeToTerms"
+                name="agreeToTerms"
+                type="checkbox"
+                checked={!!formData.agreeToTerms}
+                onChange={handleChange}
+                className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded"
+              />
+              <label htmlFor="agreeToTerms" className="ml-2 text-sm text-gray-700">
+                I agree to the
+                {' '}<a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Terms of Service</a>
+                {' '}and{' '}
+                <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Privacy Policy</a>.
+              </label>
+            </div>
+            {errors.agreeToTerms && <p className={commonErrorClass}>{errors.agreeToTerms}</p>}
           </div>
-          {errors.agreeToMentorship && <p className={commonErrorClass}>{errors.agreeToMentorship}</p>}
+
         </div>
       )}
 
-      <div className="flex items-start pt-4 border-t border-gray-200">
-        <input
-          id="agreeToTerms"
-          name="agreeToTerms"
-          type="checkbox"
-          checked={formData.agreeToTerms}
-          onChange={handleChange}
-          className={`mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded shadow-sm ${errors.agreeToTerms ? 'border-red-500' : ''}`}
-        />
-        <label htmlFor="agreeToTerms" className="ml-2 block text-sm text-gray-700">
-          I agree to the AMET Alumni Network's{' '}
-          <Link to="/terms-of-service" target="_blank" className="font-medium text-blue-600 hover:text-blue-700 underline">Terms of Service</Link> and
-          <Link to="/privacy-policy" target="_blank" className="font-medium text-blue-600 hover:text-blue-700 underline"> Privacy Policy</Link>. *
-        </label>
-      </div>
-      {errors.agreeToTerms && <p className={commonErrorClass}>{errors.agreeToTerms}</p>}
+      
     </div>
   );
 
@@ -1171,7 +1168,7 @@ const EnhancedRegister = () => {
               </div>
               <div className="items-center px-4 py-3">
                 <button
-                  onClick={() => navigate('/login', { replace: true })}
+                  onClick={() => navigate('/home', { replace: true })}
                   className="px-4 py-2 bg-blue-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   OK

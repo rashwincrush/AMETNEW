@@ -54,7 +54,7 @@ export function mapProfileToCard(row: any): CardProfile {
   const isPrivate = row.is_private ?? row.isPrivate ?? {};
 
   // Normalize degree/department; prefer explicit fields, else try provided aggregate
-  const clean = (s: any) => (typeof s === 'string' ? s.replace(/[\.\s]+$/, '').trim() : '');
+  const clean = (s: any) => (typeof s === 'string' ? s.replace(/[. \s]+$/, '').trim() : '');
   const deg = clean(row.degree);
   const dept = clean(row.department);
   const degreeDepartment = (deg && dept)

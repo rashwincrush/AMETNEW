@@ -18,6 +18,9 @@ const SessionsCalendar = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('upcoming'); // 'upcoming', 'past', 'all'
   const { user } = useAuth();
+  const [isMentorAvailable, setIsMentorAvailable] = useState(true);
+  const [hasFutureAvailability, setHasFutureAvailability] = useState(true);
+  const [isCurrentUserMentor, setIsCurrentUserMentor] = useState(false);
   // Track component mount state
   const isMountedRef = useRef(true);
   
@@ -26,7 +29,8 @@ const SessionsCalendar = () => {
     try {
       setLoading(true);
       
-      let query = supabase
+      // Read sessions and join mentor/mentee profile names/avatars via mentorship_requests
+      const { data, error } = await supabase
         .from('mentorship_sessions')
         .select(`
           *,
@@ -34,29 +38,11 @@ const SessionsCalendar = () => {
             id,
             mentor_id,
             mentee_id,
-            mentor:mentor_id (
-              id,
-              user_id,
-              mentor_profile:user_id (full_name, avatar_url)
-            ),
-            mentee:mentee_id (
-              id,
-              user_id, 
-              mentee_profile:user_id (full_name, avatar_url)
-            )
+            mentor:profiles!mentorship_requests_mentor_id_fkey(full_name, avatar_url),
+            mentee:profiles!mentorship_requests_mentee_id_fkey(full_name, avatar_url)
           )
         `)
         .order('scheduled_time', { ascending: true });
-      
-      // Filter based on the active tab
-      const now = new Date().toISOString();
-      if (activeTab === 'upcoming') {
-        query = query.gte('scheduled_time', now);
-      } else if (activeTab === 'past') {
-        query = query.lt('scheduled_time', now);
-      }
-      
-      const { data, error } = await query;
         
       if (error) throw error;
       
@@ -67,7 +53,7 @@ const SessionsCalendar = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeTab]);
+  }, []);
 
   // Handle session updates
   const handleSessionUpdate = useCallback((payload) => {
@@ -81,6 +67,49 @@ const SessionsCalendar = () => {
 
     isMountedRef.current = true;
     fetchSessions();
+    // Also fetch mentor availability hints
+    (async () => {
+      try {
+        // Is current user a mentor?
+        const { data: mentorRow } = await supabase
+          .from('mentors')
+          .select('user_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        setIsCurrentUserMentor(!!mentorRow);
+
+        if (mentorRow) {
+          // Read global toggle from profiles
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('is_available_for_mentorship')
+            .eq('id', user.id)
+            .maybeSingle();
+          const available = !!(prof && prof.is_available_for_mentorship);
+          setIsMentorAvailable(available);
+
+          // If available, check mentor_availability for future rows
+          const today = new Date();
+          const yyyy = today.getFullYear();
+          const mm = String(today.getMonth() + 1).padStart(2, '0');
+          const dd = String(today.getDate()).padStart(2, '0');
+          const todayStr = `${yyyy}-${mm}-${dd}`;
+
+          const { data: availRows } = await supabase
+            .from('mentor_availability')
+            .select('id')
+            .eq('mentor_id', user.id)
+            .gte('date', todayStr)
+            .limit(1);
+          setHasFutureAvailability(!!(availRows && availRows.length > 0));
+        } else {
+          setIsMentorAvailable(true);
+          setHasFutureAvailability(true);
+        }
+      } catch (e) {
+        console.warn('Availability banner checks failed', e);
+      }
+    })();
 
     onPostgresChangesOnce(
       'mentorship_sessions_changes',
@@ -137,42 +166,25 @@ const SessionsCalendar = () => {
     });
   };
   
-  const getStatusBadgeClass = (status) => {
-    switch (status) {
-      case 'scheduled':
-        return 'bg-blue-100 text-blue-800';
-      case 'completed':
-        return 'bg-green-100 text-green-800';
-      case 'canceled':
-        return 'bg-red-100 text-red-800';
-      case 'rescheduled':
-        return 'bg-yellow-100 text-yellow-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-  
-  const getSessionTypeIcon = (meetingType) => {
-    switch (meetingType) {
-      case 'video':
-        return <VideoCameraIcon className="w-5 h-5 text-blue-600" />;
-      case 'in-person':
-        return <MapPinIcon className="w-5 h-5 text-green-600" />;
-      case 'phone':
-        return <ClockIcon className="w-5 h-5 text-orange-600" />;
-      case 'chat':
-        return <DocumentTextIcon className="w-5 h-5 text-purple-600" />;
-      default:
-        return <CalendarIcon className="w-5 h-5 text-gray-600" />;
-    }
-  };
-  
-  const isPastSession = (scheduledTime) => {
-    return new Date(scheduledTime) < new Date();
+  const isPastByEndTime = (scheduledTime, durationMinutes) => {
+    const start = new Date(scheduledTime);
+    const end = new Date(start.getTime() + (parseInt(durationMinutes || 0, 10) * 60 * 1000));
+    return end < new Date();
   };
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
+      {/* Availability banners (non-blocking) */}
+      {isCurrentUserMentor && !isMentorAvailable && (
+        <div className="mb-3 p-3 rounded border border-yellow-300 bg-yellow-50 text-yellow-800 text-sm">
+          You are unavailable. Turn availability ON in <strong>My Mentorship</strong> to publish bookable time.
+        </div>
+      )}
+      {isCurrentUserMentor && isMentorAvailable && !hasFutureAvailability && (
+        <div className="mb-3 p-3 rounded border border-blue-200 bg-blue-50 text-blue-800 text-sm">
+          No upcoming slots. Add availability in <strong>My Mentorship</strong> to let mentees book time.
+        </div>
+      )}
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Mentorship Sessions</h2>
         <div className="flex space-x-2">
@@ -236,10 +248,17 @@ const SessionsCalendar = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          {sessions.map((session) => {
-            const mentorProfile = session.mentorship_request?.mentor?.mentor_profile;
-            const menteeProfile = session.mentorship_request?.mentee?.mentee_profile;
-            const isPast = isPastSession(session.scheduled_time);
+          {sessions
+            .filter((session) => {
+              const isPast = isPastByEndTime(session.scheduled_time, session.duration_minutes);
+              if (activeTab === 'upcoming') return !isPast;
+              if (activeTab === 'past') return isPast;
+              return true;
+            })
+            .map((session) => {
+            const mentorProfile = session.mentorship_request?.mentor;
+            const menteeProfile = session.mentorship_request?.mentee;
+            const isPast = isPastByEndTime(session.scheduled_time, session.duration_minutes);
             
             return (
               <div 
@@ -247,17 +266,7 @@ const SessionsCalendar = () => {
                 className="border rounded-lg p-4 hover:shadow-md transition-shadow"
               >
                 <div className="flex flex-col md:flex-row md:justify-between md:items-center">
-                  <div className="flex items-center mb-2 md:mb-0">
-                    {getSessionTypeIcon(session.meeting_type)}
-                    <span className="ml-2 font-medium text-lg">
-                      {session.meeting_type === 'video' ? 'Video Call' :
-                       session.meeting_type === 'in-person' ? 'In-Person Meeting' :
-                       session.meeting_type === 'phone' ? 'Phone Call' : 'Chat Session'}
-                    </span>
-                    <span className={`ml-3 text-xs font-semibold px-2.5 py-0.5 rounded-full ${getStatusBadgeClass(session.status)}`}>
-                      {session.status.charAt(0).toUpperCase() + session.status.slice(1)}
-                    </span>
-                  </div>
+                  <div className="flex items-center mb-2 md:mb-0 font-medium text-lg">Session</div>
                   
                   <div className="flex items-center">
                     <CalendarIcon className="w-5 h-5 text-gray-500 mr-1" />
@@ -304,7 +313,7 @@ const SessionsCalendar = () => {
                 
                 {/* Meeting details */}
                 <div className="mt-4 border-t pt-3">
-                  {session.meeting_type === 'video' && session.meeting_url && (
+                  {session.meeting_url && (
                     <div className="mb-2">
                       <p className="text-sm text-gray-500 mb-1">Meeting Link</p>
                       <a
@@ -318,40 +327,13 @@ const SessionsCalendar = () => {
                     </div>
                   )}
                   
-                  {session.meeting_type === 'in-person' && session.location && (
-                    <div className="mb-2">
-                      <p className="text-sm text-gray-500 mb-1">Location</p>
-                      <p>{session.location}</p>
-                    </div>
-                  )}
-                  
-                  {session.meeting_notes && (
+                  {session.notes && (
                     <div className="mb-2">
                       <p className="text-sm text-gray-500 mb-1">Notes</p>
-                      <p className="text-sm">{session.meeting_notes}</p>
+                      <p className="text-sm">{session.notes}</p>
                     </div>
                   )}
                 </div>
-                
-                {/* Action buttons - only show for upcoming and scheduled sessions */}
-                {!isPast && session.status === 'scheduled' && (
-                  <div className="mt-4 flex justify-end space-x-2">
-                    <button
-                      onClick={() => updateSessionStatus(session.id, 'completed')}
-                      className="flex items-center bg-green-600 hover:bg-green-700 text-white py-1 px-3 rounded-md text-sm"
-                    >
-                      <CheckCircleIcon className="w-4 h-4 mr-1" />
-                      Mark Complete
-                    </button>
-                    <button
-                      onClick={() => updateSessionStatus(session.id, 'canceled')}
-                      className="flex items-center bg-red-600 hover:bg-red-700 text-white py-1 px-3 rounded-md text-sm"
-                    >
-                      <XCircleIcon className="w-4 h-4 mr-1" />
-                      Cancel
-                    </button>
-                  </div>
-                )}
               </div>
             );
           })}

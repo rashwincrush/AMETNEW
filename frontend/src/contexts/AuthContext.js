@@ -53,7 +53,7 @@ const PERMISSIONS = {
     'access:events', 'manage:jobs', 'access:profile_settings'
   ],
   admin: ['access:all'],
-  super_admin: ['access:all'],
+  super_admin: ['access:all', 'view:feedback_reports'],
   student: [
     'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
     'request:mentorship', 'access:groups', 'message:users',
@@ -471,7 +471,15 @@ export const AuthProvider = ({ children }) => {
   const userRole = getUserRole();
   const isAdmin = userRole === 'admin' || userRole === 'super_admin';
 
+  // Helper functions for role checks (do not break existing boolean isAdmin)
+  const isSuperAdminFn = useCallback(() => userRole === 'super_admin', [userRole]);
+  const isAdminFn = useCallback(() => userRole === 'admin' || userRole === 'super_admin', [userRole]);
+
   const hasPermission = useCallback((permission) => {
+    // Critical: Only Super Admin should see feedback reports regardless of other permissions
+    if (permission === 'view:feedback_reports') {
+      return userRole === 'super_admin';
+    }
     const userPermissions = PERMISSIONS[userRole] || [];
     return userPermissions.includes('access:all') || userPermissions.includes(permission);
   }, [userRole]);
@@ -501,7 +509,10 @@ export const AuthProvider = ({ children }) => {
     hasAnyPermission,
     hasAllPermissions,
     getUserRole,
-    rejectionStatus
+    rejectionStatus,
+    // New helpers
+    isAdminFn,
+    isSuperAdmin: isSuperAdminFn
   };
 
   return (

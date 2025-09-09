@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import ContentApproval from './ContentApproval';
 import UserManagement from './UserManagement';
+import MentorsTab from './MentorsTab';
 import CSVExport from './CSVExport';
 import { 
   Cog6ToothIcon, 
@@ -20,7 +21,7 @@ import PermissionGate from '../PermissionGate';
 
 // Reports component that includes CSV Export functionality and Feedback Report
 const Reports = () => {
-  const { getUserRole } = useAuth();
+  const { getUserRole, hasPermission } = useAuth();
   const userRole = getUserRole();
   const isSuperAdmin = userRole === 'super_admin';
 
@@ -249,12 +250,12 @@ const SystemAdministration = () => {
 
 
 const AdminSettings = () => {
-  const { getUserRole } = useAuth();
+  const { getUserRole, hasPermission } = useAuth();
   const userRole = getUserRole();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const isSuperAdmin = userRole === 'super_admin';
 
-  // Define the consolidated tabs with redundant components removed
+  // Define the consolidated tabs
   const tabs = [
     {
       name: 'User Management',
@@ -271,22 +272,33 @@ const AdminSettings = () => {
       superAdminOnly: false,
     },
     {
+      name: 'Mentors',
+      icon: <ShieldCheckIcon className="w-5 h-5" />,
+      component: <MentorsTab />,
+      permission: 'access:all',
+      superAdminOnly: false,
+    },
+    {
       name: 'System Administration',
       icon: <WrenchScrewdriverIcon className="w-5 h-5" />,
       component: <SystemAdministration />,
-      permission: 'manage_settings',
-      superAdminOnly: true,
-    },
-    {
-      name: 'Reports',
-      icon: <ClipboardDocumentListIcon className="w-5 h-5" />,
-      component: <Reports />,
       permission: 'manage_settings',
       superAdminOnly: false,
     },
   ];
 
-  const availableTabs = tabs.filter(tab => isSuperAdmin || !tab.superAdminOnly);
+  // Only include Reports tab if user has explicit permission (Super Admin only)
+  if (hasPermission('view:feedback_reports')) {
+    tabs.push({
+      name: 'Reports',
+      icon: <ClipboardDocumentListIcon className="w-5 h-5" />,
+      component: <Reports />,
+      permission: 'view:feedback_reports',
+      superAdminOnly: false,
+    });
+  }
+
+  const availableTabs = tabs; // All tabs visible except Reports gated above
 
   return (
     <div className="space-y-6">

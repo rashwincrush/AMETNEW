@@ -231,13 +231,15 @@ const EventCalendar = ({ events }) => {
   
   // Custom toolbar component with improved responsiveness
   const CustomToolbar = ({ label, onView, view }) => (
-    <Box sx={{ 
+    <Box role="toolbar" aria-label="Calendar toolbar" sx={{ 
       display: 'flex', 
       flexDirection: { xs: 'column', md: 'row' }, 
       justifyContent: 'space-between', 
       alignItems: { xs: 'flex-start', md: 'center' },
       mb: 2,
-      gap: 2
+      gap: 2,
+      position: 'relative',
+      zIndex: 1
     }}>
       <Box sx={{ 
         display: 'flex', 
@@ -252,6 +254,8 @@ const EventCalendar = ({ events }) => {
         <ButtonGroup 
           size="small" 
           variant="outlined"
+          role="group"
+          aria-label="Calendar navigation"
           sx={{ 
             ml: { sm: 2 },
             width: { xs: '100%', sm: 'auto' }
@@ -287,6 +291,8 @@ const EventCalendar = ({ events }) => {
         <ButtonGroup 
           size="small" 
           variant="outlined"
+          role="group"
+          aria-label="Change calendar view"
           sx={{ 
             width: { xs: '100%', sm: 'auto' },
             '& .MuiButton-root': {
@@ -357,7 +363,7 @@ const EventCalendar = ({ events }) => {
 
       {/* Calendar */}
       <Paper elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-        <Box sx={{ position: 'relative' }}>
+        <Box sx={{ position: 'relative', pointerEvents: 'auto' }}>
           <Calendar
             localizer={localizer}
             events={filteredEvents}
@@ -368,6 +374,7 @@ const EventCalendar = ({ events }) => {
             }}
             date={date}
             view={view}
+            views={['month','week','day']}
             onNavigate={date => setDate(date)}
             onView={handleView}
             eventPropGetter={eventStyleGetter}
@@ -380,10 +387,6 @@ const EventCalendar = ({ events }) => {
             formats={{
               timeGutterFormat: 'HH:mm',
               eventTimeRangeFormat: ({start, end}) => {
-                return `${format(start, 'HH:mm')} - ${format(end, 'HH:mm')}`;
-              },
-              agendaTimeFormat: 'HH:mm',
-              agendaTimeRangeFormat: ({start, end}) => {
                 return `${format(start, 'HH:mm')} - ${format(end, 'HH:mm')}`;
               },
               dayHeaderFormat: (date) => {
@@ -399,7 +402,6 @@ const EventCalendar = ({ events }) => {
               month: 'Month',
               week: 'Week', 
               day: 'Day',
-              agenda: 'Agenda',
               date: 'Date',
               time: 'Time',
               event: 'Event',

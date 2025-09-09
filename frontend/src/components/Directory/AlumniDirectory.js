@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   MagnifyingGlassIcon,
   FunnelIcon,
@@ -13,6 +13,7 @@ import { supabase } from '../../utils/supabase';
 import AlumniCard from './AlumniCard';
 import AlumniListItem from './AlumniListItem';
 import { mapProfileToCard } from '../../utils/mapProfileToCard.ts';
+import { logActivity } from '../../utils/activityLogger';
 
 // Static filter configuration based on the new v_profiles_directory_card view
 const FILTERABLE_COLUMNS = [
@@ -26,8 +27,9 @@ const FILTERABLE_COLUMNS = [
 
 const AlumniDirectory = () => {
   const { isAuthenticated } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [viewMode, setViewMode] = useState('grid');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('q') || '');
   const [alumni, setAlumni] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -36,7 +38,7 @@ const AlumniDirectory = () => {
   const [totalAlumni, setTotalAlumni] = useState(0);
   const [filters, setFilters] = useState({});
   const [showFilters, setShowFilters] = useState(false);
-  const [sortBy, setSortBy] = useState('full_name,asc');
+  const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'full_name,asc');
   const [approvedMentorIds, setApprovedMentorIds] = useState(new Set());
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -149,12 +151,32 @@ const AlumniDirectory = () => {
         if (degreeDepartment) {
           mappedProfile.degreeDepartment = degreeDepartment;
         }
+        // Attach latest graduation year for display (hide if empty in card)
+        if (latestEducation && latestEducation.graduation_year) {
+          mappedProfile.gradYear = latestEducation.graduation_year;
+          mappedProfile.graduationYear = latestEducation.graduation_year;
+        }
         
         return mappedProfile;
       });
       
       setAlumni(mappedAlumni);
       setTotalAlumni(count || 0);
+
+      // Log directory view activity (best-effort)
+      logActivity({
+        action: 'directory_list_view',
+        meta: {
+          q: searchTerm || null,
+          filters,
+          sortBy,
+          page: currentPage,
+          perPage: itemsPerPage,
+          resultCount: (data || []).length,
+          total: count || 0,
+        },
+        route: '/directory'
+      });
     } catch (err) {
       console.error('Error fetching alumni data:', err);
       setError('Failed to fetch alumni data. Please try again later.');
@@ -166,6 +188,30 @@ const AlumniDirectory = () => {
   useEffect(() => {
     fetchAlumniData();
   }, [fetchAlumniData]);
+
+  // Restore from URL on first mount (search, sort, filters)
+  useEffect(() => {
+    const initialQ = searchParams.get('q');
+    const initialSort = searchParams.get('sort');
+    if (initialQ !== null && initialQ !== searchTerm) setSearchTerm(initialQ);
+    if (initialSort && initialSort !== sortBy) setSortBy(initialSort);
+    // Restore filters from URL
+    const restored = {};
+    FILTERABLE_COLUMNS.forEach(({ name }) => {
+      const v = searchParams.get(name);
+      if (v !== null) restored[name] = v;
+    });
+    if (Object.keys(restored).length) setFilters(restored);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync to URL when search or sort changes
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams);
+    if (searchTerm) params.set('q', searchTerm); else params.delete('q');
+    if (sortBy) params.set('sort', sortBy); else params.delete('sort');
+    setSearchParams(params, { replace: true });
+  }, [searchTerm, sortBy]);
   
   // Realtime refresh when profiles change in ways that affect directory membership
   useEffect(() => {
@@ -242,6 +288,16 @@ const AlumniDirectory = () => {
   const handleApplyFilters = () => {
     setCurrentPage(1);
     setRefreshTrigger(prev => prev + 1); // Trigger a fetch with new filters
+    // Write filters to URL
+    const params = new URLSearchParams(searchParams);
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== '' && value !== null) {
+        params.set(key, String(value));
+      } else {
+        params.delete(key);
+      }
+    });
+    setSearchParams(params, { replace: true });
     setShowFilters(false);
   };
 
@@ -250,12 +306,20 @@ const AlumniDirectory = () => {
     setFilters(rest);
     setCurrentPage(1);
     setRefreshTrigger(prev => prev + 1);
+    // Remove from URL
+    const params = new URLSearchParams(searchParams);
+    params.delete(filterName);
+    setSearchParams(params, { replace: true });
   };
 
   const handleClearAllFilters = () => {
     setFilters({});
     setCurrentPage(1);
     setRefreshTrigger(prev => prev + 1);
+    // Remove all filter params from URL
+    const params = new URLSearchParams(searchParams);
+    FILTERABLE_COLUMNS.forEach(({ name }) => params.delete(name));
+    setSearchParams(params, { replace: true });
   };
 
   const renderFilterInput = (filter) => {

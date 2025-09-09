@@ -1,0 +1,274 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { supabase } from '../../utils/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+import toast from 'react-hot-toast';
+
+const PAGE_SIZE = 10;
+
+const StatusBadge = ({ status }) => {
+  const map = {
+    approved: 'bg-green-100 text-green-800',
+    pending: 'bg-yellow-100 text-yellow-800',
+    rejected: 'bg-red-100 text-red-800',
+  };
+  return (
+    <span className={`px-2 py-1 rounded text-xs font-medium ${map[status] || 'bg-gray-100 text-gray-800'}`}>
+      {status}
+    </span>
+  );
+};
+
+const MentorsTab = () => {
+  const { userRole } = useAuth();
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const [statusFilter, setStatusFilter] = useState('pending'); // default Pending
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+
+  const fetchRows = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      // Base query: mentors joined to profiles
+      let query = supabase
+        .from('mentors')
+        .select(`
+          user_id,
+          status,
+          expertise,
+          mentoring_preferences,
+          created_at,
+          applicant:profiles!mentors_user_id_fkey (id, full_name, email, avatar_url, location, last_seen, role, is_available_for_mentorship)
+        `, { count: 'exact' })
+        .order('created_at', { ascending: true });
+
+      if (statusFilter && statusFilter !== 'all') {
+        query = query.eq('status', statusFilter);
+      }
+
+      // Pagination via range
+      const from = (page - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const { data, error } = await query.range(from, to);
+      if (error) throw error;
+
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error(e);
+      setError('Failed to load mentors');
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, page]);
+
+  useEffect(() => {
+    fetchRows();
+  }, [fetchRows]);
+
+  const forceUnavailable = useCallback(async (userId) => {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ is_available_for_mentorship: false })
+        .eq('id', userId);
+      if (error) throw error;
+      toast.success('Availability set to Off');
+      fetchRows();
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to force unavailable');
+    }
+  }, [fetchRows]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(r =>
+      (r.applicant?.full_name || '').toLowerCase().includes(q) ||
+      (r.applicant?.email || '').toLowerCase().includes(q)
+    );
+  }, [rows, search]);
+
+  const handleApprove = async (userId) => {
+    try {
+      const prev = rows.slice();
+      // optimistic update
+      setRows(r => r.map(x => x.user_id === userId ? { ...x, status: 'approved' } : x));
+      const { error } = await supabase
+        .from('mentors')
+        .update({ status: 'approved' })
+        .eq('user_id', userId);
+      if (error) throw error;
+      toast.success('Mentor approved');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to approve mentor');
+      fetchRows();
+    }
+  };
+
+  const handleReject = async (userId) => {
+    try {
+      const prev = rows.slice();
+      setRows(r => r.map(x => x.user_id === userId ? { ...x, status: 'rejected' } : x));
+      const { error } = await supabase
+        .from('mentors')
+        .update({ status: 'rejected' })
+        .eq('user_id', userId);
+      if (error) throw error;
+      toast.success('Mentor rejected');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to reject mentor');
+      fetchRows();
+    }
+  };
+
+  return (
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold">Mentors</h2>
+        <div className="flex gap-2">
+          <select
+            value={statusFilter}
+            onChange={(e) => { setPage(1); setStatusFilter(e.target.value); }}
+            className="form-input px-3 py-2 rounded"
+          >
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="all">All</option>
+          </select>
+          <input
+            value={search}
+            onChange={(e) => { setPage(1); setSearch(e.target.value); }}
+            placeholder="Search name/email"
+            className="form-input px-3 py-2 rounded"
+          />
+        </div>
+      </div>
+
+      {statusFilter === 'pending' && (
+        <div className="mb-3 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded p-2">
+          Admins can approve all normal mentor applications. Admin→Mentor applications require Super Admin.
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-center py-8 text-gray-500">Loading...</div>
+      ) : error ? (
+        <div className="text-center py-8 text-red-600">{error}</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-8 text-gray-600">
+          {statusFilter === 'pending' ? 'No mentor applications in Pending.' : 'No mentor applications in this view.'}
+        </div>
+      ) : (
+        <div className="overflow-x-auto border rounded-lg">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Availability</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {filtered.map((row) => (
+                <tr key={row.user_id}>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <img src={row.applicant?.avatar_url || '/default-avatar.svg'} alt={row.applicant?.full_name || 'User'} className="w-10 h-10 rounded-full object-cover" />
+                      <div>
+                        <div className="font-medium text-gray-900">{row.applicant?.full_name || 'Unknown'}</div>
+                        <div className="text-gray-500 text-sm">{row.applicant?.email}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {row.status === 'approved' ? 'Mentor' : 'Mentor Pending'}
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={row.status} />
+                  </td>
+                  <td className="px-4 py-3">
+                    {row.applicant?.is_available_for_mentorship ? (
+                      <span className="px-2 py-1 rounded bg-green-100 text-green-800 text-xs">On</span>
+                    ) : (
+                      <span className="px-2 py-1 rounded bg-gray-100 text-gray-700 text-xs">Off</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">{row.applicant?.location || '-'}</td>
+                  <td className="px-4 py-3">{row.applicant?.last_seen ? new Date(row.applicant.last_seen).toLocaleString() : '-'}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-2">
+                      {(() => {
+                        const applicantRole = (row.applicant?.role || 'alumni');
+                        const isAdminApplicant = applicantRole === 'admin' || applicantRole === 'super_admin';
+                        const isSuperAdmin = userRole === 'super_admin';
+                        const disableForRole = isAdminApplicant && !isSuperAdmin;
+                        return (
+                          <>
+                            <button
+                              className="px-3 py-1 rounded bg-green-600 text-white text-sm hover:bg-green-700 disabled:opacity-50"
+                              onClick={() => handleApprove(row.user_id)}
+                              disabled={row.status === 'approved' || disableForRole}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              className="px-3 py-1 rounded border border-red-600 text-red-600 text-sm hover:bg-red-50 disabled:opacity-50"
+                              onClick={() => handleReject(row.user_id)}
+                              disabled={row.status === 'rejected' || disableForRole}
+                            >
+                              Reject
+                            </button>
+                            <button
+                              className="px-3 py-1 rounded border text-sm hover:bg-gray-50 disabled:opacity-50"
+                              onClick={() => forceUnavailable(row.user_id)}
+                              disabled={disableForRole || row.applicant?.is_available_for_mentorship === false}
+                              title="Force Unavailable"
+                            >
+                              Force Unavailable
+                            </button>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      <div className="flex items-center justify-end gap-2 mt-4">
+        <div className="flex-1 text-sm text-gray-600">Showing {filtered.length} mentor(s)</div>
+        <button
+          onClick={() => setPage(p => Math.max(1, p - 1))}
+          className="px-3 py-1 rounded border text-sm disabled:opacity-50"
+          disabled={page === 1}
+        >
+          Previous
+        </button>
+        <span className="text-sm">Page {page}</span>
+        <button
+          onClick={() => setPage(p => p + 1)}
+          className="px-3 py-1 rounded border text-sm"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default MentorsTab;

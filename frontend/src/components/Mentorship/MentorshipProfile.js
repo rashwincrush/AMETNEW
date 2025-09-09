@@ -39,7 +39,7 @@ const MentorshipProfile = () => {
       .select('*')
       .eq('mentor_id', id)
       .eq('mentee_id', user.id)
-      .in('status', ['pending', 'approved']);
+      .in('status', ['pending', 'accepted']);
     setAlreadyRequested(data && data.length > 0);
   };
 
@@ -53,7 +53,7 @@ const MentorshipProfile = () => {
           mentor_id: id,
           mentee_id: user.id,
           status: 'pending',
-          requested_at: new Date().toISOString()
+          // created_at is set by the database default; no requested_at column
         }
       ]);
       if (error) throw error;
@@ -96,7 +96,7 @@ const MentorshipProfile = () => {
             disabled={alreadyRequested || requesting}
             onClick={handleRequestMentorship}
           >
-            {alreadyRequested ? 'Request Pending or Approved' : requesting ? 'Requesting...' : 'Request Mentorship'}
+            {alreadyRequested ? 'Request Pending or Accepted' : requesting ? 'Requesting...' : 'Request Mentorship'}
           </Button>
         </Box>
       )}

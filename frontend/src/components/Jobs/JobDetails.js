@@ -19,6 +19,7 @@ import {
   CheckCircleIcon,
   ExclamationTriangleIcon,
   PencilIcon,
+  TrashIcon,
 } from '@heroicons/react/24/outline';
 import { BookmarkIcon as BookmarkIconSolid } from '@heroicons/react/24/solid';
 import JobApplicationForm from './JobApplicationForm';
@@ -371,6 +372,49 @@ const JobDetails = () => {
                   return null;
                 })()}
 
+                {(() => {
+                  const userRole = getUserRole();
+                  const canDelete = user && (job.posted_by === user.id || ['admin', 'super_admin'].includes(userRole));
+                  const handleDelete = async () => {
+                    if (!canDelete) return;
+                    if (!window.confirm('Are you sure you want to delete this job? This action cannot be undone.')) return;
+                    try {
+                      const toastId = toast.loading('Deleting job...');
+                      const { error } = await supabase
+                        .from('jobs')
+                        .delete()
+                        .eq('id', job.id);
+                      if (error) {
+                        // Surface RLS errors more clearly
+                        if (error.code === '42501' || (error.message || '').toLowerCase().includes('permission')) {
+                          toast.error('You do not have permission to delete this job.', { id: toastId });
+                        } else {
+                          toast.error(`Failed to delete job: ${error.message}`, { id: toastId });
+                        }
+                        return;
+                      }
+                      toast.success('Job deleted successfully', { id: toastId });
+                      navigate('/jobs');
+                    } catch (err) {
+                      console.error('Error deleting job:', err);
+                      toast.dismiss();
+                      toast.error('Failed to delete job. You may not have permission.');
+                    }
+                  };
+                  if (canDelete) {
+                    return (
+                      <button
+                        onClick={handleDelete}
+                        className="flex items-center justify-center w-full px-4 py-2.5 border border-red-200 rounded-md shadow-sm text-sm font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
+                      >
+                        <TrashIcon className="w-5 h-5 mr-2" />
+                        Delete Job
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
+
                 {/* Manage Applications Button - visible only to job poster, admins, or appropriate employer */}
                 <EmployerGuard jobId={job?.id} strict={false}>
                   {user && (profile?.role === 'admin' || profile?.role === 'super_admin' || profile?.role === 'employer') && (
@@ -430,10 +474,10 @@ const JobDetails = () => {
               </div>
             )}
 
-            {/* Requirements */}
+            {/* Qualification */}
             {(job.requirements && job.requirements.length > 0) && (
               <div className="glass-card rounded-lg p-6">
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">Requirements</h2>
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">Qualification</h2>
                 <ul className="space-y-3 mb-6">
                   {job.requirements.map((requirement, index) => (
                     <li key={index} className="flex items-start">
@@ -487,9 +531,11 @@ const JobDetails = () => {
             )}
 
             {/* Application Form */}
-            <div className="mt-8">
-              <JobApplicationForm jobId={id} />
-            </div>
+            {(!user || (user && job.posted_by !== user.id)) && (
+              <div className="mt-8">
+                <JobApplicationForm jobId={id} deadline={job.application_deadline} />
+              </div>
+            )}
           </div>
 
           {/* Sidebar */}

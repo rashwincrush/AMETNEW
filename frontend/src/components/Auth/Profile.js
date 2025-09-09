@@ -38,6 +38,8 @@ const Profile = () => {
   const [imageFile, setImageFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const initialFormRef = useRef(null);
+  const [skillInput, setSkillInput] = useState('');
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
@@ -247,6 +249,7 @@ const Profile = () => {
             }
           }
 
+
           console.log('Setting initial company name:', initialCompany);
           console.log('Cleaned profile data:', cleanedProfile);
 
@@ -325,6 +328,78 @@ const Profile = () => {
       initializeForm();
     }
   }, [user, profile, isEmployer]);
+
+  // Track initial snapshot when entering edit mode and guard before unload
+  useEffect(() => {
+    if (isEditing) {
+      // Snapshot current form data to compare for unsaved changes
+      initialFormRef.current = formData;
+    }
+  }, [isEditing]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      try {
+        const hasInitial = !!initialFormRef.current;
+        const hasUnsaved = hasInitial && JSON.stringify(formData) !== JSON.stringify(initialFormRef.current);
+        if (isEditing && hasUnsaved) {
+          e.preventDefault();
+          e.returnValue = '';
+          return '';
+        }
+      } catch (_) {
+        // no-op
+      }
+      return undefined;
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isEditing, formData]);
+
+  // Intercept in-app navigations (anchor clicks and browser back) when there are unsaved changes
+  useEffect(() => {
+    const hasUnsaved = () => {
+      try {
+        const hasInitial = !!initialFormRef.current;
+        return isEditing && hasInitial && JSON.stringify(formData) !== JSON.stringify(initialFormRef.current);
+      } catch {
+        return false;
+      }
+    };
+
+    const onDocumentClick = (e) => {
+      if (!hasUnsaved()) return;
+      // Find closest anchor
+      const anchor = e.target && typeof e.target.closest === 'function' ? e.target.closest('a') : null;
+      if (!anchor) return;
+      const href = anchor.getAttribute('href');
+      if (!href || href.startsWith('#') || anchor.getAttribute('target') === '_blank' || anchor.hasAttribute('download')) return;
+      // Same-origin or internal route
+      if (href.startsWith('/') || href.startsWith(window.location.origin)) {
+        const confirmLeave = window.confirm('You have unsaved changes. Leave this page?');
+        if (!confirmLeave) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+    };
+
+    const onPopState = () => {
+      if (!hasUnsaved()) return;
+      const confirmLeave = window.confirm('You have unsaved changes. Leave this page?');
+      if (!confirmLeave) {
+        // push current URL back to effectively cancel the back navigation
+        window.history.pushState(null, '', window.location.href);
+      }
+    };
+
+    document.addEventListener('click', onDocumentClick, true);
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      document.removeEventListener('click', onDocumentClick, true);
+      window.removeEventListener('popstate', onPopState);
+    };
+  }, [isEditing, formData]);
 
   // Add conditional rendering AFTER all hooks are defined
   if (isComponentLoading || loading) {
@@ -597,6 +672,11 @@ const Profile = () => {
             if (!isHttps || host !== 'github.com' || !/^\/[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])(\/.*)?$/i.test(path)) {
               validationError = 'Use a valid GitHub profile URL (e.g., https://github.com/username)';
             }
+          } else if (field === 'twitter') {
+            const isAllowedHost = host === 'twitter.com' || host === 'x.com';
+            if (!isHttps || !isAllowedHost || !/^\/[A-Za-z0-9_]{1,15}(\/.*)?$/.test(path)) {
+              validationError = 'Use https://twitter.com/handle or https://x.com/handle';
+            }
           } else if (field === 'website') {
             if (!isHttps) {
               validationError = 'Website must start with https://';
@@ -647,6 +727,38 @@ const Profile = () => {
     else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
+  };
+
+  // Skills tokenizer handlers
+  const addSkill = (val) => {
+    const v = (val || '').trim();
+    if (!v) return;
+    setFormData(prev => ({
+      ...prev,
+      skills: Array.from(new Set([...(prev.skills || []), v]))
+    }));
+    setSkillInput('');
+  };
+
+  const handleSkillKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addSkill(skillInput);
+    }
+    // Support backspace to delete last chip when input empty
+    if (e.key === 'Backspace' && !skillInput && Array.isArray(formData.skills) && formData.skills.length) {
+      setFormData(prev => ({
+        ...prev,
+        skills: prev.skills.slice(0, -1)
+      }));
+    }
+  };
+
+  const removeSkill = (skill) => {
+    setFormData(prev => ({
+      ...prev,
+      skills: (prev.skills || []).filter(s => s !== skill)
+    }));
   };
 
     const handleAddAchievement = () => {
@@ -984,15 +1096,27 @@ const Profile = () => {
             </div>
             
             <div className="mt-4 space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Skills (comma separated)</label>
-              <input
-                type="text"
-                name="skills"
-                value={formData.skills.join(', ')}
-                onChange={handleChange}
-                className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                placeholder="e.g., Marine Engineering, Ship Design, Project Management"
-              />
+              <label className="block text-sm font-medium text-gray-700">Skills</label>
+              <div className="w-full px-3 py-2 rounded-lg border border-gray-300 focus-within:ring-2 focus-within:ring-ocean-500">
+                <div className="flex flex-wrap gap-2">
+                  {(formData.skills || []).map((skill, idx) => (
+                    <span key={`${skill}-${idx}`} className="inline-flex items-center bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
+                      {skill}
+                      <button type="button" className="ml-1 text-blue-600 hover:text-blue-800" onClick={() => removeSkill(skill)} aria-label={`Remove ${skill}`}>
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    type="text"
+                    value={skillInput}
+                    onChange={(e) => setSkillInput(e.target.value)}
+                    onKeyDown={handleSkillKeyDown}
+                    className="flex-1 min-w-[160px] outline-none text-sm"
+                    placeholder="Type a skill and press Enter"
+                  />
+                </div>
+              </div>
             </div>
             
             <div className="mt-4 space-y-2">
@@ -1094,7 +1218,13 @@ const Profile = () => {
           <div className="flex justify-end space-x-4">
             <button
               type="button"
-              onClick={() => setIsEditing(false)}
+              onClick={() => {
+                const hasInitial = !!initialFormRef.current;
+                const hasUnsaved = hasInitial && JSON.stringify(formData) !== JSON.stringify(initialFormRef.current);
+                if (!hasUnsaved || window.confirm('Discard unsaved changes?')) {
+                  setIsEditing(false);
+                }
+              }}
               className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
             >
               Cancel
@@ -1181,7 +1311,7 @@ const Profile = () => {
                         {hasValue(formData.phone) && (
                           <div className="flex items-center text-gray-600">
                             <PhoneIcon className="w-4 h-4 mr-2 flex-shrink-0" />
-                            <span>{formData.phone}</span>
+                            <a href={`tel:${formData.phone}`} className="text-ocean-600 hover:underline">{formData.phone}</a>
                           </div>
                         )}
                         {hasValue(formData.location) && (

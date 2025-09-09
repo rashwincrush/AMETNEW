@@ -751,33 +751,84 @@ export const fetchGroups = async (options = {}) => {
     sortBy = 'created_at',
     sortOrder = 'desc',
     limit = 100,
-    isAdmin = false
+    isAdmin = false,
+    currentUserId = null,
   } = options;
-  
-  let query = supabase
+
+  // Base selection with creator explicit embed and member count
+  const baseSelect = `*, creator:profiles!groups_created_by_fkey(id, full_name, avatar_url), group_members(count)`;
+
+  // Admin path: fetch all groups
+  if (isAdmin) {
+    let adminQ = supabase
+      .from('groups')
+      .select(baseSelect)
+      .order(sortBy, { ascending: sortOrder === 'asc' })
+      .limit(limit);
+    if (searchQuery) adminQ = adminQ.ilike('name', `%${searchQuery}%`);
+    if (tags && tags.length > 0) adminQ = adminQ.contains('tags', tags);
+    const { data, error } = await adminQ;
+    return { data, error };
+  }
+
+  // Non-admin path: public groups + private groups where user is a member
+  let publicQ = supabase
     .from('groups')
-    .select('*, group_members(count)')
-    .eq('is_private', false) // Always fetch only public groups
+    .select(baseSelect)
+    .eq('is_private', false)
+    .eq('is_approved', true)
     .order(sortBy, { ascending: sortOrder === 'asc' })
     .limit(limit);
-    
-  // Only show approved groups to regular users
-  if (!isAdmin) {
-    query = query.eq('is_approved', true);
-  }
-  
-  // Apply search filter if provided
+  if (searchQuery) publicQ = publicQ.ilike('name', `%${searchQuery}%`);
+  if (tags && tags.length > 0) publicQ = publicQ.contains('tags', tags);
+
+  const [{ data: pub, error: pubErr }, memberRes] = await Promise.all([
+    publicQ,
+    (async () => {
+      if (!currentUserId) return { data: [], error: null };
+      // Fetch groups where current user is a member (includes private ones)
+      const { data, error } = await supabase
+        .from('group_members')
+        .select(`
+          group:groups(${baseSelect})
+        `)
+        .eq('user_id', currentUserId);
+      if (error) return { data: null, error };
+      // Map to group rows and mark membership
+      const groups = (data || []).map(r => ({ ...r.group, is_member: true }));
+      return { data: groups, error: null };
+    })()
+  ]);
+
+  if (pubErr) return { data: null, error: pubErr };
+  if (memberRes.error) return { data: null, error: memberRes.error };
+
+  const membershipMap = new Map();
+  (memberRes.data || []).forEach(g => membershipMap.set(g.id, true));
+
+  // Merge public + member groups, prefer member flag
+  const merged = [];
+  const seen = new Set();
+  (pub || []).forEach(g => {
+    const is_member = membershipMap.get(g.id) || false;
+    merged.push({ ...g, is_member });
+    seen.add(g.id);
+  });
+  (memberRes.data || []).forEach(g => {
+    if (!seen.has(g.id)) merged.push(g);
+  });
+
+  // Apply client-side filters that weren't applicable to member join select
+  let filtered = merged;
   if (searchQuery) {
-    query = query.ilike('name', `%${searchQuery}%`);
+    const q = searchQuery.toLowerCase();
+    filtered = filtered.filter(g => (g.name || '').toLowerCase().includes(q));
   }
-  
-  // Apply tags filter if provided
   if (tags && tags.length > 0) {
-    query = query.contains('tags', tags);
+    filtered = filtered.filter(g => Array.isArray(g.tags) && tags.every(t => g.tags.includes(t)));
   }
-  
-  const { data, error } = await query;
-  return { data, error };
+
+  return { data: filtered, error: null };
 };
 
 // For backward compatibility
@@ -787,14 +838,40 @@ export const fetchPublicGroups = async () => {
 
 // Fetch a single group's details, including members
 export const fetchGroupDetails = async (groupId) => {
-  const { data, error } = await supabase
+  // Try explicit FK embed for creator; fallback if relation name differs
+  let { data, error } = await supabase
     .from('groups')
     .select(`
       *,
+      creator:profiles!groups_created_by_fkey(id, full_name, avatar_url),
       members:group_members(profiles(*))
     `)
     .eq('id', groupId)
     .single();
+
+  if (error) {
+    // Fallback: fetch without creator embed, then resolve creator manually
+    const { data: base, error: baseErr } = await supabase
+      .from('groups')
+      .select(`
+        *,
+        members:group_members(profiles(*))
+      `)
+      .eq('id', groupId)
+      .single();
+    if (baseErr) return { data: null, error: baseErr };
+    let creator = null;
+    if (base?.created_by) {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url')
+        .eq('id', base.created_by)
+        .maybeSingle();
+      creator = prof || null;
+    }
+    data = { ...base, creator };
+    error = null;
+  }
   return { data, error };
 };
 

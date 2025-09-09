@@ -3,16 +3,19 @@ import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
 
-const EditUserModal = ({ user, isOpen, onClose, onSave }) => {
+const EditUserModal = ({ user, isOpen, onClose, onSave, isSuperAdminActor = false }) => {
   const [selectedRole, setSelectedRole] = useState('');
 
-  const ALL_ROLES = [
+  const BASE_ROLES = [
     { name: 'alumni', description: 'Alumni' },
     { name: 'mentor', description: 'Mentor' },
     { name: 'employer', description: 'Employer' },
     { name: 'student', description: 'Mentee/Student' },
     { name: 'admin', description: 'Admin' },
   ];
+  const ALL_ROLES = isSuperAdminActor
+    ? [...BASE_ROLES, { name: 'super_admin', description: 'Super Admin' }]
+    : BASE_ROLES;
 
   useEffect(() => {
     // When the modal opens, reset the selected role.

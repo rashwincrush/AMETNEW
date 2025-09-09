@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { 
   MagnifyingGlassIcon,
   FunnelIcon,
@@ -17,6 +17,7 @@ import {
   UsersIcon,
   DocumentTextIcon
 } from '@heroicons/react/24/outline';
+import { CalendarIcon } from '@heroicons/react/24/outline';
 import { CheckBadgeIcon } from '@heroicons/react/24/solid';
 import { CircularProgress } from '@mui/material';
 import { supabase } from '../../utils/supabase';
@@ -30,6 +31,23 @@ import BookmarkButton from './BookmarkButton';
 
 
 
+// Shared helper: relative time formatter
+const timeAgo = (date) => {
+  if (!date) return '';
+  const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+  let interval = seconds / 31536000;
+  if (interval > 1) return Math.floor(interval) + ' years ago';
+  interval = seconds / 2592000;
+  if (interval > 1) return Math.floor(interval) + ' months ago';
+  interval = seconds / 86400;
+  if (interval > 1) return Math.floor(interval) + ' days ago';
+  interval = seconds / 3600;
+  if (interval > 1) return Math.floor(interval) + ' hours ago';
+  interval = seconds / 60;
+  if (interval > 1) return Math.floor(interval) + ' minutes ago';
+  return Math.floor(seconds) + ' seconds ago';
+};
+
 // Define the filterOptions outside of the component to prevent re-creating on each render
 const filterOptions = {
   jobType: [
@@ -38,6 +56,13 @@ const filterOptions = {
     { value: 'part-time', label: 'Part-Time' },
     { value: 'contract', label: 'Contract' },
     { value: 'internship', label: 'Internship' },
+  ],
+  department: [
+    { value: 'all', label: 'All Departments' },
+    { value: 'marine', label: 'Marine' },
+    { value: 'naval', label: 'Naval' },
+    { value: 'port', label: 'Port' },
+    { value: 'logistics', label: 'Logistics' },
   ],
   experience: [
     { value: 'all', label: 'All Experience Levels' },
@@ -93,7 +118,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   };
 
   return (
-    <div className="glass-card rounded-lg p-6 hover:shadow-lg transition-shadow border border-transparent">
+    <div className="glass-card rounded-lg p-6 hover:shadow-lg transition-shadow border border-transparent h-full flex flex-col">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center">
           <img 
@@ -103,7 +128,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           />
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-gray-900">{job.title}</h3>
+              <h3 className="font-semibold text-gray-900 line-clamp-1" title={job.title}>{job.title}</h3>
             </div>
             <div className="flex items-center gap-1">
               <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">{job.companies?.name || job.company_name}</Link>
@@ -112,12 +137,15 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
                   <CheckBadgeIcon className="w-4 h-4" />
                 </div>
               )}
+              <div className="text-xs text-gray-500 mt-0.5">
+                {job.created_at ? `Posted ${timeAgo(job.created_at)}` : ''}
+              </div>
             </div>
           </div>
         </div>
         <div className="flex items-center">
           <div className="relative">
-            <button onClick={() => setShowShare(!showShare)} className="p-2 rounded-full hover:bg-gray-100">
+            <button onClick={() => setShowShare(!showShare)} className="p-2 rounded-full hover:bg-gray-100" aria-label="Share job">
               <ShareIcon className="w-5 h-5 text-gray-500" />
             </button>
             {showShare && (
@@ -134,8 +162,8 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           />
         </div>
       </div>
-      
-      <p className="text-gray-600 text-sm mb-4 line-clamp-2">{job.description || 'No description provided.'}</p>
+
+      <p className="text-gray-600 text-sm mb-4 line-clamp-3">{job.description || 'No description provided.'}</p>
       
       <div className="grid grid-cols-2 gap-2 mb-4">
         <div className="flex items-center text-sm text-gray-600">
@@ -154,7 +182,22 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           <CurrencyRupeeIcon className="w-4 h-4 mr-1" />
           <span>{formatSalary(job.salary_min, job.salary_max)}</span>
         </div>
+        {job.application_deadline && (
+          <div className="col-span-2 flex items-center text-sm text-gray-600">
+            <CalendarIcon className="w-4 h-4 mr-1" />
+            <span>Deadline: {new Date(job.application_deadline).toLocaleDateString()}</span>
+          </div>
+        )}
       </div>
+
+      {/* Updated chip */}
+      {(job.updated_at && job.created_at && new Date(job.updated_at) > new Date(job.created_at)) && (
+        <div className="mb-3">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800">
+            Updated {timeAgo(job.updated_at)}
+          </span>
+        </div>
+      )}
       
       <div className="flex flex-wrap gap-1 mb-4">
         {(job.skills || []).slice(0, 4).map((skill, index) => (
@@ -167,7 +210,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
         ))}
       </div>
       
-      <div className="flex justify-between items-center">
+      <div className="mt-auto flex justify-between items-center">
         <span className="text-sm text-gray-500">
           {job.applicant_count || (job.applicants && Array.isArray(job.applicants) && job.applicants.length > 0 ? job.applicants[0].count : 0)} applicants
         </span>
@@ -202,24 +245,9 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
     return `${min / 100000}L - ${max / 100000}L`;
   };
 
-  const timeAgo = (date) => {
-    if (!date) return '';
-    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-    let interval = seconds / 31536000;
-    if (interval > 1) return Math.floor(interval) + " years ago";
-    interval = seconds / 2592000;
-    if (interval > 1) return Math.floor(interval) + " months ago";
-    interval = seconds / 86400;
-    if (interval > 1) return Math.floor(interval) + " days ago";
-    interval = seconds / 3600;
-    if (interval > 1) return Math.floor(interval) + " hours ago";
-    interval = seconds / 60;
-    if (interval > 1) return Math.floor(interval) + " minutes ago";
-    return Math.floor(seconds) + " seconds ago";
-  }
 
   return (
-    <div className="glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border border-transparent">
+    <div className="glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border border-transparent min-h-[140px]">
       <img 
         src={job.companies?.logo_url || '/logo.png'} 
         alt={job.companies?.name || 'Company'}
@@ -228,7 +256,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
       <div className="flex-1">
         <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-                <Link to={`/jobs/${job.id}`} className="text-lg font-bold text-gray-900 hover:text-ocean-600 transition-colors duration-200">
+                <Link to={`/jobs/${job.id}`} className="text-lg font-bold text-gray-900 hover:text-ocean-600 transition-colors duration-200 line-clamp-1" title={job.title}>
                     {job.title}
                 </Link>
 
@@ -243,7 +271,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
             </div>
           )}
         </div>
-        <p className="text-gray-600 text-sm mt-2 mb-3 line-clamp-2">{job.description ? `${job.description.slice(0, 150)}...` : 'No description provided.'}</p>
+        <p className="text-gray-600 text-sm mt-2 mb-3 line-clamp-2">{job.description ? `${job.description.slice(0, 160)}...` : 'No description provided.'}</p>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
           <div className="flex items-center">
             <MapPinIcon className="w-4 h-4 mr-1" />
@@ -261,12 +289,18 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
             <UsersIcon className="w-4 h-4 mr-1" />
             <span>{job.applicants && Array.isArray(job.applicants) && job.applicants.length > 0 ? job.applicants[0].count : 0} applicants</span>
           </div>
+          {job.application_deadline && (
+            <div className="flex items-center">
+              <CalendarIcon className="w-4 h-4 mr-1" />
+              <span>Deadline: {new Date(job.application_deadline).toLocaleDateString()}</span>
+            </div>
+          )}
         </div>
       </div>
       <div className="flex flex-col items-end justify-between self-stretch pt-2 sm:pt-0">
         <div className="flex items-center">
           <div className="relative">
-            <button onClick={() => setShowShare(!showShare)} className="p-2 rounded-full hover:bg-gray-100">
+            <button onClick={() => setShowShare(!showShare)} className="p-2 rounded-full hover:bg-gray-100" aria-label="Share job">
               <ShareIcon className="w-5 h-5 text-gray-500" />
             </button>
             {showShare && (
@@ -282,6 +316,13 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
             handleBookmark={handleBookmark}
           />
         </div>
+        {(job.updated_at && job.created_at && new Date(job.updated_at) > new Date(job.created_at)) && (
+          <div className="flex items-center gap-2 mt-4">
+            <span className="px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800" title={new Date(job.updated_at).toLocaleString()}>
+              Updated {timeAgo(job.updated_at)}
+            </span>
+          </div>
+        )}
         <Link to={`/jobs/${job.id}`} className="btn-ocean-outline px-4 py-2 rounded-lg text-sm mt-4">
           View Details
         </Link>
@@ -294,28 +335,31 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
 const JobListingsPage = () => {
   const { user, loading: authLoading, userRole } = useAuth();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const notification = useNotification();
-  const [viewMode, setViewMode] = useState('grid');
+  const [viewMode, setViewMode] = useState(searchParams.get('view') || 'grid');
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState([]);
   const [totalJobs, setTotalJobs] = useState(0);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('q') || '');
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
   const [filters, setFilters] = useState({
-    jobType: 'all',
-    experience: 'all',
-    location: 'all',
-    industry: 'all',
-    salaryRange: 'all',
-    postedWithin: 'all'
+    jobType: searchParams.get('jobType') || 'all',
+    experience: searchParams.get('experience') || 'all',
+    location: searchParams.get('location') || 'all',
+    industry: searchParams.get('industry') || 'all',
+    department: searchParams.get('department') || 'all',
+    salaryRange: searchParams.get('salaryRange') || 'all',
+    postedWithin: searchParams.get('postedWithin') || 'all'
   });
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1', 10));
   const [pageSize, setPageSize] = useState(12);
   const [totalPages, setTotalPages] = useState(0);
-  const [sortBy, setSortBy] = useState('created_at,desc');
+  const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'created_at,desc');
   const [bookmarkedJobs, setBookmarkedJobs] = useState([]);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [approvalFilter, setApprovalFilter] = useState(searchParams.get('approval') || 'all'); // admin-only client filter: all|approved|pending|rejected
 
 
 
@@ -351,14 +395,38 @@ const JobListingsPage = () => {
     // - Admin users will see all jobs
     // - Employers will see their own posted jobs regardless of approval status
     const isV2 = !isEmployer; // non-employers use v2 unified payload
-    const rpcName = isEmployer ? 'get_my_posted_jobs' : 'get_jobs_with_bookmarks_v2';
-    const { data, error } = await supabase.rpc(rpcName, {
-      p_search_query: searchQuery,
-      p_sort_by: sortField,
-      p_sort_order: sortOrder,
-      p_limit: pageSize,
-      p_offset: (currentPage - 1) * pageSize
-    });
+    let data = null; let error = null; let serverFilteredByDepartment = false;
+    if (isEmployer) {
+      ({ data, error } = await supabase.rpc('get_my_posted_jobs', {
+        p_search_query: searchQuery,
+        p_sort_by: sortField,
+        p_sort_order: sortOrder,
+        p_limit: pageSize,
+        p_offset: (currentPage - 1) * pageSize
+      }));
+    } else {
+      // Try v3 with department param; fallback to v2
+      const deptParam = (filters.department && filters.department !== 'all') ? filters.department : null;
+      ({ data, error } = await supabase.rpc('get_jobs_with_bookmarks_v3', {
+        p_search_query: searchQuery,
+        p_sort_by: sortField,
+        p_sort_order: sortOrder,
+        p_limit: pageSize,
+        p_offset: (currentPage - 1) * pageSize,
+        p_department: deptParam,
+      }));
+      if (!error) {
+        serverFilteredByDepartment = true;
+      } else {
+        ({ data, error } = await supabase.rpc('get_jobs_with_bookmarks_v2', {
+          p_search_query: searchQuery,
+          p_sort_by: sortField,
+          p_sort_order: sortOrder,
+          p_limit: pageSize,
+          p_offset: (currentPage - 1) * pageSize
+        }));
+      }
+    }
 
     if (error) {
       console.error('Error fetching jobs via RPC:', error);
@@ -386,7 +454,48 @@ const JobListingsPage = () => {
         }
 
         // Unique by id (safety) and set
-        const uniqueRows = Array.from(new Map(rows.map(job => [job.id, job])).values());
+        let uniqueRows = Array.from(new Map(rows.map(job => [job.id, job])).values());
+        // Client-side basic filters (until RPC supports them all)
+        const matchesFilters = (j) => {
+          // jobType
+          if (filters.jobType !== 'all' && (j.job_type || '').toLowerCase() !== filters.jobType) return false;
+          // experience
+          if (filters.experience !== 'all' && (j.experience_level || '').toLowerCase() !== filters.experience) return false;
+          // location contains
+          if (filters.location !== 'all' && !(j.location || '').toLowerCase().includes(filters.location.toLowerCase())) return false;
+          // industry equals
+          if (filters.industry !== 'all' && (j.industry || '').toLowerCase() !== filters.industry) return false;
+          // department equals
+          if (!serverFilteredByDepartment) {
+            if (filters.department !== 'all' && (j.department || '').toLowerCase() !== filters.department) return false;
+          }
+          // salaryRange
+          if (filters.salaryRange !== 'all') {
+            const [minStr, maxStr] = filters.salaryRange.split('-');
+            const min = minStr ? parseInt(minStr, 10) : 0;
+            const max = maxStr ? parseInt(maxStr, 10) : Infinity;
+            const smin = j.salary_min || 0;
+            const smax = j.salary_max || 0;
+            const anyInRange = (smin >= min && smin <= max) || (smax >= min && smax <= max) || (smin <= min && smax >= max);
+            if (!anyInRange) return false;
+          }
+          // postedWithin days from created_at
+          if (filters.postedWithin !== 'all') {
+            const days = parseInt(filters.postedWithin, 10);
+            const created = j.created_at ? new Date(j.created_at) : null;
+            if (!created) return false;
+            const diffDays = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
+            if (diffDays > days) return false;
+          }
+          return true;
+        };
+        uniqueRows = uniqueRows.filter(matchesFilters);
+        // Client-side approval filter for admins/employers (if API does not support)
+        if (['admin','super_admin','employer'].includes(userRole)) {
+          if (approvalFilter === 'approved') uniqueRows = uniqueRows.filter(j => j.is_approved === true);
+          if (approvalFilter === 'pending') uniqueRows = uniqueRows.filter(j => j.is_approved === false || j.approval_status === 'pending');
+          if (approvalFilter === 'rejected') uniqueRows = uniqueRows.filter(j => j.approval_status === 'rejected');
+        }
         setJobs(uniqueRows);
         setTotalJobs(totalCount);
         setTotalPages(Math.max(1, Math.ceil(totalCount / pageSize)));
@@ -412,7 +521,26 @@ const JobListingsPage = () => {
     }
 
     setLoading(false);
-  }, [searchQuery, sortBy, currentPage, user, supabase, pageSize]);
+  }, [searchQuery, sortBy, currentPage, user, supabase, pageSize, filters.department]);
+  
+  // Sync URL on relevant changes
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams);
+    if (searchQuery) params.set('q', searchQuery); else params.delete('q');
+    Object.entries(filters).forEach(([k,v]) => {
+      if (v && v !== 'all') params.set(k, v); else params.delete(k);
+    });
+    params.set('page', String(currentPage));
+    params.set('sort', sortBy);
+    if (['admin','super_admin','employer'].includes(userRole)) {
+      if (approvalFilter && approvalFilter !== 'all') params.set('approval', approvalFilter); else params.delete('approval');
+    } else {
+      params.delete('approval');
+    }
+    if (viewMode) params.set('view', viewMode);
+    setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, filters, currentPage, sortBy, approvalFilter, viewMode]);
 
   useEffect(() => {
     fetchJobs();
@@ -423,7 +551,7 @@ const JobListingsPage = () => {
     const t = setTimeout(() => {
       setSearchQuery(searchTerm);
       setCurrentPage(1);
-    }, 300);
+    }, 250);
     return () => clearTimeout(t);
   }, [searchTerm]);
 
@@ -526,7 +654,7 @@ const JobListingsPage = () => {
     setCurrentPage(pageNumber);
   };
 
-  const canPostJob = ['employer', 'admin', 'super_admin'].includes(userRole);
+  const canPostJob = ['employer', 'admin', 'super_admin', 'mentor'].includes(userRole);
 
   if (authLoading) {
     return (
@@ -606,6 +734,33 @@ const JobListingsPage = () => {
             ))}
           </select>
         ))}
+        {['admin','super_admin','employer'].includes(userRole) && (
+          <select
+            value={approvalFilter}
+            onChange={(e) => { setApprovalFilter(e.target.value); setCurrentPage(1); }}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
+            aria-label="Approval filter"
+          >
+            <option value="all">All Statuses</option>
+            <option value="approved">Approved</option>
+            <option value="pending">Pending</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        )}
+        <button
+          onClick={() => {
+            setSearchTerm('');
+            setSearchQuery('');
+            setFilters({ jobType:'all',experience:'all',location:'all',industry:'all',department:'all',salaryRange:'all',postedWithin:'all' });
+            setApprovalFilter('all');
+            setSortBy('created_at,desc');
+            setCurrentPage(1);
+          }}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm hover:bg-white"
+          aria-label="Reset filters"
+        >
+          Reset Filters
+        </button>
       </div>
 
       {/* View mode toggle and sort */}

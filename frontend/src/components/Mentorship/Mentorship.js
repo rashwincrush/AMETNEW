@@ -30,6 +30,7 @@ const Mentorship = () => {
     location: 'all',
     availability: 'all'
   });
+  const [showOnlyAccepting, setShowOnlyAccepting] = useState(true);
 
   // State for data from Supabase
   const [mentors, setMentors] = useState([]);
@@ -38,7 +39,7 @@ const Mentorship = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isCurrentUserMentor, setIsCurrentUserMentor] = useState(false);
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const hasFetched = useRef(false);
   
   // Fetch mentors on component mount
@@ -73,7 +74,7 @@ const Mentorship = () => {
     }
   };
   
-  // Function to fetch approved mentors
+  // Function to fetch approved mentors who are available
   const fetchApprovedMentors = async () => {
     try {
       setLoading(true);
@@ -81,25 +82,17 @@ const Mentorship = () => {
       
       console.log('Fetching approved mentors from Supabase...');
       
-      // Only add user condition if user exists
-      let query = supabase
+      // Only list approved mentors and join their profile (name/avatar, availability flag from profiles)
+      const { data: mentorsData, error: mentorsError } = await supabase
         .from('mentors')
         .select(`
           *,
-          profiles:user_id (full_name, avatar_url)
-        `);
-        
-      // Add filter condition only if user is available
-      if (user && user.id) {
-        query = query.or(`status.eq.approved,user_id.eq.${user.id}`);
-      } else {
-        query = query.eq('status', 'approved');
-      }
-      
-      // Execute the query
-      const { data: mentorsData, error: mentorsError } = await query;
+          profiles:user_id (full_name, avatar_url, is_available_for_mentorship)
+        `)
+        .eq('status', 'approved');
       
       console.log('Supabase query result:', mentorsData, mentorsError);
+      console.debug('mentor availability sample:', mentorsData?.[0]?.profiles?.is_available_for_mentorship);
       
       if (mentorsError) {
         throw mentorsError;
@@ -120,15 +113,19 @@ const Mentorship = () => {
         expertise: mentor.expertise || [],
         experience: `${mentor.mentoring_experience_years || 0} years`,
         responseTime: '48 hours',
-        availability: 'Available',
+        // Availability derived solely from profiles.is_available_for_mentorship
+        profileAvailable: mentor.profiles?.is_available_for_mentorship === true,
+        accepting: mentor.profiles?.is_available_for_mentorship === true,
+        availability: (mentor.profiles?.is_available_for_mentorship === true) ? 'Available' : 'Unavailable',
         compatibilityScore: 85, // Placeholder compatibility score
         ratings: '5.0', // Default or can be calculated if you have ratings
         totalMentees: mentor.max_mentees || 0,
+        preferences: mentor.mentoring_preferences || {},
         isBookmarked: false // You can add logic to check if bookmarked by current user
       }));
       
       console.log('Transformed mentors:', transformedMentors);
-      
+      // Show all approved mentors. Request button will be disabled if unavailable.
       setMentors(transformedMentors);
     } catch (err) {
       console.error('Error fetching mentors:', err);
@@ -155,8 +152,65 @@ const Mentorship = () => {
     console.log('Bookmark mentor:', mentorId);
   };
 
-  const handleSendRequest = (mentorId) => {
-    console.log('Send mentorship request to:', mentorId);
+  const handleSendRequest = async (mentorObj) => {
+    try {
+      if (!user) {
+        toast.error('Please sign in to request mentorship.');
+        return;
+      }
+
+      const menteeId = profile?.id || user.id; // profiles.id equals auth user id in this schema
+      const mentorId = mentorObj?.user_id;
+      if (!mentorId) {
+        toast.error('Unable to determine mentor profile.');
+        return;
+      }
+
+      // Prevent duplicate requests (since no unique constraint in DB)
+      const { data: existing, error: existingErr } = await supabase
+        .from('mentorship_requests')
+        .select('id, status')
+        .eq('mentor_id', mentorId)
+        .eq('mentee_id', menteeId)
+        .in('status', ['pending', 'accepted']);
+      if (existingErr) {
+        console.error('Duplicate check failed:', existingErr);
+      } else if (existing && existing.length > 0) {
+        toast('You already have a pending or accepted request with this mentor.', { icon: 'ℹ️' });
+        setActiveTab('my-requests');
+        return;
+      }
+
+      // Basic prompts for message/goals (kept simple for basic mode)
+      const message = window.prompt('Write a short message to the mentor (why you want mentorship):', '');
+      if (message === null) return; // user cancelled
+      const goals = window.prompt('Optionally describe your goals (optional):', '') || '';
+
+      const payload = {
+        mentee_id: menteeId,
+        mentor_id: mentorId,
+        message: message || '',
+        goals,
+        status: 'pending'
+      };
+
+      const { error } = await supabase
+        .from('mentorship_requests')
+        .insert([payload]);
+
+      if (error) {
+        console.error('Failed to create mentorship request:', error);
+        toast.error(`Failed to send request: ${error.message}`);
+        return;
+      }
+
+      toast.success('Mentorship request sent!');
+      // Optionally, switch to My Requests tab
+      setActiveTab('my-requests');
+    } catch (e) {
+      console.error(e);
+      toast.error('Something went wrong while sending the request.');
+    }
   };
 
   const getStatusBadge = (status) => {
@@ -196,8 +250,8 @@ const Mentorship = () => {
                             mentor.expertise.some(exp => 
                               exp.toLowerCase().replace(/\s+/g, '-').includes(filters.expertise.replace('all', ''))
                             );
-    
-    return matchesSearch && matchesExpertise;
+    const matchesAccepting = !showOnlyAccepting || mentor.profileAvailable;
+    return matchesSearch && matchesExpertise && matchesAccepting;
   });
 
   const MentorCard = ({ mentor }) => (
@@ -279,6 +333,23 @@ const Mentorship = () => {
         </div>
       </div>
 
+      {mentor.preferences && (
+        <div className="mb-4">
+          <h4 className="text-sm font-medium text-gray-900 mb-2">Preferences</h4>
+          <div className="flex flex-wrap gap-1 text-xs">
+            {mentor.preferences.communication && (
+              <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded">Comm: {mentor.preferences.communication}</span>
+            )}
+            {mentor.preferences.format && (
+              <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded">Format: {mentor.preferences.format}</span>
+            )}
+            {mentor.preferences.duration && (
+              <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded">Duration: {mentor.preferences.duration}</span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="mb-4">
         <div className="flex items-center justify-between text-sm">
           <span className="text-gray-600">Compatibility Score</span>
@@ -300,8 +371,10 @@ const Mentorship = () => {
           View Profile
         </Link>
         <button 
-          onClick={() => handleSendRequest(mentor.id)}
-          className="flex-1 btn-ocean py-2 px-3 rounded text-sm"
+          onClick={() => handleSendRequest(mentor)}
+          className="flex-1 btn-ocean py-2 px-3 rounded text-sm disabled:opacity-50"
+          disabled={!mentor.profileAvailable}
+          title={!mentor.profileAvailable ? "This mentor isn’t accepting requests right now." : undefined}
         >
           Request Mentorship
         </button>
@@ -318,22 +391,30 @@ const Mentorship = () => {
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Mentorship Program</h1>
             <p className="text-gray-600">Connect with experienced professionals and advance your maritime career</p>
           </div>
-          <Link 
-            to="/mentorship/become-mentor"
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center"
-          >
-            {isCurrentUserMentor ? (
-              <>
-                <PencilIcon className="w-5 h-5 mr-2" />
-                Edit Mentorship Details
-              </>
-            ) : (
-              <>
-                <PlusIcon className="w-5 h-5 mr-2" />
-                Become a Mentor
-              </>
-            )}
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link 
+              to="/mentorship/me"
+              className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-semibold py-2 px-4 rounded-lg shadow-sm transition duration-150 ease-in-out"
+            >
+              My Mentorship
+            </Link>
+            <Link 
+              to="/mentorship/become-mentor"
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center"
+            >
+              {isCurrentUserMentor ? (
+                <>
+                  <PencilIcon className="w-5 h-5 mr-2" />
+                  Edit Mentorship Details
+                </>
+              ) : (
+                <>
+                  <PlusIcon className="w-5 h-5 mr-2" />
+                  Become a Mentor
+                </>
+              )}
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -383,7 +464,7 @@ const Mentorship = () => {
                     />
                   </div>
                 </div>
-                
+
                 <select
                   value={filters.expertise}
                   onChange={(e) => setFilters(prev => ({ ...prev, expertise: e.target.value }))}
@@ -393,6 +474,16 @@ const Mentorship = () => {
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
+
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={showOnlyAccepting}
+                    onChange={(e) => setShowOnlyAccepting(e.target.checked)}
+                  />
+                  Show accepting mentors only
+                </label>
               </div>
 
               {/* Results */}

@@ -17,6 +17,7 @@ import {
   TagIcon
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
+import { formatInIST } from '../../utils/timezone';
 import { toast } from 'react-hot-toast';
 
 const EventDetails = () => {
@@ -207,22 +208,11 @@ const EventDetails = () => {
                   <CalendarIcon className="w-5 h-5 text-ocean-500 mr-3" />
                   <div>
                     <p className="font-medium text-gray-900">
-                      {event.start_date ? new Date(event.start_date).toLocaleDateString('en-US', { 
-                        weekday: 'long', 
-                        year: 'numeric', 
-                        month: 'long', 
-                        day: 'numeric' 
-                      }) : 'Date not available'}
+                      {event.start_date ? formatInIST(event.start_date, 'EEEE, MMMM d, yyyy') : 'Date not available'}
                     </p>
                     <p className="text-sm text-gray-600">
-                      {event.start_date ? new Date(event.start_date).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      }) : ''}
-                      {event.end_date ? ` - ${new Date(event.end_date).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}` : ''}
+                      {event.start_date ? formatInIST(event.start_date, 'h:mm a') : ''}
+                      {event.end_date ? ` - ${formatInIST(event.end_date, 'h:mm a')}` : ''}
                     </p>
                   </div>
                 </div>

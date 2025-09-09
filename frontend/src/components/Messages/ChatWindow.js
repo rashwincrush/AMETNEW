@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { 
   PaperAirplaneIcon, 
@@ -9,6 +9,34 @@ import {
 import toast from 'react-hot-toast';
 import MessageBubble from './MessageBubble';
 import { format } from 'date-fns';
+
+// Cache failed avatar URLs to prevent retry storms (e.g., 429 from external hosts)
+const failedAvatarCache = new Set();
+
+const Avatar = ({ url, name }) => {
+  const [failed, setFailed] = useState(() => (url ? failedAvatarCache.has(url) : true));
+  const initial = useMemo(() => (name ? name.charAt(0).toUpperCase() : '?'), [name]);
+  if (!url || failed) {
+    return (
+      <div className="h-10 w-10 rounded-full bg-ocean-100 flex items-center justify-center">
+        <span className="text-ocean-600 font-medium">{initial}</span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt={name || 'avatar'}
+      className="h-10 w-10 rounded-full object-cover"
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      width={40}
+      height={40}
+      onError={() => { if (url) failedAvatarCache.add(url); setFailed(true); }}
+    />
+  );
+};
 
 const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
   const [messages, setMessages] = useState([]);
@@ -284,19 +312,7 @@ const ChatWindow = ({ conversationId, currentUser, onCreateConversation }) => {
       {otherParticipant && (
         <div className="bg-white border-b border-gray-200 p-4 flex items-center">
           <div className="flex items-center space-x-3">
-            {otherParticipant.avatar_url ? (
-              <img 
-                src={otherParticipant.avatar_url} 
-                alt={otherParticipant.full_name}
-                className="h-10 w-10 rounded-full object-cover"
-              />
-            ) : (
-              <div className="h-10 w-10 rounded-full bg-ocean-100 flex items-center justify-center">
-                <span className="text-ocean-600 font-medium">
-                  {otherParticipant.full_name?.charAt(0)}
-                </span>
-              </div>
-            )}
+            <Avatar url={otherParticipant.avatar_url} name={otherParticipant.full_name} />
             <div>
               <h3 className="text-lg font-medium text-gray-900">
                 {otherParticipant.full_name}

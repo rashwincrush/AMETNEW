@@ -101,7 +101,7 @@ file_size_limit = "50MiB"
 public = false
 file_size_limit = "50MiB"
 allowed_mime_types = ["image/png","image/jpeg"]
-objects_path = "./supabase/storage/images"
+objects_path = "./storage/images"
 
 [auth]
 enabled = true

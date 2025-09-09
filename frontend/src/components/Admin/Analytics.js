@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ChartBarIcon,
   UsersIcon,
@@ -13,12 +13,13 @@ import {
   EyeIcon,
   DocumentTextIcon
 } from '@heroicons/react/24/outline';
+import { supabase } from '../../utils/supabase';
 
 const Analytics = () => {
   const [selectedPeriod, setSelectedPeriod] = useState('30d');
   const [selectedTab, setSelectedTab] = useState('overview');
 
-  // Mock analytics data
+  // Mock analytics data (some values will be replaced with live data below)
   const overviewStats = [
     {
       title: 'Total Alumni',
@@ -65,32 +66,69 @@ const Analytics = () => {
     { month: 'Apr', logins: 1420, profileViews: 4100, messages: 1150 }
   ];
 
-  const eventMetrics = [
+  const [eventMetrics, setEventMetrics] = useState([
     {
       title: 'Total Events',
-      value: '47',
-      change: '+18%',
-      description: 'Events created this year'
+      value: '—',
+      change: '',
+      description: 'Events created this period'
     },
     {
       title: 'Total Attendees',
-      value: '1,234',
-      change: '+25%',
-      description: 'People attended events'
+      value: '—',
+      change: '',
+      description: "People with 'going' or 'attended' status (stable)"
     },
     {
       title: 'Average RSVP Rate',
-      value: '78%',
-      change: '+5%',
+      value: '—',
+      change: '',
       description: 'RSVP to event ratio'
     },
     {
       title: 'Event Satisfaction',
-      value: '4.6/5',
-      change: '+0.3',
+      value: '—',
+      change: '',
       description: 'Average rating'
     }
-  ];
+  ]);
+
+  // Fetch stable Total Attendees KPI: rows where status IN ('going','attended'); avoid joins
+  useEffect(() => {
+    let isMounted = true;
+    const fetchKpis = async () => {
+      try {
+        // Total attendees (stable): count rows in event_attendees with statuses
+        const { count: attendeesCount, error: attendeesError } = await supabase
+          .from('event_attendees')
+          .select('id', { count: 'exact', head: true })
+          .in('attendance_status', ['going', 'attended']);
+        if (attendeesError) throw attendeesError;
+
+        // Total events in period (optional; using overall count as placeholder)
+        const { count: eventsCount, error: eventsError } = await supabase
+          .from('events')
+          .select('id', { count: 'exact', head: true });
+        if (eventsError) throw eventsError;
+
+        if (!isMounted) return;
+        setEventMetrics((prev) => prev.map((m) => {
+          if (m.title === 'Total Attendees') {
+            return { ...m, value: attendeesCount?.toLocaleString?.() || String(attendeesCount ?? '0') };
+          }
+          if (m.title === 'Total Events') {
+            return { ...m, value: eventsCount?.toLocaleString?.() || String(eventsCount ?? '0') };
+          }
+          return m;
+        }));
+      } catch (e) {
+        // Keep defaults if an error occurs
+        console.error('Error fetching KPIs:', e);
+      }
+    };
+    fetchKpis();
+    return () => { isMounted = false; };
+  }, [selectedPeriod]);
 
   const jobMetrics = [
     {

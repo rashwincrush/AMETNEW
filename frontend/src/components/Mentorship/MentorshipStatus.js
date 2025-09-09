@@ -6,10 +6,11 @@ import { Link } from 'react-router-dom';
 import { Container, Typography, Paper, Box, Button, Chip, Tabs, Tab, CircularProgress } from '@mui/material';
 
 const MentorshipStatus = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState(0); // 0 for received, 1 for sent
+  const [myMentorStatus, setMyMentorStatus] = useState(null);
 
   const fetchRequests = useCallback(async () => {
     if (!user) return;
@@ -18,9 +19,9 @@ const MentorshipStatus = () => {
       const { data, error } = await supabase
         .from('mentorship_requests')
         .select(`
-          id, created_at, status, request_message, response_message,
-          mentor:mentor_id ( id, full_name, avatar_url ),
-          mentee:mentee_id ( id, full_name, avatar_url )
+          id, created_at, status,
+          mentor:profiles!mentorship_requests_mentor_id_fkey ( id, full_name, avatar_url ),
+          mentee:profiles!mentorship_requests_mentee_id_fkey ( id, full_name, avatar_url )
         `)
         .or(`mentor_id.eq.${user.id},mentee_id.eq.${user.id}`)
         .order('created_at', { ascending: false });
@@ -37,6 +38,19 @@ const MentorshipStatus = () => {
   useEffect(() => {
     fetchRequests();
   }, [fetchRequests]);
+
+  useEffect(() => {
+    const fetchMyMentorRow = async () => {
+      if (!user) return;
+      const { data } = await supabase
+        .from('mentors')
+        .select('status')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      setMyMentorStatus(data?.status || null);
+    };
+    fetchMyMentorRow();
+  }, [user]);
 
   const handleUpdateStatus = async (requestId, newStatus) => {
     try {
@@ -75,7 +89,25 @@ const MentorshipStatus = () => {
             </>
           )}
           {!isMentorView && request.status === 'pending' && (
-            <Button variant="outlined" color="warning" onClick={() => handleUpdateStatus(request.id, 'withdrawn')}>Withdraw</Button>
+            <Button
+              variant="outlined"
+              color="warning"
+              onClick={async () => {
+                try {
+                  const { error } = await supabase
+                    .from('mentorship_requests')
+                    .delete()
+                    .eq('id', request.id);
+                  if (error) throw error;
+                  toast.success('Request withdrawn');
+                  fetchRequests();
+                } catch (e) {
+                  toast.error('Failed to withdraw request: ' + e.message);
+                }
+              }}
+            >
+              Withdraw
+            </Button>
           )}
           {request.status === 'accepted' && (
             <Button component={Link} to={`/mentorship/chat/${request.id}`} variant="contained" color="primary">Go to Chat</Button>
@@ -87,7 +119,16 @@ const MentorshipStatus = () => {
 
   return (
     <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
-      <Typography variant="h4" component="h1" gutterBottom>Mentorship Requests</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h4" component="h1" sx={{ mr: 2 }}>Mentorship Requests</Typography>
+        {(profile?.is_approved || profile?.approval_status === 'approved') && (
+          <Chip
+            size="small"
+            label={myMentorStatus === 'approved' ? 'Approved + Mentor' : 'Approved + Mentor Pending'}
+            color={myMentorStatus === 'approved' ? 'success' : 'warning'}
+          />
+        )}
+      </Box>
       <Paper>
         <Tabs value={tab} onChange={(e, newValue) => setTab(newValue)} centered>
           <Tab label={`Received (${receivedRequests.length})`} />
