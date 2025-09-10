@@ -118,6 +118,26 @@ const MessagingSystem = () => {
     }
   }, [currentUser, fetchUserThreads]);
 
+  // If /messages?peer=<id> is present, try to select that thread or create it
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const peer = params.get('peer');
+      if (!peer || !currentUser) return;
+      if (!Array.isArray(threads) || threads.length === 0) return;
+
+      const existing = threads.find(t => String(t.other_user_id) === String(peer));
+      if (existing) {
+        setSelectedThread(existing);
+      } else {
+        // Fallback: attempt to create/resolve by checking connection and reloading threads
+        handleCreateConversation(peer);
+      }
+    } catch (e) {
+      // no-op
+    }
+  }, [threads, currentUser]);
+
   // Realtime is handled inside ChatWindow per selected thread
 
   const handleSelectThread = (thread) => {

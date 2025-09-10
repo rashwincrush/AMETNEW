@@ -42,11 +42,15 @@ import {
   People as PeopleIcon
 } from '@mui/icons-material';
 import EventCalendar from './EventCalendar';
+import PriorityStrip from './PriorityStrip';
 import { parseISO, isPast, isToday, isFuture, isThisWeek, format } from 'date-fns';
 import { formatInTimeZone, utcToZonedTime } from 'date-fns-tz';
 
 const EventsList = ({ isAdmin = false }) => {
   const [events, setEvents] = useState([]);
+  const [featuredEvents, setFeaturedEvents] = useState([]);
+  const [featuredLoading, setFeaturedLoading] = useState(true);
+  const [calendarEvents, setCalendarEvents] = useState([]); // normalized for calendar
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -60,6 +64,33 @@ const EventsList = ({ isAdmin = false }) => {
     setFilter(e.target.value);
   };
 
+  // Load up to 8 featured events for the Priority Strip
+  const fetchFeaturedEvents = async () => {
+    try {
+      setFeaturedLoading(true);
+      let q = supabase
+        .from('events')
+        .select('id, title, start_date, end_date, featured_image_url, is_featured')
+        .eq('is_featured', true)
+        .order('is_featured', { ascending: false })
+        .order('start_date', { ascending: true })
+        .limit(8);
+
+      if (!isAdmin) {
+        q = q.eq('is_published', true).eq('approval_status', 'approved');
+      }
+
+      const { data, error } = await q;
+      if (error) throw error;
+      setFeaturedEvents(data || []);
+    } catch (e) {
+      console.error('Error fetching featured events:', e);
+      setFeaturedEvents([]);
+    } finally {
+      setFeaturedLoading(false);
+    }
+  };
+
   // Simple ref to track component mount state
   const isMountedRef = useRef(true);
   
@@ -67,17 +98,19 @@ const EventsList = ({ isAdmin = false }) => {
   const handleEventsUpdate = useCallback((payload) => {
     console.log('Real-time change received for events:', payload);
     fetchEvents();
+    fetchFeaturedEvents();
   }, []);
   
-  // Handle RSVPs updates
-  const handleRsvpsUpdate = useCallback((payload) => {
-    console.log('Real-time change received for RSVPs:', payload);
+  // Handle attendance updates
+  const handleAttendanceUpdate = useCallback((payload) => {
+    console.log('Real-time change received for event_attendees:', payload);
     fetchEvents();
   }, []);
   
   useEffect(() => {
     isMountedRef.current = true;
     fetchEvents();
+    fetchFeaturedEvents();
 
     onPostgresChangesOnce(
       'events-list',
@@ -87,16 +120,23 @@ const EventsList = ({ isAdmin = false }) => {
     );
 
     onPostgresChangesOnce(
+      'events-attendees-list',
+      'attendees-listener',
+      { event: '*', schema: 'public', table: 'event_attendees' },
+      handleAttendanceUpdate
+    );
+
+    onPostgresChangesOnce(
       'events-rsvps-list',
       'rsvps-listener',
       { event: '*', schema: 'public', table: 'event_rsvps' },
-      handleRsvpsUpdate
+      handleAttendanceUpdate
     );
 
     return () => {
       isMountedRef.current = false;
     };
-  }, [handleEventsUpdate, handleRsvpsUpdate]);
+  }, [handleEventsUpdate, handleAttendanceUpdate]);
 
   const fetchEvents = async () => {
     try {
@@ -107,9 +147,9 @@ const EventsList = ({ isAdmin = false }) => {
         .select('*')
         .order('start_date', { ascending: true });
       
-      // Only show approved events to regular users
+      // Only show approved & published events to regular users
       if (!isAdmin) {
-        query = query.eq('is_approved', true);
+        query = query.eq('is_published', true).eq('approval_status', 'approved');
       }
 
       // Apply filters
@@ -138,31 +178,94 @@ const EventsList = ({ isAdmin = false }) => {
       if (eventsData && eventsData.length > 0) {
         const eventIds = eventsData.map(e => e.id);
 
-        const { data: rsvpData, error: rsvpError } = await supabase
-          .from('event_rsvps')
-          .select('event_id')
-          .in('event_id', eventIds)
-          .eq('attendance_status', 'going');
-
-        if (rsvpError) {
-          console.error('Error fetching RSVP counts:', rsvpError);
-        } else {
-          const counts = rsvpData.reduce((acc, rsvp) => {
-            acc[rsvp.event_id] = (acc[rsvp.event_id] || 0) + 1;
-            return acc;
-          }, {});
-
-          const eventsWithCounts = eventsData.map(event => ({
-            ...event,
-            attendees_count: counts[event.id] || 0,
-          }));
-
-          setEvents(eventsWithCounts);
-          return;
+        // Prefer SECURITY DEFINER RPC for counts; fallback to tables if missing
+        let counts = {};
+        try {
+          const { data: rpcCounts, error: rpcErr } = await supabase
+            .rpc('get_event_attendance_counts', { p_event_ids: eventIds });
+          if (rpcErr) throw rpcErr;
+          if (Array.isArray(rpcCounts)) {
+            counts = rpcCounts.reduce((acc, r) => {
+              acc[r.event_id] = r.total_attendees || 0;
+              return acc;
+            }, {});
+          }
+        } catch (e) {
+          console.warn('Counts RPC not available, trying event_rsvps:', e?.message || e);
+          const { data: rsvpData, error: rsvpErr } = await supabase
+            .from('event_rsvps')
+            .select('event_id, attendance_status')
+            .in('event_id', eventIds);
+          if (!rsvpErr && Array.isArray(rsvpData)) {
+            counts = rsvpData.reduce((acc, r) => {
+              const going = (r.attendance_status || '').toLowerCase() === 'going';
+              if (going) acc[r.event_id] = (acc[r.event_id] || 0) + 1;
+              return acc;
+            }, {});
+          } else {
+            console.warn('event_rsvps not available or error, falling back to event_attendees');
+            const { data: attData, error: attErr } = await supabase
+              .from('event_attendees')
+              .select('event_id,status')
+              .in('event_id', eventIds);
+            if (!attErr && Array.isArray(attData)) {
+              counts = attData.reduce((acc, r) => {
+                const going = (r.status || '').toLowerCase() === 'going';
+                if (going) acc[r.event_id] = (acc[r.event_id] || 0) + 1;
+                return acc;
+              }, {});
+            }
+          }
         }
+
+        const eventsWithCounts = eventsData.map(event => ({
+          ...event,
+          attendees_count: counts[event.id] || 0,
+        }));
+
+        // Normalize for calendar consumers
+        const istZone = 'Asia/Kolkata';
+        const normalizeType = (et) => {
+          const v = (et || '').toLowerCase();
+          const buckets = ['workshop','conference','networking','seminar','webinar','social'];
+          return buckets.includes(v) ? v : 'other';
+        };
+        const buildLocation = (ev) => {
+          const isVirtual = ev.is_virtual || (ev.event_type && ev.event_type.toLowerCase() === 'virtual');
+          if (isVirtual) return 'Online Event';
+          const parts = [ev.venue, ev.address].filter(Boolean);
+          return parts.length ? parts.join(', ') : (ev.location || 'Location not specified');
+        };
+        const toIST = (iso) => utcToZonedTime(new Date(iso), istZone);
+        const normalizedForCalendar = eventsWithCounts.map(ev => {
+          const isVirtual = !!(ev.is_virtual || (ev.event_type && ev.event_type.toLowerCase() === 'virtual'));
+          const category = normalizeType(ev.event_type);
+          const start = toIST(ev.start_date);
+          const end = toIST(ev.end_date || ev.start_date);
+          const locationText = buildLocation(ev);
+          return {
+            id: ev.id,
+            title: ev.title,
+            start,
+            end,
+            allDay: false,
+            resource: {
+              ...ev,
+              type: isVirtual ? 'virtual' : 'in-person',
+              category,
+              location: locationText,
+              attendees: ev.attendees_count || 0,
+            }
+          };
+        });
+
+        setEvents(eventsWithCounts);
+        setCalendarEvents(normalizedForCalendar);
+        return;
       }
 
       setEvents(eventsData || []);
+      setCalendarEvents([]);
     } catch (err) {
       console.error('Error fetching events:', err);
       setError('Failed to load events');
@@ -292,6 +395,9 @@ const EventsList = ({ isAdmin = false }) => {
           )}
         </Box>
       </Box>
+
+      {/* Priority Strip */}
+      <PriorityStrip events={featuredEvents} loading={featuredLoading} />
 
       {/* Filter and Search Controls */}
       <Paper elevation={0} sx={{ p: 2, mb: 4, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
@@ -532,7 +638,7 @@ const EventsList = ({ isAdmin = false }) => {
               </List>
             </Paper>
           ) : (
-            <EventCalendar events={events} />
+            <EventCalendar events={calendarEvents} />
           )}
         </Box>
       )}

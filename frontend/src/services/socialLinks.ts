@@ -5,9 +5,11 @@ export type SocialLinks = {
   github?: string | null;
   x?: string | null; // X (Twitter)
   website?: string | null;
+  instagram?: string | null;
+  facebook?: string | null;
 };
 
-const PROVIDERS: Array<keyof SocialLinks> = ['linkedin', 'github', 'x', 'website'];
+const PROVIDERS: Array<keyof SocialLinks> = ['linkedin', 'github', 'x', 'website', 'instagram', 'facebook'];
 
 export async function loadProfileSocialLinks(profileId: string): Promise<SocialLinks> {
   try {
@@ -42,11 +44,10 @@ export async function loadProfileSocialLinks(profileId: string): Promise<SocialL
 
     const links: SocialLinks = {};
     (rows || []).forEach((r: any) => {
-      const type = (r.type || '').toLowerCase();
-      if (type === 'twitter') {
-        (links as any)['x'] = r.url; // historical support
-      } else if (PROVIDERS.includes(type as keyof SocialLinks)) {
-        (links as any)[type] = r.url;
+      const type = String(r.type || '').toLowerCase();
+      const normType = type === 'twitter' ? 'x' : type;
+      if ((PROVIDERS as string[]).includes(normType)) {
+        (links as any)[normType] = r.url;
       }
     });
     return links;
@@ -57,42 +58,42 @@ export async function loadProfileSocialLinks(profileId: string): Promise<SocialL
 }
 
 export async function saveProfileSocialLinks(profileId: string, links: SocialLinks): Promise<void> {
-  // Normalize values (trim empty to null)
-  const normalized: SocialLinks = {};
-  PROVIDERS.forEach((k) => {
-    const v = (links as any)[k];
-    if (typeof v === 'string') {
-      const trimmed = v.trim();
-      normalized[k] = trimmed ? trimmed : null;
-    } else {
-      normalized[k] = v ?? null;
-    }
+  // Build rows for upsert; light normalization
+  const rows: Array<{ profile_id: string; type: string; url: string }> = [];
+
+  const normalizeType = (t: string | undefined | null): string | null => {
+    const s = String(t || '').trim().toLowerCase();
+    if (!s) return null;
+    if (s === 'twitter') return 'x';
+    return (PROVIDERS as string[]).includes(s) ? s : null;
+  };
+
+  const normalizeUrl = (url: string | undefined | null): string | null => {
+    if (typeof url !== 'string') return null;
+    let u = url.trim();
+    if (!u) return null;
+    if (!/^[a-z]+:\/\//i.test(u)) u = 'https://' + u;
+    return u;
+  };
+
+  (Object.entries(links || {}) as Array<[string, any]>).forEach(([rawType, rawUrl]) => {
+    const type = normalizeType(rawType);
+    const url = normalizeUrl(rawUrl);
+    if (type && url) rows.push({ profile_id: profileId, type, url });
   });
 
-  // For each provider, delete existing rows then insert if value exists
-  for (const key of PROVIDERS) {
-    try {
-      // Delete existing for this provider
-      const { error: delErr } = await supabase
-        .from('social_links')
-        .delete()
-        .eq('profile_id', profileId)
-        .eq('type', key);
-      if (delErr) {
-        // Non-fatal
-        console.warn('Delete social link failed', key, delErr);
-      }
+  if (rows.length === 0) return;
 
-      const url = normalized[key];
-      if (url) {
-        const { error: insErr } = await supabase
-          .from('social_links')
-          .insert([{ profile_id: profileId, type: key, url }]);
-        if (insErr) throw insErr;
-      }
-    } catch (e) {
-      console.error(`Failed to upsert social link for ${key}:`, e);
-      throw e;
-    }
+  console.info('socialLinks upsert rows (ts):', rows);
+  const { error } = await supabase
+    .from('social_links')
+    .upsert(rows, { onConflict: 'profile_id,type' });
+
+  if (error) {
+    // Surface concise error upstream but do not block profile save elsewhere
+    const err: any = new Error(error.message || 'Failed to upsert social links');
+    err.code = error.code;
+    err.details = error.details;
+    throw err;
   }
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import { Link, useNavigate } from 'react-router-dom';
 import format from 'date-fns/format';
@@ -78,63 +78,19 @@ const EventCalendar = ({ events }) => {
     })),
   ];
 
-  // Format events for the calendar
-  const formattedEvents = events.map(event => {
-    // Check for valid dates and provide fallbacks if they're invalid
-    let startDate;
-    let endDate;
-    
-    try {
-      startDate = new Date(event.start_date);
-      // Validate the parsed date
-      if (isNaN(startDate.getTime())) {
-        console.warn(`Invalid start date for event ${event.id}: ${event.start_date}`); 
-        startDate = new Date(); // Fallback to current date
-      }
-    } catch (e) {
-      console.error(`Error parsing start date for event ${event.id}:`, e);
-      startDate = new Date();
-    }
-    
-    try {
-      endDate = new Date(event.end_date);
-      // Validate the parsed date
-      if (isNaN(endDate.getTime())) {
-        console.warn(`Invalid end date for event ${event.id}: ${event.end_date}`); 
-        endDate = new Date(startDate.getTime() + 60*60*1000); // Default to 1 hour after start
-      }
-    } catch (e) {
-      console.error(`Error parsing end date for event ${event.id}:`, e);
-      endDate = new Date(startDate.getTime() + 60*60*1000);
-    }
-    
-    return {
-      id: event.id,
-      title: event.title,
-      start: startDate,
-      end: endDate,
-      allDay: false,
-      resource: {
-        ...event,
-        type: event.event_type === 'virtual' ? 'virtual' : 
-              (event.venue?.toLowerCase() === 'online' ? 'virtual' : 'in-person'),
-        category: event.event_type || 'other',
-        location: formatLocation(event.venue, event.address, event.event_type),
-        attendees: event.attendees_count || 0,
-      }
-    };
-  });
+  // Accept pre-normalized calendar events from container
+  const baseEvents = useMemo(() => Array.isArray(events) ? events : [], [events]);
 
   // Filter events based on active category
   useEffect(() => {
     if (activeCategory === 'all') {
-      setFilteredEvents(formattedEvents);
+      setFilteredEvents(baseEvents);
     } else if (activeCategory === 'virtual' || activeCategory === 'in-person') {
-      setFilteredEvents(formattedEvents.filter(e => e.resource.type === activeCategory));
+      setFilteredEvents(baseEvents.filter(e => e.resource?.type === activeCategory));
     } else {
-      setFilteredEvents(formattedEvents.filter(e => e.resource.category === activeCategory));
+      setFilteredEvents(baseEvents.filter(e => e.resource?.category === activeCategory));
     }
-  }, [formattedEvents, activeCategory]);
+  }, [baseEvents, activeCategory]);
 
   const handleCategoryFilter = (category) => {
     setActiveCategory(category);
@@ -149,7 +105,8 @@ const EventCalendar = ({ events }) => {
   };
 
   const handleSelectEvent = (event) => {
-    navigate(`/events/${event.id}`);
+    const targetId = event?.id || event?.resource?.id;
+    if (targetId) navigate(`/events/${targetId}`);
   };
 
   // Custom styling for events based on their category
@@ -356,7 +313,7 @@ const EventCalendar = ({ events }) => {
                 '&:hover': { opacity: 0.9 },
                 mb: 0.5
               }}
-            />
+          />
           ))}
         </Box>
       </Paper>
@@ -377,6 +334,7 @@ const EventCalendar = ({ events }) => {
             views={['month','week','day']}
             onNavigate={date => setDate(date)}
             onView={handleView}
+            onDoubleClickEvent={handleSelectEvent}
             eventPropGetter={eventStyleGetter}
             components={{
               event: EventComponent,
@@ -424,7 +382,7 @@ const EventCalendar = ({ events }) => {
           <Paper elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, textAlign: 'center' }}>
             <PeopleIcon sx={{ fontSize: 40, color: 'success.main', mb: 1 }} />
             <Typography variant="h4" color="success.main">
-              {filteredEvents.reduce((sum, event) => sum + (event.resource.attendees || 0), 0)}
+              {filteredEvents.reduce((sum, event) => sum + (event.resource?.attendees || 0), 0)}
             </Typography>
             <Typography variant="body2" color="text.secondary">Total Attendees</Typography>
           </Paper>
@@ -433,7 +391,7 @@ const EventCalendar = ({ events }) => {
           <Paper elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, textAlign: 'center' }}>
             <PublicIcon sx={{ fontSize: 40, color: 'info.main', mb: 1 }} />
             <Typography variant="h4" color="info.main">
-              {filteredEvents.filter(e => e.resource.type === 'virtual').length}
+              {filteredEvents.filter(e => e.resource?.type === 'virtual').length}
             </Typography>
             <Typography variant="body2" color="text.secondary">Virtual Events</Typography>
           </Paper>

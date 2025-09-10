@@ -44,7 +44,7 @@ import AlumniDashboard from './components/Dashboard/AlumniDashboard';
 
 
 // Feature Components
-import AlumniDirectory from './components/Directory/AlumniDirectory';
+import DirectoryPage from './components/Directory/DirectoryPage';
 import AlumniProfile from './components/Directory/AlumniProfile';
 import EventsPage from './pages/EventsPage';
 import GroupsPage from './pages/GroupsPage';
@@ -199,7 +199,8 @@ function AppContent() {
             <Route path="/jobs/:jobId/manage" element={<ProtectedRoute requiredPermission="view:job_applications"><ManageJobApplications /></ProtectedRoute>} />
             <Route path="/my-applications" element={<ProtectedRoute><JobApplicationStatus /></ProtectedRoute>} />
             <Route path="/profile/:userId" element={<ProtectedRoute requiredPermission="view:alumni_directory"><UserProfilePage /></ProtectedRoute>} />
-            <Route path="/directory" element={<ProtectedRoute requiredPermission="view:alumni_directory"><AlumniDirectory /></ProtectedRoute>} />
+            <Route path="/directory" element={<ProtectedRoute requiredPermission="view:alumni_directory"><DirectoryPage /></ProtectedRoute>} />
+            <Route path="/directory-actions" element={<Navigate to="/directory" replace />} />
             <Route path="/directory/:id" element={<ProtectedRoute requiredPermission="view:alumni_directory"><AlumniProfile /></ProtectedRoute>} />
             
             <Route path="/notifications" element={<Notifications />} />

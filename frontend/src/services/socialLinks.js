@@ -1,6 +1,7 @@
 import { supabase } from '../utils/supabase';
 
-const PROVIDERS = ['linkedin', 'github', 'x', 'website'];
+// Supported providers must mirror the DB enum/check in public.social_links
+const PROVIDERS = ['linkedin', 'github', 'x', 'website', 'instagram', 'facebook'];
 
 export async function loadProfileSocialLinks(profileId) {
   try {
@@ -11,6 +12,7 @@ export async function loadProfileSocialLinks(profileId) {
       .single();
 
     if (!error && data && data.social_links && typeof data.social_links === 'object') {
+      console.info('socialLinks load (view) social_links:', data.social_links);
       const obj = data.social_links;
       return {
         linkedin: obj.linkedin || null,
@@ -31,13 +33,14 @@ export async function loadProfileSocialLinks(profileId) {
 
     if (error) throw error;
 
+    console.info('socialLinks load (table) rows:', rows);
     const links = {};
     (rows || []).forEach((r) => {
       const type = (r.type || '').toLowerCase();
-      if (type === 'twitter') {
-        links['x'] = r.url; // historical support
-      } else if (PROVIDERS.includes(type)) {
-        links[type] = r.url;
+      // normalize historical 'twitter' to 'x'
+      const normType = type === 'twitter' ? 'x' : type;
+      if (PROVIDERS.includes(normType)) {
+        links[normType] = r.url;
       }
     });
     return links;
@@ -48,38 +51,46 @@ export async function loadProfileSocialLinks(profileId) {
 }
 
 export async function saveProfileSocialLinks(profileId, links) {
-  const normalized = {};
-  PROVIDERS.forEach((k) => {
-    const v = links && links[k];
-    if (typeof v === 'string') {
-      const trimmed = v.trim();
-      normalized[k] = trimmed ? trimmed : null;
-    } else {
-      normalized[k] = v ?? null;
-    }
-  });
+  // Build rows for upsert; normalize types and URLs lightly
+  const rows = [];
+  const entries = Object.entries(links || {});
 
-  for (const key of PROVIDERS) {
-    try {
-      const { error: delErr } = await supabase
-        .from('social_links')
-        .delete()
-        .eq('profile_id', profileId)
-        .eq('type', key);
-      if (delErr) {
-        console.warn('Delete social link failed', key, delErr);
-      }
+  const normalizeType = (t) => {
+    const s = String(t || '').trim().toLowerCase();
+    if (!s) return null;
+    if (s === 'twitter') return 'x';
+    return PROVIDERS.includes(s) ? s : null;
+  };
 
-      const url = normalized[key];
-      if (url) {
-        const { error: insErr } = await supabase
-          .from('social_links')
-          .insert([{ profile_id: profileId, type: key, url }]);
-        if (insErr) throw insErr;
-      }
-    } catch (e) {
-      console.error(`Failed to upsert social link for ${key}:`, e);
-      throw e;
-    }
+  const normalizeUrl = (url) => {
+    if (typeof url !== 'string') return null;
+    let u = url.trim();
+    if (!u) return null;
+    if (!/^[a-z]+:\/\//i.test(u)) u = 'https://' + u;
+    return u;
+  };
+
+  for (const [rawType, rawUrl] of entries) {
+    const type = normalizeType(rawType);
+    const url = normalizeUrl(rawUrl);
+    if (!type || !url) continue; // ignore unsupported or empty
+    rows.push({ profile_id: profileId, type, url });
   }
+
+  if (rows.length === 0) return { upserted: 0 };
+
+  // Single upsert call; rely on DB UNIQUE(profile_id,type)
+  console.info('socialLinks upsert rows:', rows);
+  const { error } = await supabase
+    .from('social_links')
+    .upsert(rows, { onConflict: 'profile_id,type' });
+
+  if (error) {
+    // Do not throw generic errors upstream; include code for UI to map toast
+    const err = new Error(error.message || 'Failed to upsert social links');
+    err.code = error.code;
+    err.details = error.details;
+    throw err;
+  }
+  return { upserted: rows.length };
 }

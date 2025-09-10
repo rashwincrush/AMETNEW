@@ -97,6 +97,9 @@ const ChatWindow = ({ thread, currentUser }) => {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_messages', filter: `thread_id=eq.${threadId}` }, (payload) => {
         setMessages(prev => prev.concat(payload.new));
       })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dm_messages', filter: `thread_id=eq.${threadId}` }, (payload) => {
+        setMessages(prev => prev.map(m => (m.id === payload.new.id ? payload.new : m)));
+      })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'dm_messages', filter: `thread_id=eq.${threadId}` }, (payload) => {
         setMessages(prev => prev.filter(m => m.id !== payload.old.id));
       })

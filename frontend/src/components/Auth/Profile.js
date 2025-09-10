@@ -15,7 +15,7 @@ import {
 import ProfileResume from './ProfileResume';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
-import { loadProfileSocialLinks, saveProfileSocialLinks } from '../../services/socialLinks';
+import { loadProfileSocialLinks, saveProfileSocialLinks } from '../../services/socialLinks.js';
 import { validateLinkedIn, validateGitHub, validateX, validateWebsite, findDuplicateProvider } from '../../services/socialLinks.validation';
 
 const Profile = () => {
@@ -478,6 +478,79 @@ const Profile = () => {
     setIsSubmitting(true);
 
     try {
+      // Normalize phone to E.164 or null to satisfy DB constraint chk_phone_e164
+      const normalizePhone = (raw) => {
+        const input = (raw ?? '').trim();
+        if (!input) return null; // empty -> NULL passes CHECK
+        const hasPlus = input.startsWith('+');
+        const digits = input.replace(/[^0-9]/g, '');
+        const normalized = hasPlus ? `+${digits}` : digits;
+        const isValid = /^\+?\d{7,15}$/.test(normalized);
+        return isValid ? normalized : { error: 'Please enter a valid phone in international format (E.164), e.g. +14155552671 or 9876543210 (7-15 digits).' };
+      };
+
+      const phoneNorm = normalizePhone(formData.phone);
+      if (phoneNorm && typeof phoneNorm === 'object' && phoneNorm.error) {
+        toast.error(phoneNorm.error);
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Normalize Degree to match DB CHECK (ck_profiles_degree_program_allowed)
+      // Allowed tokens should match the DB constraint exactly. Update this list if backend changes.
+      const ALLOWED_DEGREES = ['B.E', 'B.Tech', 'B.Sc', 'M.E', 'M.Tech', 'MBA', 'Ph.D'];
+      const normalizeDegree = (raw) => {
+        const v = (raw ?? '').trim();
+        if (!v) return null; // empty -> NULL (passes CHECK)
+        // Common synonym mappings -> target tokens
+        const s = v.toLowerCase();
+        const map = new Map([
+          ['be', 'B.E'],
+          ['b.e', 'B.E'],
+          ['b e', 'B.E'],
+          ['bachelor of engineering', 'B.E'],
+          ['btech', 'B.Tech'],
+          ['b.tech', 'B.Tech'],
+          ['b tech', 'B.Tech'],
+          ['bachelor of technology', 'B.Tech'],
+          ['bsc', 'B.Sc'],
+          ['b.sc', 'B.Sc'],
+          ['b sc', 'B.Sc'],
+          ['bachelor of science', 'B.Sc'],
+          ['me', 'M.E'],
+          ['m.e', 'M.E'],
+          ['m e', 'M.E'],
+          ['master of engineering', 'M.E'],
+          ['mtech', 'M.Tech'],
+          ['m.tech', 'M.Tech'],
+          ['m tech', 'M.Tech'],
+          ['master of technology', 'M.Tech'],
+          ['mba', 'MBA'],
+          ['master of business administration', 'MBA'],
+          ['phd', 'Ph.D'],
+          ['ph.d', 'Ph.D'],
+          ['doctor of philosophy', 'Ph.D'],
+        ]);
+        // Try direct exact allowed first
+        if (ALLOWED_DEGREES.includes(v)) return v;
+        // Strip specialization tails like "in Marine Engineering" and re-map
+        const base = v.split(' in ')[0].trim();
+        const mapped = map.get(base) || map.get(base.replace(/\./g, '')) || map.get(base.replace(/\s+/g, ' '));
+        if (mapped && ALLOWED_DEGREES.includes(mapped)) return mapped;
+        // As a last attempt, map the first token only (e.g., 'be in marine eng')
+        const firstToken = v.split(/\s+/)[0].replace(/\./g, '');
+        const mappedToken = map.get(firstToken) || map.get(firstToken.toLowerCase());
+        if (mappedToken && ALLOWED_DEGREES.includes(mappedToken)) return mappedToken;
+        return { error: `Degree must be one of: ${ALLOWED_DEGREES.join(', ')}. Please select a valid option.` };
+      };
+
+      const degreeNorm = normalizeDegree(formData.degree);
+      if (degreeNorm && typeof degreeNorm === 'object' && degreeNorm.error) {
+        toast.error(degreeNorm.error);
+        setIsSubmitting(false);
+        return;
+      }
+
       const { data: currentProfile, error: fetchError } = await supabase
         .from('profiles')
         .select('*')
@@ -492,14 +565,14 @@ const Profile = () => {
       const possibleFields = {
         first_name: formData.first_name,
         last_name: formData.last_name,
-        phone: formData.phone,
+        phone: phoneNorm, // normalized to E.164 or null
         location: formData.location,
         current_job_title: formData.position, // Map to backend field
         about: formData.about,
         company_name: formData.company, // Map to backend field
         headline: formData.headline,
         experience: formData.experience,
-        degree_program: formData.degree, // Map to backend field
+        degree_program: degreeNorm, // normalized to allowed token or null
         department: formData.department,
         graduation_year: formData.graduation_year,
         student_id: formData.student_id,
@@ -529,6 +602,11 @@ const Profile = () => {
         profileUpdates[field] = null;
       }
     });
+
+    // Ensure degree_program is NULL when Degree field is empty (avoids CHECK constraint violations)
+    if (profileUpdates.degree_program === '' || profileUpdates.degree_program === undefined) {
+      profileUpdates.degree_program = null;
+    }
     
     // Convert graduation_year to integer if it exists and is not null
     if (profileUpdates.graduation_year !== null && profileUpdates.graduation_year !== undefined) {

@@ -120,17 +120,19 @@ const CreateEventForm = () => {
 
       const finalEventData = eventData;
 
-      const { data, error: insertError } = await supabase
-        .from('events')
-        .insert([finalEventData])
+      // Align field names with DB schema
+      if (finalEventData.venue_name) {
+        finalEventData.venue = finalEventData.venue_name;
+        delete finalEventData.venue_name;
+      }
 
-        .select()
-        .single();
+      const { data, error: insertError } = await supabase
+        .rpc('create_new_event', { p_event: finalEventData });
 
       if (insertError) throw insertError;
 
       setSuccess('Event created successfully!');
-      setTimeout(() => navigate(`/events/${data.id}`), 1500);
+      setTimeout(() => navigate(`/events/${data?.id || ''}`), 1500);
     } catch (err) {
       console.error('Error creating event:', err);
       setError(err.message || 'Failed to create event');
