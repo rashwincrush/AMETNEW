@@ -8,7 +8,6 @@ const EditUserModal = ({ user, isOpen, onClose, onSave, isSuperAdminActor = fals
 
   const BASE_ROLES = [
     { name: 'alumni', description: 'Alumni' },
-    { name: 'mentor', description: 'Mentor' },
     { name: 'employer', description: 'Employer' },
     { name: 'student', description: 'Mentee/Student' },
     { name: 'admin', description: 'Admin' },

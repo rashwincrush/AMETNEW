@@ -32,19 +32,17 @@ const Avatar = ({ url, name }) => {
 };
 
 const ConversationList = ({ 
-  conversations, 
+  threads, 
   loading, 
-  selectedConversationId, 
-  onSelectConversation,
+  selectedThread, 
+  onSelectThread,
   currentUser 
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   
   // Filter conversations based on search query
-  const filteredConversations = conversations
-    ? conversations.filter(conversation =>
-        conversation.name?.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+  const filteredThreads = Array.isArray(threads)
+    ? threads.filter(t => (t.other_user_name || '').toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
 
   // Format date to relative time (e.g., "2 hours ago")
@@ -115,7 +113,7 @@ const ConversationList = ({
         </div>
       </div>
 
-      {/* Conversations list (no inner scrollbar) */}
+      {/* Threads list (no inner scrollbar) */}
       <div className="flex-1">
         {loading ? (
           // Loading placeholders
@@ -132,21 +130,21 @@ const ConversationList = ({
               </div>
             ))}
           </>
-        ) : filteredConversations.length > 0 ? (
-          // Conversation list items
-          filteredConversations.map((conversation) => (
+        ) : filteredThreads.length > 0 ? (
+          // Thread list items
+          filteredThreads.map((thread) => (
             <div 
-              key={conversation.id}
-              onClick={() => onSelectConversation(conversation.id)}
-              className={`px-4 py-3 border-b cursor-pointer hover:bg-gray-50 ${selectedConversationId === conversation.id ? 'bg-gray-100' : ''}`}
+              key={thread.thread_id}
+              onClick={() => onSelectThread(thread)}
+              className={`px-4 py-3 border-b cursor-pointer hover:bg-gray-50 ${selectedThread?.thread_id === thread.thread_id ? 'bg-gray-100' : ''}`}
             >
               <div className="flex items-center">
                 {/* Avatar */}
                 <div className="relative">
-                  <Avatar url={conversation.avatar} name={conversation.name} />
+                  <Avatar url={undefined} name={thread.other_user_name} />
                   
                   {/* Online status indicator */}
-                  {conversation.isOnline && (
+                  {thread.can_send && (
                     <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></span>
                   )}
                 </div>
@@ -155,20 +153,20 @@ const ConversationList = ({
                 <div className="ml-4 flex-1">
                   <div className="flex justify-between items-center">
                     <h4 className="font-medium">
-                      {conversation.name}
+                      {thread.other_user_name}
                       {/* Unread indicator */}
-                      {conversation.unreadCount > 0 && (
+                      {thread.unread_count > 0 && (
                         <span className="ml-2 px-1.5 py-0.5 bg-ocean-500 text-white text-xs rounded-full">
-                          {conversation.unreadCount}
+                          {thread.unread_count}
                         </span>
                       )}
                     </h4>
-                    <span className="text-xs text-gray-500">{formatDate(conversation.lastMessageAt)}</span>
+                    <span className="text-xs text-gray-500">{/* timestamp unavailable in view */}</span>
                   </div>
                   
                   {/* Message preview */}
                   <p className="text-sm text-gray-500 truncate">
-                    {getMessagePreview(conversation) || 'Start a conversation'}
+                    {/* preview unavailable in view */}
                   </p>
                 </div>
               </div>

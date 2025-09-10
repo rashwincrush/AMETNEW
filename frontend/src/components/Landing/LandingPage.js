@@ -58,7 +58,7 @@ const LandingPage = () => {
     {
       icon: AcademicCapIcon,
       title: 'Mentorship',
-      description: 'Connect with experienced alumni for career guidance'
+      description: 'Connect with experienced alumni for career guidance. Mentorship options available after you sign up!'
     }
   ];
 
@@ -117,7 +117,8 @@ const LandingPage = () => {
                 
                 <p className="text-xl text-ocean-100 leading-relaxed max-w-2xl">
                   A comprehensive platform for connecting with fellow alumni, exploring 
-                  events, finding job opportunities, and building mentorship relationships.
+                  events, finding job opportunities, and building mentorship relationships. 
+                  <span className="opacity-90">Mentorship options available after you sign up!</span>
                 </p>
               </div>
 

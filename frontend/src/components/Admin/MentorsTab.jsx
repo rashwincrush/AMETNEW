@@ -151,11 +151,6 @@ const MentorsTab = () => {
         </div>
       </div>
 
-      {statusFilter === 'pending' && (
-        <div className="mb-3 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded p-2">
-          Admins can approve all normal mentor applications. Admin→Mentor applications require Super Admin.
-        </div>
-      )}
 
       {loading ? (
         <div className="text-center py-8 text-gray-500">Loading...</div>

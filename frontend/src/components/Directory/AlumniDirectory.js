@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   MagnifyingGlassIcon,
@@ -12,17 +12,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import AlumniCard from './AlumniCard';
 import AlumniListItem from './AlumniListItem';
-import { mapProfileToCard } from '../../utils/mapProfileToCard.ts';
 import { logActivity } from '../../utils/activityLogger';
 
-// Static filter configuration based on the new v_profiles_directory_card view
+// Filters for public_profiles_view
 const FILTERABLE_COLUMNS = [
   { name: 'graduation_year', label: 'Graduation Year', type: 'number', placeholder: 'e.g., 2015' },
-  { name: 'degree_department', label: 'Degree/Dept', type: 'text', placeholder: 'e.g., Marine Engineering' },
-  { name: 'current_company', label: 'Company', type: 'text', placeholder: 'e.g., Maersk' },
-  { name: 'location_label', label: 'Location', type: 'text', placeholder: 'e.g., Singapore' },
-  { name: 'current_title', label: 'Job Title', type: 'text', placeholder: 'e.g., Chief Engineer' },
-  // is_mentor is handled separately via approvedMentorIds
+  { name: 'department', label: 'Department', type: 'text', placeholder: 'e.g., Marine Engineering' },
 ];
 
 const AlumniDirectory = () => {
@@ -30,6 +25,7 @@ const AlumniDirectory = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [viewMode, setViewMode] = useState('grid');
   const [searchTerm, setSearchTerm] = useState(searchParams.get('q') || '');
+  const [debouncedSearch, setDebouncedSearch] = useState(searchParams.get('q') || '');
   const [alumni, setAlumni] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -40,7 +36,12 @@ const AlumniDirectory = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'full_name,asc');
   const [approvedMentorIds, setApprovedMentorIds] = useState(new Set());
+  const isDebouncing = searchTerm !== debouncedSearch;
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const initialLoadDoneRef = useRef(false);
+  const [initialLoaded, setInitialLoaded] = useState(false);
+  const subscribedRef = useRef(false);
+  const channelRef = useRef(null);
 
   useEffect(() => {
     const fetchMentorIds = async () => {
@@ -66,15 +67,16 @@ const AlumniDirectory = () => {
     setError(null);
 
     try {
-      // First, fetch profiles data
+      // Query from public_profiles_view (public subset of profile fields)
       let query = supabase
-        .from('v_profiles_directory_card')
-        .select('*', { count: 'exact' })
-        // Front-end guard: rely on view exposing is_approved and filter here too
-        .eq('is_approved', true);
+        .from('public_profiles_view')
+        .select('id,full_name,avatar_url,degree_program,graduation_year,current_job_title,company_name,location,department,skills', { count: 'exact' });
 
-      if (searchTerm) {
-        query = query.or(`full_name.ilike.%${searchTerm}%,degree_department.ilike.%${searchTerm}%,current_company.ilike.%${searchTerm}%,current_title.ilike.%${searchTerm}%`);
+      if (debouncedSearch) {
+        const q = debouncedSearch.replace(/%/g, '');
+        const cols = ['full_name','location','degree_program','department'];
+        const ors = cols.map((c) => `${c}.ilike.%${q}%`).join(',');
+        if (ors) query = query.or(ors);
       }
 
       for (const { name, type } of FILTERABLE_COLUMNS) {
@@ -98,69 +100,8 @@ const AlumniDirectory = () => {
       const { data, error: fetchError, count } = await query;
 
       if (fetchError) throw fetchError;
-      
-      // For each profile, fetch the most recent education history
-      const profileIds = (data || []).map(profile => profile.id);
-      
-      // Only fetch education history if we have profiles
-      let educationData = [];
-      if (profileIds.length > 0) {
-        const { data: educationResults, error: educationError } = await supabase
-          .from('education_history')
-          .select('profile_id, degree, major, specialization, graduation_year')
-          .in('profile_id', profileIds)
-          .order('graduation_year', { ascending: false });
-        
-        if (educationError) {
-          console.error('Error fetching education history:', educationError);
-        } else {
-          educationData = educationResults || [];
-        }
-      }
-      
-      // Group education data by profile_id, keeping only the most recent for each profile
-      const latestEducationByProfile = {};
-      educationData.forEach(edu => {
-        if (!latestEducationByProfile[edu.profile_id] || 
-            edu.graduation_year > latestEducationByProfile[edu.profile_id].graduation_year) {
-          latestEducationByProfile[edu.profile_id] = edu;
-        }
-      });
-      
-      // Map data using the utility function and merge with education data
-      const mappedAlumni = (data || []).map(profile => {
-        const latestEducation = latestEducationByProfile[profile.id];
-        
-        // Format degree and department/major from education history
-        let degreeDepartment;
-        if (latestEducation) {
-          const degree = latestEducation.degree || '';
-          const major = latestEducation.major || latestEducation.specialization || '';
-          
-          if (degree && major) {
-            degreeDepartment = `${degree} ${major}`;
-          } else if (degree) {
-            degreeDepartment = degree;
-          } else if (major) {
-            degreeDepartment = major;
-          }
-        }
-        
-        // Use the mapProfileToCard function and override degreeDepartment if we have education data
-        const mappedProfile = mapProfileToCard(profile);
-        if (degreeDepartment) {
-          mappedProfile.degreeDepartment = degreeDepartment;
-        }
-        // Attach latest graduation year for display (hide if empty in card)
-        if (latestEducation && latestEducation.graduation_year) {
-          mappedProfile.gradYear = latestEducation.graduation_year;
-          mappedProfile.graduationYear = latestEducation.graduation_year;
-        }
-        
-        return mappedProfile;
-      });
-      
-      setAlumni(mappedAlumni);
+      // Use raw rows from public_profiles_view
+      setAlumni(data || []);
       setTotalAlumni(count || 0);
 
       // Log directory view activity (best-effort)
@@ -183,10 +124,16 @@ const AlumniDirectory = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, itemsPerPage, filters, sortBy, searchTerm, refreshTrigger]);
+  }, [currentPage, itemsPerPage, filters, sortBy, debouncedSearch, refreshTrigger]);
 
   useEffect(() => {
-    fetchAlumniData();
+    const run = async () => {
+      await fetchAlumniData();
+      // Mark initial load as done once
+      if (!initialLoadDoneRef.current) initialLoadDoneRef.current = true;
+      setInitialLoaded(true);
+    };
+    run();
   }, [fetchAlumniData]);
 
   // Restore from URL on first mount (search, sort, filters)
@@ -205,6 +152,12 @@ const AlumniDirectory = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Debounce search term
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
   // Sync to URL when search or sort changes
   useEffect(() => {
     const params = new URLSearchParams(searchParams);
@@ -213,8 +166,10 @@ const AlumniDirectory = () => {
     setSearchParams(params, { replace: true });
   }, [searchTerm, sortBy]);
   
-  // Realtime refresh when profiles change in ways that affect directory membership
+  // Realtime refresh when profiles change; subscribe only after initial load and only once
   useEffect(() => {
+    if (!initialLoadDoneRef.current || subscribedRef.current) return;
+    subscribedRef.current = true;
     const channel = supabase
       .channel('alumni-directory-refresh')
       .on('postgres_changes', {
@@ -231,7 +186,6 @@ const AlumniDirectory = () => {
           if (evt === 'UPDATE') {
             const oldRow = payload.old || {};
             const newRow = payload.new || {};
-            // Refresh if approval, role, or employer flag changed; or if fields used in view changed
             if (
               oldRow.is_approved !== newRow.is_approved ||
               oldRow.role !== newRow.role ||
@@ -250,11 +204,19 @@ const AlumniDirectory = () => {
         }
       })
       .subscribe();
+    channelRef.current = channel;
 
     return () => {
-      try { supabase.removeChannel(channel); } catch (e) { console.warn('Failed to remove channel', e); }
+      try {
+        if (channelRef.current) {
+          supabase.removeChannel(channelRef.current);
+          channelRef.current = null;
+        }
+      } catch (e) {
+        console.warn('Failed to remove channel', e);
+      }
     };
-  }, []);
+  }, [initialLoaded]);
 
   // Separate useEffect for visibility change to avoid unnecessary data fetching
   useEffect(() => {
@@ -375,11 +337,14 @@ const AlumniDirectory = () => {
             <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by name, degree, company..."
+              placeholder="Search by name, degree, location, or department"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm"
             />
+            {isDebouncing && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">Searching…</span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setShowFilters(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50">
@@ -437,7 +402,7 @@ const AlumniDirectory = () => {
             </div>
           ) : alumni.length === 0 ? (
             <div className="text-center py-20 bg-white rounded-lg shadow-md">
-              <h3 className="text-2xl font-bold text-gray-800">No Alumni Found</h3>
+              <h3 className="text-2xl font-bold text-gray-800">{searchTerm ? `No results for ‘${searchTerm}’` : 'No Alumni Found'}</h3>
               <p className="mt-3 text-gray-600">Try adjusting your search or filter criteria.</p>
             </div>
           ) : (

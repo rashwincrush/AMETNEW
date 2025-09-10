@@ -11,7 +11,15 @@ const AlumniListItem = ({ alumnus }) => {
     return (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase();
   };
 
-  const initials = getInitials(alumnus.fullName);
+  const fullName = alumnus.full_name || alumnus.fullName || '';
+  const initials = getInitials(fullName);
+  const avatarUrl = alumnus.avatar_url || alumnus.avatar || '';
+  const position = (alumnus.current_job_title || '').toString().trim();
+  const company = (alumnus.company_name || '').toString().trim();
+  const degree = (alumnus.degree_program || alumnus.degree || '').toString().trim();
+  const gradYear = alumnus.graduation_year || alumnus.gradYear || '';
+  const degreeDisplay = [degree, gradYear].filter(Boolean).join(' • ');
+  const location = (alumnus.location || alumnus.locationLabel || '').toString().trim();
   
   return (
     <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200/80 hover:shadow-md transition-all duration-300 group">
@@ -19,12 +27,12 @@ const AlumniListItem = ({ alumnus }) => {
         <div className="p-4 sm:p-5 flex items-center justify-between">
           <div className="flex items-center space-x-4 flex-1 min-w-0">
             {/* Avatar */}
-            {alumnus.avatar ? (
+            {avatarUrl ? (
               <div className="relative">
                 <img
                   className="h-14 w-14 rounded-full object-cover ring-2 ring-indigo-100 group-hover:ring-indigo-200 transition-all"
-                  src={alumnus.avatar}
-                  alt={`${alumnus.fullName || 'User'}'s avatar`}
+                  src={avatarUrl}
+                  alt={`${fullName || 'User'}'s avatar`}
                   onError={(e) => {
                     e.target.onerror = null;
                     e.target.style.display = 'none';
@@ -37,7 +45,7 @@ const AlumniListItem = ({ alumnus }) => {
                 </div>
               </div>
             ) : (
-              <div className="h-14 w-14 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-lg font-bold flex items-center justify-center ring-2 ring-indigo-100">
+              <div className="h-14 w-14 rounded-full bg-gradient.to-br from-blue-500 to-indigo-600 text-white text-lg font-bold flex items-center justify-center ring-2 ring-indigo-100">
                 {initials}
               </div>
             )}
@@ -45,8 +53,8 @@ const AlumniListItem = ({ alumnus }) => {
             {/* Main info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-lg font-bold text-gray-800 truncate" title={alumnus.fullName}>
-                  {alumnus.fullName || 'Alumni Member'}
+                <h3 className="text-lg font-bold text-gray-800 truncate" title={fullName}>
+                  {fullName}
                 </h3>
                 {alumnus.isMentor && (
                   <span className="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
@@ -56,27 +64,27 @@ const AlumniListItem = ({ alumnus }) => {
                 )}
               </div>
               
-              {alumnus.profession && !alumnus.isPrivate?.profession && (
-                  <p className="text-sm font-medium text-indigo-600 truncate mt-0.5">{alumnus.profession}</p>
-                )}
+              {position && (
+                <p className="text-sm font-medium text-indigo-600 truncate mt-0.5" title={position}>{position}</p>
+              )}
 
               <div className="mt-1 flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1">
-                {alumnus.titleAtCompany && !alumnus.isPrivate?.job_title && (
-                  <p className="text-sm text-gray-600 truncate flex items-center">
+                {company && (
+                  <p className="text-sm text-gray-600 truncate flex items-center" title={company}>
                     <BriefcaseIcon className="h-4 w-4 mr-1.5 text-gray-400 flex-shrink-0" />
-                    <span>{alumnus.titleAtCompany}</span>
+                    <span>{company}</span>
                   </p>
                 )}
-                {alumnus.degreeDepartment && !alumnus.isPrivate?.education && (
+                {degreeDisplay && (
                   <p className="text-sm text-gray-600 truncate flex items-center">
                     <AcademicCapIcon className="h-4 w-4 mr-1.5 text-gray-400 flex-shrink-0" />
-                    <span>{alumnus.degreeDepartment}</span>
+                    <span>{degreeDisplay}</span>
                   </p>
                 )}
               </div>
               
               {/* Skills tags */}
-              {alumnus.skills && alumnus.skills.length > 0 && !alumnus.isPrivate?.skills && (
+              {alumnus.skills && alumnus.skills.length > 0 && (
                 <div className="hidden md:flex flex-wrap gap-1.5 mt-2">
                   {alumnus.skills.slice(0, 4).map((skill, index) => (
                     <span key={index} className="inline-block px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded-full">
@@ -93,10 +101,10 @@ const AlumniListItem = ({ alumnus }) => {
 
           {/* Location and Arrow */}
           <div className="hidden md:flex items-center space-x-4 ml-4 flex-shrink-0">
-            {alumnus.locationLabel && !alumnus.isPrivate?.location && (
+            {location && (
               <div className="flex items-center text-sm text-gray-500">
-                <MapPinIcon className="h-4 w-4 mr-1.5 text-indigo-400" />
-                <span>{alumnus.locationLabel}</span>
+                <MapPinIcon aria-label="Location" className="h-4 w-4 mr-1.5 text-indigo-400" />
+                <span className="break-words whitespace-normal">{location}</span>
               </div>
             )}
             <div className="h-8 w-8 rounded-full bg-gray-100 group-hover:bg-indigo-100 flex items-center justify-center transition-colors">

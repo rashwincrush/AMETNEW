@@ -6,7 +6,6 @@ import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import ContentApproval from './ContentApproval';
 import UserManagement from './UserManagement';
-import MentorsTab from './MentorsTab';
 import CSVExport from './CSVExport';
 import { 
   Cog6ToothIcon, 
@@ -269,13 +268,6 @@ const AdminSettings = () => {
       icon: <DocumentCheckIcon className="w-5 h-5" />,
       component: <ContentApproval />,
       permission: 'approve_content',
-      superAdminOnly: false,
-    },
-    {
-      name: 'Mentors',
-      icon: <ShieldCheckIcon className="w-5 h-5" />,
-      component: <MentorsTab />,
-      permission: 'access:all',
       superAdminOnly: false,
     },
     {

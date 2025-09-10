@@ -18,7 +18,6 @@ import HomePage from './components/Landing/HomePage';
 import Notifications from './components/Notifications/Notifications';
 import { NotificationProvider } from './components/common/NotificationCenter';
 import FeedbackWidget from './components/common/FeedbackWidget';
-import QATogglesBanner from './components/QATools/QATogglesBanner';
 
 // Layout Components
 import Navigation from './components/Layout/Navigation';
@@ -274,7 +273,6 @@ function App() {
             <NotificationProvider>
               <AppContent />
               <FeedbackWidget />
-              <QATogglesBanner />
               <Toaster 
                 position="top-right"
                 toastOptions={{

@@ -50,7 +50,8 @@ const AdminMentorApprovals = () => {
   const alumniRequests = pending.filter(p => (p.applicant?.role || 'alumni') !== 'admin' && (p.applicant?.role || 'alumni') !== 'super_admin');
   const adminRequests = pending.filter(p => (p.applicant?.role || '') === 'admin' || (p.applicant?.role || '') === 'super_admin');
 
-  const canApproveAdminQueue = userRole === 'super_admin';
+  // Admins can approve all mentor applications, including applicants whose current role is admin.
+  const canApproveAdminQueue = userRole === 'admin' || userRole === 'super_admin';
   const canApproveAlumniQueue = userRole === 'admin' || userRole === 'super_admin';
 
   const renderCard = (row, canApprove) => {

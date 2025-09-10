@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
+import { supabase } from '../../utils/supabase';
 import { logActivity } from '../../utils/activityLogger';
 import ConversationList from './ConversationList';
 import ChatWindow from './ChatWindow';
@@ -8,8 +8,8 @@ import { useNotification } from '../../hooks/useNotification';
 const MessagingSystem = () => {
   const { showInfo, showSuccess, showError } = useNotification();
   const [loading, setLoading] = useState(true);
-  const [conversations, setConversations] = useState([]);
-  const [selectedConversation, setSelectedConversation] = useState(null);
+  const [threads, setThreads] = useState([]);
+  const [selectedThread, setSelectedThread] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [error, setError] = useState(null);
   // const [isCreatingConversation, setIsCreatingConversation] = useState(false);
@@ -79,90 +79,26 @@ const MessagingSystem = () => {
     logActivity({ action: 'messages_page_view', route: '/messages' });
   }, []);
 
-  // Fetch all conversations for the current user
-  const fetchUserConversations = useCallback(async () => {
+  // Fetch all DM threads for the current user via view v_my_dm_threads
+  const fetchUserThreads = useCallback(async () => {
     if (!currentUser) return;
-    // Throttle: do not fetch more than once every 1500ms
     const now = Date.now();
     if (fetchingConvsRef.current || (now - lastFetchAtRef.current) < 1500) {
       return;
     }
     fetchingConvsRef.current = true;
-    
+
     try {
       setLoading(true);
-      // Prefer RPC if available for efficient conversation fetching
-      let convRows;
-      try {
-        const { data, error } = await supabase
-          .rpc('get_user_conversations_v2', { p_user_id: currentUser.id });
-        if (error) throw error;
-        convRows = data || [];
-      } catch (rpcErr) {
-        console.warn('RPC get_user_conversations_v2 failed; falling back to manual query', rpcErr);
-        // Fallback: find conversations via conversation_participants
-        const { data: myConvs, error: convsError } = await supabase
-          .from('conversation_participants')
-          .select('conversation_id, conversation:conversations(last_message_at, created_at)')
-          .eq('user_id', currentUser.id);
-        if (convsError) throw convsError;
-        const seen = new Set();
-        convRows = (myConvs || [])
-          .filter(r => {
-            if (seen.has(r.conversation_id)) return false;
-            seen.add(r.conversation_id);
-            return true;
-          })
-          .map(r => ({
-            conversation_id: r.conversation_id,
-            last_message_at: r.conversation?.last_message_at || null,
-          }));
-      }
-
-      // Batch fetch other participants for all conversations to avoid N+1
-      const convIds = convRows.map(r => r.conversation_id);
-      const { data: others } = await supabase
-        .from('conversation_participants')
-        .select('conversation_id, user:profiles(id, full_name, avatar_url, is_online)')
-        .in('conversation_id', convIds)
-        .neq('user_id', currentUser.id);
-
-      const otherMap = new Map();
-      (others || []).forEach(r => {
-        if (!otherMap.has(r.conversation_id)) {
-          otherMap.set(r.conversation_id, r.user);
-        }
-      });
-
-      let formattedConversations = convRows.map((row) => {
-        const other = otherMap.get(row.conversation_id) || {};
-        return {
-          id: row.conversation_id,
-          name: other.full_name || 'Unknown User',
-          avatar: other.avatar_url || null,
-          lastMessageAt: row.last_message_at || row.created_at || null,
-          participantId: other.id || null,
-          isOnline: !!other.is_online,
-          unreadCount: typeof row.unread_count === 'number' ? row.unread_count : 0,
-          latestMessage: null,
-          latestMessageSender: '',
-          isConnected: true, // Assume connected for list; detailed check deferred
-        };
-      });
-      
-      // Only keep conversations with active connections and sort by latest message time desc
-      formattedConversations = formattedConversations
-        .filter(c => c.isConnected)
-        .sort((a, b) => {
-          const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
-          const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
-          return tb - ta;
-        });
-      setConversations(formattedConversations);
-      // Log conversations list load
-      logActivity({ action: 'messages_list_load', meta: { count: formattedConversations.length } , route: '/messages' });
+      const { data, error } = await supabase
+        .from('v_my_dm_threads')
+        .select('*')
+        .order('thread_id', { ascending: false });
+      if (error) throw error;
+      setThreads(Array.isArray(data) ? data : []);
+      logActivity({ action: 'dm_threads_list_load', meta: { count: (data || []).length }, route: '/messages' });
     } catch (err) {
-      console.error('Error fetching conversations:', err);
+      console.error('Error fetching threads:', err);
       setError('Failed to load conversations');
       if (!convErrNotifiedRef.current) {
         showError('Failed to load conversations');
@@ -178,87 +114,15 @@ const MessagingSystem = () => {
 
   useEffect(() => {
     if (currentUser) {
-      fetchUserConversations();
+      fetchUserThreads();
     }
-  }, [currentUser, fetchUserConversations]);
+  }, [currentUser, fetchUserThreads]);
 
-  // Handle new messages with useCallback
-  const handleNewMessage = useCallback(async (payload) => {
-    if (!isMountedRef.current || !currentUser) return;
+  // Realtime is handled inside ChatWindow per selected thread
 
-    const newMessage = payload.new;
-    const conversationId = newMessage.conversation_id;
-
-    setConversations(prevConvs => {
-      const convIndex = prevConvs.findIndex(c => c.id === conversationId);
-      let updatedConvs = [...prevConvs];
-
-      if (convIndex !== -1) {
-        // Conversation exists, update it and move to top
-        const conv = { ...updatedConvs[convIndex] };
-        updatedConvs.splice(convIndex, 1);
-
-        conv.lastMessageAt = newMessage.created_at;
-        conv.latestMessage = newMessage;
-
-        if (newMessage.sender_id === currentUser.id) {
-          conv.latestMessageSender = 'You';
-        } else {
-          conv.latestMessageSender = conv.name;
-          conv.unreadCount = (conv.unreadCount || 0) + 1;
-
-          // Show notification if chat is not open
-          if (selectedConversation !== conversationId) {
-            showInfo(`New message from ${conv.name}`);
-            // The notification creation logic can be triggered here if needed
-          }
-        }
-        return [conv, ...updatedConvs];
-      } else {
-        // New conversation, refetch everything. This is an edge case.
-        fetchUserConversations();
-        return prevConvs;
-      }
-    });
-  }, [currentUser, selectedConversation, fetchUserConversations, showInfo]);
-
-  // Real-time listener for new messages
-  useEffect(() => {
-    if (!currentUser) return;
-
-    isMountedRef.current = true;
-
-    onPostgresChangesOnce(
-      'public:messages',
-      'messages-listener',
-      { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: 'messages' 
-      },
-      handleNewMessage
-    );
-
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, [currentUser, handleNewMessage]);
-
-  const handleSelectConversation = (conversationId) => {
-    setSelectedConversation(conversationId);
-    logActivity({ action: 'messages_open_conversation', meta: { conversationId }, route: '/messages' });
-    // Mark messages as read
-    const markAsRead = async () => {
-        await supabase
-            .from('messages')
-            .update({ read_at: new Date().toISOString() })
-            .eq('conversation_id', conversationId)
-            .is('read_at', null)
-            .neq('sender_id', currentUser.id);
-        // Refresh conversations to update unread count
-        fetchUserConversations();
-    };
-    markAsRead();
+  const handleSelectThread = (thread) => {
+    setSelectedThread(thread);
+    logActivity({ action: 'dm_open_thread', meta: { threadId: thread?.thread_id }, route: '/messages' });
   };
 
   const handleCreateConversation = async (targetUserId) => {
@@ -270,7 +134,7 @@ const MessagingSystem = () => {
     try {
       setLoading(true);
 
-      // Check if a connection exists with status = 'accepted'
+      // Check if a connection exists with status accepted/connected
       const { data: connection, error: connectionError } = await supabase
         .from('connections')
         .select('status')
@@ -278,7 +142,7 @@ const MessagingSystem = () => {
           `and(requester_id.eq.${currentUser.id},recipient_id.eq.${targetUserId}),` +
           `and(requester_id.eq.${targetUserId},recipient_id.eq.${currentUser.id})`
         )
-        .eq('status', 'accepted')
+        .in('status', ['accepted','connected'])
         .maybeSingle();
 
       if (connectionError || !connection) {
@@ -287,25 +151,26 @@ const MessagingSystem = () => {
         return;
       }
 
-      // Proceed only if connected; get current auth user via session (no extra network call)
-      const { data: { session }, error: authErr } = await supabase.auth.getSession();
-      if (authErr || !session?.user) {
-        showError('Not authenticated');
-        setLoading(false);
-        return;
+      // Threads are auto-created by backend trigger; fetch threads and select the one for target user
+      await fetchUserThreads();
+      const thread = (Array.isArray(threads) ? threads : []).find(t => t.other_user_id === targetUserId);
+      if (thread) {
+        setSelectedThread(thread);
+        showSuccess('Conversation ready.');
+      } else {
+        // In case trigger is eventual, poll once more
+        const { data } = await supabase
+          .from('v_my_dm_threads')
+          .select('*')
+          .eq('other_user_id', targetUserId)
+          .maybeSingle();
+        if (data) {
+          setSelectedThread(data);
+          showSuccess('Conversation ready.');
+        } else {
+          showInfo('Thread will appear shortly after connection is established.');
+        }
       }
-      const { id: currentId } = session.user;
-
-      const { data, error } = await supabase.rpc('get_or_create_conversation', {
-        user_1_id: currentId,
-        user_2_id: targetUserId
-      });
-
-      if (error) throw error;
-
-      await fetchUserConversations();
-      setSelectedConversation(data);
-      showSuccess('Conversation started!');
     } catch (err) {
       console.error('Error starting conversation:', err);
       showError('Unable to start conversation.');
@@ -341,9 +206,9 @@ const MessagingSystem = () => {
           {/* Sidebar */}
           <div className="w-full md:w-96 lg:w-[26rem] border-r border-gray-200">
             <ConversationList
-              conversations={conversations}
-              onSelectConversation={handleSelectConversation}
-              selectedConversationId={selectedConversation}
+              threads={threads}
+              onSelectThread={handleSelectThread}
+              selectedThread={selectedThread}
               currentUser={currentUser}
             />
           </div>
@@ -351,7 +216,7 @@ const MessagingSystem = () => {
           {/* Main Chat Area */}
           <div className="flex-1 flex flex-col">
             <ChatWindow
-              conversationId={selectedConversation}
+              thread={selectedThread}
               currentUser={currentUser}
             />
           </div>

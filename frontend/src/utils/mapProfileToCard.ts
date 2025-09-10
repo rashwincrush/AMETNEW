@@ -17,7 +17,7 @@ export function mapProfileToCard(row: any): CardProfile {
   
   // Format as "Company — Title" (company first)
   const title = row.current_job_title ?? row.current_title ?? row.title ?? '';
-  const company = row.current_company ?? row.company ?? '';
+  const company = row.current_company ?? row.company ?? row.company_name ?? '';
   let titleAtCompany: string | undefined;
   if (company && title) {
     titleAtCompany = `${company} — ${title}`;
@@ -32,8 +32,11 @@ export function mapProfileToCard(row: any): CardProfile {
   // Format location as "City, Country"; support alternative keys
   const city = row.location_city ?? row.current_city ?? row.city ?? '';
   const country = row.location_country ?? row.current_country ?? row.country ?? '';
+  const locationSingle = row.location ?? row.current_location ?? '';
   let locationLabel;
-  if (city && country) {
+  if (locationSingle) {
+    locationLabel = String(locationSingle);
+  } else if (city && country) {
     locationLabel = `${city}, ${country}`;
   } else if (city) {
     locationLabel = city;
@@ -55,7 +58,7 @@ export function mapProfileToCard(row: any): CardProfile {
 
   // Normalize degree/department; prefer explicit fields, else try provided aggregate
   const clean = (s: any) => (typeof s === 'string' ? s.replace(/[. \s]+$/, '').trim() : '');
-  const deg = clean(row.degree);
+  const deg = clean(row.degree ?? row.degree_program);
   const dept = clean(row.department);
   const degreeDepartment = (deg && dept)
     ? `${deg} ${dept}`

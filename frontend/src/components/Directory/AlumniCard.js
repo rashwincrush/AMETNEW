@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { MapPinIcon, BriefcaseIcon, StarIcon, AcademicCapIcon, BuildingOfficeIcon, EnvelopeIcon, PhoneIcon } from '@heroicons/react/24/solid';
+import { MapPinIcon, BriefcaseIcon, StarIcon, AcademicCapIcon } from '@heroicons/react/24/solid';
 
 const AlumniCard = ({ alumnus }) => {
   const getInitials = (name) => {
@@ -11,41 +11,28 @@ const AlumniCard = ({ alumnus }) => {
     return (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase();
   };
 
-  const initials = getInitials(alumnus.fullName);
+  const fullName = alumnus.full_name || alumnus.fullName || '';
+  const initials = getInitials(fullName);
+  const avatarUrl = alumnus.avatar_url || alumnus.avatar || '';
 
-  // Normalize key fields coming from either a directory view or raw profile
-  const professionNormalized = alumnus.profession || alumnus.currentProfession || alumnus.occupation || alumnus.profession_title || '';
-
-  const primaryPosition = Array.isArray(alumnus.positions) && alumnus.positions.length > 0
-    ? alumnus.positions[0]
-    : null;
-
-  const posTitle = (primaryPosition?.title || alumnus.job_title || '').toString().trim();
-  const posCompany = (primaryPosition?.company || primaryPosition?.company_name || alumnus.company_name || '').toString().trim();
-
-  let currentRoleCompany = '';
-  if (posCompany && posTitle) currentRoleCompany = `${posCompany} — ${posTitle}`;
-  else if (posCompany) currentRoleCompany = posCompany;
-  else if (posTitle) currentRoleCompany = posTitle;
-  else if (alumnus.titleAtCompany) currentRoleCompany = alumnus.titleAtCompany;
-  else if (professionNormalized) currentRoleCompany = professionNormalized;
-
-  const clean = (s) => (typeof s === 'string' ? s.replace(/[.\s]+$/, '').trim() : '');
-  const degree = clean(alumnus.degree || alumnus.education_degree || alumnus.degree_name || alumnus.degreeShort);
-  const department = clean(alumnus.department || alumnus.education_department || alumnus.branch || alumnus.department_name);
-  const degreeDepartment = degree && department ? `${degree} ${department}` : (degree || department || '');
-
-  const city = alumnus.location_city || alumnus.city;
-  const country = alumnus.location_country || alumnus.country;
-  const locationLabel = alumnus.locationLabel || city || country || '';
-
-  const skills = Array.isArray(alumnus.skills)
-    ? alumnus.skills.filter(Boolean)
-    : (typeof alumnus.skills === 'string' ? alumnus.skills.split(',').map(s => s.trim()).filter(Boolean) : []);
-
-  const interests = Array.isArray(alumnus.interests)
-    ? alumnus.interests.filter(Boolean)
-    : (typeof alumnus.interests === 'string' ? alumnus.interests.split(',').map(s => s.trim()).filter(Boolean) : []);
+  // Direct fields from public_profiles_view
+  const position = (alumnus.current_job_title || '').toString().trim();
+  const company = (alumnus.company_name || '').toString().trim();
+  const location = (alumnus.location || alumnus.locationLabel || '').toString().trim();
+  const degree = (alumnus.degree_program || alumnus.degree || '').toString().trim();
+  const gradYear = alumnus.graduation_year || alumnus.gradYear || '';
+  const degreeDisplay = [degree, gradYear].filter(Boolean).join(' • ');
+  let skills = [];
+  if (Array.isArray(alumnus.skills)) {
+    skills = alumnus.skills.filter(Boolean);
+  } else if (typeof alumnus.skills === 'string' && alumnus.skills.trim()) {
+    try {
+      const parsed = JSON.parse(alumnus.skills);
+      if (Array.isArray(parsed)) skills = parsed.filter(Boolean);
+    } catch (_) {
+      // If not valid JSON, ignore (view should already provide array)
+    }
+  }
 
   return (
     <div className="bg-white rounded-xl shadow-md hover:shadow-xl overflow-hidden transition-all duration-300 border border-gray-200/80 flex flex-col h-full">
@@ -53,12 +40,12 @@ const AlumniCard = ({ alumnus }) => {
       <div className="relative pb-6 pt-10 px-6 flex flex-col items-center">
         <div className="absolute top-0 inset-x-0 h-20 bg-gradient-to-r from-blue-500 to-indigo-600"></div>
         
-        {alumnus.avatar ? (
+        {avatarUrl ? (
           <div className="relative z-10">
             <img
               className="h-24 w-24 rounded-full object-cover ring-4 ring-white shadow-lg"
-              src={alumnus.avatar}
-              alt={`${alumnus.fullName || 'User'}'s avatar`}
+              src={avatarUrl}
+              alt={`${fullName || 'User'}'s avatar`}
               onError={(e) => {
                 e.target.onerror = null;
                 e.target.style.display = 'none';
@@ -78,8 +65,8 @@ const AlumniCard = ({ alumnus }) => {
         
         <div className="mt-4 text-center w-full">
           <div className="flex justify-center items-center gap-2 mb-1">
-            <h3 className="text-xl font-bold text-gray-800 truncate" title={alumnus.fullName}>
-              {alumnus.fullName || 'Alumni Member'}
+            <h3 className="text-xl font-bold text-gray-800 truncate" title={fullName}>
+              {fullName}
             </h3>
             {alumnus.isMentor && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 flex-shrink-0">
@@ -88,14 +75,8 @@ const AlumniCard = ({ alumnus }) => {
               </span>
             )}
           </div>
-          {professionNormalized && !alumnus.isPrivate?.profession && (
-            <p className="text-sm font-medium text-indigo-600">{professionNormalized}</p>
-          )}
-          {(alumnus.graduationYear || alumnus.gradYear) && (
-            <div className="flex items-center justify-center text-sm text-gray-500 mt-1">
-              <AcademicCapIcon className="h-4 w-4 mr-1.5 text-gray-400" />
-              <span>Graduated: {alumnus.graduationYear || alumnus.gradYear}</span>
-            </div>
+          {position && (
+            <p className="text-sm font-medium text-indigo-600 truncate" title={position}>{position}</p>
           )}
         </div>
       </div>
@@ -103,27 +84,27 @@ const AlumniCard = ({ alumnus }) => {
       {/* Card Body with Details */}
       <div className="px-6 py-4 flex-grow">
         <div className="space-y-3 text-gray-700">
-          {/* Current Position */}
-          {currentRoleCompany && !alumnus.isPrivate?.job_title && (
+          {/* Company */}
+          {company && (
             <div className="flex items-start">
               <BriefcaseIcon className="h-5 w-5 mr-2 text-indigo-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm font-medium">{currentRoleCompany}</p>
+              <p className="text-sm font-medium truncate" title={company}>{company}</p>
             </div>
           )}
 
           {/* Education */}
-          {degreeDepartment && !alumnus.isPrivate?.education && (
+          {degreeDisplay && (
             <div className="flex items-start">
               <AcademicCapIcon className="h-5 w-5 mr-2 text-indigo-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm">{degreeDepartment}</p>
+              <p className="text-sm">{degreeDisplay}</p>
             </div>
           )}
 
           {/* Location */}
-          {locationLabel && !alumnus.isPrivate?.location && (
+          {location && (
             <div className="flex items-start">
-              <MapPinIcon className="h-5 w-5 mr-2 text-indigo-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm">{locationLabel}</p>
+              <MapPinIcon aria-label="Location" className="h-5 w-5 mr-2 text-indigo-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm break-words whitespace-normal">{location}</p>
             </div>
           )}
 
@@ -140,23 +121,6 @@ const AlumniCard = ({ alumnus }) => {
                 ))}
                 {skills.length > 3 && (
                   <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-full">+{skills.length - 3}</span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Interests */}
-          {interests.length > 0 && !alumnus.isPrivate?.interests && (
-            <div className="pt-1">
-              <p className="text-xs font-medium text-gray-500 mb-1.5">Interests</p>
-              <div className="flex flex-wrap gap-1.5">
-                {interests.slice(0, 3).map((interest, index) => (
-                  <span key={index} className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded-full">
-                    {interest}
-                  </span>
-                ))}
-                {interests.length > 3 && (
-                  <span className="inline-block px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-full">+{interests.length - 3}</span>
                 )}
               </div>
             </div>

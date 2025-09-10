@@ -15,6 +15,8 @@ import {
 import ProfileResume from './ProfileResume';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
+import { loadProfileSocialLinks, saveProfileSocialLinks } from '../../services/socialLinks';
+import { validateLinkedIn, validateGitHub, validateX, validateWebsite, findDuplicateProvider } from '../../services/socialLinks.validation';
 
 const Profile = () => {
   const navigate = useNavigate();
@@ -311,8 +313,25 @@ const Profile = () => {
             }) : [],
             interests: Array.isArray(cleanedProfile.interests) ? cleanedProfile.interests : [],
             languages: Array.isArray(cleanedProfile.languages) ? cleanedProfile.languages : [],
-            socialLinks: cleanedProfile.social_links || { linkedin: '', github: '', twitter: '', website: '' }
+            // Load social links from dedicated table/view
+            socialLinks: (() => {
+              // placeholder; will be replaced below after async load
+              return { linkedin: '', github: '', twitter: '', website: '' };
+            })()
           };
+          // Replace social links by fetching from view/table
+          try {
+            const links = await loadProfileSocialLinks(user.id);
+            formDataInitial.socialLinks = {
+              linkedin: links.linkedin || '',
+              github: links.github || '',
+              // UI uses 'twitter' field; map X -> twitter
+              twitter: links.x || '',
+              website: links.website || '',
+            };
+          } catch (e) {
+            console.warn('Failed to load social links (non-fatal):', e);
+          }
           
           console.log('Final form data being set:', formDataInitial);
           setFormData(formDataInitial);
@@ -443,6 +462,12 @@ const Profile = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
+    // Block save if social link validation errors exist
+    const socialErrors = Object.keys(validationErrors || {}).filter(k => k.startsWith('socialLinks.'));
+    if (socialErrors.length > 0) {
+      toast.error('Please fix social link URLs before saving');
+      return;
+    }
 
     console.log('Starting form submission...');
     const controller = new AbortController();
@@ -483,7 +508,6 @@ const Profile = () => {
         achievements: Array.isArray(formData.achievements) ? formData.achievements.filter(a => a && typeof a === 'object' && a.title) : [],
         interests: formData.interests,
         languages: formData.languages,
-        social_links: formData.socialLinks,
       };
 
       const profileUpdates = { updated_at: new Date().toISOString() };
@@ -512,11 +536,7 @@ const Profile = () => {
       profileUpdates.graduation_year = isNaN(yearValue) ? null : yearValue;
     }
 
-    if (formData.socialLinks) {
-        profileUpdates.social_links = formData.socialLinks;
-      } else if (currentProfile?.social_links) {
-        profileUpdates.social_links = currentProfile.social_links;
-      }
+    // Do not write JSON social_links back to profiles; managed via table
 
       if (imageFile) {
         console.log('Uploading new avatar...');
@@ -559,6 +579,19 @@ const Profile = () => {
 
       console.log('Profile updated in database:', data);
 
+      // Save social links to dedicated table (view-managed elsewhere)
+      try {
+        await saveProfileSocialLinks(user.id, {
+          linkedin: formData.socialLinks?.linkedin || null,
+          github: formData.socialLinks?.github || null,
+          x: formData.socialLinks?.twitter || null,
+          website: formData.socialLinks?.website || null,
+        });
+      } catch (e) {
+        console.error('Saving social links failed:', e);
+        toast.error('Failed to update social links');
+      }
+
       if (isEmployer && companyId) {
         const { error: companyUpdateError } = await supabase
           .from('companies')
@@ -598,7 +631,8 @@ const Profile = () => {
             achievements: updatedProfile.achievements || formData.achievements,
             interests: updatedProfile.interests || formData.interests,
             languages: updatedProfile.languages || formData.languages,
-            socialLinks: updatedProfile.social_links || formData.socialLinks,
+            // Keep UI social links from form (table-managed)
+            socialLinks: formData.socialLinks,
           };
           setFormData(mappedData);
         }
@@ -654,46 +688,32 @@ const Profile = () => {
         if (!/^https?:\/\//i.test(trimmedValue)) {
           trimmedValue = 'https://' + trimmedValue;
         }
-        // Basic URL parse
-        try {
-          const u = new URL(trimmedValue);
-          const host = (u.hostname || '').toLowerCase();
-          const path = (u.pathname || '').toLowerCase();
-          const isHttps = u.protocol === 'https:';
-
-          // Per-field domain allow lists
-          if (field === 'linkedin') {
-            // Enforce no subdomain (no www), https only, and valid path prefix with a handle
-            const pathOk = /^\/(in|pub|company|school)\/[A-Za-z0-9][A-Za-z0-9._%/-]*\/?$/.test(path);
-            if (!isHttps || host !== 'linkedin.com' || !pathOk) {
-              validationError = 'Invalid LinkedIn URL. Use https://linkedin.com/(in|pub|company|school)/... (no www)';
-            }
-          } else if (field === 'github') {
-            if (!isHttps || host !== 'github.com' || !/^\/[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])(\/.*)?$/i.test(path)) {
-              validationError = 'Use a valid GitHub profile URL (e.g., https://github.com/username)';
-            }
-          } else if (field === 'twitter') {
-            const isAllowedHost = host === 'twitter.com' || host === 'x.com';
-            if (!isHttps || !isAllowedHost || !/^\/[A-Za-z0-9_]{1,15}(\/.*)?$/.test(path)) {
-              validationError = 'Use https://twitter.com/handle or https://x.com/handle';
-            }
-          } else if (field === 'website') {
-            if (!isHttps) {
-              validationError = 'Website must start with https://';
-            }
-          }
-        } catch (e) {
-          validationError = 'Please enter a valid URL';
+        // Use shared validators
+        const validators = {
+          linkedin: validateLinkedIn,
+          github: validateGitHub,
+          twitter: validateX, // UI field 'twitter' maps to X
+          website: validateWebsite,
+        };
+        const fn = validators[field];
+        if (!fn) {
+          validationError = null;
+        } else if (!fn(trimmedValue)) {
+          if (field === 'linkedin') validationError = 'Invalid LinkedIn URL. Use https://www.linkedin.com/(in|pub|company|school)/...';
+          else if (field === 'github') validationError = 'Use a valid GitHub profile URL (e.g., https://github.com/username)';
+          else if (field === 'twitter') validationError = 'Use https://twitter.com/handle or https://x.com/handle';
+          else if (field === 'website') validationError = 'Website must start with http:// or https://';
         }
         
         // Check if same URL is used in other fields
         if (!validationError) {
-          const otherFields = Object.entries(formData.socialLinks || {}).filter(([key]) => key !== field);
-          const duplicateField = otherFields.find(([_, url]) => 
-            url && url.trim().toLowerCase() === trimmedValue.toLowerCase());
-          
-          if (duplicateField) {
-            validationError = `This URL is already used for your ${duplicateField[0]} profile`;
+          const prospective = {
+            ...(formData.socialLinks || {}),
+            [field]: trimmedValue,
+          };
+          const dup = findDuplicateProvider(prospective);
+          if (dup) {
+            validationError = `This URL is already used for your ${dup.fields.find(f => f !== field)}`;
           }
         }
       }

@@ -111,7 +111,7 @@ const EnhancedRegister = () => {
           if (parsed.formData && typeof parsed.formData === 'object') {
             setFormData(prev => ({ ...prev, ...parsed.formData }));
           }
-          if (parsed.currentStep && [1,2,3].includes(parsed.currentStep)) {
+          if (parsed.currentStep && [1,2].includes(parsed.currentStep)) {
             setCurrentStep(parsed.currentStep);
           }
         }
@@ -383,7 +383,7 @@ const EnhancedRegister = () => {
       }
     }
     
-    // Step 2: Role-specific details validation
+    // Step 2: Role-specific details validation + Terms acceptance
     else if (stepToValidate === 2) {
       if (
         formData.linkedinProfile &&
@@ -420,36 +420,8 @@ const EnhancedRegister = () => {
         if (!formData.jobTitle.trim()) newErrors.jobTitle = 'Your job title is required.';
         if (!formData.industry.trim()) newErrors.industry = 'Industry is required.';
       }
-    }
-    
-    // Step 3: Mentorship and terms validation
-    else if (stepToValidate === 3) {
-      if (formData.interestedInMentorship) {
-        if (!formData.mentorshipRole) {
-          newErrors.mentorshipRole = 'Please select your desired mentorship role.';
-        } else {
-          // Validate that the mentorship role is compatible with the primary role
-          const validRoles = {
-            'alumni': ['mentor', 'mentee', 'both'],
-            'employer': ['mentor', 'mentee', 'both'],
-            'student': ['mentee']
-          };
-          
-          const validForCurrentRole = validRoles[formData.primaryRole] || [];
-          
-          if (!validForCurrentRole.includes(formData.mentorshipRole)) {
-            newErrors.mentorshipRole = `This mentorship role is not valid for ${formData.primaryRole} users.`;
-          }
-        }
-        
-        if ((formData.mentorshipRole === 'mentor' || formData.mentorshipRole === 'both') && (!formData.experienceYears || parseInt(formData.experienceYears, 10) < 3)) {
-          newErrors.experienceYears = 'Mentors require at least 3 years of professional experience.';
-        }
-        if (formData.mentorInterests && formData.mentorInterests.length === 0) {
-          newErrors.mentorInterests = 'Please select at least one interest area.';
-        }
-        if (!formData.agreeToMentorship) newErrors.agreeToMentorship = 'You must agree to the Mentorship Program Guidelines to participate.';
-      }
+
+      // Terms acceptance (moved from mentorship step)
       if (!formData.agreeToTerms) newErrors.agreeToTerms = 'You must agree to the Terms of Service and Privacy Policy';
     }
 
@@ -468,17 +440,6 @@ const EnhancedRegister = () => {
     // Keep the form data when going back a step
     setCurrentStep(currentStep - 1);
     setError(''); // Clear general error message when moving to previous step
-    
-    // Clear specific errors related to the current step
-    if (currentStep === 3) {
-      setErrors(prev => {
-        const newErrors = {...prev};
-        // Clear T&C related errors
-        delete newErrors.agreeToTerms;
-        delete newErrors.agreeToMentorship;
-        return newErrors;
-      });
-    }
   };
 
 
@@ -486,7 +447,7 @@ const EnhancedRegister = () => {
     e.preventDefault();
     if (isSubmitting) return; // Prevent double-submit
 
-    if (!validateStep(3)) {
+    if (!validateStep(2)) {
       setError('Please fill out all required fields before submitting.');
       return;
     }
@@ -530,11 +491,10 @@ const EnhancedRegister = () => {
         interests: formData.interests,
         bio: formData.bio.trim() || null,
         location: formData.currentLocation.trim() || null,
-        interested_in_mentorship: formData.interestedInMentorship,
-        mentorship_role: formData.interestedInMentorship ? formData.mentorshipRole : null,
-        mentorship_experience_years: (formData.mentorshipRole === 'mentor' || formData.mentorshipRole === 'both' && formData.experienceYears) ?
-          (formData.experienceYears.trim ? formData.experienceYears.trim() : formData.experienceYears) : null,
-        mentorship_goals: formData.mentorshipGoals.trim() || null,
+        interested_in_mentorship: false,
+        mentorship_role: null,
+        mentorship_experience_years: null,
+        mentorship_goals: null,
       };
 
       const { data: { user }, error } = await supabase.auth.signUp({
@@ -590,7 +550,7 @@ const EnhancedRegister = () => {
 
   const renderStepIndicator = () => (
     <div className="flex items-center justify-between mb-8 max-w-md mx-auto">
-      {[1, 2, 3].map((stepNum, index, arr) => (
+      {[1, 2].map((stepNum, index, arr) => (
         <React.Fragment key={stepNum}>
           <div className="flex flex-col items-center">
             <div
@@ -602,7 +562,6 @@ const EnhancedRegister = () => {
             <p className={`mt-2 text-xs ${stepNum <= currentStep ? 'text-blue-600 font-medium' : 'text-gray-500'}`}>
               {stepNum === 1 && 'Basic Info'}
               {stepNum === 2 && 'Details'}
-              {stepNum === 3 && 'Mentorship'}
             </p>
           </div>
           {index < arr.length - 1 && (
@@ -1093,13 +1052,12 @@ const EnhancedRegister = () => {
           <p className="mt-2 text-md text-gray-600">
             {currentStep === 1 && "Create your account to get started."}
             {currentStep === 2 && "Tell us more about yourself."}
-            {currentStep === 3 && "Finalize your registration."}
           </p>
         </div>
 
         {renderStepIndicator()}
 
-        <form onSubmit={currentStep === 3 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }} onKeyDown={handleFormKeyDown}>
+        <form onSubmit={currentStep === 2 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }} onKeyDown={handleFormKeyDown}>
           <div className="bg-white rounded-xl shadow-2xl p-6 md:p-10 space-y-8">
             {error && (
               <div className={`p-4 border rounded-lg text-sm ${error.toLowerCase().includes('successful') || error.toLowerCase().includes('submitted') || error.toLowerCase().includes('verify')
@@ -1112,7 +1070,6 @@ const EnhancedRegister = () => {
 
             {currentStep === 1 && renderStep1()}
             {currentStep === 2 && renderStep2()}
-            {currentStep === 3 && renderStep3()}
 
             <div className="flex pt-6 space-x-4">
               {currentStep > 1 && (
@@ -1126,12 +1083,12 @@ const EnhancedRegister = () => {
                 </button>
               )}
               <button
-                type={currentStep === 3 ? "submit" : "button"}
-                onClick={currentStep < 3 ? handleNext : undefined} // handleSubmit is called by form's onSubmit for last step
+                type={currentStep === 2 ? "submit" : "button"}
+                onClick={currentStep < 2 ? handleNext : undefined} // handleSubmit is called by form's onSubmit for last step
                 disabled={isLoading}
                 className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
               >
-                {isLoading && currentStep === 3 ? (
+                {isLoading && currentStep === 2 ? (
                   <>
                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -1139,7 +1096,7 @@ const EnhancedRegister = () => {
                     </svg>
                     Processing...
                   </>
-                ) : currentStep < 3 ? 'Next' : 'Create Account'}
+                ) : currentStep < 2 ? 'Next' : 'Create Account'}
               </button>
             </div>
           </div>

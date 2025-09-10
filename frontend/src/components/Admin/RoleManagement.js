@@ -17,6 +17,9 @@ import { supabase } from '../../utils/supabase';
 
 ReactModal.setAppElement('#root');
 
+// Mentor is not a role in this application. It is approved via Admin → Mentors (public.mentors)
+const MENTOR_ROLE_DENYLIST = new Set(['mentor', 'mentors', 'mentor_role']);
+
 const DEFAULT_ROLES = [
   { name: 'super_admin', description: 'Super Administrator' },
   { name: 'admin', description: 'Administrator' },
@@ -63,11 +66,9 @@ const RoleManagement = () => {
           console.error('Error fetching roles:', roleError);
           setRoles(DEFAULT_ROLES);
         } else {
-          if (!roleData || roleData.length === 0) {
-            setRoles(DEFAULT_ROLES);
-          } else {
-            setRoles(roleData);
-          }
+          const base = (!roleData || roleData.length === 0) ? DEFAULT_ROLES : roleData;
+          const cleanedRoleData = base.filter(r => !MENTOR_ROLE_DENYLIST.has(r?.name?.toLowerCase?.()));
+          setRoles(cleanedRoleData);
         }
         
         setUsers(userData || []);
@@ -141,7 +142,11 @@ const RoleManagement = () => {
     e.preventDefault();
     if (!selectedUser) return;
 
-    const newRole = e.target.role.value;
+    const newRole = e.target.role.value?.toLowerCase?.();
+    if (MENTOR_ROLE_DENYLIST.has(newRole)) {
+      toast.error("Mentor is not a role. Use Admin → Mentors to approve mentors.");
+      return;
+    }
     
     try {
       const makeAdmin = newRole === 'admin' || newRole === 'super_admin';
@@ -205,6 +210,9 @@ const RoleManagement = () => {
           <div className="mb-4">
             <h3 className="text-lg font-semibold mb-2">Users and Role Management</h3>
             <p className="text-gray-600 mb-2">Manage user roles including alumni, admins, and other users. Use the filters below to find specific users.</p>
+            <div className="mt-3 p-3 rounded-md bg-blue-50 text-blue-800 border border-blue-200">
+              <p className="text-sm"><strong>Note:</strong> Mentors are approved in <span className="font-semibold">Admin → Mentors</span>. This page manages account roles only.</p>
+            </div>
           </div>
           <div className="flex flex-col md:flex-row gap-4 mb-6">
             <div className="relative flex-1">

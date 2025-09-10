@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { 
-  EnvelopeIcon,
   PhoneIcon,
   MapPinIcon,
   BriefcaseIcon,
   AcademicCapIcon,
   LinkIcon,
+  GlobeAltIcon,
+  CodeBracketIcon,
+  HashtagIcon,
   ChatBubbleLeftRightIcon,
   UserPlusIcon,
   ShareIcon
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
-import { mapProfileForUI } from '../../utils/mapProfileForUI';
 import { StarIcon } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
 
@@ -57,31 +58,46 @@ const AlumniProfile = () => {
       setError(null);
 
       try {
-        const { data, error: supabaseError } = await supabase
-          .from('profiles')
-          .select('*')
+        // Core public profile fields
+        const { data: core, error: coreErr } = await supabase
+          .from('public_profiles_view')
+          .select('id, full_name, avatar_url, current_job_title, company_name, location, degree_program, graduation_year, phone')
           .eq('id', id)
           .single();
 
-        if (supabaseError) {
-          if (supabaseError.code === 'PGRST116') {
-             setError('Alumni profile not found');
-          } else {
-             setError('Failed to load alumni profile');
-          }
-          console.error('Error fetching alumni:', supabaseError);
-          return;
-        }
+        if (coreErr) throw coreErr;
+        if (!core) throw new Error('Profile not found');
 
-        if (!data) {
-          setError('Alumni profile not found');
-          return;
-        }
+        // Ancillary views
+        const [aboutRes, eduRes, achRes, socialRes] = await Promise.all([
+          supabase.from('profile_about_view').select('about_display').eq('id', id).single(),
+          supabase.from('profile_education_view').select('education_display').eq('id', id).single(),
+          supabase.from('profile_achievements_view').select('achievements, skills').eq('id', id).single(),
+          supabase.from('profile_social_links').select('social_links').eq('id', id).single(),
+        ]);
 
-        console.log('Fetched alumni from Supabase:', data);
+        const about_display = aboutRes?.data?.about_display || '';
+        const education_display = eduRes?.data?.education_display || '';
+        const achievements = Array.isArray(achRes?.data?.achievements) ? achRes.data.achievements : [];
+        const skills = Array.isArray(achRes?.data?.skills) ? achRes.data.skills : [];
+        const social_links = (socialRes?.data?.social_links && typeof socialRes.data.social_links === 'object') ? socialRes.data.social_links : {};
 
-        const mapped = mapProfileForUI(data);
-        setAlumnus(mapped);
+        setAlumnus({
+          id: core.id,
+          name: core.full_name,
+          avatar: core.avatar_url,
+          current_job_title: core.current_job_title || '',
+          company_name: core.company_name || '',
+          location: core.location || '',
+          degree_program: core.degree_program || '',
+          graduation_year: core.graduation_year || '',
+          phone: core.phone || '',
+          about: about_display,
+          education_display,
+          achievements,
+          skills,
+          social_links,
+        });
       } catch (err) {
         console.error('An unexpected error occurred:', err);
         setError('An unexpected error occurred while fetching the profile.');
@@ -169,26 +185,8 @@ const AlumniProfile = () => {
 
   const handleMessage = async () => {
     if (!currentUser || !alumnus) return;
-
-    try {
-      const { data: conversationId, error } = await supabase.rpc('get_or_create_conversation', {
-        user_1_id: currentUser.id,
-        user_2_id: alumnus.id
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      if (conversationId) {
-        navigate(`/messages/${conversationId}`);
-      } else {
-        throw new Error('Could not get or create a conversation.');
-      }
-    } catch (error) {
-      console.error('Error handling message action:', error);
-      toast.error('There was an error trying to start a conversation. Please try again.');
-    }
+    // With DM threads auto-created by backend, navigate to messages and request opening this user's thread
+    navigate('/messages', { state: { openOtherUserId: alumnus.id } });
   };
   
   if (loading) {
@@ -233,38 +231,44 @@ const AlumniProfile = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 p-4">
-      {/* Centered Header */}
-      <div className="glass-card rounded-lg p-6 flex flex-col items-center text-center">
-        {/* Profile Picture */}
-        <div className="relative mb-4">
-          <img 
-            src={alumnus.avatar} 
-            alt={`${alumnus.name}'s profile picture`}
-            className="w-32 h-32 rounded-full object-cover border-4 border-white shadow-lg"
-          />
-          {alumnus.verified && (
-            <div className="absolute bottom-1 right-1 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center border-2 border-white" title="Verified Alumnus">
-              <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-            </div>
-          )}
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-4xl mx-auto space-y-6 p-4">
+        {/* Centered Header */}
+        <div className="glass-card rounded-lg p-6 flex flex-col items-center text-center">
+          {/* Profile Picture */}
+          <div className="relative mb-4">
+            <img
+              src={alumnus.avatar}
+              alt={`${alumnus.name}'s profile picture`}
+              className="w-32 h-32 rounded-full object-cover border-4 border-white shadow-lg"
+            />
+            {alumnus.verified && (
+              <div
+                className="absolute bottom-1 right-1 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center border-2 border-white"
+                title="Verified Alumnus"
+              >
+                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path
+                    fillRule="evenodd"
+                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+            )}
+          </div>
         </div>
         
         {/* Basic Info */}
         <div className="flex-1 mb-4">
           <h1 className="text-3xl font-bold text-gray-900">{alumnus.name}</h1>
-          {alumnus.currentPosition && alumnus.currentPosition !== 'Not specified' ? (
-            <p className="text-xl text-ocean-600 font-medium">{alumnus.currentPosition}</p>
-          ) : null}
-          {alumnus.company && alumnus.company !== 'Not specified' ? (
-            <p className="text-gray-600">
-              {alumnus.currentPosition && alumnus.currentPosition !== 'Not specified' ? 'at ' : ''}
-              {alumnus.company}
-            </p>
-          ) : null}
-          
+          {alumnus.current_job_title && (
+            <p className="text-xl text-ocean-600 font-medium">{alumnus.current_job_title}</p>
+          )}
+          {alumnus.company_name && (
+            <p className="text-gray-600">{alumnus.company_name}</p>
+          )}
+
           <div className="flex flex-wrap justify-center items-center text-gray-600 mt-2 gap-x-4 gap-y-1">
             {alumnus.location && (
               <div className="flex items-center">
@@ -272,10 +276,10 @@ const AlumniProfile = () => {
                 <span className="text-sm">{alumnus.location}</span>
               </div>
             )}
-            {(alumnus.degree || alumnus.graduationYear) && (
+            {(alumnus.degree_program || alumnus.graduation_year) && (
               <div className="flex items-center">
                 <AcademicCapIcon className="w-4 h-4 mr-1" />
-                <span className="text-sm">{[alumnus.degree, alumnus.graduationYear].filter(Boolean).join(' • ')}</span>
+                <span className="text-sm">{[alumnus.degree_program, alumnus.graduation_year].filter(Boolean).join(' • ')}</span>
               </div>
             )}
           </div>
@@ -312,63 +316,23 @@ const AlumniProfile = () => {
         <div className="lg:col-span-2 space-y-6">
           {/* About */}
           {alumnus.about && (
-            <div className="glass-card rounded-lg p-6">
+            <div className="glass-card rounded-lg p-6" data-testid="about-section">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">About</h2>
               <p className="text-gray-700 leading-relaxed">{alumnus.about}</p>
             </div>
           )}
 
-          {/* Experience */}
-          {Array.isArray(alumnus.experience) && alumnus.experience.length > 0 && (
-            <div className="glass-card rounded-lg p-6">
-              <div className="mb-2">
-                <h2 className="text-xl font-semibold text-gray-900">Experience</h2>
-                {alumnus.companyPosition && (
-                  <p className="text-sm text-gray-600 mt-0.5">{alumnus.companyPosition}</p>
-                )}
-              </div>
-              <div className="space-y-6">
-                {alumnus.experience.map((exp, index) => (
-                  <div key={index} className="flex items-start space-x-3">
-                    <div className="w-10 h-10 bg-ocean-gradient rounded-lg flex items-center justify-center flex-shrink-0">
-                      <BriefcaseIcon className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{exp.position}</h3>
-                      <p className="text-ocean-600 font-medium">{exp.company}</p>
-                      <p className="text-sm text-gray-600">{[exp.duration, exp.location].filter(Boolean).join(' • ')}</p>
-                      {exp.description && <p className="text-gray-700 mt-2">{exp.description}</p>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Education */}
-          {Array.isArray(alumnus.education) && alumnus.education.length > 0 && (
-            <div className="glass-card rounded-lg p-6">
+          {alumnus.education_display && (
+            <div className="glass-card rounded-lg p-6" data-testid="education-section">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Education</h2>
-              <div className="space-y-4">
-                {alumnus.education.map((edu, index) => (
-                  <div key={index} className="flex items-start space-x-3">
-                    <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <AcademicCapIcon className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{edu.degree}</h3>
-                      <p className="text-ocean-600 font-medium">{edu.institution}</p>
-                      <p className="text-sm text-gray-600">{[edu.year, edu.grade].filter(Boolean).join(' • ')}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <div className="text-gray-700 whitespace-pre-line">{alumnus.education_display}</div>
             </div>
           )}
 
           {/* Achievements */}
           {Array.isArray(alumnus.achievements) && alumnus.achievements.length > 0 && (
-            <div className="glass-card rounded-lg p-6">
+            <div className="glass-card rounded-lg p-6" data-testid="achievements-section">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Key Achievements</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {alumnus.achievements
@@ -384,76 +348,37 @@ const AlumniProfile = () => {
         {/* Right Sidebar */}
         <div className="space-y-6">
           {/* Contact Info */}
-          <div className="glass-card rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
-            <div className="space-y-3">
-              <div className="flex items-center">  
-                <BriefcaseIcon className="w-6 h-6 mr-4 text-ocean-600" />
-                <div>
-                  <div className="text-sm text-gray-500">Currently</div>
-                  <div className="font-medium">
-                    {(alumnus.currentPosition && alumnus.currentPosition !== 'Not specified' && alumnus.currentPosition !== 'Unknown') ? (
-                      <>
-                        {alumnus.currentPosition}
-                        {(alumnus.company && alumnus.company !== 'Not specified' && alumnus.company !== 'Unknown') ? (
-                          <> at {alumnus.company}</>
-                        ) : null}
-                      </>
-                    ) : (
-                      <>{(alumnus.company && alumnus.company !== 'Not specified' && alumnus.company !== 'Unknown') ? 
-                        <>Works at {alumnus.company}</> : 
-                        'Career information not provided'}
-                      </>
-                    )}
+          {(alumnus.phone || alumnus.location || alumnus.current_job_title || alumnus.company_name) && (
+            <div className="glass-card rounded-lg p-6" data-testid="contact-section">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
+              <div className="space-y-3">
+                {alumnus.current_job_title && (
+                  <div className="flex items-center">  
+                    <BriefcaseIcon className="w-6 h-6 mr-4 text-ocean-600" />
+                    <div className="font-medium">{alumnus.current_job_title}{alumnus.company_name ? ` at ${alumnus.company_name}` : ''}</div>
                   </div>
-                </div>
-              </div>
+                )}
 
-              {alumnus.email && (
-                <div className="flex items-center">
-                  <EnvelopeIcon className="w-6 h-6 mr-4 text-ocean-600" />
-                  <div>
-                    <div className="text-sm text-gray-500">Email</div>
-                    <a href={`mailto:${alumnus.email}`} className="font-medium text-ocean-600 hover:underline break-all">{alumnus.email}</a>
-                  </div>
-                </div>
-              )}
-
-              {alumnus.phone && (
-                <div className="flex items-center">
-                  <PhoneIcon className="w-6 h-6 mr-4 text-ocean-600" />
-                  <div>
-                    <div className="text-sm text-gray-500">Phone</div>
+                {alumnus.phone && (
+                  <div className="flex items-center">
+                    <PhoneIcon className="w-6 h-6 mr-4 text-ocean-600" />
                     <a href={`tel:${alumnus.phone}`} className="font-medium text-ocean-600 hover:underline">{alumnus.phone}</a>
                   </div>
-                </div>
-              )}
+                )}
 
-              {alumnus.location && (
-                <div className="flex items-center">
-                  <MapPinIcon className="w-6 h-6 mr-4 text-ocean-600" />
-                  <div>
-                    <div className="text-sm text-gray-500">Location</div>
+                {alumnus.location && (
+                  <div className="flex items-center">
+                    <MapPinIcon className="w-6 h-6 mr-4 text-ocean-600" />
                     <div className="font-medium">{alumnus.location}</div>
                   </div>
-                </div>
-              )}
-
-              {(alumnus.degree || alumnus.department || alumnus.graduationYear) && (
-                <div className="flex items-center">
-                  <AcademicCapIcon className="w-6 h-6 mr-4 text-ocean-600" />
-                  <div>
-                    <div className="text-sm text-gray-500">Education</div>
-                    <div className="font-medium">{alumnus.educationSummary || [[alumnus.degree, alumnus.department].filter(Boolean).join(' '), alumnus.graduationYear].filter(Boolean).join(' (').replace('(', ' (')}{alumnus.graduationYear ? ')' : ''}</div>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Skills */}
           {Array.isArray(alumnus.skills) && alumnus.skills.length > 0 && (
-            <div className="glass-card rounded-lg p-6">
+            <div className="glass-card rounded-lg p-6" data-testid="skills-section">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Skills</h3>
               <div className="flex flex-wrap gap-2">
                 {alumnus.skills.map((skill, index) => (
@@ -469,25 +394,36 @@ const AlumniProfile = () => {
           )}
 
           {/* Social Links */}
-          {alumnus.socialLinks && Object.values(alumnus.socialLinks).some(link => link) && (
-            <div className="glass-card rounded-lg p-6">
+          {alumnus.social_links && Object.values(alumnus.social_links).some(link => link) && (
+            <div className="glass-card rounded-lg p-6" data-testid="social-section">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Social Links</h3>
               <div className="space-y-2">
-                {Object.entries(alumnus.socialLinks).map(([platform, url]) => (
-                  url && (
+                {['linkedin', 'github', 'x', 'website'].map((key) => {
+                  const url = alumnus.social_links?.[key];
+                  if (!url) return null;
+                  const Icon = key === 'linkedin' ? LinkIcon : key === 'github' ? CodeBracketIcon : key === 'x' ? HashtagIcon : GlobeAltIcon;
+                  const label = key.charAt(0).toUpperCase() + key.slice(1);
+                  return (
                     <a 
-                      key={platform}
+                      key={key}
                       href={url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm"
+                      className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm break-all"
+                      title={`${label} profile`}
                     >
-                      <LinkIcon className="w-4 h-4 mr-2" />
-                      {platform.charAt(0).toUpperCase() + platform.slice(1)}
+                      <Icon className="w-4 h-4 mr-2" />
+                      {label}
                     </a>
-                  )
-                ))}
+                  );
+                })}
               </div>
+            </div>
+          )}
+          {/* Empty state if no optional sections */}
+          {!(alumnus.about || alumnus.education_display || (Array.isArray(alumnus.achievements) && alumnus.achievements.length > 0) || (Array.isArray(alumnus.skills) && alumnus.skills.length > 0) || (alumnus.social_links && Object.values(alumnus.social_links).some(Boolean)) || alumnus.phone || alumnus.location || alumnus.current_job_title || alumnus.company_name) && (
+            <div className="glass-card rounded-lg p-6" data-testid="empty-details">
+              <p className="text-gray-600">This profile hasn’t added details yet.</p>
             </div>
           )}
         </div>
