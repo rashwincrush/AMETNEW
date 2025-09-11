@@ -94,21 +94,33 @@ const ChatWindow = ({ thread, currentUser }) => {
 
     const channel = supabase
       .channel(`dm-messages-${threadId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_messages', filter: `thread_id=eq.${threadId}` }, (payload) => {
-        setMessages(prev => prev.concat(payload.new));
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dm_messages', filter: `thread_id=eq.${threadId}` }, (payload) => {
-        setMessages(prev => prev.map(m => (m.id === payload.new.id ? payload.new : m)));
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'dm_messages', filter: `thread_id=eq.${threadId}` }, (payload) => {
-        setMessages(prev => prev.filter(m => m.id !== payload.old.id));
-      })
-      .subscribe();
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'dm_messages', filter: `thread_id=eq.${threadId}` },
+        (payload) => {
+          setMessages((prev) => {
+            if (payload.eventType === 'INSERT') {
+              if (prev.some((m) => m.id === payload.new.id)) return prev;
+              return [...prev, payload.new];
+            }
+            if (payload.eventType === 'UPDATE') {
+              return prev.map((m) => (m.id === payload.new.id ? payload.new : m));
+            }
+            if (payload.eventType === 'DELETE') {
+              return prev.filter((m) => m.id !== payload.old.id);
+            }
+            return prev;
+          });
+        }
+      )
+      .subscribe((status) => {
+        console.log('dm-messages channel status:', status);
+      });
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [thread, currentUser]);
+  }, [thread?.thread_id, currentUser?.id]);
 
   const handleSendMessage = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
@@ -138,6 +150,11 @@ const ChatWindow = ({ thread, currentUser }) => {
           return;
         }
         throw error;
+      }
+      
+      // Optimistic append
+      if (data) {
+        setMessages((prev) => [...prev, data]);
       }
       
       // Clear form
