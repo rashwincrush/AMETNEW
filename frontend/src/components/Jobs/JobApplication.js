@@ -121,8 +121,10 @@ const JobApplication = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!user) {
-      toast.error('You must be logged in to apply for jobs');
+    // Session guard
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) {
+      toast.error('Please sign in to apply.');
       return;
     }
 
@@ -159,7 +161,7 @@ const JobApplication = () => {
           
           // Create a unique file path with timestamp to prevent conflicts
           const timestamp = new Date().getTime();
-          const filePath = `${user.id}/${timestamp}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+          const filePath = `${session.user.id}/${timestamp}-${Math.random().toString(36).substring(2)}.${fileExt}`;
           
           console.log('Uploading resume file:', resumeFile.name);
           
@@ -199,7 +201,7 @@ const JobApplication = () => {
           
           // Save the new resume to user_resumes table with error handling
           const { error: insertError } = await supabase.from('user_resumes').insert([{
-            user_id: user.id,
+            user_id: session.user.id,
             file_url: resumeUrl,
             filename: resumeFile.name,
             uploaded_at: new Date().toISOString(),
@@ -220,26 +222,27 @@ const JobApplication = () => {
         }
       }
 
-      const applicationData = {
+      // Build payload (do not include applicant_id - DB default handles it)
+      const payload = {
         job_id: jobId,
-        applicant_id: user.id,
         resume_url: resumeUrl,
-        cover_letter: formData.coverLetter,
-        status: 'submitted',
-        created_at: new Date().toISOString()
+        cover_letter: formData.coverLetter || null,
+        // status: 'submitted' // include only if schema allows client-set
       };
 
       // Show a loading toast while submitting the application
       toast.loading('Submitting your application...', { id: 'job-application' });
 
-      // Try to insert the application data
+      // Insert the application
       const { data, error } = await supabase
         .from('job_applications')
-        .insert([applicationData])
-        .select();
+        .insert([payload])
+        .select('*')
+        .single();
 
       if (error) {
-        console.error('Error applying for job:', error);
+        console.error('Application insert failed:', error);
+        console.error('Full error object:', JSON.stringify(error, null, 2));
         toast.dismiss('job-application');
         
         // Handle specific database errors
@@ -256,21 +259,23 @@ const JobApplication = () => {
           return;
         }
         
-        throw error;
+        throw new Error(error.message || 'RLS/validation error');
       }
 
       console.log('Job application submitted successfully:', data);
       toast.dismiss('job-application');
-      toast.success('Your application has been submitted successfully!');
+      toast.success('Application submitted!');
       
-      // Log the application for analytics (no sensitive data)
-      console.log(`Application submitted for job ${jobId} by user ${user.id.substring(0,8)}...`);
+      // Clear form
+      setSelectedResumeId('');
+      setResumeFile(null);
+      setFormData({ coverLetter: '' });
       
-      // Navigate to success page after a short delay so the user can see the success message
-      setTimeout(() => navigate(`/jobs/${jobId}/application-success`), 1000);
+      // Navigate to job details
+      navigate(`/jobs/${jobId}`);
     } catch (error) {
       console.error('Error applying for job:', error);
-      toast.error(`Error applying for job: ${error.message}`);
+      toast.error(`Application failed: ${error.message || 'Please try again.'}`);
     } finally {
       setIsSubmitting(false);
     }

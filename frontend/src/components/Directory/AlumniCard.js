@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { MapPinIcon, BriefcaseIcon, StarIcon, AcademicCapIcon } from '@heroicons/react/24/solid';
+import { getDegreeLabel } from '../../hooks/useDegreePrograms';
 
 const AlumniCard = ({ alumnus }) => {
   const getInitials = (name) => {
@@ -19,9 +20,10 @@ const AlumniCard = ({ alumnus }) => {
   const position = (alumnus.current_job_title || '').toString().trim();
   const company = (alumnus.company_name || '').toString().trim();
   const location = (alumnus.location || alumnus.locationLabel || '').toString().trim();
-  const degree = (alumnus.degree_program || alumnus.degree || '').toString().trim();
+  const degreeCode = (alumnus.degree_program || alumnus.degree || '').toString().trim();
+  const degreeLabel = getDegreeLabel(degreeCode);
   const gradYear = alumnus.graduation_year || alumnus.gradYear || '';
-  const degreeDisplay = [degree, gradYear].filter(Boolean).join(' • ');
+  const degreeDisplay = [degreeLabel, gradYear].filter(Boolean).join(' • ');
   let skills = [];
   if (Array.isArray(alumnus.skills)) {
     skills = alumnus.skills.filter(Boolean);

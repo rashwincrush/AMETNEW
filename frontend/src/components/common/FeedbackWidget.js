@@ -12,13 +12,16 @@ const FEEDBACK_TYPES = [
 ];
 
 const FeedbackWidget = () => {
-  const { user } = useAuth();
+  const { user, isSuperAdmin } = useAuth();
+  // All hooks must be declared before any conditional return
   const [isOpen, setIsOpen] = useState(false);
   const [feedbackType, setFeedbackType] = useState('');
   const [description, setDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [screenshot, setScreenshot] = useState(null);
   const fileInputRef = useRef(null);
+  // Gate entirely by role: only super_admin can see/submit feedback (RLS will also enforce)
+  if (!isSuperAdmin || !isSuperAdmin()) return null;
 
   const toggleWidget = () => {
     setIsOpen(!isOpen);

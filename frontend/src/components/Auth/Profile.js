@@ -114,13 +114,11 @@ const Profile = () => {
     
     // Only show loading on initial load, not on subsequent updates
     if (!initialLoadComplete.current) {
-      // Set component as loading when auth is loading or when we have a user but no profile yet
-      if (loading || (user && !profile)) {
+      if (loading) {
         setIsComponentLoading(true);
         return;
       }
-      
-      // When auth is no longer loading and we have necessary data, finish loading
+      // Finalize initial load even if profile is null so we render the empty state
       setIsComponentLoading(false);
       initialLoadComplete.current = true;
     }

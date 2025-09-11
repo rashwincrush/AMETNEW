@@ -66,13 +66,13 @@ export default function DirectoryPage() {
           return;
         }
         let base = supabase
-          .from('profiles')
-          .select('id, full_name, avatar_url, graduation_year, department, headline')
+          .from('v_profiles_directory_card')
+          .select('id, full_name, graduation_year, current_title, current_company, location_label, degree_department, is_approved')
           .in('id', pageIds);
 
         // Apply filters
         if (filters.graduation_year) base = base.eq('graduation_year', Number(filters.graduation_year));
-        if (filters.department) base = base.ilike('department', `%${filters.department}%`);
+        if (filters.department) base = base.ilike('degree_department', `%${filters.department}%`);
 
         // Apply sort
         const [sf, so] = sortBy.split(',');
@@ -80,34 +80,45 @@ export default function DirectoryPage() {
 
         const { data, error } = await base;
         if (error) throw error;
-        setProfiles((data || []).filter(p => p.id !== me?.id));
+        // Augment with avatar_url from profiles in a single batch query
+        const idsForAvatars = (data || []).map(r => r.id);
+        let augmented = data || [];
+        if (idsForAvatars.length > 0) {
+          const { data: avatars } = await supabase
+            .from('profiles')
+            .select('id, avatar_url')
+            .in('id', idsForAvatars);
+          const aMap = new Map((avatars || []).map(r => [r.id, r.avatar_url]));
+          augmented = (data || []).map(r => ({ ...r, avatar_url: aMap.get(r.id) || null }));
+        }
+        setProfiles((augmented || []).filter(p => p.id !== me?.id));
         // For accuracy, compute count with head query on full ids and filters
         let countQ = supabase
-          .from('profiles')
+          .from('v_profiles_directory_card')
           .select('id', { head: true, count: 'exact' })
           .in('id', ids);
         if (filters.graduation_year) countQ = countQ.eq('graduation_year', Number(filters.graduation_year));
-        if (filters.department) countQ = countQ.ilike('department', `%${filters.department}%`);
+        if (filters.department) countQ = countQ.ilike('degree_department', `%${filters.department}%`);
         const { count: c } = await countQ;
         setTotalAlumni(c || 0);
         return;
       }
 
-      // All tab: Query from public_profiles_view with search like legacy directory
+      // All tab: Query from v_profiles_directory_card (backend-enforced filters)
       let query = supabase
-        .from('public_profiles_view')
-        .select('id, full_name, avatar_url, graduation_year, degree_program, current_job_title, company_name, location, department', { count: 'exact' });
+        .from('v_profiles_directory_card')
+        .select('id, full_name, graduation_year, current_title, current_company, location_label, degree_department, is_approved', { count: 'exact' });
 
       if (debouncedSearch) {
         const q = debouncedSearch.replace(/%/g, '');
-        const cols = ['full_name', 'location', 'degree_program', 'department'];
+        const cols = ['full_name', 'location_label', 'current_company', 'current_title', 'degree_department'];
         const ors = cols.map((c) => `${c}.ilike.%${q}%`).join(',');
         if (ors) query = query.or(ors);
       }
 
       // Apply filters
       if (filters.graduation_year) query = query.eq('graduation_year', Number(filters.graduation_year));
-      if (filters.department) query = query.ilike('department', `%${filters.department}%`);
+      if (filters.department) query = query.ilike('degree_department', `%${filters.department}%`);
 
       // Apply sort
       const [sf, so] = sortBy.split(',');
@@ -117,7 +128,18 @@ export default function DirectoryPage() {
 
       const { data, error, count } = await query;
       if (error) throw error;
-      setProfiles((data || []).filter(p => p.id !== me?.id));
+      // Augment with avatar_url from profiles table
+      const idsForAvatars = (data || []).map(r => r.id);
+      let augmented = data || [];
+      if (idsForAvatars.length > 0) {
+        const { data: avatars } = await supabase
+          .from('profiles')
+          .select('id, avatar_url')
+          .in('id', idsForAvatars);
+        const aMap = new Map((avatars || []).map(r => [r.id, r.avatar_url]));
+        augmented = (data || []).map(r => ({ ...r, avatar_url: aMap.get(r.id) || null }));
+      }
+      setProfiles((augmented || []).filter(p => p.id !== me?.id));
       setTotalAlumni(count || 0);
     } catch (e) {
       console.error('Directory loadProfiles error:', e);
@@ -144,19 +166,22 @@ export default function DirectoryPage() {
     const [recvRes, sentRes, connRes] = await Promise.all([
       supabase
         .from('connections')
-        .select('id', { count: 'exact', head: true })
+        .select('id', { count: 'exact' })
         .eq('recipient_id', me.id)
-        .eq('status', 'pending'),
+        .eq('status', 'pending')
+        .limit(0),
       supabase
         .from('connections')
-        .select('id', { count: 'exact', head: true })
+        .select('id', { count: 'exact' })
         .eq('requester_id', me.id)
-        .eq('status', 'pending'),
+        .eq('status', 'pending')
+        .limit(0),
       supabase
         .from('connections')
-        .select('id', { count: 'exact', head: true })
+        .select('id', { count: 'exact' })
         .or(`requester_id.eq.${me.id},recipient_id.eq.${me.id}`)
         .in('status', ['accepted', 'connected'])
+        .limit(0)
     ]);
     setCounts({
       received: recvRes?.count ?? 0,
@@ -202,8 +227,16 @@ export default function DirectoryPage() {
 
   // Merge profiles with relationship state
   const withRel = useMemo(() => {
+    const normalizeProfile = (row) => ({
+      ...row,
+      degree: row.degree ?? row.graduation_degree ?? row.degree_program ?? null,
+      department: row.department ?? null,
+      company: row.company_name ?? row.company ?? null,
+      current_job_title: row.current_job_title ?? row.job_title ?? row.currentPosition ?? null,
+      batch: row.batch_year ?? row.graduation_year ?? row.batch ?? null,
+    });
     return (profiles || []).map(p => ({
-      ...p,
+      ...normalizeProfile(p),
       rel: relMap.get(p.id) || { status: null, pending_side: null, edge_ts: null }
     }));
   }, [profiles, relMap]);
@@ -233,108 +266,144 @@ export default function DirectoryPage() {
   }, [withRel, rest, activeFilter, applyFilter]);
 
   return (
-    <div className="max-w-6xl mx-auto p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-gray-800">Directory</h1>
-      </div>
-
-      {/* Search + Controls */}
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-        <div className="relative flex-1">
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-            placeholder="Search by name, degree, department, or location"
-            className="w-full pr-10 pl-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-ocean-500"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-700"
-              aria-label="Clear search"
-            >
-              <XMarkIcon className="h-5 w-5" />
-            </button>
-          )}
+    <div className="mx-auto max-w-[1600px] px-4 py-6 space-y-6">
+      {/* Header and search controls */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-2xl font-bold text-slate-900">Alumni Directory</h1>
+          
+          {/* Search + Filter controls */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto">
+            <div className="relative flex-1 sm:max-w-xs">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                placeholder="Search alumni..."
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-3 pr-10 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+              {searchTerm ? (
+                <button
+                  onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600"
+                  aria-label="Clear search"
+                >
+                  <XMarkIcon className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowFilters(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+              >
+                <FunnelIcon className="h-4 w-4 text-slate-500" />
+                Filters
+              </button>
+              
+              <select
+                value={sortBy}
+                onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
+                className="rounded-lg border border-slate-200 bg-white py-1.5 pl-3 pr-8 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+              >
+                <option value="full_name,asc">Name (A–Z)</option>
+                <option value="full_name,desc">Name (Z–A)</option>
+                <option value="graduation_year,desc">Graduation (Newest)</option>
+                <option value="graduation_year,asc">Graduation (Oldest)</option>
+              </select>
+            </div>
+          </div>
         </div>
-        <button
-          onClick={() => setShowFilters(true)}
-          className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50"
-        >
-          <FunnelIcon className="h-5 w-5 text-gray-500" />
-          Filters
-        </button>
-        <select
-          value={sortBy}
-          onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
-          className="px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-sm"
-        >
-          <option value="full_name,asc">Name (A–Z)</option>
-          <option value="full_name,desc">Name (Z–A)</option>
-          <option value="graduation_year,desc">Graduation (Newest)</option>
-          <option value="graduation_year,asc">Graduation (Oldest)</option>
-        </select>
-      </div>
-
-      {/* Chips */}
-      <ChipBar counts={counts} active={activeFilter} onChange={setActiveFilter} />
-
-      {/* Priority strip */}
-      {priority.length > 0 && activeFilter === 'all' && (
-        <div>
-          <h2 className="text-sm font-medium text-gray-600 mb-2">Priority</h2>
-          {/* Render compact grid directly (avoid nested grids) */}
-          <DirectoryGrid items={priority} meId={me?.id} onChanged={reloadRelsAndCounts} compact />
-        </div>
-      )}
-
-      {/* Main grid */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-medium text-gray-600">All Profiles</h2>
-          {loading && <span className="text-xs text-gray-400">Loading…</span>}
-        </div>
-        {/* Active filter chips */}
+        
+        {/* Filter chips */}
         {(filters.graduation_year || filters.department) && (
-          <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             {filters.graduation_year && (
-              <span className="flex items-center gap-1.5 pl-2.5 pr-1 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs font-medium">
-                Graduation: <span className="font-semibold">{filters.graduation_year}</span>
-                <button onClick={() => { setFilters(f => ({ ...f, graduation_year: '' })); setCurrentPage(1); }} className="p-0.5 bg-indigo-200 rounded-full hover:bg-indigo-300">
-                  <XMarkIcon className="h-3 w-3" />
+              <span className="flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 pl-2.5 pr-1 py-1 text-xs font-medium text-indigo-700">
+                Batch: <span className="font-semibold">{filters.graduation_year}</span>
+                <button 
+                  onClick={() => { setFilters(f => ({ ...f, graduation_year: '' })); setCurrentPage(1); }} 
+                  className="ml-1 rounded-full bg-indigo-100 p-0.5 hover:bg-indigo-200"
+                >
+                  <XMarkIcon className="h-3 w-3 text-indigo-600" />
                 </button>
               </span>
             )}
             {filters.department && (
-              <span className="flex items-center gap-1.5 pl-2.5 pr-1 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs font-medium">
+              <span className="flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 pl-2.5 pr-1 py-1 text-xs font-medium text-indigo-700">
                 Department: <span className="font-semibold">{filters.department}</span>
-                <button onClick={() => { setFilters(f => ({ ...f, department: '' })); setCurrentPage(1); }} className="p-0.5 bg-indigo-200 rounded-full hover:bg-indigo-300">
-                  <XMarkIcon className="h-3 w-3" />
+                <button 
+                  onClick={() => { setFilters(f => ({ ...f, department: '' })); setCurrentPage(1); }} 
+                  className="ml-1 rounded-full bg-indigo-100 p-0.5 hover:bg-indigo-200"
+                >
+                  <XMarkIcon className="h-3 w-3 text-indigo-600" />
                 </button>
               </span>
             )}
-            <button onClick={() => { setFilters({ graduation_year: '', department: '' }); setCurrentPage(1); }} className="text-xs text-gray-600 hover:text-indigo-600 hover:underline">
+            <button 
+              onClick={() => { setFilters({ graduation_year: '', department: '' }); setCurrentPage(1); }} 
+              className="text-xs text-slate-500 hover:text-indigo-600"
+            >
               Clear all
             </button>
           </div>
         )}
-        <DirectoryGrid items={filtered} meId={me?.id} onChanged={reloadRelsAndCounts} />
+        
+        {/* Tab navigation */}
+        <div className="mt-4">
+          <ChipBar counts={counts} active={activeFilter} onChange={setActiveFilter} />
+        </div>
+      </div>
+      
+      {/* Priority strip */}
+      {priority.length > 0 && activeFilter === 'all' && (
+        <div className="bg-gradient-to-r from-sky-50 to-indigo-50 rounded-xl border border-sky-200 p-4 sm:p-6">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800 mb-4">
+            <span className="inline-block h-2 w-2 rounded-full bg-sky-500"></span>
+            Priority Connections
+          </h2>
+          <DirectoryGrid items={priority} meId={me?.id} currentTab={activeFilter} onChanged={reloadRelsAndCounts} compact loading={loading} />
+        </div>
+      )}
+
+      {/* Main grid */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800">
+            {activeFilter === 'all' ? 'All Profiles' : 
+             activeFilter === 'connected' ? 'My Connections' :
+             activeFilter === 'received' ? 'Received Requests' : 'Sent Requests'}
+          </h2>
+          {loading && (
+            <div className="flex items-center gap-2 text-slate-500">
+              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span className="text-xs">Loading...</span>
+            </div>
+          )}
+        </div>
+        
+        {/* Directory grid */}
+        <DirectoryGrid items={filtered} meId={me?.id} currentTab={activeFilter} onChanged={reloadRelsAndCounts} loading={loading} />
+        
         {/* Pagination */}
         {totalAlumni > itemsPerPage && (
-          <div className="mt-6 flex items-center justify-between">
+          <div className="mt-8 flex items-center justify-between border-t border-slate-200 pt-4">
             <button
-              className="btn-outline px-3 py-1.5 rounded-lg disabled:opacity-50"
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={currentPage === 1}
             >
               Previous
             </button>
-            <div className="text-sm text-gray-600">
-              Page <span className="font-medium">{currentPage}</span> of <span className="font-medium">{Math.ceil((totalAlumni || 0) / itemsPerPage)}</span>
+            <div className="text-sm font-medium text-slate-700">
+              Page <span className="text-indigo-600">{currentPage}</span> of <span>{Math.ceil((totalAlumni || 0) / itemsPerPage)}</span>
             </div>
             <button
-              className="btn-outline px-3 py-1.5 rounded-lg disabled:opacity-50"
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={() => setCurrentPage(p => p + 1)}
               disabled={currentPage >= Math.ceil((totalAlumni || 0) / itemsPerPage)}
             >
@@ -344,53 +413,66 @@ export default function DirectoryPage() {
         )}
       </div>
 
-      {/* Filters Modal */}
+      {/* Filters drawer */}
       {showFilters && (
         <>
-          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setShowFilters(false)}></div>
-          <div className="fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-xl z-50">
-            <div className="p-6 h-full flex flex-col">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">Filters</h2>
-                <button onClick={() => setShowFilters(false)} className="p-2 rounded-full hover:bg-gray-100">
-                  <XMarkIcon className="h-6 w-6 text-gray-600" />
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40" onClick={() => setShowFilters(false)}></div>
+          <div className="fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-xl z-50 overflow-hidden">
+            <div className="flex h-full flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-slate-200 p-4">
+                <h2 className="text-xl font-semibold text-slate-900">Filter Alumni</h2>
+                <button 
+                  onClick={() => setShowFilters(false)} 
+                  className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                >
+                  <XMarkIcon className="h-6 w-6" />
                 </button>
               </div>
-              <div className="flex-grow overflow-y-auto pr-2 space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Graduation Year</label>
-                  <input
-                    type="number"
-                    value={filters.graduation_year}
-                    onChange={(e) => setFilters(f => ({ ...f, graduation_year: e.target.value }))}
-                    placeholder="e.g., 2015"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
-                  <input
-                    type="text"
-                    value={filters.department}
-                    onChange={(e) => setFilters(f => ({ ...f, department: e.target.value }))}
-                    placeholder="e.g., Marine Engineering"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
-                  />
+              
+              {/* Content */}
+              <div className="flex-grow overflow-y-auto p-4">
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-slate-700">Batch Year</label>
+                    <input
+                      type="number"
+                      value={filters.graduation_year}
+                      onChange={(e) => setFilters(f => ({ ...f, graduation_year: e.target.value }))}
+                      placeholder="e.g., 2015"
+                      className="w-full rounded-lg border border-slate-300 bg-white py-2 px-3 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-slate-700">Department</label>
+                    <input
+                      type="text"
+                      value={filters.department}
+                      onChange={(e) => setFilters(f => ({ ...f, department: e.target.value }))}
+                      placeholder="e.g., Marine Engineering"
+                      className="w-full rounded-lg border border-slate-300 bg-white py-2 px-3 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
                 </div>
               </div>
-              <div className="pt-6 border-t mt-auto flex justify-between">
-                <button
-                  onClick={() => { setFilters({ graduation_year: '', department: '' }); }}
-                  className="px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm text-sm font-medium hover:bg-gray-50"
-                >
-                  Clear All
-                </button>
-                <button
-                  onClick={() => { setShowFilters(false); setCurrentPage(1); }}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-sm text-sm font-medium hover:bg-indigo-700"
-                >
-                  Apply Filters
-                </button>
+              
+              {/* Footer */}
+              <div className="border-t border-slate-200 p-4 bg-slate-50">
+                <div className="flex items-center justify-between gap-4">
+                  <button
+                    onClick={() => { setFilters({ graduation_year: '', department: '' }); }}
+                    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Clear All
+                  </button>
+                  <button
+                    onClick={() => { setShowFilters(false); setCurrentPage(1); }}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                  >
+                    Apply Filters
+                  </button>
+                </div>
               </div>
             </div>
           </div>

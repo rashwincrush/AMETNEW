@@ -562,15 +562,15 @@ const JobListingsPage = () => {
       const { eventType, new: newRecord, old: oldRecord } = payload;
       setJobs(currentJobs => {
         if (eventType === 'INSERT') {
-          toast.info('A new job has been posted.');
+          toast('A new job has been posted.', { icon: 'ℹ️' });
           return [newRecord, ...currentJobs];
         }
         if (eventType === 'UPDATE') {
-          toast.info('A job listing has been updated.');
+          toast('A job listing has been updated.', { icon: 'ℹ️' });
           return currentJobs.map(job => job.id === newRecord.id ? newRecord : job);
         }
         if (eventType === 'DELETE') {
-          toast.info('A job listing has been removed.');
+          toast('A job listing has been removed.', { icon: 'ℹ️' });
           return currentJobs.filter(job => job.id !== oldRecord.id);
         }
         return currentJobs;

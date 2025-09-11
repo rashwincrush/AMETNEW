@@ -131,8 +131,11 @@ const PostJob = () => {
       toast.error('Please fix the errors before submitting.');
       return;
     }
-    if (!user) {
-      toast.error('You must be logged in to post a job.');
+
+    // Session guard
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) {
+      toast.error('Please sign in to post a job.');
       return;
     }
 
@@ -146,7 +149,7 @@ const PostJob = () => {
         try {
           // Sanitize filename: remove spaces and special characters
           const cleanFileName = logoFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
-          const fileName = `${user.id}/${Date.now()}_${cleanFileName}`;
+          const fileName = `${session.user.id}/${Date.now()}_${cleanFileName}`;
           
           const { data: uploadData, error: uploadError } = await supabase.storage
             .from('company-logos')
@@ -213,7 +216,7 @@ const PostJob = () => {
           .insert({
             name: formData.company_name.trim(),
             logo_url: logoUrl,
-            created_by: user.id // Ensure we set the created_by field
+            created_by: session.user.id // Ensure we set the created_by field
           })
           .select();
           
@@ -280,9 +283,7 @@ const PostJob = () => {
         salary_range: formData.salary_range?.trim(),
         application_url: formData.application_url?.trim(),
         company_id: companyId,      // This is critical and must not be null
-        posted_by: user.id,         // This is also required
-        is_approved: false,
-        is_active: true,
+        // Do NOT send posted_by, is_approved, is_active - let DB handle them
       };
       
       // Only add deadline if it's valid
@@ -302,13 +303,22 @@ const PostJob = () => {
       // Check for errors
       if (jobError) {
         console.error("Error creating job:", jobError);
-        throw new Error(`Failed to create job: ${jobError.message}`);
+        // Log the full error for debugging
+        console.error('Full job creation error:', JSON.stringify(jobError, null, 2));
+        throw new Error(`Failed to create job: ${jobError.message || 'RLS/validation error'}`);
       }
       
       console.log("Job created successfully");
-      toast.success('Job submitted for approval!');
-      navigate('/jobs');
+      toast.success('Job posted!');
+
+      // Navigate to the new job details page
+      if (newJob && newJob[0]?.id) {
+        navigate(`/jobs/${newJob[0].id}`);
+      } else {
+        navigate('/jobs');
+      }
     } catch (err) {
+      console.error('Error submitting job:', err);
       toast.error(`Error submitting job: ${err.message}`);
     } finally {
       setIsSubmitting(false);

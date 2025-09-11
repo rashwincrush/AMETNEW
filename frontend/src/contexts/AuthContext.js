@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase, mapOAuthToProfileData } from '../utils/supabase';
+import { ROLES, isRole } from '../constants/roles';
 
 // Helper for conditional logging
 const isDev = process.env.NODE_ENV === 'development';
@@ -32,17 +33,10 @@ if (!window.AMET_AUTH) {
   };
 }
 
-// Define permissions for each role
+// Define permissions for each role (ALIGN: db-enum-roles)
 const PERMISSIONS = {
   // Alumni role permissions
   alumni: [
-    'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
-    'request:mentorship', 'become:mentor', 'access:groups', 'message:users',
-    'access:profile_settings',
-    'manage:mentor_profile', 'manage:mentee_requests', 'chat:mentees', 'manage:mentoring_slots'
-  ],
-  // Keep 'user' role mirroring 'alumni' (legacy mapping)
-  user: [
     'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
     'request:mentorship', 'become:mentor', 'access:groups', 'message:users',
     'access:profile_settings',
@@ -62,6 +56,8 @@ const PERMISSIONS = {
 };
 
 export const AuthProvider = ({ children }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -124,14 +120,81 @@ export const AuthProvider = ({ children }) => {
 
       if (error) throw error;
 
+      // Debug what we actually got
+      logger.log('Profile fetch result:', { profileData, hasData: !!profileData, dataKeys: profileData ? Object.keys(profileData) : 'null' });
+      
       // Check rejection status
       if (profileData && profileData.alumni_verification_status === 'rejected') {
         logger.log('User account is rejected');
         setRejectionStatus({ isRejected: true });
         setProfile(null); // No profile data for rejected users
-      } else {
-        logger.log('Profile fetched successfully');
+      } else if (profileData) {
+        logger.log('Profile fetched successfully:', profileData);
         setProfile(profileData);
+      } else {
+        // No profile exists - create a seed row from auth metadata as a fallback
+        logger.log('No profile found for user; attempting to create from auth metadata');
+        try {
+          const { data: authData } = await supabase.auth.getUser();
+          const u = authData?.user;
+          if (u?.id === userId) {
+            const md = u.user_metadata || {};
+            const seed = {
+              id: u.id,
+              email: u.email,
+              role: isRole(md.role) ? md.role : 'alumni',
+              first_name: md.first_name || null,
+              last_name: md.last_name || null,
+              phone: md.phone || null,
+              graduation_year: md.graduation_year ? Number(md.graduation_year) : null,
+              expected_graduation_year: md.expected_graduation_year ? Number(md.expected_graduation_year) : null,
+              degree_program: md.degree_program || null,
+              department: md.department || null,
+              company_name: md.company_name || null,
+              current_job_title: md.current_job_title || md.job_title || null,
+              location: md.location || null,
+              avatar_url: md.avatar_url || md.avatar || null,
+            };
+            const sanitized = Object.fromEntries(Object.entries(seed).filter(([, v]) => v !== undefined));
+            let { data: created, error: createErr } = await supabase
+              .from('profiles')
+              .upsert(sanitized)
+              .select()
+              .maybeSingle();
+            if (createErr) {
+              const msg = String(createErr.message || createErr);
+              logger.warn('Failed to create profile from auth metadata:', msg);
+              // Retry without FK-prone fields
+              try {
+                const minimal = { ...sanitized };
+                delete minimal.degree_program;
+                delete minimal.department;
+                ({ data: created } = await supabase
+                  .from('profiles')
+                  .upsert(minimal)
+                  .select()
+                  .maybeSingle());
+                if (created) {
+                  logger.log('Created minimal profile after FK retry');
+                  setProfile(created);
+                } else {
+                  setProfile(null);
+                }
+              } catch (retryErr) {
+                logger.warn('Profile seed retry failed:', retryErr);
+                setProfile(null);
+              }
+            } else {
+              logger.log('Created profile from auth metadata');
+              setProfile(created || null);
+            }
+          } else {
+            setProfile(null);
+          }
+        } catch (seedErr) {
+          logger.warn('Error during profile seed creation:', seedErr);
+          setProfile(null);
+        }
       }
     } catch (error) {
       logger.error('Error fetching profile:', error);
@@ -214,7 +277,7 @@ export const AuthProvider = ({ children }) => {
       .update(updatesToApply)
       .eq('id', user.id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
 
@@ -339,11 +402,13 @@ export const AuthProvider = ({ children }) => {
         // Update session state
         setSession(newSession);
         setUser(newSession?.user || null);
-        
+
+        // Onboarding retired: no draft resume
+
         // Handle profile fetch if we have a user
         if (newSession?.user?.id) {
           const currentUserId = window.AMET_AUTH.currentUserId;
-          
+
           // Detect user ID change and force a reset
           if (currentUserId && currentUserId !== newSession.user.id) {
             logger.log(`⚠️ Auth event with user ID change detected: ${currentUserId} → ${newSession.user.id}`);
@@ -353,7 +418,7 @@ export const AuthProvider = ({ children }) => {
             profileFetchedRef.current = null;
             window.AMET_AUTH.profileFetched = null;
           }
-          
+
           // Only fetch if this is a new user ID or first fetch
           if (currentUserId !== newSession.user.id) {
             fetchUserProfile(newSession.user.id);
@@ -451,21 +516,18 @@ export const AuthProvider = ({ children }) => {
     logger.log(`Loading state changed to: ${loading}`);
   }, [loading]);
 
-  // Normalize role handling: prefer explicit role, then fallbacks
+  // Normalize role handling: prefer explicit role, then fallbacks (ALIGN: db-enum-roles)
   const getUserRole = useCallback(() => {
-    // If profile doesn't exist, default to 'student'
-    if (!profile) return 'student';
+    // If profile doesn't exist, default to 'alumni'
+    if (!profile) return 'alumni';
 
-    // Map legacy 'user' to 'alumni'
-    if (profile.role === 'user') return 'alumni';
+    // Prefer explicit role if valid
+    if (profile.role && isRole(profile.role)) return profile.role;
 
-    // Prefer explicit role if present (e.g., 'super_admin', 'admin', 'alumni', 'employer')
-    if (profile.role) return profile.role;
-
-    // Fallback: is_admin flag grants 'admin'
+    // Fallback: legacy flag grants 'admin'
     if (profile.is_admin === true) return 'admin';
 
-    // Final default
+    // Final default aligned with enum default
     return 'alumni';
   }, [profile]);
   const userRole = getUserRole();

@@ -2,7 +2,11 @@ import React, { useState, useEffect } from 'react';
 import Logo from '../common/Logo';
 import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, CheckIcon, ArrowLeftIcon, XMarkIcon } from '@heroicons/react/24/outline'; 
-import { supabase, signUpWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
+import { supabase, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
+import toast from 'react-hot-toast';
+import { ROLES, isRole } from '../../constants/roles';
+import { useDegreePrograms } from '../../hooks/useDegreePrograms';
+import { useDepartments } from '../../hooks/useDepartments';
 
 const EnhancedRegister = () => {
   const navigate = useNavigate();
@@ -14,7 +18,7 @@ const EnhancedRegister = () => {
     password: '',
     confirmPassword: '',
     phone: '',
-    primaryRole: '', // alumni, student, employer, user
+    primaryRole: '', // alumni, student, employer
     graduationYear: '',
     expectedGraduationYear: '',
     degree: '',
@@ -47,37 +51,12 @@ const EnhancedRegister = () => {
   const [error, setError] = useState(''); // For general form errors or success messages
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [roles, setRoles] = useState([]);
+  const { options: degreeOptions } = useDegreePrograms();
+  const { options: deptOptions } = useDepartments();
   const STORAGE_KEY = 'onboarding_registration_v1';
 
   // Degree program options (consolidated exact set provided)
-  const degreeProgramOptions = [
-    // Undergraduate/Cert/Diploma
-    'HND Marine',
-    'HND Nautical Science',
-    'B.E. Petroleum Engineering',
-    'B.E. Mining Engineering',
-    'B.Sc. Nautical Science',
-    'B.E. Marine Engineering',
-    'B.E. Marine Technology',
-    'B.E. Naval Architecture and Offshore Engineering',
-    'B.E. Mechanical Engineering',
-    'B.E. Electrical and Electronics Engineering – Marine',
-    'B.Com',
-    'B.B.A. Shipping & Logistics',
-    'Electro Technical Officers (ETO)',
-    'Graduate Marine Engineering (GME)',
-    'GP Rating',
-    // P.G. Programmes
-    'M.B.A. Shipping & Logistics Management',
-    'M.E. Naval Architecture and Offshore Engineering',
-    'M.E. Petroleum Engineering',
-    'M.E. Power Systems',
-    'M.E. Marine Engineering',
-    // Additional listed items
-    'HND Marine Engineering',
-    'MBA – Shipping and Logistics Management',
-    'B.E. Harbour Engineer'
-  ];
+  // Use canonical code/label pairs from hooks instead of free-text list
 
   const skillOptions = [
     'Marine Engineering', 'Naval Architecture', 'Port Operations', 'Shipping Management',
@@ -371,62 +350,82 @@ const EnhancedRegister = () => {
         newErrors.confirmPassword = 'Passwords do not match.';
       }
       
-      // Role and phone validations
+      // Role and phone validations (phone is required)
       if (!formData.primaryRole) newErrors.primaryRole = 'Please select your primary role.';
-      if (formData.phone) {
-        if (!/^\+?[0-9]{7,15}$/.test(formData.phone)) {
-          newErrors.phone = 'Phone number must contain 7-15 digits with an optional leading + symbol.';
-        } else if (formData.phone.indexOf('+') > 0) {
-          // This is a safety check that shouldn't be needed due to handleChange processing
-          newErrors.phone = 'Plus sign (+) is only allowed at the beginning of the number';
-        }
+      if (!formData.phone || !formData.phone.trim()) {
+        newErrors.phone = 'Phone number is required.';
+      } else if (!/^\+?[0-9]{7,15}$/.test(formData.phone)) {
+        newErrors.phone = 'Phone number must contain 7-15 digits with an optional leading + symbol.';
+      } else if (formData.phone.indexOf('+') > 0) {
+        newErrors.phone = 'Plus sign (+) is only allowed at the beginning of the number';
       }
     }
     
     // Step 2: Role-specific details validation + Terms acceptance
     else if (stepToValidate === 2) {
+      // Role-specific required fields to eliminate onboarding
+      if (formData.primaryRole === 'alumni') {
+        const yr = Number(formData.graduationYear);
+        const current = new Date().getFullYear() + 1;
+        if (!formData.graduationYear || Number.isNaN(yr)) {
+          newErrors.graduationYear = 'Graduation year is required.';
+        } else if (yr < 1950 || yr > current) {
+          newErrors.graduationYear = `Graduation year must be between 1950 and ${current}.`;
+        }
+        if (!formData.degree) {
+          newErrors.degree = 'Please select your degree program.';
+        }
+        if (!formData.department) {
+          newErrors.department = 'Department is required.';
+        }
+        if (!formData.companyName?.trim()) {
+          newErrors.companyName = 'Current company is required.';
+        }
+        if (!formData.jobTitle?.trim()) {
+          newErrors.jobTitle = 'Current position is required.';
+        }
+        if (!formData.currentLocation?.trim()) {
+          newErrors.currentLocation = 'Location is required.';
+        }
+      }
+      if (formData.primaryRole === 'student') {
+        if (!formData.expectedGraduationYear || isNaN(Number(formData.expectedGraduationYear))) {
+          newErrors.expectedGraduationYear = 'Expected graduation year is required.';
+        }
+        if (!formData.degree) {
+          newErrors.degree = 'Please select your degree program.';
+        }
+      }
+      // Optional fields validation: only validate URL patterns if provided
       if (
         formData.linkedinProfile &&
         !/^https:\/\/(www\.)?linkedin\.com\/(in|pub|company|school)\/.+/i.test(formData.linkedinProfile)
       ) {
         newErrors.linkedinProfile = 'LinkedIn URL must start with https:// and be on linkedin.com (e.g., https://linkedin.com/in/yourname)';
       }
-
       if (
         formData.githubProfile &&
         !/^https:\/\/(www\.)?github\.com\/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?(?:\/.*)?$/i.test(formData.githubProfile)
       ) {
         newErrors.githubProfile = 'GitHub URL must start with https://github.com/<username>';
       }
-
       if (
         formData.websiteUrl &&
         !/^https:\/\/[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:\/.+)?$/i.test(formData.websiteUrl)
       ) {
         newErrors.websiteUrl = 'Website must be a valid https URL (e.g., https://example.com)';
       }
-      
-      if (formData.primaryRole === 'alumni') {
-        if (!formData.graduationYear) newErrors.graduationYear = 'Graduation year is required.';
-        else if (isNaN(parseInt(formData.graduationYear)) || parseInt(formData.graduationYear) < 1950 || parseInt(formData.graduationYear) > new Date().getFullYear()) newErrors.graduationYear = 'Please enter a valid year.';
-        if (!formData.degree || formData.degree === '') newErrors.degree = 'Degree obtained is required.';
-      } else if (formData.primaryRole === 'student') {
-        if (!formData.expectedGraduationYear) newErrors.expectedGraduationYear = 'Expected graduation year is required.';
-        else if (isNaN(parseInt(formData.expectedGraduationYear)) || parseInt(formData.expectedGraduationYear) < new Date().getFullYear() || parseInt(formData.expectedGraduationYear) > new Date().getFullYear() + 10) newErrors.expectedGraduationYear = 'Please enter a valid year.';
-        if (!formData.studentId.trim()) newErrors.studentId = 'Student ID is required.';
-        if (!formData.degree || formData.degree === '') newErrors.degree = 'Degree program is required.';
-      } else if (formData.primaryRole === 'employer') {
-        if (!formData.companyName.trim()) newErrors.companyName = 'Company name is required.';
-        if (!formData.jobTitle.trim()) newErrors.jobTitle = 'Your job title is required.';
-        if (!formData.industry.trim()) newErrors.industry = 'Industry is required.';
-      }
 
-      // Terms acceptance (moved from mentorship step)
       if (!formData.agreeToTerms) newErrors.agreeToTerms = 'You must agree to the Terms of Service and Privacy Policy';
     }
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    const ok = Object.keys(newErrors).length === 0;
+    if (!ok) {
+      const count = Object.keys(newErrors).length;
+      toast.error(`${count} field${count > 1 ? 's are' : ' is'} required or invalid. Please fix and try again.`);
+    }
+    return ok;
   };
 
   const handleNext = () => {
@@ -448,7 +447,7 @@ const EnhancedRegister = () => {
     if (isSubmitting) return; // Prevent double-submit
 
     if (!validateStep(2)) {
-      setError('Please fill out all required fields before submitting.');
+      setError('Please resolve the highlighted fields (make sure to accept Terms) and try again.');
       return;
     }
 
@@ -456,52 +455,35 @@ const EnhancedRegister = () => {
     setError('');
 
     try {
-      // Consolidate all user data into one object for the signUp call
-      const allUserData = {
-        // Auth data
-        role: formData.primaryRole,
+      // Debug: surface submit start in console for easier tracing
+      // eslint-disable-next-line no-console
+      console.log('[Register] Submitting signup request...');
+
+      // Stage-2 payload mapped to profile columns (avatar omitted intentionally)
+      const selectedRole = isRole(formData.primaryRole) ? formData.primaryRole : 'alumni';
+      const stage2 = {
         first_name: formData.firstName.trim(),
         last_name: formData.lastName.trim(),
-        // Profile data
-        phone: formData.phone.trim() || null,
-        // Safely handle integer fields by checking for empty values
-        graduation_year: (formData.primaryRole === 'alumni' && formData.graduationYear) ? 
-          (formData.graduationYear.trim ? formData.graduationYear.trim() : formData.graduationYear) : null,
-        expected_graduation_year: (formData.primaryRole === 'student' && formData.expectedGraduationYear) ?
-          (formData.expectedGraduationYear.trim ? formData.expectedGraduationYear.trim() : formData.expectedGraduationYear) : null,
-        // Store degree under both keys for compatibility; backend uses degree_program
-        degree: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.degree : null,
-        degree_program: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.degree : null,
-        department: (formData.primaryRole === 'alumni' || formData.primaryRole === 'student') ? formData.department.trim() : null,
-        student_id: formData.primaryRole === 'student' ? formData.studentId.trim() : null,
-        is_employer: formData.primaryRole === 'employer',
-        company_name: formData.primaryRole === 'employer' ? formData.companyName.trim() : null,
-        company_website: formData.primaryRole === 'employer' ? formData.companyWebsite.trim() : null,
-        industry: formData.primaryRole === 'employer' ? formData.industry.trim() : null,
-        company_size: formData.primaryRole === 'employer' ? formData.companySize : null,
-        job_title: formData.jobTitle?.trim() || null,
-        linkedin_url: formData.linkedinProfile.trim() || null,
-        about: formData.bio.trim() || null,
-        social_links: {
-          ...(formData.linkedinProfile ? { linkedin: formData.linkedinProfile.trim() } : {}),
-          ...(formData.githubProfile ? { github: formData.githubProfile.trim() } : {}),
-          ...(formData.websiteUrl ? { website: formData.websiteUrl.trim() } : {}),
-        },
-        skills: formData.skills,
-        interests: formData.interests,
-        bio: formData.bio.trim() || null,
-        location: formData.currentLocation.trim() || null,
-        interested_in_mentorship: false,
-        mentorship_role: null,
-        mentorship_experience_years: null,
-        mentorship_goals: null,
+        phone: formData.phone.trim(),
+        graduation_year: Number(formData.graduationYear),
+        degree_program: formData.degree || null, // code from select
+        department: formData.department || null, // code
+        company_name: formData.companyName?.trim() || null,
+        current_job_title: formData.jobTitle?.trim() || null,
+        location: formData.currentLocation?.trim() || null,
+        role: selectedRole,
       };
 
-      const { data: { user }, error } = await supabase.auth.signUp({
-        email: formData.email,
+      if (formData.primaryRole === 'student') {
+        stage2.expected_graduation_year = Number(formData.expectedGraduationYear) || null;
+      }
+
+      const { data: signUpData, error } = await supabase.auth.signUp({
+        email: formData.email.trim().toLowerCase(),
         password: formData.password,
         options: {
-          data: allUserData,
+          data: stage2,
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       });
 
@@ -512,19 +494,24 @@ const EnhancedRegister = () => {
           : 'Registration failed. If this keeps happening, try again later or contact support.');
       }
 
-      if (!user) {
-        // This case might happen if email confirmation is enabled and the user object is not returned immediately.
-        // The backend trigger will still handle profile creation.
-        console.log('Signup successful. User needs to confirm their email.');
+      // Try to hydrate the session/user; if confirmation required, user may be null
+      const { data: { user: hydratedUser } } = await supabase.auth.getUser();
+
+      try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+
+      if (!hydratedUser?.id) {
+        // Email confirmation required: show check-email message, go to login
+        setShowSuccessModal(true);
+        setTimeout(() => navigate('/login', { replace: true }), 800);
+        return;
       }
 
-      // On success, show the success modal. The user will be redirected to login after confirming their email.
-      // Clear persisted state on success and show success modal
-      try { localStorage.removeItem(STORAGE_KEY); } catch (e) { console.warn('Failed to clear registration cache', e); }
-      setShowSuccessModal(true);
+      // Dev mode: session present immediately → go to dashboard
+      navigate('/dashboard', { replace: true });
 
     } catch (err) {
-      console.error('Registration process error:', err.message);
+      // eslint-disable-next-line no-console
+      console.error('Registration process error:', err?.message || err);
       setError(err.message || 'An unexpected error occurred during registration.');
     } finally {
       setIsSubmitting(false);
@@ -610,8 +597,8 @@ const EnhancedRegister = () => {
         <p className="text-xs text-gray-500 mt-1">Email will be stored in lowercase. '.co' domains are not allowed.</p>
       </div>
       <div>
-        <label htmlFor="phone" className={commonLabelClass}>Phone Number</label>
-        <input id="phone" name="phone" type="tel" autoComplete="tel" value={formData.phone} onChange={handleChange} placeholder="+91 98765 43210" className={commonInputClass(errors.phone)} />
+        <label htmlFor="phone" className={commonLabelClass}>Phone Number *</label>
+        <input id="phone" name="phone" type="tel" autoComplete="tel" required value={formData.phone} onChange={handleChange} placeholder="+91 9876543210" className={commonInputClass(errors.phone)} />
         {errors.phone && <p className={commonErrorClass}>{errors.phone}</p>}
         <p className="text-xs text-gray-500 mt-1">Phone can only contain digits with an optional leading + symbol</p>
       </div>
@@ -704,7 +691,7 @@ const EnhancedRegister = () => {
               {errors.graduationYear && <p className={commonErrorClass}>{errors.graduationYear}</p>}
             </div>
             <div>
-              <label htmlFor="degree" className={commonLabelClass}>Degree Obtained *</label>
+              <label htmlFor="degree" className={commonLabelClass}>Degree Program *</label>
               <select
                 id="degree"
                 name="degree"
@@ -714,16 +701,47 @@ const EnhancedRegister = () => {
                 className={`${commonInputClass(errors.degree)} bg-white`}
               >
                 <option value="" disabled>Select your program</option>
-                {degreeProgramOptions.map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
+                {degreeOptions.map((opt) => (
+                  <option key={opt.code} value={opt.code}>{opt.label}</option>
                 ))}
               </select>
               {errors.degree && <p className={commonErrorClass}>{errors.degree}</p>}
             </div>
           </div>
           <div>
-            <label htmlFor="department" className={commonLabelClass}>Department</label>
-            <input id="department" name="department" type="text" value={formData.department} onChange={handleChange} placeholder="e.g., Marine Engineering" className={commonInputClass(false)} />
+            <label htmlFor="department" className={commonLabelClass}>Department *</label>
+            <select
+              id="department"
+              name="department"
+              required
+              value={formData.department}
+              onChange={handleChange}
+              className={`${commonInputClass(errors.department)} bg-white`}
+            >
+              <option value="">Select your department</option>
+              {deptOptions.map((opt) => (
+                <option key={opt.code} value={opt.code}>{opt.label}</option>
+              ))}
+            </select>
+            {errors.department && <p className={commonErrorClass}>{errors.department}</p>}
+          </div>
+          {/* Employment details for alumni */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-2">
+            <div>
+              <label htmlFor="companyName" className={commonLabelClass}>Current Company *</label>
+              <input id="companyName" name="companyName" type="text" required value={formData.companyName} onChange={handleChange} placeholder="e.g., Maersk" className={commonInputClass(errors.companyName)} />
+              {errors.companyName && <p className={commonErrorClass}>{errors.companyName}</p>}
+            </div>
+            <div>
+              <label htmlFor="jobTitle" className={commonLabelClass}>Current Position *</label>
+              <input id="jobTitle" name="jobTitle" type="text" required value={formData.jobTitle} onChange={handleChange} placeholder="e.g., Chief Officer" className={commonInputClass(errors.jobTitle)} />
+              {errors.jobTitle && <p className={commonErrorClass}>{errors.jobTitle}</p>}
+            </div>
+            <div className="md:col-span-2">
+              <label htmlFor="currentLocation" className={commonLabelClass}>Location *</label>
+              <input id="currentLocation" name="currentLocation" type="text" required value={formData.currentLocation} onChange={handleChange} placeholder="City, Country" className={commonInputClass(errors.currentLocation)} />
+              {errors.currentLocation && <p className={commonErrorClass}>{errors.currentLocation}</p>}
+            </div>
           </div>
         </>
       )}
@@ -732,8 +750,9 @@ const EnhancedRegister = () => {
           <h3 className="text-xl font-semibold text-gray-800 mb-4">Student Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
             <div>
-              <label htmlFor="studentId" className={commonLabelClass}>Student ID <span className="text-xs text-gray-500">(optional)</span></label>
-              <input id="studentId" name="studentId" type="text" value={formData.studentId} onChange={handleChange} placeholder="AMET12345 (optional)" className={commonInputClass(errors.studentId)} />
+              <label htmlFor="studentId" className={commonLabelClass}>Student ID</label>
+              <input id="studentId" name="studentId" type="text" value={formData.studentId} onChange={handleChange} placeholder="AMET12345" className={commonInputClass(errors.studentId)} />
+              {errors.studentId && <p className={commonErrorClass}>{errors.studentId}</p>}
               {errors.studentId && <p className={commonErrorClass}>{errors.studentId}</p>}
             </div>
             <div>
@@ -753,15 +772,26 @@ const EnhancedRegister = () => {
               className={`${commonInputClass(errors.degree)} bg-white`}
             >
               <option value="" disabled>Select your program</option>
-              {degreeProgramOptions.map(opt => (
-                <option key={opt} value={opt}>{opt}</option>
+              {degreeOptions.map((opt) => (
+                <option key={opt.code} value={opt.code}>{opt.label}</option>
               ))}
             </select>
             {errors.degree && <p className={commonErrorClass}>{errors.degree}</p>}
           </div>
           <div>
-            <label htmlFor="department" className={commonLabelClass}>Department</label>
-            <input id="department" name="department" type="text" value={formData.department} onChange={handleChange} placeholder="e.g., Naval Architecture" className={commonInputClass(false)} />
+            <label htmlFor="department" className={commonLabelClass}>Department (optional)</label>
+            <select
+              id="department"
+              name="department"
+              value={formData.department}
+              onChange={handleChange}
+              className={`${commonInputClass(false)} bg-white`}
+            >
+              <option value="">Select department (optional)</option>
+              {deptOptions.map((opt) => (
+                <option key={opt.code} value={opt.code}>{opt.label}</option>
+              ))}
+            </select>
           </div>
         </>
       )}
@@ -831,6 +861,27 @@ const EnhancedRegister = () => {
       <div>
         <label htmlFor="bio" className={commonLabelClass}>Brief Bio (Optional)</label>
         <textarea id="bio" name="bio" rows={3} value={formData.bio} onChange={handleChange} placeholder="Tell us a bit about yourself, your experience, or interests..." className={`${commonInputClass(false)} min-h-[96px] max-h-[256px] resize-y`}></textarea>
+      </div>
+
+      {/* Terms and Conditions - Required for all users */}
+      <div className="border-t border-gray-200 pt-6 mt-4">
+        <div className="flex items-start">
+          <input
+            id="agreeToTerms"
+            name="agreeToTerms"
+            type="checkbox"
+            checked={!!formData.agreeToTerms}
+            onChange={handleChange}
+            className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+          />
+          <label htmlFor="agreeToTerms" className="ml-2 text-sm text-gray-700">
+            I agree to the
+            {' '}<a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Terms of Service</a>
+            {' '}and{' '}
+            <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Privacy Policy</a>.
+          </label>
+        </div>
+        {errors.agreeToTerms && <p className={commonErrorClass}>{errors.agreeToTerms}</p>}
       </div>
     </div>
   );

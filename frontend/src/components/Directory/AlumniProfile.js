@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { 
   EnvelopeIcon,
   PhoneIcon,
@@ -7,13 +7,13 @@ import {
   BriefcaseIcon,
   AcademicCapIcon,
   LinkIcon,
-  ChatBubbleLeftRightIcon,
-  UserPlusIcon,
-  ShareIcon
+  
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
 import { StarIcon } from '@heroicons/react/24/solid';
-import toast from 'react-hot-toast';
+import ConnectionCTA from '../shared/ConnectionCTA';
+import { TextPill } from '../shared/Chips';
+import { useConnectionRel } from '../../hooks/useConnectionRel';
 
 const AchievementCard = ({ achievement }) => (
   <div className="bg-white rounded-lg p-4 border border-gray-200 hover:shadow-md transition-shadow duration-300">
@@ -36,7 +36,8 @@ const AlumniProfile = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
-  const [connectionStatus, setConnectionStatus] = useState('idle'); // idle, pending, connected, error
+  // Connection rel (live)
+  const rel = useConnectionRel(currentUser?.id, id);
   
   useEffect(() => {
     const getCurrentUser = async () => {
@@ -142,104 +143,9 @@ const AlumniProfile = () => {
     })();
   }, [alumnus?.id]);
 
-  useEffect(() => {
+  const handleMessage = () => {
     if (!currentUser || !alumnus) return;
-
-    const checkConnectionStatus = async () => {
-      try {
-        const { data, error } = await supabase.rpc('get_connection_status', {
-          user_1_id: currentUser.id,
-          user_2_id: alumnus.id
-        });
-
-        if (error) throw error;
-
-        setConnectionStatus(data || 'idle');
-      } catch (error) {
-        console.error('Error checking connection status:', error);
-        setConnectionStatus('error');
-      }
-    };
-
-    checkConnectionStatus();
-  }, [currentUser, alumnus]);
-
-  const handleConnect = async () => {
-    if (!currentUser || !alumnus) return;
-    
-    // If already pending, cancel the request
-    if (connectionStatus === 'pending') {
-      try {
-        // Delete directly by filter and return affected row count
-        const { error, count } = await supabase
-          .from('connections')
-          .delete({ count: 'exact' })
-          .eq('requester_id', currentUser.id)
-          .eq('recipient_id', alumnus.id)
-          .eq('status', 'pending');
-
-        if (error) throw error;
-
-        if (count && count > 0) {
-          toast.success('Connection request cancelled successfully');
-        } else {
-          toast('No pending request to cancel', { icon: 'ℹ️' });
-        }
-        setConnectionStatus('idle');
-
-        // Optional: re-check status via RPC to sync badge
-        try {
-          const { data: status, error: statusErr } = await supabase.rpc('get_connection_status', {
-            user_1_id: currentUser.id,
-            user_2_id: alumnus.id
-          });
-          if (!statusErr && status) {
-            setConnectionStatus(status);
-          }
-        } catch (recheckErr) {
-          // non-fatal
-          console.warn('Re-check connection status failed (non-fatal):', recheckErr);
-        }
-      } catch (error) {
-        console.error('Error in connection cancellation:', error);
-        toast.error(error.message || 'Failed to cancel connection request');
-      }
-    } else if (connectionStatus === 'idle') {
-      // Send a new connection request
-      const { error } = await supabase.from('connections').insert([
-        { requester_id: currentUser.id, recipient_id: alumnus.id, status: 'pending' }
-      ]);
-  
-      if (error) {
-        console.error('Error sending connection request:', error);
-        toast.error('Failed to send connection request');
-      } else {
-        setConnectionStatus('pending');
-      }
-    }
-  };
-
-  const handleMessage = async () => {
-    if (!currentUser || !alumnus) return;
-
-    try {
-      const { data: conversationId, error } = await supabase.rpc('find_or_create_conversation', {
-        p_target_user_id: alumnus.id
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      if (conversationId) {
-        navigate(`/messages/${conversationId}`);
-      } else {
-        throw new Error('Could not get or create a conversation.');
-      }
-    } catch (error) {
-      console.error('Error handling message action:', error);
-      toast.error('There was an error trying to start a conversation. Please try again.');
-    }
+    navigate(`/messages?peer=${alumnus.id}`);
   };
   
   if (loading) {
@@ -286,64 +192,41 @@ const AlumniProfile = () => {
   return (
     <div className="max-w-4xl mx-auto space-y-6 p-4">
       {/* Centered Header */}
-      <div className="glass-card rounded-lg p-6 flex flex-col items-center text-center">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition flex flex-col items-center text-center">
         {/* Profile Picture */}
         <div className="relative mb-4">
-          <img 
-            src={alumnus.avatar} 
+          <img
+            src={alumnus.avatar}
             alt={`${alumnus.name}'s profile picture`}
-            className="w-32 h-32 rounded-full object-cover border-4 border-white shadow-lg"
+            className="h-24 w-24 rounded-full object-cover ring-1 ring-slate-200 bg-slate-100"
           />
-          {alumnus.verified && (
-            <div className="absolute bottom-1 right-1 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center border-2 border-white" title="Verified Alumnus">
-              <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-            </div>
-          )}
         </div>
-        
         {/* Basic Info */}
-        <div className="flex-1 mb-4">
+        <div className="flex-1 mb-2">
           <h1 className="text-3xl font-bold text-gray-900">{alumnus.name}</h1>
-          <p className="text-xl text-ocean-600 font-medium">{alumnus.currentPosition}</p>
-          <p className="text-gray-600">{alumnus.company}</p>
-          
-          <div className="flex flex-wrap justify-center items-center text-gray-600 mt-2 gap-x-4 gap-y-1">
-            <div className="flex items-center">
-              <MapPinIcon className="w-4 h-4 mr-1" />
-              <span className="text-sm">{alumnus.location}</span>
-            </div>
-            <div className="flex items-center">
-              <AcademicCapIcon className="w-4 h-4 mr-1" />
-              <span className="text-sm">{alumnus.degree} • {alumnus.graduationYear}</span>
-            </div>
-          </div>
+          {/* Batch pill under name */}
+          {(() => {
+            const batch = alumnus.batch_year ?? alumnus.graduation_year ?? alumnus.batch ?? alumnus.graduationYear ?? null;
+            return batch ? (
+              <div className="mt-1 flex justify-center"><TextPill>Batch {batch}</TextPill></div>
+            ) : null;
+          })()}
         </div>
-        
-        {/* Action Buttons */}
+
+        {/* CTA: shared, scope=profile */}
         {currentUser && currentUser.id !== alumnus.id && (
-        <div className="flex items-center justify-center space-x-2">
-          <button 
-            onClick={handleConnect}
-            disabled={connectionStatus === 'accepted' || connectionStatus === 'error'}
-            className={`${connectionStatus === 'pending' ? 'btn-yellow' : 'btn-ocean'} px-4 py-2 rounded-lg flex items-center ${(connectionStatus === 'accepted' || connectionStatus === 'error') ? 'opacity-50 cursor-not-allowed' : ''}`}>
-            <UserPlusIcon className="w-4 h-4 mr-2" />
-            {connectionStatus === 'pending' ? 'Pending' : connectionStatus === 'accepted' ? 'Connected' : 'Connect'}
-          </button>
-          <button 
-            onClick={handleMessage}
-            className="btn-ocean-outline px-4 py-2 rounded-lg flex items-center"
-          >
-            <ChatBubbleLeftRightIcon className="w-4 h-4 mr-2" />
-            Message
-          </button>
-          <button className="btn-ocean-outline px-4 py-2 rounded-lg flex items-center">
-            <ShareIcon className="w-4 h-4 mr-2" />
-            Share
-          </button>
-        </div>
+          <div className="mt-3">
+            <ConnectionCTA
+              meId={currentUser?.id}
+              peerId={alumnus.id}
+              rel={rel}
+              scope="profile"
+              onMessage={handleMessage}
+            />
+          </div>
         )}
+
+        {/* Chips intentionally hidden on Profile header per spec; kept only on Directory cards */}
       </div>
 
       {/* Main Content Grid */}

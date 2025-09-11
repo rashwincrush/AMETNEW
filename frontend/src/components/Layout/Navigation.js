@@ -21,7 +21,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const Navigation = () => {
   const location = useLocation();
-  const { signOut, getUserRole, profile, hasPermission } = useAuth();
+  const { signOut, getUserRole, profile, hasPermission, isAdmin } = useAuth();
 
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/');
 
@@ -99,8 +99,8 @@ const Navigation = () => {
           Profile Settings
         </Link>
         
-        {/* Admin Settings Link - Only visible to users with access:all permission */}
-                {hasPermission && hasPermission('access:all') && (
+        {/* Admin Settings Link - visible to admins and super_admins */}
+        {isAdmin && (
           <Link
             to="/admin/settings"
             className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-ocean-50 hover:text-ocean-700 transition-all duration-200 mb-2"

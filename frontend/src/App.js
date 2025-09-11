@@ -45,6 +45,7 @@ import AlumniDashboard from './components/Dashboard/AlumniDashboard';
 
 // Feature Components
 import DirectoryPage from './components/Directory/DirectoryPage';
+import ProfileCompletion from './components/Auth/ProfileCompletion';
 import AlumniProfile from './components/Directory/AlumniProfile';
 import EventsPage from './pages/EventsPage';
 import GroupsPage from './pages/GroupsPage';
@@ -93,7 +94,7 @@ import MentorshipChat from './components/Mentorship/MentorshipChat';
 import AdminMentorApprovals from './components/Mentorship/AdminMentorApprovals';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
-import Onboarding from './components/Auth/Onboarding';
+import RequireCompleteProfile from './components/Auth/RequireCompleteProfile';
 import MyMentorship from './components/Mentorship/MyMentorship';
 
 // Create a client
@@ -130,6 +131,11 @@ function AppContent() {
       userRole: getUserRole()
     });
   }, [loading, user, profile, getUserRole]);
+
+  // Onboarding retired: no gating redirects here
+  useEffect(() => {
+    // No-op
+  }, []);
 
 
   const getDashboardComponent = () => {
@@ -175,15 +181,20 @@ function AppContent() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/terms-of-service" element={<TermsOfService />} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-            <Route path="/dashboard" element={<ProtectedRoute requiredPermission="access:dashboard">{getDashboardComponent()}</ProtectedRoute>} />
-            <Route path="/profile" element={<ProtectedRoute requiredPermission="access:profile_settings"><Profile user={profile || user} /></ProtectedRoute>} />
+            <Route path="/complete-profile" element={<ProfileCompletion />} />
+            <Route path="/dashboard" element={
+              <RequireCompleteProfile>
+                <ProtectedRoute requiredPermission="access:dashboard">{getDashboardComponent()}</ProtectedRoute>
+              </RequireCompleteProfile>
+            } />
+            <Route path="/profile" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="access:profile_settings"><Profile user={profile || user} /></ProtectedRoute></RequireCompleteProfile>} />
             <Route path="/companies/:id" element={<PublicCompanyProfile />} />
             <Route path="/company/edit" element={<ProtectedRoute requiredPermission="manage:company_profile"><EditCompanyProfile user={profile || user} /></ProtectedRoute>} />
-            <Route path="/events/*" element={<ProtectedRoute requiredPermission="access:events"><EventsPage /></ProtectedRoute>} />
+            <Route path="/events/*" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="access:events"><EventsPage /></ProtectedRoute></RequireCompleteProfile>} />
             <Route path="/events/edit/:id" element={<ProtectedRoute requiredPermission="access:events"><EditEvent /></ProtectedRoute>} />
             <Route path="/events/create" element={<ProtectedRoute requiredPermission="access:events"><CreateEvent /></ProtectedRoute>} />
             <Route path="/admin/events/:id/feedback" element={<ProtectedRoute requiredPermission="access:all"><EventFeedbackReport /></ProtectedRoute>} />
-            <Route path="/jobs" element={<ProtectedRoute requiredPermission="view:jobs"><JobListingsPage /></ProtectedRoute>} />
+            <Route path="/jobs" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:jobs"><JobListingsPage /></ProtectedRoute></RequireCompleteProfile>} />
             <Route path="/jobs/alerts" element={<ProtectedRoute requiredPermission="view:jobs"><JobAlerts /></ProtectedRoute>} />
             <Route path="/jobs/post" element={<ProtectedRoute requiredPermission="post:jobs"><PostJob /></ProtectedRoute>} />
             <Route path="/jobs/post/select" element={<ProtectedRoute requiredPermission="post:jobs"><PostJobSelection /></ProtectedRoute>} />
@@ -198,10 +209,10 @@ function AppContent() {
 
             <Route path="/jobs/:jobId/manage" element={<ProtectedRoute requiredPermission="view:job_applications"><ManageJobApplications /></ProtectedRoute>} />
             <Route path="/my-applications" element={<ProtectedRoute><JobApplicationStatus /></ProtectedRoute>} />
-            <Route path="/profile/:userId" element={<ProtectedRoute requiredPermission="view:alumni_directory"><UserProfilePage /></ProtectedRoute>} />
-            <Route path="/directory" element={<ProtectedRoute requiredPermission="view:alumni_directory"><DirectoryPage /></ProtectedRoute>} />
+            <Route path="/profile/:userId" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:alumni_directory"><UserProfilePage /></ProtectedRoute></RequireCompleteProfile>} />
+            <Route path="/directory" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:alumni_directory"><DirectoryPage /></ProtectedRoute></RequireCompleteProfile>} />
             <Route path="/directory-actions" element={<Navigate to="/directory" replace />} />
-            <Route path="/directory/:id" element={<ProtectedRoute requiredPermission="view:alumni_directory"><AlumniProfile /></ProtectedRoute>} />
+            <Route path="/directory/:id" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:alumni_directory"><AlumniProfile /></ProtectedRoute></RequireCompleteProfile>} />
             
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/mentorship/become-mentor" element={<ProtectedRoute requiredPermission="manage:mentor_profile"><MentorRegistrationForm /></ProtectedRoute>} />
@@ -226,7 +237,7 @@ function AppContent() {
                 </ProtectedRoute>
               }
             />
-            <Route path="/messages" element={<ProtectedRoute requiredPermission="message:users"><Messages /></ProtectedRoute>} />
+            <Route path="/messages" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="message:users"><Messages /></ProtectedRoute></RequireCompleteProfile>} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/admin/analytics" element={<ProtectedRoute requiredPermission="access:all"><Analytics /></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute requiredPermission="access:all"><UserManagement /></ProtectedRoute>} />
@@ -247,7 +258,6 @@ function AppContent() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/home" element={<HomePage />} />
-      <Route path="/onboarding" element={<Onboarding />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<EnhancedRegister />} />
       <Route path="/terms-of-service" element={<TermsOfService />} />

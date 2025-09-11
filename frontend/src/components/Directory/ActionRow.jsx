@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { supabase } from '../../utils/supabase';
+import { idempotentConnect, cancelPending, acceptPending, declinePending, removeConnection } from '../../utils/connections';
 import ShareProfileModal from './ShareProfileModal';
 
 export default function ActionRow({ meId, otherId, rel, onChanged }) {
@@ -23,69 +24,23 @@ export default function ActionRow({ meId, otherId, rel, onChanged }) {
   };
 
   const connect = async () => safeRun(async () => {
-    await supabase.from('connections').insert({
-      requester_id: meId,
-      recipient_id: otherId,
-      status: 'pending'
-    });
+    await idempotentConnect(meId, otherId, rel);
   });
 
   const cancel = async () => safeRun(async () => {
-    // Since side === 'sent', this row must have requester_id = meId and recipient_id = otherId
-    await supabase
-      .from('connections')
-      .delete({ count: 'exact' })
-      .match({ requester_id: meId, recipient_id: otherId, status: 'pending' });
+    await cancelPending(meId, otherId);
   });
 
   const accept = async () => safeRun(async () => {
-    await supabase
-      .from('connections')
-      .update({ status: 'accepted' })
-      .match({ requester_id: otherId, recipient_id: meId, status: 'pending' });
+    await acceptPending(meId, otherId);
   });
 
   const decline = async () => safeRun(async () => {
-    await supabase
-      .from('connections')
-      .update({ status: 'declined' })
-      .match({ requester_id: otherId, recipient_id: meId, status: 'pending' });
+    await declinePending(meId, otherId);
   });
 
   const remove = async () => safeRun(async () => {
-    // Prefer server-side RPC to avoid any RLS/URL quirks
-    try {
-      const { data, error } = await supabase.rpc('remove_connection', { p_user: meId, p_other: otherId });
-      if (error) throw error;
-      return;
-    } catch (rpcErr) {
-      console.warn('remove_connection RPC not available or failed, falling back:', rpcErr?.message || rpcErr);
-      // Fallback: Find the exact rows first
-      const ids = [];
-      const fetchDir = async (rq, rc) => {
-        const { data, error } = await supabase
-          .from('connections')
-          .select('id, status')
-          .match({ requester_id: rq, recipient_id: rc });
-        if (!error && Array.isArray(data)) {
-          data.forEach(r => {
-            if (r.status === 'accepted' || r.status === 'connected') ids.push(r.id);
-          });
-        }
-      };
-      await fetchDir(meId, otherId);
-      await fetchDir(otherId, meId);
-
-      if (ids.length === 0) return;
-
-      // Delete by primary key one-by-one (status enum disallows 'removed')
-      for (const id of ids) {
-        await supabase
-          .from('connections')
-          .delete()
-          .eq('id', id);
-      }
-    }
+    await removeConnection(meId, otherId);
   });
 
   const message = () => {

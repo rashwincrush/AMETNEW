@@ -15,6 +15,29 @@ import {
   ClockIcon
 } from '@heroicons/react/24/outline';
 
+const JOB_TYPE_MAP = {
+  'any': null,
+  'full-time': 'full-time',
+  'part-time': 'part-time',
+  'contract': 'contract',
+  'internship': 'internship',
+};
+
+const FREQ_MAP = {
+  'daily': 'daily',
+  'weekly': 'weekly',
+  'biweekly': 'biweekly',
+  'monthly': 'monthly',
+};
+
+const EXP_MAP = {
+  'any': null,
+  'entry': 'entry',
+  'mid': 'mid',
+  'senior': 'senior',
+  'lead': 'lead',
+};
+
 const JobAlerts = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -132,6 +155,19 @@ const JobAlerts = () => {
       return;
     }
 
+    // Map UI values to DB tokens
+    const job_type = JOB_TYPE_MAP[formData.job_type] ?? null;
+    const experience_level = EXP_MAP[formData.experience_level] ?? null;
+    const frequency = FREQ_MAP[formData.frequency] ?? null;
+    const min_salary_num = formData.min_salary ? Number(formData.min_salary) : null;
+    const max_salary_num = formData.max_salary ? Number(formData.max_salary) : null;
+
+    // Validate salary range
+    if (min_salary_num && max_salary_num && min_salary_num > max_salary_num) {
+      showError('Min salary cannot be greater than max salary');
+      return;
+    }
+
     const alertData = {
       user_id: user.id,
       alert_name: alertName,
@@ -139,28 +175,29 @@ const JobAlerts = () => {
         ? formData.keywords
         : (formData.keywords || '').split(',').map(k => k.trim()).filter(Boolean),
       location: formData.location || '',
-      job_type: formData.job_type || 'any',
-      experience_level: formData.experience_level || 'any',
-      min_salary: formData.min_salary ? Number(formData.min_salary) : null,
-      max_salary: formData.max_salary ? Number(formData.max_salary) : null,
-      frequency: formData.frequency || 'weekly',
+      // Only include non-null values
+      ...(job_type ? { job_type } : {}),
+      ...(experience_level ? { experience_level } : {}),
+      ...(min_salary_num !== null ? { min_salary: min_salary_num } : {}),
+      ...(max_salary_num !== null ? { max_salary: max_salary_num } : {}),
+      ...(frequency ? { frequency } : {}),
       is_active: formData.is_active === undefined ? true : Boolean(formData.is_active),
     };
 
     try {
       let result;
       if (editingAlert) {
-        // For updates, we can use the same data object
+        // For updates, use the same data object
         result = await supabase
           .from('job_alerts')
           .update(alertData)
           .eq('id', editingAlert.id)
-          .select(); // Use select() to get the updated row back and check for errors
+          .select('*'); // Use select() to get the updated row back and check for errors
       } else {
         result = await supabase
           .from('job_alerts')
           .insert([alertData]) // Pass as an array
-          .select(); // Use select() to get the inserted row back and check for errors
+          .select('*'); // Use select() to get the inserted row back and check for errors
       }
 
       const { error } = result;

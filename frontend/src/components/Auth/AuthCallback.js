@@ -18,9 +18,8 @@ const AuthCallback = () => {
         if (error) throw error;
         
         if (data?.session) {
-          // Always route to a lightweight onboarding page (non-protected).
-          // That page will check profile existence and route accordingly.
-          navigate('/onboarding', { replace: true });
+          // Directly route to dashboard; onboarding retired
+          navigate('/dashboard', { replace: true });
         } else {
           // No session, redirect to login
           navigate('/login', { 

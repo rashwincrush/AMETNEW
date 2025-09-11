@@ -290,18 +290,7 @@ const UserManagement = () => {
             new_status: 'approved',
             reason: null
           });
-          if (error) {
-            // Any error -> attempt fallback direct update
-            const { error: updErr } = await supabase
-              .from('profiles')
-              .update({
-                approval_status: 'approved',
-                alumni_verification_status: 'approved',
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', userId);
-            if (updErr) throw updErr;
-          }
+          if (error) throw error;
           setUsers(currentUsers => currentUsers.map(u => u.id === userId ? { 
             ...u, 
             approval_status: 'approved',
@@ -310,7 +299,12 @@ const UserManagement = () => {
           } : u));
           toast.success(`${user.full_name || user.email} has been approved.`);
         } catch (error) {
-          toast.error(`Failed to approve user: ${error.message}`);
+          const msg = error?.message || String(error);
+          if (/404/.test(msg) || /schema cache/i.test(msg) || /could not find the function/i.test(msg)) {
+            toast.error('Failed to approve user: Admin RPC not found. Please run Supabase migrations and refresh the schema cache.');
+          } else {
+            toast.error(`Failed to approve user: ${msg}`);
+          }
         }
         break;
       case 'delete':
@@ -469,19 +463,7 @@ const UserManagement = () => {
         new_status: 'rejected',
         reason: rejectionComment || null
       });
-      if (error) {
-        // Any error -> attempt fallback direct update
-        const { error: updErr } = await supabase
-          .from('profiles')
-          .update({
-            approval_status: 'rejected',
-            alumni_verification_status: 'rejected',
-            rejection_reason: rejectionComment || null,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', userId);
-        if (updErr) throw updErr;
-      }
+      if (error) throw error;
       
       // Update local UI immediately
       setUsers(prev => prev.map(u => u.id === userId ? {
@@ -504,11 +486,15 @@ const UserManagement = () => {
       }
       
       toast.success('User has been rejected');
+    } catch (error) {
+      const msg = error?.message || String(error);
+      if (/404/.test(msg) || /schema cache/i.test(msg) || /could not find the function/i.test(msg)) {
+        toast.error('Failed to reject user: Admin RPC not found. Please run Supabase migrations and refresh the schema cache.');
+      } else {
+        toast.error(`Failed to reject user: ${msg}`);
+      }
+    } finally {
       setIsRejectModalOpen(false);
-      fetchUsers(); // Refresh the list
-    } catch (err) {
-      console.error('Error rejecting user:', err);
-      toast.error(`Failed to reject user: ${err.message}`);
     }
   };
 
