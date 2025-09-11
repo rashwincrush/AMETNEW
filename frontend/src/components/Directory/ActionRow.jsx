@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { supabase } from '../../utils/supabase';
+import ShareProfileModal from './ShareProfileModal';
 
 export default function ActionRow({ meId, otherId, rel, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const profileUrl = useMemo(() => `${window.location.origin}/directory/${otherId}`, [otherId]);
   const rawStatus = rel?.status ?? null;
   const side = rel?.pending_side ?? null;
   // Treat 'removed' and 'declined' as no active connection (idle)
@@ -50,30 +53,38 @@ export default function ActionRow({ meId, otherId, rel, onChanged }) {
   });
 
   const remove = async () => safeRun(async () => {
-    // Find the exact rows first
-    const ids = [];
-    const fetchDir = async (rq, rc) => {
-      const { data, error } = await supabase
-        .from('connections')
-        .select('id, status')
-        .match({ requester_id: rq, recipient_id: rc });
-      if (!error && Array.isArray(data)) {
-        data.forEach(r => {
-          if (r.status === 'accepted' || r.status === 'connected') ids.push(r.id);
-        });
+    // Prefer server-side RPC to avoid any RLS/URL quirks
+    try {
+      const { data, error } = await supabase.rpc('remove_connection', { p_user: meId, p_other: otherId });
+      if (error) throw error;
+      return;
+    } catch (rpcErr) {
+      console.warn('remove_connection RPC not available or failed, falling back:', rpcErr?.message || rpcErr);
+      // Fallback: Find the exact rows first
+      const ids = [];
+      const fetchDir = async (rq, rc) => {
+        const { data, error } = await supabase
+          .from('connections')
+          .select('id, status')
+          .match({ requester_id: rq, recipient_id: rc });
+        if (!error && Array.isArray(data)) {
+          data.forEach(r => {
+            if (r.status === 'accepted' || r.status === 'connected') ids.push(r.id);
+          });
+        }
+      };
+      await fetchDir(meId, otherId);
+      await fetchDir(otherId, meId);
+
+      if (ids.length === 0) return;
+
+      // Delete by primary key one-by-one (status enum disallows 'removed')
+      for (const id of ids) {
+        await supabase
+          .from('connections')
+          .delete()
+          .eq('id', id);
       }
-    };
-    await fetchDir(meId, otherId);
-    await fetchDir(otherId, meId);
-
-    if (ids.length === 0) return;
-
-    // Update by primary key one-by-one (PostgREST may reject PATCH with in())
-    for (const id of ids) {
-      await supabase
-        .from('connections')
-        .update({ status: 'removed' })
-        .eq('id', id);
     }
   });
 
@@ -82,19 +93,7 @@ export default function ActionRow({ meId, otherId, rel, onChanged }) {
   };
 
   const share = async () => {
-    const url = `${window.location.origin}/directory/${otherId}`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: 'AMET Alumni Profile', url });
-        return;
-      }
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (_) {
-      // Fallback: show prompt so user can copy manually
-      window.prompt('Copy profile link', url);
-    }
+    setShareOpen(true);
   };
 
   return (
@@ -124,7 +123,8 @@ export default function ActionRow({ meId, otherId, rel, onChanged }) {
         </>
       )}
 
-      <button className="btn-ghost px-3 py-1.5 rounded-lg" onClick={share}>{copied ? 'Copied' : 'Share'}</button>
+      <button className="btn-ghost px-3 py-1.5 rounded-lg" onClick={share}>Share</button>
+      <ShareProfileModal open={shareOpen} onClose={() => setShareOpen(false)} url={profileUrl} />
     </div>
   );
 }

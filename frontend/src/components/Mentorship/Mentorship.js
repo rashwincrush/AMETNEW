@@ -51,6 +51,17 @@ const Mentorship = () => {
       hasFetched.current = true;
     }
   }, [location]); // Removed user from the dependency array to avoid re-fetching
+
+  // When page becomes visible again (e.g., after toggling in Admin), refetch mentors once
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        fetchApprovedMentors();
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
   
   // Check if the current user is already a mentor
   const checkCurrentUserMentor = async () => {
@@ -87,7 +98,7 @@ const Mentorship = () => {
         .from('mentors')
         .select(`
           *,
-          profiles:user_id (full_name, avatar_url, is_available_for_mentorship)
+          profiles:profiles!mentors_user_id_fkey (full_name, avatar_url, is_available_for_mentorship)
         `)
         .eq('status', 'approved');
       

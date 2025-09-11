@@ -11,8 +11,8 @@ as $$
 declare
   v_rows integer := 0;
 begin
-  update public.connections c
-     set status = 'removed', updated_at = now()
+  -- Delete any existing accepted/connected connections in either direction.
+  delete from public.connections c
    where ((c.requester_id = p_user and c.recipient_id = p_other)
        or (c.requester_id = p_other and c.recipient_id = p_user))
      and c.status in ('accepted','connected');

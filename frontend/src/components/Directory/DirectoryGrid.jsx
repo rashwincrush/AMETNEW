@@ -1,7 +1,11 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import DirectoryCard from './DirectoryCard';
+import { useConnections } from '../../hooks/useConnections';
 
 export default function DirectoryGrid({ items = [], meId, onChanged, compact = false }) {
+  const visibleIds = useMemo(() => Array.isArray(items) ? items.map((p) => p.id) : [], [items]);
+  const connectionsApi = useConnections(meId, visibleIds);
+
   if (!Array.isArray(items) || items.length === 0) {
     return (
       <div className="text-center text-gray-500 py-10">No profiles to show.</div>
@@ -15,7 +19,7 @@ export default function DirectoryGrid({ items = [], meId, onChanged, compact = f
   return (
     <div className={gridCls}>
       {items.map((p) => (
-        <DirectoryCard key={p.id} meId={meId} profile={p} onChanged={onChanged} compact={compact} />
+        <DirectoryCard key={p.id} meId={meId} profile={p} onChanged={onChanged} compact={compact} connectionsApi={connectionsApi} />
       ))}
     </div>
   );
