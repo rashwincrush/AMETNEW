@@ -30,7 +30,19 @@ function Avatar({ url, name }) {
 }
 
 export default function DirectoryCard({ meId, profile, onChanged, compact = false }) {
-  const { id, full_name, avatar_url, graduation_year, headline, rel } = profile || {};
+  const {
+    id,
+    full_name,
+    avatar_url,
+    graduation_year,
+    headline,
+    current_job_title,
+    company_name,
+    location,
+    degree_program,
+    department,
+    rel,
+  } = profile || {};
 
   const cardCls = compact
     ? 'bg-white rounded-xl border border-gray-200 p-3 shadow-sm hover:shadow-md transition-shadow'
@@ -56,6 +68,20 @@ export default function DirectoryCard({ meId, profile, onChanged, compact = fals
               </span>
             )}
           </div>
+
+          {/* Required Basic Details (3 lines) */}
+          <ul className={compact ? 'mt-1 space-y-0.5 text-xs text-gray-700' : 'mt-2 space-y-1 text-sm text-gray-700'}>
+            {/* 1) Role / Company */}
+            <li className="truncate">
+              {(current_job_title || company_name)
+                ? [current_job_title, company_name].filter(Boolean).join(' at ')
+                : (headline || 'Unknown')}
+            </li>
+            {/* 2) Location */}
+            <li className="truncate">{location || 'Unknown'}</li>
+            {/* 3) Degree + Department */}
+            <li className="truncate">{[degree_program || 'Unknown', department || ''].filter(Boolean).join(', ')}</li>
+          </ul>
 
           {/* Primary actions row */}
           <div className="mt-2 flex items-center gap-2">

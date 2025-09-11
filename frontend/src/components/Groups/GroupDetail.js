@@ -19,7 +19,6 @@ import {
   fetchGroupMembers,
   fetchPostComments
 } from '../../utils/supabase';
-import { getMyMembership } from '../../lib/membership';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
   Users, 
@@ -36,6 +35,21 @@ import {
 } from 'lucide-react';
 import ShareButtons from '../common/ShareButtons';
 import { format } from 'date-fns';
+
+// Local helper to avoid importing from ignored lib/membership in Vercel builds
+async function getMyMembership(supabaseClient, groupId) {
+  const { data: authData, error: authErr } = await supabaseClient.auth.getUser();
+  if (authErr || !authData?.user) return null;
+  const userId = authData.user.id;
+  const { data, error } = await supabaseClient
+    .from('group_members')
+    .select('role')
+    .eq('group_id', groupId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error && error.code !== 'PGRST116') throw error;
+  return data;
+}
 
 const GroupDetail = () => {
   const { id } = useParams();
