@@ -80,16 +80,24 @@ export default function DirectoryPage() {
 
         const { data, error } = await base;
         if (error) throw error;
-        // Augment with avatar_url from profiles in a single batch query
+        // Augment with profile fields (avatar_url, email, current_job_title, company_name, degree_program, department, graduation_year)
         const idsForAvatars = (data || []).map(r => r.id);
         let augmented = data || [];
         if (idsForAvatars.length > 0) {
           const { data: avatars } = await supabase
             .from('profiles')
-            .select('id, avatar_url')
+            .select('id, avatar_url, email, current_job_title, company_name, degree_program, department, graduation_year')
             .in('id', idsForAvatars);
-          const aMap = new Map((avatars || []).map(r => [r.id, r.avatar_url]));
-          augmented = (data || []).map(r => ({ ...r, avatar_url: aMap.get(r.id) || null }));
+          const aMap = new Map((avatars || []).map(r => [r.id, {
+            avatar_url: r.avatar_url,
+            email: r.email,
+            current_job_title: r.current_job_title,
+            company_name: r.company_name,
+            degree_program: r.degree_program,
+            department: r.department,
+            graduation_year: r.graduation_year,
+          }]));
+          augmented = (data || []).map(r => ({ ...r, ...(aMap.get(r.id) || {}) }));
         }
         setProfiles((augmented || []).filter(p => p.id !== me?.id));
         // For accuracy, compute count with head query on full ids and filters
@@ -128,16 +136,24 @@ export default function DirectoryPage() {
 
       const { data, error, count } = await query;
       if (error) throw error;
-      // Augment with avatar_url from profiles table
+      // Augment with profile fields (avatar_url, email, current_job_title, company_name, degree_program, department, graduation_year)
       const idsForAvatars = (data || []).map(r => r.id);
       let augmented = data || [];
       if (idsForAvatars.length > 0) {
         const { data: avatars } = await supabase
           .from('profiles')
-          .select('id, avatar_url')
+          .select('id, avatar_url, email, current_job_title, company_name, degree_program, department, graduation_year')
           .in('id', idsForAvatars);
-        const aMap = new Map((avatars || []).map(r => [r.id, r.avatar_url]));
-        augmented = (data || []).map(r => ({ ...r, avatar_url: aMap.get(r.id) || null }));
+        const aMap = new Map((avatars || []).map(r => [r.id, {
+          avatar_url: r.avatar_url,
+          email: r.email,
+          current_job_title: r.current_job_title,
+          company_name: r.company_name,
+          degree_program: r.degree_program,
+          department: r.department,
+          graduation_year: r.graduation_year,
+        }]));
+        augmented = (data || []).map(r => ({ ...r, ...(aMap.get(r.id) || {}) }));
       }
       setProfiles((augmented || []).filter(p => p.id !== me?.id));
       setTotalAlumni(count || 0);
@@ -227,14 +243,41 @@ export default function DirectoryPage() {
 
   // Merge profiles with relationship state
   const withRel = useMemo(() => {
-    const normalizeProfile = (row) => ({
-      ...row,
-      degree: row.degree ?? row.graduation_degree ?? row.degree_program ?? null,
-      department: row.department ?? null,
-      company: row.company_name ?? row.company ?? null,
-      current_job_title: row.current_job_title ?? row.job_title ?? row.currentPosition ?? null,
-      batch: row.batch_year ?? row.graduation_year ?? row.batch ?? null,
-    });
+    const parseDegreeDept = (label) => {
+      if (!label || typeof label !== 'string') return { degree_program: null, department: null };
+      // Try to split "DEGREE, Department" or "DEGREE - Department"
+      const byComma = label.split(',').map(s => s.trim());
+      if (byComma.length >= 2) {
+        const degree_program = byComma[0].toUpperCase();
+        const department = byComma.slice(1).join(', ');
+        return { degree_program, department };
+      }
+      const byDash = label.split(' - ').map(s => s.trim());
+      if (byDash.length >= 2) {
+        const degree_program = byDash[0].toUpperCase();
+        const department = byDash.slice(1).join(' - ');
+        return { degree_program, department };
+      }
+      // Fallback: if it matches known codes exactly, treat as degree only
+      const upper = label.toUpperCase();
+      const KNOWN = ['BBA','BCA','BE','BSC','BTECH','MBA','MCA','ME','MSC','MTECH','PHD'];
+      if (KNOWN.includes(upper)) return { degree_program: upper, department: null };
+      return { degree_program: null, department: label };
+    };
+
+    const normalizeProfile = (row) => {
+      const { degree_program, department } = parseDegreeDept(row.degree_department);
+      return {
+        ...row,
+        // Map fields that DirectoryCard expects
+        current_job_title: row.current_job_title ?? row.current_title ?? row.job_title ?? row.currentPosition ?? null,
+        company_name: row.company_name ?? row.current_company ?? row.company ?? null,
+        location: row.location ?? row.location_label ?? null,
+        degree_program: row.degree_program ?? degree_program ?? null,
+        department: row.department ?? department ?? null,
+        batch: row.batch_year ?? row.graduation_year ?? row.batch ?? null,
+      };
+    };
     return (profiles || []).map(p => ({
       ...normalizeProfile(p),
       rel: relMap.get(p.id) || { status: null, pending_side: null, edge_ts: null }

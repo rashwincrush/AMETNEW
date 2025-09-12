@@ -16,7 +16,7 @@ const DegreeComboBox = forwardRef(function DegreeComboBox(
   },
   ref
 ) {
-  const [codes, setCodes] = useState([]);
+  const [codes, setCodes] = useState(FALLBACK_CODES); // optimistic fallback
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -36,31 +36,40 @@ const DegreeComboBox = forwardRef(function DegreeComboBox(
 
   useEffect(() => {
     let isMounted = true;
+    setLoading(true);
+
+    // 2s timeout fallback: if network is flaky, keep fallback and unblock UI
+    const timeout = setTimeout(() => {
+      if (!isMounted) return;
+      setLoading(false);
+      onCodesLoaded?.(FALLBACK_CODES);
+    }, 2000);
+
     (async () => {
-      setLoading(true);
       try {
         const { data, error } = await supabase
           .from('degree_programs')
           .select('code')
           .order('code', { ascending: true });
         if (!isMounted) return;
-        if (error || !data?.length) {
-          setCodes(FALLBACK_CODES);
-          onCodesLoaded?.(FALLBACK_CODES);
-        } else {
+        if (!error && Array.isArray(data) && data.length) {
           const loaded = data.map((d) => String(d.code).toUpperCase());
           setCodes(loaded);
           onCodesLoaded?.(loaded);
+        } else {
+          onCodesLoaded?.(FALLBACK_CODES);
         }
       } catch (_) {
-        if (!isMounted) return;
-        setCodes(FALLBACK_CODES);
         onCodesLoaded?.(FALLBACK_CODES);
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          clearTimeout(timeout);
+          setLoading(false);
+        }
       }
     })();
-    return () => { isMounted = false; };
+
+    return () => { isMounted = false; clearTimeout(timeout); };
   }, [onCodesLoaded]);
 
   const filtered = useMemo(() => {
@@ -123,7 +132,7 @@ const DegreeComboBox = forwardRef(function DegreeComboBox(
     setQuery(value || '');
   }, [value]);
 
-  const busy = disabled || loading;
+  const busy = disabled; // do not disable while loading, only when explicitly disabled by parent
 
   return (
     <div className="w-full">
@@ -149,6 +158,18 @@ const DegreeComboBox = forwardRef(function DegreeComboBox(
           autoComplete="off"
         />
 
+        {/* Toggle dropdown button */}
+        <button
+          type="button"
+          className="absolute inset-y-0 right-2 my-auto text-gray-400 hover:text-gray-600"
+          aria-label="Toggle degree options"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setOpen((o) => !o)}
+          tabIndex={-1}
+        >
+          ▾
+        </button>
+
         {/* Clear button only when not required */}
         {!required && (value || query) && (
           <button
@@ -169,7 +190,7 @@ const DegreeComboBox = forwardRef(function DegreeComboBox(
           <ul
             id="degree-options"
             ref={listRef}
-            className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-gray-300 bg-white shadow-lg"
+            className="absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-gray-300 bg-white shadow-lg"
             role="listbox"
           >
             {filtered.length === 0 && (
@@ -191,8 +212,11 @@ const DegreeComboBox = forwardRef(function DegreeComboBox(
           </ul>
         )}
       </div>
+      {loading && (
+        <p className="mt-1 text-xs text-gray-500">Loading degree list… using offline list if slow</p>
+      )}
       {!loading && codes.length === FALLBACK_CODES.length && codes.every((c, i) => c === FALLBACK_CODES[i]) && (
-        <p className="mt-1 text-xs text-gray-500">Using cached list</p>
+        <p className="mt-1 text-xs text-gray-500">Using offline degree list</p>
       )}
     </div>
   );

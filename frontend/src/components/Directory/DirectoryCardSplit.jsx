@@ -9,10 +9,35 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
   const navigate = useNavigate();
   const rel = useMemo(() => profile?.rel || { status: null, pending_side: null }, [profile?.rel]);
 
-  // Normalized fields for view columns
-  const degreeDepartment = profile.degree_department ?? null;
-  const company = profile.current_company ?? profile.company_name ?? profile.company ?? null;
-  const position = profile.current_title ?? profile.current_job_title ?? profile.job_title ?? null;
+  // Prefer normalized fields coming from DirectoryPage, then fall back to view columns
+  // Degree and Department as separate chips (prefer normalized; fallback to parsing view label)
+  const { degreeLabel, departmentLabel } = useMemo(() => {
+    let dp = profile.degree_program || null;
+    let dept = profile.department || null;
+    if ((!dp || !dept) && profile.degree_department) {
+      const label = String(profile.degree_department);
+      const byComma = label.split(',').map(s => s.trim());
+      if (byComma.length >= 2) {
+        dp = dp || byComma[0]?.toUpperCase() || null;
+        dept = dept || byComma.slice(1).join(', ') || null;
+      } else {
+        const byDash = label.split(' - ').map(s => s.trim());
+        if (byDash.length >= 2) {
+          dp = dp || byDash[0]?.toUpperCase() || null;
+          dept = dept || byDash.slice(1).join(' - ') || null;
+        } else if (!dp) {
+          // If only one token present, assume it's the department if it's long text; else treat as degree code
+          const upper = label.toUpperCase();
+          const KNOWN = ['BBA','BCA','BE','BSC','BTECH','MBA','MCA','ME','MSC','MTECH','PHD'];
+          if (KNOWN.includes(upper)) dp = upper; else dept = label;
+        }
+      }
+    }
+    return { degreeLabel: dp, departmentLabel: dept };
+  }, [profile.degree_program, profile.department, profile.degree_department]);
+
+  const company = profile.company_name ?? profile.current_company ?? profile.company ?? null;
+  const position = profile.current_job_title ?? profile.current_title ?? profile.job_title ?? null;
   const batch = profile.graduation_year ?? profile.batch_year ?? profile.batch ?? null;
 
   const message = () => navigate(`/messages?peer=${profile.id}`);
@@ -55,34 +80,44 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
               }
             </div>
             
-            {batch && (
-              <div className="mt-1 inline-flex items-center rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700">
-                Batch {batch}
-              </div>
-            )}
+            {/* Batch chip moved to chips row below to keep all chips together */}
           </div>
         </div>
         
         {/* Middle section: Details */}
         <div className="mb-3">
-          {/* Academic info */}
+          {/* Chips: Degree Program, Department, Graduation Year, Current Company, Current Position */}
           <div className="flex flex-wrap gap-1.5 mb-2">
-            <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
-              <AcademicCapIcon className="h-3 w-3 text-slate-400 shrink-0" />
-              <span className="truncate" title={degreeDepartment || '—'}>{degreeDepartment || '—'}</span>
-            </div>
-          </div>
-          
-          {/* Professional info */}
-          <div className="flex flex-wrap gap-1.5">
-            <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
-              <BuildingOffice2Icon className="h-3 w-3 text-slate-400 shrink-0" />
-              <span className="truncate" title={company || '—'}>{company || '—'}</span>
-            </div>
-            <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
-              <BriefcaseIcon className="h-3 w-3 text-slate-400 shrink-0" />
-              <span className="truncate" title={position || '—'}>{position || '—'}</span>
-            </div>
+            {degreeLabel && (
+              <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
+                <AcademicCapIcon className="h-3 w-3 text-slate-400 shrink-0" />
+                <span className="truncate" title={degreeLabel}>{degreeLabel}</span>
+              </div>
+            )}
+            {departmentLabel && (
+              <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
+                <AcademicCapIcon className="h-3 w-3 text-slate-400 shrink-0" />
+                <span className="truncate" title={departmentLabel}>{departmentLabel}</span>
+              </div>
+            )}
+            {batch && (
+              <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
+                <AcademicCapIcon className="h-3 w-3 text-slate-400 shrink-0" />
+                <span className="truncate" title={`Batch ${batch}`}>Batch {batch}</span>
+              </div>
+            )}
+            {company && (
+              <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
+                <BuildingOffice2Icon className="h-3 w-3 text-slate-400 shrink-0" />
+                <span className="truncate" title={company}>{company}</span>
+              </div>
+            )}
+            {position && (
+              <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
+                <BriefcaseIcon className="h-3 w-3 text-slate-400 shrink-0" />
+                <span className="truncate" title={position}>{position}</span>
+              </div>
+            )}
           </div>
         </div>
         

@@ -20,6 +20,17 @@ import { validateLinkedIn, validateGitHub, validateX, validateWebsite, findDupli
 import DegreeComboBox, { FALLBACK_CODES as DEGREE_FALLBACK_CODES } from '../forms/DegreeComboBox';
 import DepartmentInput, { isValidDepartment } from '../forms/DepartmentInput';
 
+// Normalize phone to E.164 or null to satisfy DB constraint chk_phone_e164
+const normalizePhone = (raw) => {
+  const input = (raw ?? '').trim();
+  if (!input) return null; // empty -> NULL passes CHECK
+  const hasPlus = input.startsWith('+');
+  const digits = input.replace(/[^0-9]/g, '');
+  const normalized = hasPlus ? `+${digits}` : digits;
+  const isValid = /^\+?\d{7,15}$/.test(normalized);
+  return isValid ? normalized : { error: 'Please enter a valid phone in international format (E.164), e.g. +14155552671 or 9876543210 (7-15 digits).' };
+};
+
 const Profile = () => {
   const navigate = useNavigate();
   const { user, profile, loading, updateProfile, getUserRole, fetchUserProfile } = useAuth();
@@ -497,6 +508,27 @@ const Profile = () => {
         toast.error(phoneNorm.error);
         setIsSubmitting(false);
         return;
+      }
+
+      // ---- Phone uniqueness pre-check (avoid 409) ----
+      if (phoneNorm) {
+        const { data: existing, error: phoneErr } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('phone', phoneNorm)
+          .neq('id', user.id)
+          .maybeSingle();
+
+        if (phoneErr) {
+          toast.error('Could not validate phone uniqueness. Please try again.');
+          setIsSubmitting(false);
+          return;
+        }
+        if (existing) {
+          toast.error('This phone number is already registered to another account.');
+          setIsSubmitting(false);
+          return;
+        }
       }
 
       // Strict degree: only allow canonical codes in degree_programs
@@ -1033,6 +1065,7 @@ const Profile = () => {
                   name="phone"
                   value={formData.phone || ''}
                   onChange={handleChange}
+                  onBlur={(e) => setFormData(prev => ({ ...prev, phone: (normalizePhone(e.target.value) || '') }))}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   placeholder="+1 (555) 123-4567"
                 />
