@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
+import { adminSetProfileApproval } from '../../api/admin';
 import { 
   UsersIcon,
   MagnifyingGlassIcon,
@@ -285,11 +286,7 @@ const UserManagement = () => {
       case 'approve':
         if (user.approval_status === 'approved') return;
         try {
-          const { error } = await supabase.rpc('admin_set_profile_approval', {
-            target: userId,
-            new_status: 'approved',
-            reason: null
-          });
+          const { error } = await adminSetProfileApproval(userId, 'approved');
           if (error) throw error;
           setUsers(currentUsers => currentUsers.map(u => u.id === userId ? { 
             ...u, 
@@ -301,7 +298,7 @@ const UserManagement = () => {
         } catch (error) {
           const msg = error?.message || String(error);
           if (/404/.test(msg) || /schema cache/i.test(msg) || /could not find the function/i.test(msg)) {
-            toast.error('Failed to approve user: Admin RPC not found. Please run Supabase migrations and refresh the schema cache.');
+            toast.error('Approval failed: ensure RPC exists and matches (target uuid, new_status text). Reload PostgREST schema if needed.');
           } else {
             toast.error(`Failed to approve user: ${msg}`);
           }
@@ -458,11 +455,7 @@ const UserManagement = () => {
 
   const handleRejectUser = async (userId, rejectionComment) => {
     try {
-      const { error } = await supabase.rpc('admin_set_profile_approval', {
-        target: userId,
-        new_status: 'rejected',
-        reason: rejectionComment || null
-      });
+      const { error } = await adminSetProfileApproval(userId, 'rejected');
       if (error) throw error;
       
       // Update local UI immediately
@@ -489,7 +482,7 @@ const UserManagement = () => {
     } catch (error) {
       const msg = error?.message || String(error);
       if (/404/.test(msg) || /schema cache/i.test(msg) || /could not find the function/i.test(msg)) {
-        toast.error('Failed to reject user: Admin RPC not found. Please run Supabase migrations and refresh the schema cache.');
+        toast.error('Rejection failed: ensure RPC exists and matches (target uuid, new_status text). Reload PostgREST schema if needed.');
       } else {
         toast.error(`Failed to reject user: ${msg}`);
       }

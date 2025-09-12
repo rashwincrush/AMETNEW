@@ -85,6 +85,7 @@ import UserManagement from './components/Admin/UserManagement';
 import AdminSettings from './components/Admin/AdminSettings';
 import FeedbackReport from './components/Admin/FeedbackReport';
 import ActivityLogs from './components/Admin/ActivityLogs';
+import EventModerationPanel from './components/Events/EventModerationPanel';
 import MenteeRegistrationForm from './components/Mentorship/MenteeRegistrationForm';
 import JobApplicationStatus from './components/Jobs/JobApplicationStatus';
 import ManageJobApplications from './components/Jobs/ManageJobApplications';
@@ -194,6 +195,7 @@ function AppContent() {
             <Route path="/events/edit/:id" element={<ProtectedRoute requiredPermission="access:events"><EditEvent /></ProtectedRoute>} />
             <Route path="/events/create" element={<ProtectedRoute requiredPermission="access:events"><CreateEvent /></ProtectedRoute>} />
             <Route path="/admin/events/:id/feedback" element={<ProtectedRoute requiredPermission="access:all"><EventFeedbackReport /></ProtectedRoute>} />
+            <Route path="/admin/events/moderation" element={<ProtectedRoute requiredPermission="access:all"><EventModerationPanel /></ProtectedRoute>} />
             <Route path="/jobs" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:jobs"><JobListingsPage /></ProtectedRoute></RequireCompleteProfile>} />
             <Route path="/jobs/alerts" element={<ProtectedRoute requiredPermission="view:jobs"><JobAlerts /></ProtectedRoute>} />
             <Route path="/jobs/post" element={<ProtectedRoute requiredPermission="post:jobs"><PostJob /></ProtectedRoute>} />

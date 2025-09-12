@@ -1,15 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Logo from '../common/Logo';
 import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, CheckIcon, ArrowLeftIcon, XMarkIcon } from '@heroicons/react/24/outline'; 
 import { supabase, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { ROLES, isRole } from '../../constants/roles';
-import { useDegreePrograms } from '../../hooks/useDegreePrograms';
-import { useDepartments } from '../../hooks/useDepartments';
+import DegreeComboBox, { FALLBACK_CODES as DEGREE_FALLBACK_CODES } from '../forms/DegreeComboBox';
+import DepartmentInput, { isValidDepartment } from '../forms/DepartmentInput';
 
 const EnhancedRegister = () => {
   const navigate = useNavigate();
+  const { refreshProfile } = useAuth();
+  const BANNER_DURATION_MS = 2500;                // 2–3s
+  const REDIRECT_AFTER_REGISTER = '/';            // change to '/home' if you want
+  const [showCompletionBanner, setShowCompletionBanner] = useState(false);
+  
+  // Strict degree enforcement: capture allowed codes from DegreeComboBox
+  const [allowedDegreeCodes, setAllowedDegreeCodes] = useState(null);
+  const degreeInputRef = useRef(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
     firstName: '',
@@ -51,8 +60,6 @@ const EnhancedRegister = () => {
   const [error, setError] = useState(''); // For general form errors or success messages
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [roles, setRoles] = useState([]);
-  const { options: degreeOptions } = useDegreePrograms();
-  const { options: deptOptions } = useDepartments();
   const STORAGE_KEY = 'onboarding_registration_v1';
 
   // Degree program options (consolidated exact set provided)
@@ -117,14 +124,14 @@ const EnhancedRegister = () => {
       return [firstName, lastName, email, password, phone, primaryRole, graduationYear, expectedGraduationYear, degree, department, studentId, companyName, jobTitle, linkedinProfile, githubProfile, websiteUrl, bio].some(v => (Array.isArray(v) ? v.length > 0 : (v && String(v).trim() !== '')));
     };
     const beforeUnload = (e) => {
-      if (!showSuccessModal && isDirty()) {
+      if (!showSuccessModal && !showCompletionBanner && isDirty()) {
         e.preventDefault();
         e.returnValue = '';
       }
     };
     window.addEventListener('beforeunload', beforeUnload);
     return () => window.removeEventListener('beforeunload', beforeUnload);
-  }, [formData, showSuccessModal]);
+  }, [formData, showSuccessModal, showCompletionBanner]);
   
   // Reset mentorship role when primaryRole changes to ensure compatibility
   useEffect(() => {
@@ -374,9 +381,13 @@ const EnhancedRegister = () => {
         }
         if (!formData.degree) {
           newErrors.degree = 'Please select your degree program.';
+        } else if (Array.isArray(allowedDegreeCodes) && allowedDegreeCodes.length && !allowedDegreeCodes.includes(String(formData.degree).toUpperCase())) {
+          newErrors.degree = 'Please pick a valid degree from the list.';
         }
         if (!formData.department) {
           newErrors.department = 'Department is required.';
+        } else if (!isValidDepartment(formData.department)) {
+          newErrors.department = 'Department contains invalid characters (2–60 chars; letters, numbers, spaces, & / ( ) - .)';
         }
         if (!formData.companyName?.trim()) {
           newErrors.companyName = 'Current company is required.';
@@ -394,6 +405,8 @@ const EnhancedRegister = () => {
         }
         if (!formData.degree) {
           newErrors.degree = 'Please select your degree program.';
+        } else if (Array.isArray(allowedDegreeCodes) && allowedDegreeCodes.length && !allowedDegreeCodes.includes(String(formData.degree).toUpperCase())) {
+          newErrors.degree = 'Please pick a valid degree from the list.';
         }
       }
       // Optional fields validation: only validate URL patterns if provided
@@ -451,6 +464,23 @@ const EnhancedRegister = () => {
       return;
     }
 
+    // Strict submit-time guard for degree
+    const ALLOWED_DEGREE_CODES = (Array.isArray(allowedDegreeCodes) && allowedDegreeCodes.length)
+      ? allowedDegreeCodes
+      : DEGREE_FALLBACK_CODES;
+    const chosenDegree = (formData.degree || '').trim().toUpperCase();
+    if (!ALLOWED_DEGREE_CODES.includes(chosenDegree)) {
+      const listText = 'BE, BTECH, BSC, ME, MCA, MSC, MTECH, MBA, BBA, BCA, PHD';
+      toast.error(`Please pick a valid degree. Allowed: ${listText}.`);
+      degreeInputRef.current?.focus?.();
+      return;
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      // eslint-disable-next-line no-console
+      console.debug('[Register] Degree validation', { allowedCount: ALLOWED_DEGREE_CODES.length, chosen: chosenDegree });
+    }
+
     setIsSubmitting(true);
     setError('');
 
@@ -466,7 +496,7 @@ const EnhancedRegister = () => {
         last_name: formData.lastName.trim(),
         phone: formData.phone.trim(),
         graduation_year: Number(formData.graduationYear),
-        degree_program: formData.degree || null, // code from select
+        degree_program: chosenDegree || null, // strict code from combobox
         department: formData.department || null, // code
         company_name: formData.companyName?.trim() || null,
         current_job_title: formData.jobTitle?.trim() || null,
@@ -506,8 +536,44 @@ const EnhancedRegister = () => {
         return;
       }
 
-      // Dev mode: session present immediately → go to dashboard
-      navigate('/dashboard', { replace: true });
+      // Session present immediately → single write to public.profiles
+      const profilePayload = {
+          id: hydratedUser.id,
+          email: hydratedUser.email?.toLowerCase() || formData.email.trim().toLowerCase(),
+          first_name: formData.firstName.trim() || null,
+          last_name: formData.lastName.trim() || null,
+          location: formData.currentLocation?.trim() || null,
+          company_name: formData.companyName?.trim() || null,
+          current_job_title: formData.jobTitle?.trim() || null,
+          degree_program: chosenDegree,
+          department: formData.department?.trim() || null,
+          graduation_year: Number(formData.graduationYear) || null,
+          updated_at: new Date().toISOString(),
+        };
+
+      // eslint-disable-next-line no-console
+      console.log('[Register] Upserting profile with Stage-2 payload:', profilePayload);
+      const { error: upsertErr } = await supabase
+        .from('profiles')
+        .upsert(profilePayload, { onConflict: 'id' });
+      if (upsertErr) {
+        // Friendly messages
+        if (String(upsertErr.message).toLowerCase().includes('foreign key') || upsertErr.code === '23503') {
+          toast.error('Please select a valid Degree from the list.');
+        } else if (upsertErr.code === '42501' || upsertErr.code === 'P0001') {
+          toast.error('No permission to update this profile.');
+        } else {
+          toast.error(`Profile save failed: ${upsertErr.message}`);
+        }
+        throw upsertErr;
+      }
+      // Refresh context cache and show banner with redirect
+      await refreshProfile(hydratedUser.id).catch(() => undefined);
+      setShowCompletionBanner(true);
+      setTimeout(() => {
+        navigate(REDIRECT_AFTER_REGISTER, { replace: true });
+      }, BANNER_DURATION_MS);
+      return;
 
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -691,38 +757,24 @@ const EnhancedRegister = () => {
               {errors.graduationYear && <p className={commonErrorClass}>{errors.graduationYear}</p>}
             </div>
             <div>
-              <label htmlFor="degree" className={commonLabelClass}>Degree Program *</label>
-              <select
-                id="degree"
-                name="degree"
+              <DegreeComboBox
+                label="Degree Program"
                 required
-                value={formData.degree}
-                onChange={handleChange}
-                className={`${commonInputClass(errors.degree)} bg-white`}
-              >
-                <option value="" disabled>Select your program</option>
-                {degreeOptions.map((opt) => (
-                  <option key={opt.code} value={opt.code}>{opt.label}</option>
-                ))}
-              </select>
+                value={formData.degree || ''}
+                onChange={(code) => setFormData(prev => ({ ...prev, degree: code || '' }))}
+                placeholder="Select your program"
+                onCodesLoaded={(codes) => setAllowedDegreeCodes(codes)}
+                ref={degreeInputRef}
+              />
               {errors.degree && <p className={commonErrorClass}>{errors.degree}</p>}
             </div>
           </div>
           <div>
-            <label htmlFor="department" className={commonLabelClass}>Department *</label>
-            <select
-              id="department"
-              name="department"
-              required
+            <DepartmentInput
               value={formData.department}
-              onChange={handleChange}
-              className={`${commonInputClass(errors.department)} bg-white`}
-            >
-              <option value="">Select your department</option>
-              {deptOptions.map((opt) => (
-                <option key={opt.code} value={opt.code}>{opt.label}</option>
-              ))}
-            </select>
+              onChange={(v) => setFormData(prev => ({ ...prev, department: v }))}
+              required
+            />
             {errors.department && <p className={commonErrorClass}>{errors.department}</p>}
           </div>
           {/* Employment details for alumni */}
@@ -751,47 +803,32 @@ const EnhancedRegister = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
             <div>
               <label htmlFor="studentId" className={commonLabelClass}>Student ID</label>
-              <input id="studentId" name="studentId" type="text" value={formData.studentId} onChange={handleChange} placeholder="AMET12345" className={commonInputClass(errors.studentId)} />
-              {errors.studentId && <p className={commonErrorClass}>{errors.studentId}</p>}
-              {errors.studentId && <p className={commonErrorClass}>{errors.studentId}</p>}
+              <input id="studentId" name="studentId" type="text" value={formData.studentId} onChange={handleChange} placeholder="Optional" className={commonInputClass(errors.studentId)} />
             </div>
             <div>
               <label htmlFor="expectedGraduationYear" className={commonLabelClass}>Expected Graduation Year *</label>
-              <input id="expectedGraduationYear" name="expectedGraduationYear" type="number" min={new Date().getFullYear()} max={new Date().getFullYear() + 10} required value={formData.expectedGraduationYear} onChange={handleChange} placeholder="YYYY" className={commonInputClass(errors.expectedGraduationYear)} />
+              <input id="expectedGraduationYear" name="expectedGraduationYear" type="number" min="1950" max={new Date().getFullYear() + 1} required value={formData.expectedGraduationYear} onChange={handleChange} placeholder="YYYY" className={commonInputClass(errors.expectedGraduationYear)} />
               {errors.expectedGraduationYear && <p className={commonErrorClass}>{errors.expectedGraduationYear}</p>}
             </div>
           </div>
           <div>
-            <label htmlFor="degree" className={commonLabelClass}>Degree Program *</label>
-            <select
-              id="degree"
-              name="degree"
+            <DegreeComboBox
+              label="Degree Program"
               required
-              value={formData.degree}
-              onChange={handleChange}
-              className={`${commonInputClass(errors.degree)} bg-white`}
-            >
-              <option value="" disabled>Select your program</option>
-              {degreeOptions.map((opt) => (
-                <option key={opt.code} value={opt.code}>{opt.label}</option>
-              ))}
-            </select>
+              value={formData.degree || ''}
+              onChange={(code) => setFormData(prev => ({ ...prev, degree: code || '' }))}
+              placeholder="Select your program"
+              onCodesLoaded={(codes) => setAllowedDegreeCodes(codes)}
+              ref={degreeInputRef}
+            />
             {errors.degree && <p className={commonErrorClass}>{errors.degree}</p>}
           </div>
           <div>
-            <label htmlFor="department" className={commonLabelClass}>Department (optional)</label>
-            <select
-              id="department"
-              name="department"
+            <DepartmentInput
               value={formData.department}
-              onChange={handleChange}
-              className={`${commonInputClass(false)} bg-white`}
-            >
-              <option value="">Select department (optional)</option>
-              {deptOptions.map((opt) => (
-                <option key={opt.code} value={opt.code}>{opt.label}</option>
-              ))}
-            </select>
+              onChange={(v) => setFormData(prev => ({ ...prev, department: v }))}
+              required
+            />
           </div>
         </>
       )}
@@ -886,203 +923,6 @@ const EnhancedRegister = () => {
     </div>
   );
 
-  const renderStep3 = () => (
-    <div className="space-y-6">
-      <h3 className="text-xl font-semibold text-gray-800">Mentorship Program (Optional)</h3>
-      <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-md">
-        <h4 className="text-sm font-semibold text-blue-800 mb-1">Join the AMET Mentorship Network!</h4>
-        <p className="text-sm text-blue-700 mb-2">
-          Connect with experienced professionals for career guidance, or share your expertise to guide students and junior alumni.
-        </p>
-        <ul className="text-xs text-blue-600 space-y-1 list-disc list-inside">
-          <li><strong>Mentors:</strong> Experienced alumni & professionals (3+ years) ready to guide.</li>
-          <li><strong>Mentees:</strong> Students & recent graduates seeking career advice and support.</li>
-          <li><strong>Flexible:</strong> Participate as a mentor, mentee, or both!</li>
-        </ul>
-      </div>
-
-      <label className="flex items-start cursor-pointer p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-        <input
-          type="checkbox"
-          name="interestedInMentorship"
-          checked={formData.interestedInMentorship}
-          onChange={handleChange}
-          className="mt-1 h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded shadow-sm"
-        />
-        <span className="ml-3 text-sm font-medium text-gray-800">
-          Yes, I'm interested in participating in the AMET Mentorship Program.
-        </span>
-      </label>
-
-      {formData.interestedInMentorship && (
-        <div className="space-y-6 pl-6 border-l-2 border-blue-200 ml-2 py-4">
-          <div>
-            <label className={`${commonLabelClass} mb-2`}>I would like to be a: *</label>
-            {formData.primaryRole === 'student' && (
-              <div className="bg-blue-50 border-l-4 border-blue-400 p-3 mb-3 rounded-md">
-                <p className="text-sm text-blue-700">As a Student, you can participate as a Mentee to receive guidance from experienced professionals.</p>
-              </div>
-            )}
-            <div className="space-y-3">
-              {
-                [
-                  { value: 'mentor', label: 'Mentor', desc: 'Guide and support students/junior alumni.', showFor: ['alumni', 'employer', 'mentor'] },
-                  { value: 'mentee', label: 'Mentee', desc: 'Receive guidance and career advice.', showFor: ['student', 'alumni', 'employer'] },
-                  { value: 'both', label: 'Both Mentor & Mentee', desc: 'Mentor others while also seeking guidance.', showFor: ['alumni', 'employer'] }
-                ].filter((roleOpt) => roleOpt.showFor.includes(formData.primaryRole)).map((roleOpt) => (
-                  <label key={roleOpt.value} className="flex items-start p-3 border border-gray-200 rounded-lg cursor-pointer hover:border-blue-300 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-400 transition-colors">
-                    <input
-                      type="radio"
-                      name="mentorshipRole"
-                      value={roleOpt.value}
-                      checked={formData.mentorshipRole === roleOpt.value}
-                      onChange={handleChange}
-                      className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                    />
-                    <div className="ml-3">
-                      <span className="text-sm font-medium text-gray-900">{roleOpt.label}</span>
-                      <p className="text-xs text-gray-500">{roleOpt.desc}</p>
-                    </div>
-                  </label>
-                ))}
-            </div>
-            {errors.mentorshipRole && <p className={commonErrorClass}>{errors.mentorshipRole}</p>}
-          </div>
-
-          {(formData.mentorshipRole === 'mentor' || formData.mentorshipRole === 'both') && (
-            <div>
-              <label htmlFor="experienceYears" className={commonLabelClass}>Years of Professional Experience *</label>
-              <input id="experienceYears" name="experienceYears" type="number" min="0" max="60" value={formData.experienceYears} onChange={handleChange} placeholder="e.g., 5" className={commonInputClass(errors.experienceYears)} />
-              {errors.experienceYears && <p className={commonErrorClass}>{errors.experienceYears}</p>}
-              <p className="text-xs text-gray-500 mt-1">Minimum 3 years required to be a mentor.</p>
-            </div>
-          )}
-
-          <div>
-            <label className={`${commonLabelClass} mb-2`}>Skills & Expertise (select up to 5) *</label>
-
-            {/* Custom Skill Input */}
-            <div className="mb-3">
-              <div className="flex">
-                <input
-                  type="text"
-                  value={customSkill}
-                  onChange={handleCustomSkillChange}
-                  placeholder="Add your own skills (separate by comma or space)"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                  disabled={formData.skills.length >= 5}
-                />
-                <button
-                  type="button"
-                  onClick={handleCustomSkillAdd}
-                  disabled={!customSkill.trim() || formData.skills.length >= 5}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-r-lg text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Add
-                </button>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">Add custom skills with commas or spaces (e.g., "Naval Architecture, Ship Design")</p>
-            </div>
-
-            {/* Selected Skills */}
-            {formData.skills.length > 0 && (
-              <div className="mb-3">
-                <p className="text-sm font-medium text-gray-700 mb-2">Your selected skills ({formData.skills.length}/5):</p>
-                <div className="flex flex-wrap gap-2">
-                  {formData.skills.map((skill) => (
-                    <span key={skill} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      {skill}
-                      <button
-                        type="button"
-                        onClick={() => handleSkillToggle(skill)}
-                        className="ml-1 inline-flex text-blue-500 hover:text-blue-700 focus:outline-none"
-                      >
-                        <XMarkIcon className="h-3 w-3" aria-hidden="true" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Predefined Skills */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {skillOptions.map((skill) => (
-                <label key={skill} className="flex items-center p-2.5 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-400 transition-colors min-h-[44px]">
-                  <input
-                    type="checkbox"
-                    checked={formData.skills.includes(skill)}
-                    onChange={() => handleSkillToggle(skill)}
-                    disabled={formData.skills.length >= 5 && !formData.skills.includes(skill)}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <span className="ml-2 text-sm text-gray-700 leading-snug truncate" title={skill}>{skill}</span>
-                </label>
-              ))}
-            </div>
-            {errors.skills && <p className={commonErrorClass}>{errors.skills}</p>}
-            <p className="text-xs text-gray-500 mt-1">Relevant for mentor/mentee matching.</p>
-          </div>
-
-          <div>
-            <label className={`${commonLabelClass} mb-2`}>Areas of Interest for Mentorship (select up to 5)</label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {interestOptions.map((interest) => (
-                <label key={interest} className="flex items-center p-2.5 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-400 transition-colors min-h-[44px]">
-                  <input
-                    type="checkbox"
-                    checked={formData.interests.includes(interest)}
-                    onChange={() => handleInterestToggle(interest)}
-                    disabled={formData.interests.length >= 5 && !formData.interests.includes(interest)}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                  <span className="ml-2 text-sm text-gray-700 leading-snug truncate" title={interest}>{interest}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className={commonLabelClass}>Mentorship Goals</label>
-            <textarea
-              name="mentorshipGoals"
-              value={formData.mentorshipGoals}
-              onChange={handleChange}
-              rows={3}
-              style={{ minHeight: '96px', maxHeight: '180px' }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm"
-              placeholder="What would you like to achieve from the mentorship?"
-            />
-          </div>
-
-          <div>
-            <label className={`${commonLabelClass} mb-2`}>Terms & Privacy</label>
-            <div className="flex items-start">
-              <input
-                id="agreeToTerms"
-                name="agreeToTerms"
-                type="checkbox"
-                checked={!!formData.agreeToTerms}
-                onChange={handleChange}
-                className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded"
-              />
-              <label htmlFor="agreeToTerms" className="ml-2 text-sm text-gray-700">
-                I agree to the
-                {' '}<a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Terms of Service</a>
-                {' '}and{' '}
-                <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Privacy Policy</a>.
-              </label>
-            </div>
-            {errors.agreeToTerms && <p className={commonErrorClass}>{errors.agreeToTerms}</p>}
-          </div>
-
-        </div>
-      )}
-
-      
-    </div>
-  );
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-100 to-blue-50 flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-2xl">
@@ -1135,8 +975,8 @@ const EnhancedRegister = () => {
               )}
               <button
                 type={currentStep === 2 ? "submit" : "button"}
-                onClick={currentStep < 2 ? handleNext : undefined} // handleSubmit is called by form's onSubmit for last step
-                disabled={isLoading}
+                onClick={currentStep < 2 ? handleNext : undefined}
+                disabled={isLoading || showCompletionBanner}
                 className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
               >
                 {isLoading && currentStep === 2 ? (
@@ -1162,6 +1002,42 @@ const EnhancedRegister = () => {
           </p>
         </div>
       </div>
+
+      {showCompletionBanner && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
+          <div
+            role="status"
+            aria-live="polite"
+            className="mx-4 w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl"
+          >
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-green-100">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">Registration Completed</h3>
+            <p className="mt-1 text-sm text-gray-600">Your profile is waiting for approval.</p>
+
+            <div className="mt-5 h-2 w-full overflow-hidden rounded-full bg-gray-200">
+              <div className="h-full w-full animate-[progress_2.5s_linear_forwards] bg-green-500" />
+            </div>
+            <p className="mt-2 text-xs text-gray-500">Redirecting…</p>
+
+            <button
+              type="button"
+              onClick={() => navigate(REDIRECT_AFTER_REGISTER, { replace: true })}
+              className="mt-4 inline-flex items-center justify-center rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              Go now
+            </button>
+          </div>
+
+          {/* Tailwind keyframes for the progress bar */}
+          <style>{`
+            @keyframes progress { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+          `}</style>
+        </div>
+      )}
 
       {showSuccessModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">

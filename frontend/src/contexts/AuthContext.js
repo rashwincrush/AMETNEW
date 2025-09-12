@@ -198,7 +198,41 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (error) {
       logger.error('Error fetching profile:', error);
-      setProfile(null);
+      // Fallback: attempt to create a minimal profile row for the current user
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        const u = authData?.user;
+        if (u?.id === userId) {
+          const md = u.user_metadata || {};
+          const seed = {
+            id: u.id,
+            email: u.email,
+            role: isRole(md.role) ? md.role : 'alumni',
+            first_name: md.first_name || null,
+            last_name: md.last_name || null,
+            location: md.location || null,
+            avatar_url: md.avatar_url || md.avatar || null,
+            created_at: new Date().toISOString(),
+          };
+          const sanitized = Object.fromEntries(Object.entries(seed).filter(([, v]) => v !== undefined));
+          const { data: created } = await supabase
+            .from('profiles')
+            .upsert(sanitized)
+            .select()
+            .maybeSingle();
+          if (created) {
+            logger.log('Created minimal profile after fetch error');
+            setProfile(created);
+          } else {
+            setProfile(null);
+          }
+        } else {
+          setProfile(null);
+        }
+      } catch (seedErr) {
+        logger.warn('Profile seed after error failed:', seedErr);
+        setProfile(null);
+      }
     } finally {
       // Clear auth operation flag to allow subsequent operations
       window.AMET_AUTH.authInProgress = false;
@@ -564,6 +598,7 @@ export const AuthProvider = ({ children }) => {
     signOut,
     updateProfile,
     fetchUserProfile,
+    refreshProfile: fetchUserProfile,
     isAuthenticated: !!user,
     isAdmin,
     userRole,

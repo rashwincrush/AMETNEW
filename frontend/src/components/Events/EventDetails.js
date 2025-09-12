@@ -161,6 +161,17 @@ const EventDetails = () => {
     }
   };
 
+  const getApprovalBadge = () => {
+    switch ((event.approval_status || 'pending').toLowerCase()) {
+      case 'approved':
+        return 'bg-green-100 text-green-800';
+      case 'rejected':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-yellow-100 text-yellow-800';
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Event Header */}
@@ -173,9 +184,12 @@ const EventDetails = () => {
             className="w-full h-64 md:h-80 object-cover"
           />
           <div className="absolute inset-0 bg-black bg-opacity-30"></div>
-          <div className="absolute top-4 left-4">
+          <div className="absolute top-4 left-4 space-y-2">
             <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusBadge()}`}>
               {event.status}
+            </span>
+            <span className={`px-3 py-1 rounded-full text-xs font-medium ${getApprovalBadge()}`} title={event.rejection_reason || ''}>
+              {event.approval_status || 'pending'}
             </span>
           </div>
           <div className="absolute top-4 right-4 flex space-x-2">
@@ -201,6 +215,12 @@ const EventDetails = () => {
                   <p key={index} className="mb-2">{paragraph}</p>
                 ))}
               </div>
+
+              {event.approval_status === 'rejected' && event.rejection_reason && (
+                <div className="mb-4 p-3 rounded bg-red-50 text-red-700 text-sm">
+                  Rejection reason: {event.rejection_reason}
+                </div>
+              )}
 
               {/* Event Details */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">

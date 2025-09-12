@@ -52,6 +52,7 @@ const ContentApproval = () => {
   // Combined pending content for UI
   const [pendingContent, setPendingContent] = useState([]);
   const [filter, setFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('pending'); // pending | approved | rejected | all
   const [viewMode, setViewMode] = useState('list');
 
   const fetchPendingContent = useCallback(async () => {
@@ -67,15 +68,21 @@ const ContentApproval = () => {
     setLoading(true);
     setError(null);
     
-    // Fetch pending jobs
+    // Fetch jobs per status
     try {
       const jobsQuery = supabase
         .from('jobs')
         .select('*, profiles:user_id(first_name, last_name, avatar_url, email)');
       
-      // Apply pending filters
-      const { data: jobs, error: fetchJobsError } = await applyPendingFilters(jobsQuery)
-        .order('created_at', { ascending: false });
+      let jq = jobsQuery;
+      if (statusFilter === 'pending') {
+        jq = applyPendingFilters(jq);
+      } else if (statusFilter === 'approved') {
+        jq = jq.eq('is_approved', true);
+      } else if (statusFilter === 'rejected') {
+        jq = jq.eq('is_rejected', true);
+      }
+      const { data: jobs, error: fetchJobsError } = await jq.order('created_at', { ascending: false });
       
       if (fetchJobsError) {
         setJobsError(fetchJobsError.message);
@@ -96,15 +103,21 @@ const ContentApproval = () => {
       setJobsLoading(false);
     }
     
-    // Fetch pending events
+    // Fetch events per status (uses approval_status enum)
     try {
       const eventsQuery = supabase
         .from('events')
         .select('*, profiles:user_id(first_name, last_name, avatar_url, email)');
       
-      // Apply pending filters
-      const { data: events, error: fetchEventsError } = await applyPendingFilters(eventsQuery)
-        .order('created_at', { ascending: false });
+      let eq = eventsQuery;
+      if (statusFilter === 'pending') {
+        eq = eq.eq('approval_status', 'pending');
+      } else if (statusFilter === 'approved') {
+        eq = eq.eq('approval_status', 'approved');
+      } else if (statusFilter === 'rejected') {
+        eq = eq.eq('approval_status', 'rejected');
+      }
+      const { data: events, error: fetchEventsError } = await eq.order('created_at', { ascending: false });
       
       if (fetchEventsError) {
         setEventsError(fetchEventsError.message);
@@ -125,15 +138,21 @@ const ContentApproval = () => {
       setEventsLoading(false);
     }
     
-    // Fetch pending groups - with corrected FK embed
+    // Fetch groups per status
     try {
       const groupsQuery = supabase
         .from('groups')
         .select('*, profiles!groups_created_by_fkey(first_name, last_name, avatar_url, email)');
       
-      // Apply pending filters
-      const { data: groups, error: fetchGroupsError } = await applyPendingFilters(groupsQuery)
-        .order('created_at', { ascending: false });
+      let gq = groupsQuery;
+      if (statusFilter === 'pending') {
+        gq = applyPendingFilters(gq);
+      } else if (statusFilter === 'approved') {
+        gq = gq.eq('is_approved', true);
+      } else if (statusFilter === 'rejected') {
+        gq = gq.eq('is_rejected', true);
+      }
+      const { data: groups, error: fetchGroupsError } = await gq.order('created_at', { ascending: false });
       
       if (fetchGroupsError) {
         setGroupsError(fetchGroupsError.message);
@@ -154,13 +173,19 @@ const ContentApproval = () => {
       setGroupsLoading(false);
     }
     
-    // Fetch other pending content (posts, comments, etc.)
+    // Fetch other content (posts, comments, etc.)
     try {
-      const { data: otherContent, error: fetchOtherContentError } = await supabase
+      let oc = supabase
         .from('content_approvals')
-        .select('*, profiles:creator_id(first_name, last_name, avatar_url, email)')
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false });
+        .select('*, profiles:creator_id(first_name, last_name, avatar_url, email)');
+      if (statusFilter === 'pending') {
+        oc = oc.eq('status', 'pending');
+      } else if (statusFilter === 'approved') {
+        oc = oc.eq('status', 'approved');
+      } else if (statusFilter === 'rejected') {
+        oc = oc.eq('status', 'rejected');
+      }
+      const { data: otherContent, error: fetchOtherContentError } = await oc.order('created_at', { ascending: false });
       
       if (fetchOtherContentError) {
         setOtherContentError(fetchOtherContentError.message);
@@ -179,7 +204,7 @@ const ContentApproval = () => {
     } finally {
       setOtherContentLoading(false);
     }
-  }, []);
+  }, [statusFilter]);
   
   // Update combined state after all fetches complete
   useEffect(() => {
@@ -232,10 +257,10 @@ const ContentApproval = () => {
       case 'event':
         tableName = 'events';
         updateData = { 
-          is_approved: true, 
-          is_rejected: false, 
-          reviewed_by: profile?.id, 
-          reviewed_at: new Date().toISOString() 
+          approval_status: 'approved',
+          rejection_reason: null,
+          reviewed_by: profile?.id,
+          reviewed_at: new Date().toISOString(),
         };
         break;
       case 'group':
@@ -309,7 +334,7 @@ const ContentApproval = () => {
       case 'event':
         tableName = 'events';
         updateData = { 
-          is_rejected: true, 
+          approval_status: 'rejected',
           rejection_reason: reason, 
           reviewed_by: profile?.id, 
           reviewed_at: new Date().toISOString() 
@@ -397,6 +422,9 @@ const ContentApproval = () => {
         <div className="flex justify-between items-center mb-2">
           <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getContentTypeBadge(item.content_type)}`}>
             {item.type}
+          </span>
+          <span className="text-xs">
+            {item.content_type === 'event' ? (item.approval_status || 'pending') : (item.is_rejected ? 'rejected' : (item.is_approved ? 'approved' : 'pending'))}
           </span>
           <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleDateString()}</span>
         </div>
@@ -524,6 +552,18 @@ const ContentApproval = () => {
                 {type.label}
               </option>
             ))}
+          </select>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            aria-label="Filter by moderation status"
+          >
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="all">All</option>
           </select>
 
           <div className="flex rounded-md shadow-sm" role="group" aria-label="View mode selection">

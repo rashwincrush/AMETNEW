@@ -17,6 +17,8 @@ import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { loadProfileSocialLinks, saveProfileSocialLinks } from '../../services/socialLinks.js';
 import { validateLinkedIn, validateGitHub, validateX, validateWebsite, findDuplicateProvider } from '../../services/socialLinks.validation';
+import DegreeComboBox, { FALLBACK_CODES as DEGREE_FALLBACK_CODES } from '../forms/DegreeComboBox';
+import DepartmentInput, { isValidDepartment } from '../forms/DepartmentInput';
 
 const Profile = () => {
   const navigate = useNavigate();
@@ -41,6 +43,9 @@ const Profile = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const initialFormRef = useRef(null);
+  // Strict degree enforcement
+  const [allowedDegreeCodes, setAllowedDegreeCodes] = useState(null);
+  const degreeInputRef = useRef(null);
   const [skillInput, setSkillInput] = useState('');
   const [formData, setFormData] = useState({
     first_name: '',
@@ -494,59 +499,39 @@ const Profile = () => {
         return;
       }
 
-      // Normalize Degree to match DB CHECK (ck_profiles_degree_program_allowed)
-      // Allowed tokens should match the DB constraint exactly. Update this list if backend changes.
-      const ALLOWED_DEGREES = ['B.E', 'B.Tech', 'B.Sc', 'M.E', 'M.Tech', 'MBA', 'Ph.D'];
-      const normalizeDegree = (raw) => {
-        const v = (raw ?? '').trim();
-        if (!v) return null; // empty -> NULL (passes CHECK)
-        // Common synonym mappings -> target tokens
-        const s = v.toLowerCase();
-        const map = new Map([
-          ['be', 'B.E'],
-          ['b.e', 'B.E'],
-          ['b e', 'B.E'],
-          ['bachelor of engineering', 'B.E'],
-          ['btech', 'B.Tech'],
-          ['b.tech', 'B.Tech'],
-          ['b tech', 'B.Tech'],
-          ['bachelor of technology', 'B.Tech'],
-          ['bsc', 'B.Sc'],
-          ['b.sc', 'B.Sc'],
-          ['b sc', 'B.Sc'],
-          ['bachelor of science', 'B.Sc'],
-          ['me', 'M.E'],
-          ['m.e', 'M.E'],
-          ['m e', 'M.E'],
-          ['master of engineering', 'M.E'],
-          ['mtech', 'M.Tech'],
-          ['m.tech', 'M.Tech'],
-          ['m tech', 'M.Tech'],
-          ['master of technology', 'M.Tech'],
-          ['mba', 'MBA'],
-          ['master of business administration', 'MBA'],
-          ['phd', 'Ph.D'],
-          ['ph.d', 'Ph.D'],
-          ['doctor of philosophy', 'Ph.D'],
-        ]);
-        // Try direct exact allowed first
-        if (ALLOWED_DEGREES.includes(v)) return v;
-        // Strip specialization tails like "in Marine Engineering" and re-map
-        const base = v.split(' in ')[0].trim();
-        const mapped = map.get(base) || map.get(base.replace(/\./g, '')) || map.get(base.replace(/\s+/g, ' '));
-        if (mapped && ALLOWED_DEGREES.includes(mapped)) return mapped;
-        // As a last attempt, map the first token only (e.g., 'be in marine eng')
-        const firstToken = v.split(/\s+/)[0].replace(/\./g, '');
-        const mappedToken = map.get(firstToken) || map.get(firstToken.toLowerCase());
-        if (mappedToken && ALLOWED_DEGREES.includes(mappedToken)) return mappedToken;
-        return { error: `Degree must be one of: ${ALLOWED_DEGREES.join(', ')}. Please select a valid option.` };
-      };
-
-      const degreeNorm = normalizeDegree(formData.degree);
-      if (degreeNorm && typeof degreeNorm === 'object' && degreeNorm.error) {
-        toast.error(degreeNorm.error);
+      // Strict degree: only allow canonical codes in degree_programs
+      const codes = Array.isArray(allowedDegreeCodes) && allowedDegreeCodes.length
+        ? allowedDegreeCodes
+        : ['BBA','BCA','BE','BSC','BTECH','MBA','MCA','ME','MSC','MTECH','PHD'];
+      const degreeRaw = (formData.degree || '').trim().toUpperCase();
+      const degreeCode = degreeRaw === '' ? null : (codes.includes(degreeRaw) ? degreeRaw : { error: true });
+      if (degreeCode && typeof degreeCode === 'object' && degreeCode.error) {
+        const listText = 'BE, BTECH, BSC, ME, MCA, MSC, MTECH, MBA, BBA, BCA, PHD';
+        toast.error(`Please pick a valid degree. Allowed: ${listText}.`);
+        degreeInputRef.current?.focus?.();
         setIsSubmitting(false);
         return;
+      }
+
+      // Required field checks
+      const missing = [];
+      if (!formData.location || !String(formData.location).trim()) missing.push('Location');
+      if (!formData.company || !String(formData.company).trim()) missing.push('Company');
+      if (!formData.position || !String(formData.position).trim()) missing.push('Position');
+      if (degreeCode === null) missing.push('Degree');
+      if (!isValidDepartment(formData.department)) missing.push('Department');
+      if (missing.length) {
+        toast.error(`Please fill: ${missing.join(', ')}`);
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Debug logging for QA
+      if (process.env.NODE_ENV === 'development') {
+        console.debug('[Profile] Degree validation', {
+          allowedCount: codes.length,
+          chosen: degreeCode,
+        });
       }
 
       const { data: currentProfile, error: fetchError } = await supabase
@@ -570,7 +555,7 @@ const Profile = () => {
         company_name: formData.company, // Map to backend field
         headline: formData.headline,
         experience: formData.experience,
-        degree_program: degreeNorm, // normalized to allowed token or null
+        degree_program: degreeCode, // strict code or null
         department: formData.department,
         graduation_year: formData.graduation_year,
         student_id: formData.student_id,
@@ -1097,25 +1082,21 @@ const Profile = () => {
               />
             </div>
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Degree</label>
-              <input
-                type="text"
-                name="degree"
+              <DegreeComboBox
+                label="Degree"
                 value={formData.degree || ''}
-                onChange={handleChange}
-                className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                placeholder="e.g., B.E. in Marine Engineering"
+                onChange={(code) => setFormData(prev => ({ ...prev, degree: code || '' }))}
+                placeholder="Select your degree"
+                onCodesLoaded={(codes) => setAllowedDegreeCodes(codes)}
+                ref={degreeInputRef}
+                required
               />
             </div>
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Department</label>
-              <input
-                type="text"
-                name="department"
+              <DepartmentInput
                 value={formData.department || ''}
-                onChange={handleChange}
-                className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                placeholder="e.g., Ship Design and Construction"
+                onChange={(v) => setFormData(prev => ({ ...prev, department: v }))}
+                required
               />
             </div>
             <div className="space-y-2">
