@@ -23,7 +23,7 @@ const EmployerGuard = ({
   strict = false,
   fallbackPath = '/jobs'
 }) => {
-  const { user, profile, isLoading: authLoading } = useAuth();
+  const { user, userRole, isLoading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
   const location = useLocation();
@@ -37,7 +37,7 @@ const EmployerGuard = ({
 
       try {
         // Basic role check
-        const isEmployer = profile?.role === 'employer';
+        const isEmployer = userRole === 'employer';
         
         // If not an employer and strict mode is on, deny access
         if (!isEmployer && strict) {
@@ -115,7 +115,7 @@ const EmployerGuard = ({
     };
 
     checkEmployerAccess();
-  }, [user, profile, authLoading, companyId, jobId, strict]);
+  }, [user, userRole, authLoading, companyId, jobId, strict]);
 
   if (loading || authLoading) {
     return <LoadingScreen />;
@@ -124,6 +124,11 @@ const EmployerGuard = ({
   // If user doesn't have access and strict mode is on, redirect
   if (!hasAccess && strict) {
     return <Navigate to={fallbackPath} state={{ from: location }} replace />;
+  }
+
+  // Support render-prop children to allow guarded data fetching
+  if (typeof children === 'function') {
+    return children({ hasAccess, loading: loading || authLoading });
   }
 
   // For non-strict mode or if user has access, render children

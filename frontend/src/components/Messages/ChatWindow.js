@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../../utils/supabase';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { idempotentConnect, getLatestEdge, acceptPending, declinePending, cancelPending } from '../../utils/connections';
 import { 
   PaperAirplaneIcon, 
   ChatBubbleLeftRightIcon
 } from '@heroicons/react/24/outline';
-import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import MessageBubble from './MessageBubble';
 import { format } from 'date-fns';
@@ -45,6 +46,12 @@ const ChatWindow = ({ thread, currentUser }) => {
   const [otherProfile, setOtherProfile] = useState(null);
   const messagesEndRef = useRef(null);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Context from query string (job/event)
+  const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const ctxJobId = qs.get('job');
+  const ctxEventId = qs.get('event');
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -56,6 +63,9 @@ const ChatWindow = ({ thread, currentUser }) => {
   };
 
   const canSend = !!(thread && thread.can_send);
+  const [edge, setEdge] = useState(null);
+  const [localAccepted, setLocalAccepted] = useState(false);
+  const canSendDerived = canSend || localAccepted || (edge && (edge.status === 'accepted' || edge.status === 'connected'));
 
   useEffect(() => {
     if (!thread?.thread_id || !currentUser) return;
@@ -118,9 +128,61 @@ const ChatWindow = ({ thread, currentUser }) => {
       });
 
     return () => {
-      supabase.removeChannel(channel);
+      try {
+        supabase.removeChannel(channel);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to remove dm-messages channel', e);
+      }
     };
   }, [thread?.thread_id, currentUser?.id]);
+
+  // Load current connection edge between users and subscribe to changes
+  useEffect(() => {
+    let unsub = null;
+    const loadEdge = async () => {
+      if (!currentUser?.id || !thread?.other_user_id) return;
+      try {
+        const e = await getLatestEdge(currentUser.id, thread.other_user_id);
+        setEdge(e);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to load connection edge', err);
+      }
+    };
+    loadEdge();
+
+    // Realtime subscribe to connections affecting this pair
+    try {
+      const channel = supabase
+        .channel(`conn-${currentUser?.id}-${thread?.other_user_id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'connections' }, (payload) => {
+          const r = payload.new || payload.old;
+          if (!r) return;
+          const involvesPair = (
+            (r.requester_id === currentUser?.id && r.recipient_id === thread?.other_user_id) ||
+            (r.recipient_id === currentUser?.id && r.requester_id === thread?.other_user_id)
+          );
+          if (involvesPair) {
+            getLatestEdge(currentUser.id, thread.other_user_id).then(setEdge).catch(()=>{});
+          }
+        })
+        .subscribe();
+      unsub = () => { 
+        try { 
+          supabase.removeChannel(channel); 
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn('Failed to remove connection channel', e);
+        } 
+      };
+    } catch(e) {
+      // eslint-disable-next-line no-console
+      console.warn('Failed to subscribe connection channel', e);
+    }
+
+    return () => { if (unsub) unsub(); };
+  }, [currentUser?.id, thread?.other_user_id]);
 
   const handleSendMessage = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
@@ -129,7 +191,7 @@ const ChatWindow = ({ thread, currentUser }) => {
     if (!newMessage.trim() || !currentUser || !thread?.thread_id) return;
     
     // Check if users can send first (connection gate)
-    if (!canSend) {
+    if (!canSendDerived) {
       toast.error('You must be connected to send messages.');
       return;
     }
@@ -211,6 +273,17 @@ const ChatWindow = ({ thread, currentUser }) => {
                     .join(' at ')}
                 </p>
               )}
+              {/* Context chips */}
+              {(ctxJobId || ctxEventId) && (
+                <div className="mt-1 flex items-center gap-2">
+                  {ctxJobId && (
+                    <button onClick={() => navigate(`/jobs/${ctxJobId}`)} className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs border border-blue-200">Job: {ctxJobId}</button>
+                  )}
+                  {ctxEventId && (
+                    <button onClick={() => navigate(`/events/${ctxEventId}`)} className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 text-xs border border-green-200">Event: {ctxEventId}</button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -246,13 +319,70 @@ const ChatWindow = ({ thread, currentUser }) => {
         )}
       </div>
 
-      {/* Connection Warning */}
-      {!canSend && thread?.thread_id && (
-        <div className="p-2 bg-red-50 border-t border-red-200">
-          <div className="flex items-center justify-center">
-            <div className="text-red-500 text-sm font-medium">
-              You are no longer connected with this user. You cannot send messages until you reconnect.
-            </div>
+      {/* Connection banners */}
+      {!canSendDerived && thread?.thread_id && (
+        <div className="p-2 bg-yellow-50 border-t border-yellow-200">
+          <div className="flex items-center justify-between px-2">
+            {edge?.status === 'pending' && edge.recipient_id === currentUser?.id ? (
+              <>
+                <div className="text-yellow-800 text-sm font-medium">This user requested to connect.</div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="px-2 py-1 text-xs rounded bg-green-600 text-white"
+                    onClick={async () => {
+                      try {
+                        await acceptPending(currentUser.id, thread.other_user_id);
+                        setLocalAccepted(true);
+                        toast.success('Connection accepted');
+                      } catch (err) {
+                        console.error(err);
+                      }
+                    }}
+                  >Accept</button>
+                  <button
+                    className="px-2 py-1 text-xs rounded bg-red-600 text-white"
+                    onClick={async () => {
+                      try {
+                        await declinePending(currentUser.id, thread.other_user_id);
+                        toast('Request rejected');
+                      } catch (err) {
+                        console.error(err);
+                      }
+                    }}
+                  >Reject</button>
+                </div>
+              </>
+            ) : edge?.status === 'pending' && edge.requester_id === currentUser?.id ? (
+              <>
+                <div className="text-yellow-800 text-sm font-medium">Pending approval.</div>
+                <button
+                  className="text-yellow-900 text-sm underline"
+                  onClick={async () => {
+                    try {
+                      await cancelPending(currentUser.id, thread.other_user_id);
+                      toast('Request canceled');
+                    } catch (err) {
+                      console.error(err);
+                    }
+                  }}
+                >Cancel</button>
+              </>
+            ) : (
+              <>
+                <div className="text-yellow-800 text-sm font-medium">Connection required to send messages.</div>
+                <button
+                  className="text-yellow-900 text-sm underline"
+                  onClick={async () => {
+                    try {
+                      await idempotentConnect(currentUser.id, thread.other_user_id);
+                      toast.success('Connection request sent');
+                    } catch (e) {
+                      console.error('Failed to send connection request:', e);
+                    }
+                  }}
+                >Request Connection</button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -266,21 +396,22 @@ const ChatWindow = ({ thread, currentUser }) => {
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && canSend) {
+                  if (e.key === 'Enter' && !e.shiftKey && canSendDerived) {
                     e.preventDefault();
                     if (!isSending) handleSendMessage(e);
                   }
                 }}
-                className={`form-input w-full py-3 rounded-lg resize-none ${!canSend ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                className={`form-input w-full py-3 rounded-lg resize-none ${!canSendDerived ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 rows="1"
-                placeholder={canSend ? "Type a message..." : "Cannot send messages - connection removed"}
-                disabled={!canSend}
+                placeholder={canSendDerived ? "Type a message..." : "Cannot send messages - connection required"}
+                disabled={!canSendDerived}
               />
             </div>
           </div>
           <button
             type="submit"
-            disabled={!newMessage.trim()}
+            disabled={!newMessage.trim() || !canSendDerived}
+            title={!canSendDerived ? 'Send a connection request to start messaging.' : ''}
             className="btn-ocean p-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <PaperAirplaneIcon className="w-5 h-5" />

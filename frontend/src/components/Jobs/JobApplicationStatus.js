@@ -22,9 +22,11 @@ const JobApplicationStatus = () => {
             id,
             submitted_at,
             status,
-            jobs (id, title, company_name)
+            resume_url,
+            job:jobs!inner (id, title, company_name, source_type)
           `)
-          .eq('user_id', user.id)
+          .eq('applicant_id', user.id)
+          .eq('job.source_type', 'in_app')
           .order('submitted_at', { ascending: false });
 
         if (error) throw error;
@@ -59,18 +61,23 @@ const JobApplicationStatus = () => {
           <ul className="divide-y divide-gray-200">
             {applications.map((app) => (
               <li key={app.id} className="p-4 hover:bg-gray-50">
-                <Link to={`/jobs/${app.jobs.id}`} className="block">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-lg font-semibold text-blue-600">{app.jobs.title}</p>
-                      <p className="text-sm text-gray-600">{app.jobs.company_name}</p>
-                      <p className="text-xs text-gray-500 mt-1">Applied on: {new Date(app.submitted_at).toLocaleDateString()}</p>
-                    </div>
-                    <span className={`px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(app.status)}`}>
-                      {app.status}
-                    </span>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Link to={`/jobs/${app.job.id}`} className="block">
+                      <p className="text-lg font-semibold text-blue-600">{app.job.title}</p>
+                    </Link>
+                    <p className="text-sm text-gray-600">{app.job.company_name}</p>
+                    <p className="text-xs text-gray-500 mt-1">Applied on: {new Date(app.submitted_at).toLocaleDateString()}</p>
+                    {app.resume_url && (
+                      <a href={app.resume_url} target="_blank" rel="noopener noreferrer" className="text-xs text-ocean-600 hover:underline">
+                        View Resume
+                      </a>
+                    )}
                   </div>
-                </Link>
+                  <span className={`px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(app.status)}`}>
+                    {app.status}
+                  </span>
+                </div>
               </li>
             ))}
           </ul>

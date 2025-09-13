@@ -1,88 +1,169 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import { Box, Typography, Paper, Button, Grid, Chip, Stack, Divider } from '@mui/material';
-import LocationOnIcon from '@mui/icons-material/LocationOn';
-import WorkOutlineIcon from '@mui/icons-material/WorkOutline';
-import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
-import BusinessIcon from '@mui/icons-material/Business';
+import React, { useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { isQuickLink, coalesceAppUrl, companyDisplay } from '../../utils/jobs';
+import { getApplicantsCount } from '../../utils/applicants';
+import { useAuth } from '../../contexts/AuthContext';
+import toast from 'react-hot-toast';
+import { requestConnectionForJob } from '../../utils/connections';
+import { supabase } from '../../utils/supabase';
+import { ShareIcon, BookmarkIcon, MapPinIcon, BriefcaseIcon, ClockIcon } from '@heroicons/react/24/outline';
+import { CalendarIcon } from '@heroicons/react/24/outline';
+import { shareJob } from '../../utils/share';
 
-const JobCard = ({ job }) => {
-  return (
-    <Paper 
-      variant="outlined"
-      sx={{
-        p: 3,
-        borderRadius: 3,
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        transition: 'box-shadow 0.3s, transform 0.3s',
-        '&:hover': {
-          boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-          transform: 'translateY(-4px)'
+export default function JobCard({ job }) {
+  const navigate = useNavigate();
+  const { user, userRole } = useAuth();
+  const employerId = job?.posted_by || job?.user_id || null;
+  const isStudent = ['alumni', 'student'].includes(userRole);
+  const isOwner = user?.id === employerId;
+
+  // Normalize company for display
+  const { name: companyName, logo_url: companyLogo } = useMemo(() => companyDisplay(job), [job]);
+  const isQuick = isQuickLink(job);
+  const externalUrl = useMemo(() => coalesceAppUrl(job), [job]);
+  const [isBookmarked, setIsBookmarked] = useState(Boolean(job?.is_bookmarked));
+
+  const toggleBookmark = async () => {
+    if (!user?.id) {
+      toast.error('Please login to bookmark jobs.');
+      return;
+    }
+    try {
+      if (isBookmarked) {
+        const { error } = await supabase
+          .from('job_bookmarks')
+          .delete()
+          .match({ user_id: user.id, job_id: job.id });
+        if (error) throw error;
+        setIsBookmarked(false);
+        toast.success('Bookmark removed');
+      } else {
+        const { error } = await supabase
+          .from('job_bookmarks')
+          .insert({ user_id: user.id, job_id: job.id });
+        if (error) {
+          if (error.message?.includes('bookmark up to 3')) {
+            toast.error('You can only bookmark up to 3 jobs.');
+          } else {
+            throw error;
+          }
+        } else {
+          setIsBookmarked(true);
+          toast.success('Job bookmarked');
         }
-      }}
-    >
-      <Stack direction="row" spacing={2} alignItems="flex-start">
-        <Box sx={{ 
-          width: 50, 
-          height: 50, 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          borderRadius: 2, 
-          bgcolor: 'grey.200' 
-        }}>
-          <BusinessIcon color="action" />
-        </Box>
-        <Box flexGrow={1}>
-          <Typography 
-            variant="h6" 
-            component={Link} 
-            to={`/jobs/${job.id}`} 
-            sx={{ textDecoration: 'none', color: 'text.primary', fontWeight: '600' }}
-          >
-            {job.title}
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            {job.companies ? job.companies.name : 'N/A'}
-          </Typography>
-        </Box>
-      </Stack>
+      }
+    } catch (e) {
+      console.error('Bookmark error:', e);
+      toast.error('Failed to update bookmark');
+    }
+  };
 
-      <Divider sx={{ my: 2 }} />
+  return (
+    <div className="rounded-2xl border bg-white shadow-sm p-4 hover:shadow-md transition-shadow">
+      {/* Header row with top-right actions */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center">
+          {companyLogo ? (
+            <img src={companyLogo} alt={companyName || 'Company'} className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-[10px] text-gray-400">Logo</span>
+          )}
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-gray-900">{job.title}</h3>
+              <span className={isQuick ? 'text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200' : 'text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200'}>
+                {isQuick ? 'Quick Link' : 'In-App'}
+              </span>
+            </div>
+            {companyName && <div className="text-ocean-600 text-sm">{companyName}</div>}
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          <button onClick={() => shareJob(job)} className="p-2 rounded-full hover:bg-gray-100" aria-label="Share job">
+            <ShareIcon className="w-5 h-5 text-gray-500" />
+          </button>
+          <button onClick={toggleBookmark} className={`p-2 rounded-full ${isBookmarked ? 'bg-ocean-100 hover:bg-ocean-200' : 'hover:bg-gray-100'}`} aria-label={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}>
+            <BookmarkIcon className={`w-5 h-5 ${isBookmarked ? 'text-ocean-600' : 'text-gray-500'}`} />
+          </button>
+        </div>
+      </div>
 
-      <Stack spacing={1} sx={{ mb: 2 }}>
-        {job.location && (
-          <Stack direction="row" alignItems="center" spacing={1} color="text.secondary">
-            <LocationOnIcon fontSize="small" />
-            <Typography variant="body2">{job.location}</Typography>
-          </Stack>
-        )}
-        {job.job_type && (
-          <Stack direction="row" alignItems="center" spacing={1} color="text.secondary">
-            <WorkOutlineIcon fontSize="small" />
-            <Typography variant="body2">{job.job_type}</Typography>
-          </Stack>
-        )}
-        {job.salary_range && (
-          <Stack direction="row" alignItems="center" spacing={1} color="text.secondary">
-            <AttachMoneyIcon fontSize="small" />
-            <Typography variant="body2">{job.salary_range}</Typography>
-          </Stack>
-        )}
-      </Stack>
-
-      <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1, mb: 2 }}>
+      {/* Middle content */}
+      <p className="text-gray-600 text-sm mt-3 mb-4">
         {job.description?.slice(0, 120) + (job.description?.length > 120 ? '...' : '')}
-      </Typography>
+      </p>
 
-      <Stack direction="row" spacing={1.5} justifyContent="flex-end">
-        <Button component={Link} to={`/jobs/${job.id}`} variant="outlined" size="medium">View Details</Button>
-        <Button component={Link} to={`/jobs/${job.id}/apply`} variant="contained" size="medium">Apply Now</Button>
-      </Stack>
-    </Paper>
+      {/* Meta row */}
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        {!!job.location && (
+          <div className="flex items-center text-sm text-gray-600">
+            <MapPinIcon className="w-4 h-4 mr-1" />
+            <span>{job.location}</span>
+          </div>
+        )}
+        {!!job.job_type && (
+          <div className="flex items-center text-sm text-gray-600">
+            <BriefcaseIcon className="w-4 h-4 mr-1" />
+            <span className="capitalize">{job.job_type}</span>
+          </div>
+        )}
+        {!!job.experience_level && (
+          <div className="flex items-center text-sm text-gray-600">
+            <ClockIcon className="w-4 h-4 mr-1" />
+            <span className="capitalize">{job.experience_level}</span>
+          </div>
+        )}
+        {job.application_deadline && (
+          <div className="flex items-center text-sm text-gray-600 col-span-2">
+            <CalendarIcon className="w-4 h-4 mr-1" />
+            <span>Deadline: {new Date(job.application_deadline).toLocaleDateString()}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Footer CTAs */}
+      <div className="mt-4 flex justify-between items-center">
+        {(() => { const c = getApplicantsCount(job); return (c !== null && c > 0) ? (<span className="text-sm text-gray-500">{c} applicant{c === 1 ? '' : 's'}</span>) : <span />; })()}
+        
+        <div className="flex gap-2">
+          <Link className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50" to={`/jobs/${job.id}`}>View Details</Link>
+          
+          {isQuick ? (
+            <a
+              href={externalUrl}
+              target="_blank"
+              rel="noopener"
+              className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700 flex items-center gap-1"
+            >
+              <span>Apply Externally</span>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          ) : (
+            <button
+              className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700"
+              onClick={() => navigate(`/jobs/${job.id}`)}
+            >
+              {isOwner ? 'View Applications' : 'Apply Now'}
+            </button>
+          )}
+
+          {isStudent && employerId && !isOwner && (
+            <button
+              className="px-3 py-2 rounded-lg text-sm bg-blue-50 text-blue-600 hover:bg-blue-100"
+              onClick={async () => {
+                try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (e) { console.error('Failed to request connection:', e); }
+                navigate(`/messages?peer=${employerId}&job=${job.id}`);
+              }}
+            >
+              Ask Employer
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
-};
-
-export default JobCard;
+}

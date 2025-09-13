@@ -2,20 +2,26 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import EmployerGuard from '../Auth/EmployerGuard';
 import toast from 'react-hot-toast';
 import { Box, TextField, Button, Typography, Paper, Grid, CircularProgress, MenuItem, Alert, Switch, FormControlLabel } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
+const GuardReady = ({ onReady }) => {
+  useEffect(() => { onReady && onReady(); }, [onReady]);
+  return null;
+};
+
 const EditJob = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, getUserRole } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [formData, setFormData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
-  const userRole = getUserRole();
+  // Owner/admin guard is enforced below
 
   const fetchJob = useCallback(async () => {
     if (!user) {
@@ -36,7 +42,8 @@ const EditJob = () => {
       if (error) throw error;
       if (!data) throw new Error('Job not found.');
 
-      const canEdit = data.posted_by === user.id || ['employer', 'admin', 'super_admin'].includes(userRole);
+      // Only owner (posted_by) or admin can edit
+      const canEdit = (data.posted_by === user.id) || isAdmin;
       if (!canEdit) {
         toast.error('You are not authorized to edit this job.');
         navigate(`/jobs/${id}`);
@@ -51,11 +58,15 @@ const EditJob = () => {
     } finally {
       setLoading(false);
     }
-  }, [id, user, userRole, navigate]);
+  }, [id, user, navigate]);
 
+  // Fetch only after guard passes to avoid any flash
+  const [guardReady, setGuardReady] = useState(false);
   useEffect(() => {
-    fetchJob();
-  }, [fetchJob]);
+    if (guardReady && !formData) {
+      fetchJob();
+    }
+  }, [guardReady, formData, fetchJob]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -71,9 +82,10 @@ const EditJob = () => {
 
     const { id: jobId, created_at, posted_by, company_id, ...updateData } = formData;
 
-    if (!['admin', 'super_admin'].includes(userRole)) {
-        delete updateData.is_approved;
-        delete updateData.is_featured;
+    // Only admins can update approval/featured flags
+    if (!isAdmin) {
+      delete updateData.is_approved;
+      delete updateData.is_featured;
     }
 
     try {
@@ -114,7 +126,10 @@ const EditJob = () => {
   }
 
   return (
+    <EmployerGuard jobId={id} strict>
+    {() => (
     <Box sx={{ maxWidth: 800, mx: 'auto', p: 3 }}>
+      <GuardReady onReady={() => setGuardReady(true)} />
       <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(-1)} sx={{ mb: 2 }}>
         Back to Job Details
       </Button>
@@ -165,7 +180,7 @@ const EditJob = () => {
               <TextField fullWidth label="Application URL or Email" name="application_url" value={formData.application_url || ''} onChange={handleChange} disabled={isSubmitting} />
             </Grid>
 
-            {['admin', 'super_admin'].includes(userRole) && (
+            {isAdmin && (
               <Grid item xs={12}>
                 <Typography variant="h6" sx={{ mb: 1, mt: 2 }}>Admin Controls</Typography>
                 <FormControlLabel control={<Switch checked={formData.is_approved || false} onChange={handleChange} name="is_approved" />} label="Is Approved" disabled={isSubmitting} />
@@ -186,6 +201,8 @@ const EditJob = () => {
         </form>
       </Paper>
     </Box>
+    )}
+    </EmployerGuard>
   );
 };
 

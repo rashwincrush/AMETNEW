@@ -43,8 +43,15 @@ const PERMISSIONS = {
     'manage:mentor_profile', 'manage:mentee_requests', 'chat:mentees', 'manage:mentoring_slots'
   ],
   employer: [
-    'access:dashboard', 'post:jobs', 'manage:company_profile', 'view:job_applications',
-    'access:events', 'manage:jobs', 'access:profile_settings'
+    'access:dashboard',
+    'view:jobs',            // allow Job Portal menu visibility
+    'post:jobs',
+    'manage:jobs',
+    'view:job_applications',
+    'manage:company_profile',
+    'access:events',
+    'message:users',        // allow messaging entry and gated chat
+    'access:profile_settings'
   ],
   admin: ['access:all'],
   super_admin: ['access:all', 'view:feedback_reports'],
@@ -550,7 +557,7 @@ export const AuthProvider = ({ children }) => {
     logger.log(`Loading state changed to: ${loading}`);
   }, [loading]);
 
-  // Normalize role handling: prefer explicit role, then fallbacks (ALIGN: db-enum-roles)
+  // Normalize role handling strictly from profiles.role (single source of truth)
   const getUserRole = useCallback(() => {
     // If profile doesn't exist, default to 'alumni'
     if (!profile) return 'alumni';
@@ -558,10 +565,7 @@ export const AuthProvider = ({ children }) => {
     // Prefer explicit role if valid
     if (profile.role && isRole(profile.role)) return profile.role;
 
-    // Fallback: legacy flag grants 'admin'
-    if (profile.is_admin === true) return 'admin';
-
-    // Final default aligned with enum default
+    // Default aligned with enum
     return 'alumni';
   }, [profile]);
   const userRole = getUserRole();
@@ -602,6 +606,7 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!user,
     isAdmin,
     userRole,
+    role: userRole,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,

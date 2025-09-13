@@ -192,8 +192,10 @@ function AppContent() {
             <Route path="/companies/:id" element={<PublicCompanyProfile />} />
             <Route path="/company/edit" element={<ProtectedRoute requiredPermission="manage:company_profile"><EditCompanyProfile user={profile || user} /></ProtectedRoute>} />
             <Route path="/events/*" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="access:events"><EventsPage /></ProtectedRoute></RequireCompleteProfile>} />
+            <Route path="/events/my-registrations" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="access:events"><EventsPage /></ProtectedRoute></RequireCompleteProfile>} />
             <Route path="/events/edit/:id" element={<ProtectedRoute requiredPermission="access:events"><EditEvent /></ProtectedRoute>} />
             <Route path="/events/create" element={<ProtectedRoute requiredPermission="access:events"><CreateEvent /></ProtectedRoute>} />
+            <Route path="/events/new" element={<ProtectedRoute requiredPermission="access:events"><CreateEvent /></ProtectedRoute>} />
             <Route path="/admin/events/:id/feedback" element={<ProtectedRoute requiredPermission="access:all"><EventFeedbackReport /></ProtectedRoute>} />
             <Route path="/admin/events/moderation" element={<ProtectedRoute requiredPermission="access:all"><EventModerationPanel /></ProtectedRoute>} />
             <Route path="/jobs" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:jobs"><JobListingsPage /></ProtectedRoute></RequireCompleteProfile>} />
@@ -207,12 +209,29 @@ function AppContent() {
             <Route path="/jobs/:jobId/apply" element={<JobApplication />} />
             <Route path="/jobs/:jobId/application-success" element={<Navigate to="/jobs/applications" />} />
             <Route path="/jobs/:id" element={<ProtectedRoute requiredPermission="view:jobs"><JobDetails /></ProtectedRoute>} />
+            {/* Support canonical edit route used by details components */}
+            <Route path="/jobs/:id/edit" element={<ProtectedRoute requiredPermission="post:jobs"><EditJob /></ProtectedRoute>} />
+            {/* Backward-compat legacy edit route */}
             <Route path="/jobs/edit/:id" element={<ProtectedRoute requiredPermission="post:jobs"><EditJob /></ProtectedRoute>} />
 
             <Route path="/jobs/:jobId/manage" element={<ProtectedRoute requiredPermission="view:job_applications"><ManageJobApplications /></ProtectedRoute>} />
             <Route path="/my-applications" element={<ProtectedRoute><JobApplicationStatus /></ProtectedRoute>} />
             <Route path="/profile/:userId" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:alumni_directory"><UserProfilePage /></ProtectedRoute></RequireCompleteProfile>} />
-            <Route path="/directory" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:alumni_directory"><DirectoryPage /></ProtectedRoute></RequireCompleteProfile>} />
+            <Route
+              path="/directory"
+              element={
+                // Redirect employers away from Directory to Jobs
+                getUserRole() === 'employer'
+                  ? <Navigate to="/jobs" replace />
+                  : (
+                    <RequireCompleteProfile>
+                      <ProtectedRoute requiredPermission="view:alumni_directory">
+                        <DirectoryPage />
+                      </ProtectedRoute>
+                    </RequireCompleteProfile>
+                  )
+              }
+            />
             <Route path="/directory-actions" element={<Navigate to="/directory" replace />} />
             <Route path="/directory/:id" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:alumni_directory"><AlumniProfile /></ProtectedRoute></RequireCompleteProfile>} />
             

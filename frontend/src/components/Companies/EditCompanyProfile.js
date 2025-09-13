@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useNotification } from '../../hooks/useNotification';
 import { BuildingOfficeIcon, GlobeAltIcon, InformationCircleIcon, MapPinIcon, UsersIcon, PhotoIcon } from '@heroicons/react/24/outline';
+import EmployerGuard from '../Auth/EmployerGuard';
 
-const EditCompanyProfile = ({ user }) => {
+const EditCompanyProfileContent = ({ user }) => {
   const [company, setCompany] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -197,4 +198,15 @@ const EditCompanyProfile = ({ user }) => {
   );
 };
 
-export default EditCompanyProfile;
+export default function EditCompanyProfile(props) {
+  // Guard-before-fetch: only render content when EmployerGuard says OK
+  return (
+    <EmployerGuard strict={true}>
+      {({ hasAccess, loading }) => {
+        if (loading) return <div className="text-center p-8">Validating access...</div>;
+        if (!hasAccess) return null; // Strict guard will redirect
+        return <EditCompanyProfileContent {...props} />;
+      }}
+    </EmployerGuard>
+  );
+}

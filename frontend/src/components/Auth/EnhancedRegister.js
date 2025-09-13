@@ -464,21 +464,32 @@ const EnhancedRegister = () => {
       return;
     }
 
-    // Strict submit-time guard for degree
-    const ALLOWED_DEGREE_CODES = (Array.isArray(allowedDegreeCodes) && allowedDegreeCodes.length)
-      ? allowedDegreeCodes
-      : DEGREE_FALLBACK_CODES;
-    const chosenDegree = (formData.degree || '').trim().toUpperCase();
-    if (!ALLOWED_DEGREE_CODES.includes(chosenDegree)) {
-      const listText = 'BE, BTECH, BSC, ME, MCA, MSC, MTECH, MBA, BBA, BCA, PHD';
-      toast.error(`Please pick a valid degree. Allowed: ${listText}.`);
-      degreeInputRef.current?.focus?.();
-      return;
+    // Determine selected role up front
+    const selectedRole = isRole(formData.primaryRole) ? formData.primaryRole : 'alumni';
+
+    // Strict submit-time guard for degree ONLY for alumni or student
+    if (selectedRole === 'alumni' || selectedRole === 'student') {
+      const ALLOWED_DEGREE_CODES = (Array.isArray(allowedDegreeCodes) && allowedDegreeCodes.length)
+        ? allowedDegreeCodes
+        : DEGREE_FALLBACK_CODES;
+      const chosenDegree = (formData.degree || '').trim().toUpperCase();
+      if (!ALLOWED_DEGREE_CODES.includes(chosenDegree)) {
+        const listText = 'BE, BTECH, BSC, ME, MCA, MSC, MTECH, MBA, BBA, BCA, PHD';
+        toast.error(`Please pick a valid degree. Allowed: ${listText}.`);
+        degreeInputRef.current?.focus?.();
+        return;
+      }
     }
 
     if (process.env.NODE_ENV === 'development') {
       // eslint-disable-next-line no-console
-      console.debug('[Register] Degree validation', { allowedCount: ALLOWED_DEGREE_CODES.length, chosen: chosenDegree });
+      if (selectedRole === 'alumni' || selectedRole === 'student') {
+        const ALLOWED_DEGREE_CODES = (Array.isArray(allowedDegreeCodes) && allowedDegreeCodes.length)
+          ? allowedDegreeCodes
+          : DEGREE_FALLBACK_CODES;
+        const chosenDegree = (formData.degree || '').trim().toUpperCase();
+        console.debug('[Register] Degree validation', { allowedCount: ALLOWED_DEGREE_CODES.length, chosen: chosenDegree });
+      }
     }
 
     setIsSubmitting(true);
@@ -490,21 +501,20 @@ const EnhancedRegister = () => {
       console.log('[Register] Submitting signup request...');
 
       // Stage-2 payload mapped to profile columns (avatar omitted intentionally)
-      const selectedRole = isRole(formData.primaryRole) ? formData.primaryRole : 'alumni';
       const stage2 = {
         first_name: formData.firstName.trim(),
         last_name: formData.lastName.trim(),
         phone: formData.phone.trim(),
-        graduation_year: Number(formData.graduationYear),
-        degree_program: chosenDegree || null, // strict code from combobox
-        department: formData.department || null, // code
+        graduation_year: (selectedRole === 'alumni') ? Number(formData.graduationYear) : null,
+        degree_program: (selectedRole === 'alumni' || selectedRole === 'student') ? ((formData.degree || '').trim().toUpperCase() || null) : null,
+        department: (selectedRole === 'alumni') ? (formData.department || null) : null,
         company_name: formData.companyName?.trim() || null,
         current_job_title: formData.jobTitle?.trim() || null,
         location: formData.currentLocation?.trim() || null,
         role: selectedRole,
       };
 
-      if (formData.primaryRole === 'student') {
+      if (selectedRole === 'student') {
         stage2.expected_graduation_year = Number(formData.expectedGraduationYear) || null;
       }
 
@@ -545,9 +555,10 @@ const EnhancedRegister = () => {
           location: formData.currentLocation?.trim() || null,
           company_name: formData.companyName?.trim() || null,
           current_job_title: formData.jobTitle?.trim() || null,
-          degree_program: chosenDegree,
-          department: formData.department?.trim() || null,
-          graduation_year: Number(formData.graduationYear) || null,
+          role: selectedRole,
+          degree_program: (selectedRole === 'alumni' || selectedRole === 'student') ? ((formData.degree || '').trim().toUpperCase() || null) : null,
+          department: (selectedRole === 'alumni') ? (formData.department?.trim() || null) : null,
+          graduation_year: (selectedRole === 'alumni') ? (Number(formData.graduationYear) || null) : null,
           updated_at: new Date().toISOString(),
         };
 

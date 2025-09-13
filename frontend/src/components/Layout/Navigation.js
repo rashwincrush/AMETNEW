@@ -40,8 +40,13 @@ const Navigation = () => {
 
   // Filter menu items based on user's permissions
   const getMenuItems = () => {
+    const role = getUserRole();
     // Filter menu items that the user has permission to access
-    return allMenuItems.filter(item => hasPermission(item.permission));
+    // Additionally, hide Directory for employers explicitly
+    return allMenuItems.filter(item => {
+      if (role === 'employer' && item.path === '/directory') return false;
+      return hasPermission(item.permission);
+    });
   };
 
   const handleLogout = async () => {

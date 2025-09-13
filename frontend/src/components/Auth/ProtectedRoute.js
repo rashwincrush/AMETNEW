@@ -1,9 +1,12 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { isAdminLike } from '../../lib/roles';
 
-const ProtectedRoute = ({ children, requiredPermission, isSuperAdminOnly }) => {
-  const { isAuthenticated, hasPermission, loading, getUserRole } = useAuth();
+// Backward compatible props: supports requiredPermission, isSuperAdminOnly
+// New props: requireAdmin (boolean), allowRoles (array of role strings)
+const ProtectedRoute = ({ children, requiredPermission, isSuperAdminOnly, requireAdmin = false, allowRoles }) => {
+  const { isAuthenticated, hasPermission, loading, role, getUserRole } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -23,6 +26,18 @@ const ProtectedRoute = ({ children, requiredPermission, isSuperAdminOnly }) => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  // New gating: enum-based role checks
+  if (requireAdmin && !isAdminLike(role)) {
+    return <Navigate to="/access-denied" state={{ from: location.pathname }} replace />;
+  }
+
+  if (allowRoles && Array.isArray(allowRoles) && allowRoles.length > 0) {
+    if (!allowRoles.includes(role)) {
+      return <Navigate to="/access-denied" state={{ from: location.pathname }} replace />;
+    }
+  }
+
+  // Backward compatibility: permission and super admin flags
   if ((requiredPermission && !hasPermission(requiredPermission)) || 
       (isSuperAdminOnly && getUserRole() !== 'super_admin')) {
     // Redirect to the dedicated 'access-denied' page

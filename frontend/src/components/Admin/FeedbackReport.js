@@ -54,7 +54,7 @@ const STATUS_TYPES = [
 ];
 
 const FeedbackReport = () => {
-  const { user } = useAuth();
+  const { userRole, isAdmin } = useAuth();
   const [feedback, setFeedback] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -67,37 +67,15 @@ const FeedbackReport = () => {
   const [dateFilter, setDateFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Check if user is super_admin
+  // Authorization via AuthContext only (ban direct role reads)
   const [isAuthorized, setIsAuthorized] = useState(false);
-
   useEffect(() => {
-    const checkUserRole = async () => {
-      if (!user) return;
-
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-
-      if (error) {
-        console.error('Error fetching user role:', error);
-        toast.error('You do not have permission to view this page');
-        setIsAuthorized(false);
-        return;
-      }
-
-      if (profile?.role === 'super_admin') {
-        setIsAuthorized(true);
-        fetchFeedback();
-      } else {
-        setIsAuthorized(false);
-        toast.error('You do not have permission to view this page');
-      }
-    };
-
-    checkUserRole();
-  }, [user]);
+    const allowed = userRole === 'super_admin' || isAdmin;
+    setIsAuthorized(!!allowed);
+    if (allowed) fetchFeedback();
+    else toast.error('You do not have permission to view this page');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userRole, isAdmin]);
 
   const fetchFeedback = async () => {
     setLoading(true);

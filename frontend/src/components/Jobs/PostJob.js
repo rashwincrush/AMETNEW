@@ -29,7 +29,7 @@ import {
   AttachMoney as SalaryIcon
 } from '@mui/icons-material';
 
-const steps = ['Basic Information', 'Job Details', 'Company & Contact'];
+const steps = ['Core Info', 'Job Content', 'Details & Contact'];
 
 const PostJob = () => {
   const { user, profile } = useAuth();
@@ -53,17 +53,33 @@ const PostJob = () => {
   }, [profile]);
 
   const [formData, setFormData] = useState({
-    company_name: '', // Changed from company_id to company_name
     title: '',
+    company_name: '',
     location: '',
+    work_mode: 'On-site',
     job_type: 'Full-time',
-    description: '',
-    requirements: '',
-    salary_range: '',
-    application_url: '',
-    deadline: '',
-    company_id: null, // To store the ID of the company
-    logo_url: '' // To store the logo URL after upload
+    experience_level: 'Entry',
+    department: '',
+    industry: '',
+    salary_min: '',
+    salary_max: '',
+    currency: 'USD',
+    application_deadline: '',
+    openings: 1,
+    summary: '',
+    responsibilities: '',
+    qualifications: '',
+    nice_to_have_skills: '',
+    benefits: '',
+    about_the_company: '',
+    company_website: '',
+    hiring_contact_email: '',
+    equal_opportunity_note: 'Our company is an equal opportunity employer. We celebrate diversity and are committed to creating an inclusive environment for all employees.',
+    // Internal fields
+    company_id: null,
+    logo_url: '',
+    // Quick Link specific
+    external_application_url: ''
   });
 
   const handleChange = (e) => {
@@ -98,19 +114,13 @@ const PostJob = () => {
 
   const validateStep = () => {
     const newErrors = {};
-    if (activeStep === 0) {
-      if (!formData.title.trim()) newErrors.title = 'Job title is required';
-      if (!formData.location.trim()) newErrors.location = 'Location is required';
+    if (activeStep === 0) { // Core Info validation
+      if (!formData.title.trim()) newErrors.title = 'Job Title is required.';
+      if (!formData.company_name.trim()) newErrors.company_name = 'Company Name is required.';
+      if (!formData.location.trim()) newErrors.location = 'Location is required.';
+      // Work Mode, Job Type, and Experience Level have defaults, but you could add validation if needed.
     }
-    if (activeStep === 1) {
-      if (!formData.description.trim()) newErrors.description = 'Description is required';
-      if (!formData.requirements.trim()) newErrors.requirements = 'Requirements are required';
-    }
-    if (activeStep === 2) {
-      if (!formData.company_name) newErrors.company_name = 'Company name is required';
-      // No validation for logo, it's optional
-      if (!formData.application_url.trim()) newErrors.application_url = 'Application URL or email is required';
-    }
+    // No validation for step 1 (Job Content) or step 2 (Details & Contact) as fields are optional.
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -125,11 +135,93 @@ const PostJob = () => {
     setActiveStep((prevActiveStep) => prevActiveStep - 1);
   };
 
+  const handleQuickLinkSubmit = async (e) => {
+    e.preventDefault();
+    const newErrors = {};
+    if (!formData.title.trim()) newErrors.title = 'Job Title is required.';
+    if (!formData.company_name.trim()) newErrors.company_name = 'Company Name is required.';
+    if (!formData.external_application_url.trim()) {
+      newErrors.external_application_url = 'External Application URL is required.';
+    } else {
+      try {
+        const url = new URL(formData.external_application_url);
+        if (url.protocol !== 'https:' && url.protocol !== 'mailto:') {
+          newErrors.external_application_url = 'URL must start with https:// or mailto:';
+        }
+      } catch (_) {
+        newErrors.external_application_url = 'Please enter a valid URL.';
+      }
+    }
+
+    setErrors(newErrors);
+    if (Object.keys(newErrors).length > 0) {
+      toast.error('Please fix the errors before submitting.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        toast.error('Please sign in to post a job.');
+        return;
+      }
+
+      // Find or create company
+      const { data: existingCompany } = await supabase.from('companies').select('id').eq('name', formData.company_name.trim()).single();
+      let companyId = existingCompany?.id;
+      if (!companyId) {
+        const { data: newCompany, error: createError } = await supabase.from('companies').insert({ name: formData.company_name.trim(), created_by: session.user.id }).select('id').single();
+        if (createError) throw createError;
+        companyId = newCompany.id;
+      }
+
+      const jobData = {
+        title: formData.title.trim(),
+        company_id: companyId,
+        application_url: formData.external_application_url.trim(), // The key field for Quick Links
+        summary: formData.summary?.trim(),
+        // Let the backend handle posted_by, is_approved, etc.
+      };
+
+      const { error: jobError } = await supabase.from('jobs').insert(jobData);
+      if (jobError) throw jobError;
+
+      toast.success('Quick Link job posted successfully!');
+      navigate('/jobs');
+
+    } catch (err) {
+      console.error('Error submitting Quick Link job:', err);
+      toast.error(`Submission failed: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateStep()) {
-      toast.error('Please fix the errors before submitting.');
+      toast.error('Please fix the errors on the current step.');
       return;
+    }
+
+    // Additional validation for fields not in the stepper validation
+    const { salary_min, salary_max, application_deadline } = formData;
+    if (salary_min && salary_max && parseFloat(salary_min) > parseFloat(salary_max)) {
+      toast.error('Salary minimum cannot be greater than the maximum.');
+      setErrors(prev => ({ ...prev, salary_min: 'Invalid range', salary_max: 'Invalid range' }));
+      return;
+    }
+
+    if (application_deadline) {
+      const today = new Date();
+      const deadlineDate = new Date(application_deadline);
+      today.setHours(0, 0, 0, 0); // Normalize today to the start of the day
+      if (deadlineDate < today) {
+        toast.error('Application deadline cannot be in the past.');
+        setErrors(prev => ({ ...prev, application_deadline: 'Date cannot be in the past' }));
+        return;
+      }
     }
 
     // Session guard
@@ -272,24 +364,31 @@ const PostJob = () => {
         }
       }
 
-      // Create the final payload by explicitly picking only the valid fields.
-      // This is the most robust way to prevent payload contamination.
       const jobData = {
+        company_id: companyId,
         title: formData.title?.trim(),
         location: formData.location?.trim(),
+        work_mode: formData.work_mode,
         job_type: formData.job_type,
-        description: formData.description?.trim(),
-        requirements: formData.requirements?.trim(),
-        salary_range: formData.salary_range?.trim(),
-        application_url: formData.application_url?.trim(),
-        company_id: companyId,      // This is critical and must not be null
-        // Do NOT send posted_by, is_approved, is_active - let DB handle them
+        experience_level: formData.experience_level,
+        department: formData.department?.trim(),
+        industry: formData.industry?.trim(),
+        salary_min: formData.salary_min || null,
+        salary_max: formData.salary_max || null,
+        currency: formData.currency,
+        application_deadline: formData.application_deadline || null,
+        openings: formData.openings || 1,
+        summary: formData.summary?.trim(),
+        description: formData.summary?.trim(), // Using summary as the main description for now.
+        responsibilities: formData.responsibilities?.trim(),
+        qualifications: formData.qualifications?.trim(),
+        nice_to_have_skills: formData.nice_to_have_skills?.split(',').map(s => s.trim()),
+        benefits: formData.benefits?.trim(),
+        about_the_company: formData.about_the_company?.trim(),
+        company_website: formData.company_website?.trim(),
+        hiring_contact_email: formData.hiring_contact_email?.trim(),
+        // application_url is intentionally omitted for In-App jobs
       };
-      
-      // Only add deadline if it's valid
-      if (deadline) {
-        jobData.deadline = deadline;
-      }
       
       // Log the exact payload we're sending
       console.log("Submitting job with payload:", jobData);
@@ -327,94 +426,113 @@ const PostJob = () => {
 
   const getStepContent = (step) => {
     switch (step) {
-      case 0:
+      case 0: // Core Info
         return (
           <Grid container spacing={3}>
             <Grid item xs={12}>
-              <TextField
-                required fullWidth name="title" label="Job Title" value={formData.title} onChange={handleChange}
-                error={!!errors.title} helperText={errors.title}
-                placeholder="e.g., Senior Marine Engineer"
-              />
+              <TextField required fullWidth name="title" label="Job Title" value={formData.title} onChange={handleChange} error={!!errors.title} helperText={errors.title} placeholder="e.g., Mechanical Engineer – Shipyard" />
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                required fullWidth name="location" label="Location" value={formData.location} onChange={handleChange}
-                error={!!errors.location} helperText={errors.location}
-                placeholder="e.g., Mumbai, Maharashtra"
-              />
+            <Grid item xs={12}>
+              <TextField required fullWidth name="company_name" label="Company Name" value={formData.company_name} onChange={handleChange} error={!!errors.company_name} helperText={errors.company_name} />
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField select fullWidth name="job_type" label="Job Type" value={formData.job_type} onChange={handleChange}>
+            <Grid item xs={12}>
+              <TextField required fullWidth name="location" label="Location" value={formData.location} onChange={handleChange} error={!!errors.location} helperText={errors.location} placeholder="e.g., Mumbai, Maharashtra, India" />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField select fullWidth required name="work_mode" label="Work Mode" value={formData.work_mode} onChange={handleChange}>
+                <MenuItem value="On-site">On-site</MenuItem>
+                <MenuItem value="Hybrid">Hybrid</MenuItem>
+                <MenuItem value="Remote">Remote</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField select fullWidth required name="job_type" label="Job Type" value={formData.job_type} onChange={handleChange}>
                 <MenuItem value="Full-time">Full-time</MenuItem>
                 <MenuItem value="Part-time">Part-time</MenuItem>
                 <MenuItem value="Contract">Contract</MenuItem>
                 <MenuItem value="Internship">Internship</MenuItem>
+                <MenuItem value="Temporary">Temporary</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField select fullWidth required name="experience_level" label="Experience Level" value={formData.experience_level} onChange={handleChange}>
+                <MenuItem value="Entry">Entry</MenuItem>
+                <MenuItem value="Mid">Mid-level</MenuItem>
+                <MenuItem value="Senior">Senior</MenuItem>
+                <MenuItem value="Director+">Director+</MenuItem>
               </TextField>
             </Grid>
           </Grid>
         );
-      case 1:
+      case 1: // Job Content
         return (
           <Grid container spacing={3}>
             <Grid item xs={12}>
-              <TextField
-                required fullWidth multiline rows={6} name="description" label="Job Description" value={formData.description} onChange={handleChange}
-                error={!!errors.description} helperText={errors.description}
-              />
+              <TextField fullWidth multiline rows={3} name="summary" label="Summary (Short, 1-2 sentences)" value={formData.summary} onChange={handleChange} />
             </Grid>
             <Grid item xs={12}>
-              <TextField
-                required fullWidth multiline rows={4} name="requirements" label="Requirements" value={formData.requirements} onChange={handleChange}
-                error={!!errors.requirements} helperText={errors.requirements}
-              />
+              <TextField fullWidth multiline rows={5} name="responsibilities" label="Responsibilities (5-8 bullet points recommended)" value={formData.responsibilities} onChange={handleChange} placeholder="- Responsibility 1\n- Responsibility 2" />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField fullWidth multiline rows={5} name="qualifications" label="Qualifications (Skills, Education, Certs)" value={formData.qualifications} onChange={handleChange} placeholder="- Qualification 1\n- Qualification 2" />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField fullWidth name="nice_to_have_skills" label="Nice-to-have Skills (comma-separated)" value={formData.nice_to_have_skills} onChange={handleChange} placeholder="e.g., AutoCAD, Project Management" />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField fullWidth multiline rows={4} name="benefits" label="Benefits / Perks" value={formData.benefits} onChange={handleChange} placeholder="- Perk 1\n- Perk 2" />
             </Grid>
           </Grid>
         );
-      case 2:
+      case 2: // Details & Contact
         return (
           <Grid container spacing={3}>
-             <Grid item xs={12}>
-              <TextField
-                required
-                fullWidth
-                name="company_name"
-                label="Company Name"
-                value={formData.company_name}
-                onChange={handleChange}
-                error={!!errors.company_name}
-                helperText={errors.company_name || 'Enter the name of the company.'}
-              />
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth name="department" label="Department" value={formData.department} onChange={handleChange} placeholder="e.g., Marine Engineering" />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth name="industry" label="Industry" value={formData.industry} onChange={handleChange} placeholder="e.g., Maritime" />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField fullWidth name="salary_min" label="Salary Minimum" type="number" value={formData.salary_min} onChange={handleChange} />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField fullWidth name="salary_max" label="Salary Maximum" type="number" value={formData.salary_max} onChange={handleChange} />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField select fullWidth name="currency" label="Currency" value={formData.currency} onChange={handleChange}>
+                <MenuItem value="USD">USD</MenuItem>
+                <MenuItem value="INR">INR</MenuItem>
+                <MenuItem value="EUR">EUR</MenuItem>
+                <MenuItem value="GBP">GBP</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth type="date" name="application_deadline" label="Application Deadline" value={formData.application_deadline} onChange={handleChange} InputLabelProps={{ shrink: true }} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth type="number" name="openings" label="Number of Openings" value={formData.openings} onChange={handleChange} />
+            </Grid>
+            <Grid item xs={12}>
+              <Divider sx={{ my: 2 }}><Typography variant="overline">Company Details</Typography></Divider>
             </Grid>
             <Grid item xs={12}>
               <Typography variant="subtitle1" gutterBottom>Company Logo</Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Avatar 
-                  src={logoPreview || '/logo.png'} 
-                  alt="Company Logo Preview" 
-                  sx={{ width: 60, height: 60, border: '1px solid #ddd' }}
-                />
-                <Button variant="outlined" component="label">
-                  Upload Logo
-                  <input type="file" hidden accept="image/png, image/jpeg, image/jpg, image/svg+xml" onChange={handleLogoChange} />
-                </Button>
-                {logoPreview && (
-                  <Button size="small" onClick={() => { setLogoFile(null); setLogoPreview(''); }}>Remove</Button>
-                )}
+                <Avatar src={logoPreview || ''} alt="Company Logo Preview" sx={{ width: 60, height: 60, border: '1px solid #ddd' }} />
+                <Button variant="outlined" component="label">Upload Logo<input type="file" hidden accept="image/png, image/jpeg, image/jpg, image/svg+xml" onChange={handleLogoChange} /></Button>
+                {logoPreview && <Button size="small" onClick={() => { setLogoFile(null); setLogoPreview(''); }}>Remove</Button>}
               </Box>
-              <Typography variant="caption" color="text.secondary">Max 5MB. Allowed types: PNG, JPG, SVG.</Typography>
+              <Typography variant="caption" color="text.secondary">Max 2MB. PNG, JPG, SVG.</Typography>
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="salary_range" label="Salary Range" value={formData.salary_range} onChange={handleChange} placeholder="e.g., $80k - $120k" />
+              <TextField fullWidth name="company_website" label="Company Website" value={formData.company_website} onChange={handleChange} placeholder="https://example.com" />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth type="date" name="deadline" label="Application Deadline" value={formData.deadline} onChange={handleChange} InputLabelProps={{ shrink: true }} />
+              <TextField fullWidth name="hiring_contact_email" type="email" label="Hiring Contact Email (Internal Only)" value={formData.hiring_contact_email} onChange={handleChange} />
             </Grid>
             <Grid item xs={12}>
-              <TextField
-                required fullWidth name="application_url" label="Application URL or Email" value={formData.application_url} onChange={handleChange}
-                error={!!errors.application_url} helperText={errors.application_url}
-              />
+              <TextField fullWidth multiline rows={3} name="about_the_company" label="About the Company" value={formData.about_the_company} onChange={handleChange} />
             </Grid>
           </Grid>
         );
@@ -647,96 +765,27 @@ const PostJob = () => {
             <CardContent sx={{ p: 4 }}>
               {postingType === 'link' ? (
                 /* Quick Link Post Form */
-                <form onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!formData.title.trim()) {
-                    setErrors({title: 'Job title is required'});
-                    return;
-                  }
-                  if (!formData.application_url.trim()) {
-                    setErrors({application_url: 'Application URL is required'});
-                    return;
-                  }
-                  
-                  setIsSubmitting(true);
-                  supabase.from('jobs').insert([
-                    {
-                      title: formData.title,
-                      application_url: formData.application_url,
-                      company_name: formData.company_name, // Changed from company_id
-                      user_id: user?.id,
-                      is_approved: false,
-                      is_active: true,
-                      external_url: true
-                    }
-                  ])
-                  .then(({error}) => {
-                    if (error) throw error;
-                    toast.success('Job link submitted for approval!');
-                    navigate('/jobs');
-                  })
-                  .catch(err => {
-                    toast.error(`Error submitting job: ${err.message}`);
-                  })
-                  .finally(() => setIsSubmitting(false));
-                }}>
+                <form onSubmit={handleQuickLinkSubmit}>
                   <Box sx={{ mb: 4 }}>
-                    <Typography variant="h5" sx={{ 
-                      mb: 1, 
-                      fontWeight: 'bold',
-                      color: '#1976d2',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 1
-                    }}>
-                      <WorkIcon />
-                      Quick Job Post with Link
+                    <Typography variant="h5" sx={{ mb: 1, fontWeight: 'bold', color: '#1976d2' }}>
+                      Post with a Link
                     </Typography>
-                    <Typography variant="body1" color="text.secondary" sx={{ mt: 1, mb: 2 }}>
-                      Provide a job title and application link to quickly post a job
-                    </Typography>
+                    <Typography variant="body1" color="text.secondary">Provide a job title, company, and a link to the external application page.</Typography>
                     <Divider sx={{ my: 2 }} />
                   </Box>
                   
                   <Grid container spacing={3}>
                     <Grid item xs={12}>
-                      <TextField
-                        required
-                        fullWidth
-                        name="title"
-                        label="Job Title"
-                        value={formData.title}
-                        onChange={handleChange}
-                        error={!!errors.title}
-                        helperText={errors.title}
-                        placeholder="e.g., Senior Marine Engineer"
-                      />
+                      <TextField required fullWidth name="title" label="Job Title" value={formData.title} onChange={handleChange} error={!!errors.title} helperText={errors.title} />
                     </Grid>
-                    
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        fullWidth
-                        name="company_name"
-                        label="Company (Optional)"
-                        value={formData.company_name}
-                        onChange={handleChange}
-                        placeholder="e.g., Maersk"
-                      />
+                    <Grid item xs={12}>
+                      <TextField required fullWidth name="company_name" label="Company Name" value={formData.company_name} onChange={handleChange} error={!!errors.company_name} helperText={errors.company_name} />
                     </Grid>
-                    
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        required
-                        fullWidth
-                        type="url"
-                        name="application_url"
-                        label="Application URL"
-                        value={formData.application_url}
-                        onChange={handleChange}
-                        error={!!errors.application_url}
-                        helperText={errors.application_url}
-                        placeholder="https://example.com/apply"
-                      />
+                    <Grid item xs={12}>
+                      <TextField required fullWidth type="url" name="external_application_url" label="External Application URL (https:// or mailto:)" value={formData.external_application_url} onChange={handleChange} error={!!errors.external_application_url} helperText={errors.external_application_url} />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField fullWidth multiline rows={3} name="summary" label="Summary (Optional)" value={formData.summary} onChange={handleChange} />
                     </Grid>
                   </Grid>
                   

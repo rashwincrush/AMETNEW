@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { CheckBadgeIcon, ChevronRightIcon, AcademicCapIcon, BuildingOffice2Icon, BriefcaseIcon } from '@heroicons/react/24/outline';
 import ConnectionCTA from '../shared/ConnectionCTA';
 import { DegreeChip, DeptChip, CompanyChip, PositionChip } from '../shared/Chips';
+import { useAuth } from '../../contexts/AuthContext';
 // Using v_profiles_directory_card which already formats academic/professional labels
 
 export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', onChanged }) {
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const rel = useMemo(() => profile?.rel || { status: null, pending_side: null }, [profile?.rel]);
 
   // Prefer normalized fields coming from DirectoryPage, then fall back to view columns
@@ -42,10 +44,23 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
 
   const message = () => navigate(`/messages?peer=${profile.id}`);
   const viewProfile = () => navigate(`/directory/${profile.id}`);
+
+  // Compute display name robustly in-card as a final fallback
+  const displayName = useMemo(() => {
+    const fn = (profile.full_name || '').trim();
+    if (fn) return fn;
+    const first = (profile.first_name || '').trim();
+    const last = (profile.last_name || '').trim();
+    const combined = `${first} ${last}`.trim();
+    if (combined) return combined;
+    const email = (profile.email || '').trim();
+    if (email) return email.split('@')[0];
+    return 'Alumni';
+  }, [profile.full_name, profile.first_name, profile.last_name, profile.email]);
   
   // Single initial for avatar placeholder (fixed blue background)
   const getInitial = () => {
-    const ch = profile.full_name?.trim()?.charAt(0) || 'A';
+    const ch = displayName?.trim()?.charAt(0) || 'A';
     return ch.toUpperCase();
   };
 
@@ -72,12 +87,17 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
           {/* Name and batch */}
           <div>
             <div className="flex items-center gap-1.5">
-              <h3 className="text-base font-semibold text-slate-900 truncate max-w-[180px]" title={profile.full_name}>
-                {profile.full_name}
+              <h3 className="text-base font-semibold text-slate-900 truncate max-w-[180px]" title={displayName}>
+                {displayName}
               </h3>
               {profile.is_verified && 
                 <CheckBadgeIcon className="h-4 w-4 shrink-0 text-sky-500" title="Verified" />
               }
+              {isAdmin && (profile?.is_employer || profile?.role === 'employer') && (
+                <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 text-[10px] font-medium" title="Employer">
+                  Employer
+                </span>
+              )}
             </div>
             
             {/* Batch chip moved to chips row below to keep all chips together */}

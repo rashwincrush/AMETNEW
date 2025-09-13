@@ -4,20 +4,22 @@ import ChipBar from './ChipBar';
 import DirectoryGrid from './DirectoryGrid';
 import { useConnectionsRealtime } from '../../hooks/useConnectionsRealtime';
 import { FunnelIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import useDirectory from '../../hooks/useDirectory';
+import { useAuth } from '../../contexts/AuthContext';
+import { normalizeProfile } from '../../lib/normalizeProfile';
 
 export default function DirectoryPage() {
   const [me, setMe] = useState(null);
-  const [profiles, setProfiles] = useState([]);
+  // Profiles now come from RPC-only hook via `dataset`
   const [relMap, setRelMap] = useState(new Map());
   const [counts, setCounts] = useState({ received: 0, sent: 0, connected: 0 });
   const [activeFilter, setActiveFilter] = useState('all');
-  const [loading, setLoading] = useState(true);
   // Search & pagination
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(24);
-  const [totalAlumni, setTotalAlumni] = useState(0);
+  // total is derived from filtered results later
   // Sort & Filters
   const [sortBy, setSortBy] = useState('full_name,asc');
   const [showFilters, setShowFilters] = useState(false);
@@ -50,119 +52,36 @@ export default function DirectoryPage() {
     return filtered;
   }, [activeFilter, relMap]);
 
-  const loadProfiles = useCallback(async () => {
-    setLoading(true);
-    try {
-      const from = (currentPage - 1) * itemsPerPage;
-      const to = from + itemsPerPage - 1;
+  // Directory data via RPC-only hook
+  const sortKey = useMemo(() => {
+    const [sf, so] = sortBy.split(',');
+    if (sf === 'full_name' && so === 'asc') return 'name_asc';
+    if (sf === 'full_name' && so === 'desc') return 'name_desc';
+    if (sf === 'graduation_year' && so === 'asc') return 'year_asc';
+    if (sf === 'graduation_year' && so === 'desc') return 'year_desc';
+    return 'name_asc';
+  }, [sortBy]);
 
-      if (activeFilter !== 'all') {
-        // Load only the profiles that belong to this tab (ignore text search)
-        const ids = tabIds;
-        const pageIds = ids.slice(from, to + 1);
-        if (pageIds.length === 0) {
-          setProfiles([]);
-          setTotalAlumni(ids.length);
-          return;
-        }
-        let base = supabase
-          .from('v_profiles_directory_card')
-          .select('id, full_name, graduation_year, current_title, current_company, location_label, degree_department, is_approved')
-          .in('id', pageIds);
+  const { items, total, loading: dirLoading, error: dirError, dataset } = useDirectory({
+    query: debouncedSearch,
+    filters: { graduation_year: filters.graduation_year, department: filters.department },
+    sort: sortKey,
+    page: currentPage,
+    pageSize: itemsPerPage
+  });
 
-        // Apply filters
-        if (filters.graduation_year) base = base.eq('graduation_year', Number(filters.graduation_year));
-        if (filters.department) base = base.ilike('degree_department', `%${filters.department}%`);
+  // Use hook loading directly
+  const loading = dirLoading;
 
-        // Apply sort
-        const [sf, so] = sortBy.split(',');
-        base = base.order(sf === 'graduation_year' ? 'graduation_year' : 'full_name', { ascending: so === 'asc' });
+  // Auth context for admin flag
+  const { isAdmin } = useAuth();
 
-        const { data, error } = await base;
-        if (error) throw error;
-        // Augment with profile fields (avatar_url, email, current_job_title, company_name, degree_program, department, graduation_year)
-        const idsForAvatars = (data || []).map(r => r.id);
-        let augmented = data || [];
-        if (idsForAvatars.length > 0) {
-          const { data: avatars } = await supabase
-            .from('profiles')
-            .select('id, avatar_url, email, current_job_title, company_name, degree_program, department, graduation_year')
-            .in('id', idsForAvatars);
-          const aMap = new Map((avatars || []).map(r => [r.id, {
-            avatar_url: r.avatar_url,
-            email: r.email,
-            current_job_title: r.current_job_title,
-            company_name: r.company_name,
-            degree_program: r.degree_program,
-            department: r.department,
-            graduation_year: r.graduation_year,
-          }]));
-          augmented = (data || []).map(r => ({ ...r, ...(aMap.get(r.id) || {}) }));
-        }
-        setProfiles((augmented || []).filter(p => p.id !== me?.id));
-        // For accuracy, compute count with head query on full ids and filters
-        let countQ = supabase
-          .from('v_profiles_directory_card')
-          .select('id', { head: true, count: 'exact' })
-          .in('id', ids);
-        if (filters.graduation_year) countQ = countQ.eq('graduation_year', Number(filters.graduation_year));
-        if (filters.department) countQ = countQ.ilike('degree_department', `%${filters.department}%`);
-        const { count: c } = await countQ;
-        setTotalAlumni(c || 0);
-        return;
-      }
+  // Normalize dataset for consistent fields
+  const base = useMemo(() => (dataset || []).map(normalizeProfile), [dataset]);
 
-      // All tab: Query from v_profiles_directory_card (backend-enforced filters)
-      let query = supabase
-        .from('v_profiles_directory_card')
-        .select('id, full_name, graduation_year, current_title, current_company, location_label, degree_department, is_approved', { count: 'exact' });
-
-      if (debouncedSearch) {
-        const q = debouncedSearch.replace(/%/g, '');
-        const cols = ['full_name', 'location_label', 'current_company', 'current_title', 'degree_department'];
-        const ors = cols.map((c) => `${c}.ilike.%${q}%`).join(',');
-        if (ors) query = query.or(ors);
-      }
-
-      // Apply filters
-      if (filters.graduation_year) query = query.eq('graduation_year', Number(filters.graduation_year));
-      if (filters.department) query = query.ilike('degree_department', `%${filters.department}%`);
-
-      // Apply sort
-      const [sf, so] = sortBy.split(',');
-      query = query.order(sf, { ascending: so === 'asc' });
-
-      query = query.range(from, to);
-
-      const { data, error, count } = await query;
-      if (error) throw error;
-      // Augment with profile fields (avatar_url, email, current_job_title, company_name, degree_program, department, graduation_year)
-      const idsForAvatars = (data || []).map(r => r.id);
-      let augmented = data || [];
-      if (idsForAvatars.length > 0) {
-        const { data: avatars } = await supabase
-          .from('profiles')
-          .select('id, avatar_url, email, current_job_title, company_name, degree_program, department, graduation_year')
-          .in('id', idsForAvatars);
-        const aMap = new Map((avatars || []).map(r => [r.id, {
-          avatar_url: r.avatar_url,
-          email: r.email,
-          current_job_title: r.current_job_title,
-          company_name: r.company_name,
-          degree_program: r.degree_program,
-          department: r.department,
-          graduation_year: r.graduation_year,
-        }]));
-        augmented = (data || []).map(r => ({ ...r, ...(aMap.get(r.id) || {}) }));
-      }
-      setProfiles((augmented || []).filter(p => p.id !== me?.id));
-      setTotalAlumni(count || 0);
-    } catch (e) {
-      console.error('Directory loadProfiles error:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [me?.id, debouncedSearch, currentPage, itemsPerPage, activeFilter, tabIds]);
+  // Build admin counts for All (non-employers) and Employers
+  const allCount = useMemo(() => base.filter(p => !(p.is_employer || p.role === 'employer')).length, [base]);
+  const employersCount = useMemo(() => base.filter(p => (p.is_employer || p.role === 'employer')).length, [base]);
 
   const loadRels = useCallback(async () => {
     // Relationship states for all others
@@ -217,11 +136,11 @@ export default function DirectoryPage() {
     loadCounts();
   }, [me]);
 
-  // Load profiles when inputs change; for tab views wait until rels are loaded
+  // Profiles are loaded by hook. Just ensure rels are loaded for tab filters.
   useEffect(() => {
     if (!me) return;
     if (activeFilter !== 'all' && !relsLoaded) return;
-    loadProfiles();
+    // No-op: hook handles data loading. We keep this effect to honor dependencies without warnings.
   }, [me, debouncedSearch, currentPage, itemsPerPage, activeFilter, filters.graduation_year, filters.department, sortBy, tabIds, relsLoaded]);
 
   // Realtime: refetch rels + counts on any connections change for me
@@ -265,10 +184,25 @@ export default function DirectoryPage() {
       return { degree_program: null, department: label };
     };
 
+    const computeName = (row) => {
+      // Prefer backend-computed full_name
+      if (row.full_name && String(row.full_name).trim().length > 0) return row.full_name;
+      // Some RPCs return `name` instead of `full_name`
+      if (row.name && String(row.name).trim().length > 0) return row.name;
+      const first = (row.first_name || '').trim();
+      const last = (row.last_name || '').trim();
+      const combined = `${first} ${last}`.trim();
+      if (combined) return combined;
+      const email = (row.email || '').trim();
+      if (email) return email.split('@')[0];
+      return 'Alumni';
+    };
+
     const normalizeProfile = (row) => {
       const { degree_program, department } = parseDegreeDept(row.degree_department);
       return {
         ...row,
+        full_name: computeName(row),
         // Map fields that DirectoryCard expects
         current_job_title: row.current_job_title ?? row.current_title ?? row.job_title ?? row.currentPosition ?? null,
         company_name: row.company_name ?? row.current_company ?? row.company ?? null,
@@ -278,11 +212,11 @@ export default function DirectoryPage() {
         batch: row.batch_year ?? row.graduation_year ?? row.batch ?? null,
       };
     };
-    return (profiles || []).map(p => ({
+    return (base || []).map(p => ({
       ...normalizeProfile(p),
       rel: relMap.get(p.id) || { status: null, pending_side: null, edge_ts: null }
     }));
-  }, [profiles, relMap]);
+  }, [base, relMap]);
 
   // Priority strip: pending (sent or received), sort by newest edge_ts
   const priority = useMemo(() => {
@@ -297,6 +231,8 @@ export default function DirectoryPage() {
   const rest = useMemo(() => withRel.filter(p => !topIds.has(p.id)), [withRel, topIds]);
 
   const applyFilter = useCallback((list, filter) => {
+    if (filter === 'employers') return list.filter(p => (p.is_employer || p.role === 'employer'));
+    if (filter === 'all') return list.filter(p => !(p.is_employer || p.role === 'employer'));
     if (filter === 'received') return list.filter(p => p.rel.status === 'pending' && p.rel.pending_side === 'received');
     if (filter === 'sent') return list.filter(p => p.rel.status === 'pending' && p.rel.pending_side === 'sent');
     if (filter === 'connected') return list.filter(p => ['accepted', 'connected'].includes(p.rel.status));
@@ -307,6 +243,11 @@ export default function DirectoryPage() {
     const base = activeFilter === 'all' ? rest : withRel;
     return applyFilter(base, activeFilter);
   }, [withRel, rest, activeFilter, applyFilter]);
+
+  // Derive totals and page slice from filtered results
+  const totalAlumni = filtered.length;
+  const pageStart = Math.max(0, (currentPage - 1) * itemsPerPage);
+  const pageItems = filtered.slice(pageStart, pageStart + itemsPerPage);
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-6 space-y-6">
@@ -395,7 +336,12 @@ export default function DirectoryPage() {
         
         {/* Tab navigation */}
         <div className="mt-4">
-          <ChipBar counts={counts} active={activeFilter} onChange={setActiveFilter} />
+          <ChipBar
+            counts={{ ...counts, all: allCount, employers: employersCount }}
+            active={activeFilter}
+            onChange={setActiveFilter}
+            showEmployers={isAdmin}
+          />
         </div>
       </div>
       
@@ -430,7 +376,7 @@ export default function DirectoryPage() {
         </div>
         
         {/* Directory grid */}
-        <DirectoryGrid items={filtered} meId={me?.id} currentTab={activeFilter} onChanged={reloadRelsAndCounts} loading={loading} />
+        <DirectoryGrid items={pageItems} meId={me?.id} currentTab={activeFilter} onChanged={reloadRelsAndCounts} loading={loading} />
         
         {/* Pagination */}
         {totalAlumni > itemsPerPage && (

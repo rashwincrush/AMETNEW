@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function ChipBar({ counts, active, onChange }) {
+export default function ChipBar({ counts, active, onChange, showEmployers = false }) {
   const Chip = ({ id, label, count }) => (
     <button
       onClick={() => onChange(id)}
@@ -12,10 +12,13 @@ export default function ChipBar({ counts, active, onChange }) {
 
   return (
     <div className="flex gap-2 items-center py-3">
-      <Chip id="all" label="All" />
+      <Chip id="all" label="All" count={counts?.all ?? undefined} />
       <Chip id="received" label="Requests Received" count={counts?.received ?? 0} />
       <Chip id="sent" label="Requests Sent" count={counts?.sent ?? 0} />
       <Chip id="connected" label="My Connections" count={counts?.connected ?? 0} />
+      {showEmployers && (
+        <Chip id="employers" label="Employers" count={counts?.employers ?? 0} />
+      )}
     </div>
   );
 }

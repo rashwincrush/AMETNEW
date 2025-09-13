@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../hooks/useNotification'; // Import useAuth
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import useRecentActivity from '../../hooks/useRecentActivity';
 import { supabase } from '../../utils/supabase'; // Updated Supabase client import
 import toast from 'react-hot-toast'; // For error notifications
 import { 
@@ -63,6 +64,42 @@ const formatEventDateTime = (dateString, timeString) => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+function renderActivityTitle(a) {
+  const t = a.activity_type;
+  const title = a.title || 'Activity';
+  const meta = a.meta || {};
+  switch (t) {
+    case 'event_rsvp': {
+      const st = (meta.attendance_status || '').toLowerCase();
+      return st === 'going' ? `RSVP’d Going: ${title}`
+           : st === 'not_going' ? `Declined: ${title}`
+           : st === 'accepted' ? `RSVP Accepted: ${title}`
+           : st === 'rejected' ? `RSVP Rejected: ${title}`
+           : `RSVP: ${title}`;
+    }
+    case 'job_applied':
+      return `Applied: ${title}`;
+    case 'connection_sent':
+      return 'Connection request sent';
+    case 'connection_accepted':
+      return 'Connection accepted';
+    case 'connection_rejected':
+      return 'Connection rejected';
+    case 'connection_disconnected':
+      return 'Disconnected from a connection';
+    case 'group_joined':
+      return `Joined ${title}`;
+    case 'group_left':
+      return `Left ${title}`;
+    case 'mentor_update':
+      return `Mentor update: ${title}`;
+    case 'mentee_update':
+      return `Mentee update: ${title}`;
+    default:
+      return title;
+  }
+}
+
 const AlumniDashboard = () => {
   const { showInfo } = useNotification();
   const { user, profile, loading: authLoading } = useAuth();
@@ -81,6 +118,9 @@ const AlumniDashboard = () => {
   const [loading, setLoading] = useState(true);
   const userName = profile?.full_name || user?.user_metadata?.full_name || user?.email || 'Alumni';
   const hasFetched = useRef(false);
+  
+  // Recent Activity Hook (RPC-only)
+  const { items: recent, loading: recentLoading, error: recentError } = useRecentActivity(5);
 
   // Improved promiseWithTimeout with retry capability
   const promiseWithTimeout = useCallback((promise, ms, maxRetries = 2, timeoutError = new Error('Request timed out')) => {
@@ -540,7 +580,7 @@ const AlumniDashboard = () => {
                     <h4 className="text-md font-semibold text-gray-700">No Groups Joined</h4>
                     <p className="text-sm text-gray-500 mt-1">Join a group to start networking with peers.</p>
                     <Link 
-                      to="/networking"
+                      to="/groups"
                       className="mt-4 inline-block btn-ocean-fill text-sm py-2 px-4 rounded-lg"
                     >
                       Explore Groups
@@ -548,16 +588,34 @@ const AlumniDashboard = () => {
                   </div>
                 </div>
 
-                {/* Recent Activity - Placeholder */}
-                <div className="glass-card rounded-lg p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
-                  <div className="text-center py-4">
-                    <div className="w-12 h-12 bg-yellow-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <ArrowTrendingUpIcon className="w-6 h-6 text-yellow-500" />
-                    </div>
-                    <h4 className="text-md font-semibold text-gray-700">No Recent Activity</h4>
-                    <p className="text-sm text-gray-500 mt-1">Updates from your network will appear here.</p>
+                {/* Recent Activity (RPC-only) */}
+                <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="font-semibold">Recent Activity</h3>
+                    <Link to="/notifications" className="text-sm text-blue-600 hover:underline">View all</Link>
                   </div>
+
+                  {recentError && <p className="text-sm text-red-600">Couldn’t load activity.</p>}
+                  {recentLoading ? (
+                    <p className="text-sm text-gray-500">Loading…</p>
+                  ) : recent.length === 0 ? (
+                    <p className="text-sm text-gray-500">No recent activity</p>
+                  ) : (
+                    <ul className="space-y-3">
+                      {recent.map((a, i) => (
+                        <li key={`${a.activity_type}-${a.ref_id ?? i}-${a.created_at}`}>
+                          <Link to={a.url || "#"} className="block hover:bg-gray-50 rounded-md p-2">
+                            <div className="text-sm font-medium">
+                              {renderActivityTitle(a)}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {new Date(a.created_at).toLocaleString()}
+                            </div>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
 
@@ -652,7 +710,7 @@ const AlumniDashboard = () => {
           <AcademicCapIcon className="w-8 h-8 text-purple-500 mx-auto mb-2" />
           <p className="text-sm font-medium text-gray-900">Find Mentor</p>
         </Link>
-        <Link to="/networking" className="glass-card rounded-lg p-4 text-center card-hover">
+        <Link to="/groups" className="glass-card rounded-lg p-4 text-center card-hover">
           <ChatBubbleLeftRightIcon className="w-8 h-8 text-orange-500 mx-auto mb-2" />
           <p className="text-sm font-medium text-gray-900">Join Groups</p>
         </Link>

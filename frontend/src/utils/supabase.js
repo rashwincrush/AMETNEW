@@ -226,63 +226,8 @@ export function checkRealtimeConnection() {
   });
 }
 
-// --- Jobs Channel Singleton --- 
-let jobsChannel = null;
-const jobsChangeListeners = new Map();
-
-export function ensureJobsChannel(supabase) {
-  if (jobsChannel && jobsChannel.state !== 'closed') return jobsChannel;
-  
-  jobsChannel = supabase
-    .channel('job-listings')
-    .on('postgres_changes', { schema: 'public', table: 'jobs', event: '*' }, payload => {
-      // Dispatch to all registered listeners
-      jobsChangeListeners.forEach(listener => {
-        try {
-          listener(payload);
-        } catch (error) {
-          console.error('Error in jobs change listener:', error);
-        }
-      });
-    })
-    .subscribe((status) => console.log('jobs channel status:', status));
-    
-  return jobsChannel;
-}
-
-// Use a unique ID for each listener to prevent duplicate subscriptions
-let nextListenerId = 1;
-
-export function onJobsChange(supabase, cb) {
-  // Ensure the channel exists
-  ensureJobsChannel(supabase);
-  
-  // Register this callback
-  const id = `listener_${nextListenerId++}`;
-  jobsChangeListeners.set(id, cb);
-  
-  // Return an unsubscribe function
-  return () => {
-    jobsChangeListeners.delete(id);
-    console.log(`Removed jobs listener ${id}, ${jobsChangeListeners.size} listeners remaining`);
-  };
-}
-
-export async function closeJobsChannel(supabase) {
-  if (jobsChannel) {
-    // Clear all listeners
-    jobsChangeListeners.clear();
-    
-    const ch = jobsChannel;
-    jobsChannel = null;
-    
-    try {
-      await supabase.removeChannel(ch);
-    } catch (error) {
-      console.warn('Error removing jobs channel:', error);
-    }
-  }
-}
+// NOTE: The legacy onJobsChange and its related singleton channel manager have been removed.
+// Realtime subscriptions for jobs are now handled by the useJobsRealtime hook to prevent subscription errors.
 
 // Helper for conditional logging
 const isDev = process.env.NODE_ENV === 'development';

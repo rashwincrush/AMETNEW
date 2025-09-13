@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   MapPinIcon,
   AcademicCapIcon,
@@ -28,6 +29,7 @@ export default function ProfileCard({
   onMessage,
   onRemove,
 }) {
+  const { isAdmin } = useAuth();
   const {
     full_name,
     avatar_url,
@@ -39,6 +41,7 @@ export default function ProfileCard({
     is_connected,
     request_pending,
     is_verified,
+    role,
   } = profile;
 
   const jobLine = [current_job_title, company_name].filter(Boolean).join(' at ');
@@ -66,6 +69,13 @@ export default function ProfileCard({
               {full_name || '—'}
             </h3>
             {is_verified && <CheckBadgeIcon className="h-4 w-4 text-sky-600 mx-auto mt-1" title="Verified" />}
+            {isAdmin && role === 'employer' && (
+              <div className="mt-1">
+                <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 text-[10px] font-medium" title="Employer">
+                  Employer
+                </span>
+              </div>
+            )}
 
             {graduation_year && (
               <span className="inline-block mt-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">

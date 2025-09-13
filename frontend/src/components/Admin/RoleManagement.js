@@ -3,6 +3,7 @@ import ReactModal from 'react-modal';
 import { useAuth } from '../../contexts/AuthContext';
 import PermissionGate from '../PermissionGate';
 import toast from 'react-hot-toast';
+import { ROLE_OPTIONS, isRole } from '../../lib/roles';
 import { 
   UsersIcon,
   MagnifyingGlassIcon,
@@ -17,23 +18,13 @@ import { supabase } from '../../utils/supabase';
 
 ReactModal.setAppElement('#root');
 
-// Mentor is not a role in this application. It is approved via Admin → Mentors (public.mentors)
-const MENTOR_ROLE_DENYLIST = new Set(['mentor', 'mentors', 'mentor_role']);
-
-const DEFAULT_ROLES = [
-  { name: 'super_admin', description: 'Super Administrator' },
-  { name: 'admin', description: 'Administrator' },
-  { name: 'moderator', description: 'Content Moderator' },
-  { name: 'employer', description: 'Employer' },
-  { name: 'alumni', description: 'AMET Alumni' },
-  { name: 'student', description: 'Current Student' },
-  { name: 'user', description: 'Standard User' }
-];
+// Roles are sourced from public.profiles.role enum only via ROLE_OPTIONS
 
 const RoleManagement = () => {
   const { getUserRole } = useAuth();
   const [users, setUsers] = useState([]);
-  const [roles, setRoles] = useState([]);
+  // Use static ROLE_OPTIONS for UI (single source of truth)
+  const roles = ROLE_OPTIONS;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -49,33 +40,17 @@ const RoleManagement = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        
         const { data: userData, error: userError } = await supabase
           .from('profiles')
           .select('*')
           .order('updated_at', { ascending: false });
-          
+
         if (userError) throw userError;
-        
-        const { data: roleData, error: roleError } = await supabase
-          .from('roles')
-          .select('*')
-          .order('name', { ascending: true });
-          
-        if (roleError) {
-          console.error('Error fetching roles:', roleError);
-          setRoles(DEFAULT_ROLES);
-        } else {
-          const base = (!roleData || roleData.length === 0) ? DEFAULT_ROLES : roleData;
-          const cleanedRoleData = base.filter(r => !MENTOR_ROLE_DENYLIST.has(r?.name?.toLowerCase?.()));
-          setRoles(cleanedRoleData);
-        }
-        
+        // roles are static from ROLE_OPTIONS; no fetch
         setUsers(userData || []);
       } catch (error) {
         console.error('Error fetching data:', error);
         setError(error.message);
-        setRoles(DEFAULT_ROLES);
       } finally {
         setLoading(false);
       }
@@ -108,7 +83,6 @@ const RoleManagement = () => {
     const roleStyles = {
       super_admin: 'bg-red-100 text-red-800',
       admin: 'bg-orange-100 text-orange-800',
-      moderator: 'bg-yellow-100 text-yellow-800',
       employer: 'bg-blue-100 text-blue-800',
       alumni: 'bg-indigo-100 text-indigo-800',
       student: 'bg-green-100 text-green-800',
@@ -142,18 +116,16 @@ const RoleManagement = () => {
     e.preventDefault();
     if (!selectedUser) return;
 
-    const newRole = e.target.role.value?.toLowerCase?.();
-    if (MENTOR_ROLE_DENYLIST.has(newRole)) {
-      toast.error("Mentor is not a role. Use Admin → Mentors to approve mentors.");
+    const newRole = e.target.role.value;
+    if (!isRole(newRole)) {
+      toast.error('Invalid role');
       return;
     }
     
     try {
-      const makeAdmin = newRole === 'admin' || newRole === 'super_admin';
       const { error } = await supabase.rpc('admin_set_user_role', {
-        target: selectedUser.id,
-        new_role: newRole,
-        make_admin: makeAdmin
+        p_user_id: selectedUser.id,
+        p_role: newRole,
       });
 
       if (error) throw error;
@@ -244,7 +216,7 @@ const RoleManagement = () => {
                   <div className="flex flex-wrap gap-2">
                     <button onClick={() => handleRoleFilterChange('all')} className={`px-3 py-1 rounded-full text-sm ${filters.role === 'all' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-800'}`}>All</button>
                     {roles.map(role => (
-                      <button key={role.name} onClick={() => handleRoleFilterChange(role.name)} className={`px-3 py-1 rounded-full text-sm ${filters.role === role.name ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-800'}`}>{role.description}</button>
+                      <button key={role.value} onClick={() => handleRoleFilterChange(role.value)} className={`px-3 py-1 rounded-full text-sm ${filters.role === role.value ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-800'}`}>{role.label}</button>
                     ))}
                   </div>
                 </div>
@@ -356,12 +328,12 @@ const RoleManagement = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
                   <select
                     name="role"
-                    defaultValue={selectedUser.role || 'user'}
+                    defaultValue={selectedUser.role || 'alumni'}
                     className="appearance-none w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     {roles.map(role => (
-                      <option key={role.name} value={role.name}>
-                        {role.description} ({role.name})
+                      <option key={role.value} value={role.value}>
+                        {role.label} ({role.value})
                       </option>
                     ))}
                   </select>

@@ -4,6 +4,8 @@ import { logActivity } from '../../utils/activityLogger';
 import ConversationList from './ConversationList';
 import ChatWindow from './ChatWindow';
 import { useNotification } from '../../hooks/useNotification';
+import useConnectionsPanel from '../../hooks/useConnectionsPanel';
+import ConnectionsPanel from './ConnectionsPanel';
 
 const MessagingSystem = () => {
   const { showInfo, showSuccess, showError } = useNotification();
@@ -20,6 +22,9 @@ const MessagingSystem = () => {
   const lastFetchAtRef = useRef(0);
   const convErrNotifiedRef = useRef(false);
   const initRef = useRef(false);
+
+  // Always call hooks at the top level (badge for pending received requests)
+  const { counts } = useConnectionsPanel(currentUser?.id);
 
   // Fetch current user (session + profile) with small retry to handle transient network hiccups
   useEffect(() => {
@@ -78,6 +83,26 @@ const MessagingSystem = () => {
     // Log page view
     logActivity({ action: 'messages_page_view', route: '/messages' });
   }, []);
+
+  // Persist tab via query param
+  const getTabFromQS = () => {
+    const params = new URLSearchParams(window.location.search);
+    const t = (params.get('tab') || 'chats').toLowerCase();
+    return t === 'connections' ? 'connections' : 'chats';
+  };
+  const [activeTab, setActiveTab] = useState(getTabFromQS());
+  const setTab = useCallback((tab) => {
+    const t = tab === 'connections' ? 'connections' : 'chats';
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', t);
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState({}, '', newUrl);
+    setActiveTab(t);
+  }, []);
+
+  useEffect(() => {
+    setActiveTab(getTabFromQS());
+  }, [window.location.search]);
 
   // Fetch all DM threads for the current user via view v_my_dm_threads
   const fetchUserThreads = useCallback(async () => {
@@ -218,29 +243,60 @@ const MessagingSystem = () => {
       <div className="max-w-6xl mx-auto bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden min-h-[70vh]">
         {/* Page Header */}
         <div className="p-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-800">Messages</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
+              Messages
+              {counts?.received > 0 && (
+                <span className="inline-flex items-center justify-center text-xs font-medium rounded-full px-2 py-0.5 bg-red-100 text-red-700">
+                  {counts.received}
+                </span>
+              )}
+            </h2>
+            <div className="flex gap-2">
+              <button
+                className={`px-3 py-1 rounded-full border ${activeTab==='chats' ? 'bg-ocean-50 border-ocean-300 text-ocean-700' : 'bg-white border-gray-300 text-gray-700'}`}
+                onClick={() => setTab('chats')}
+              >
+                Chats
+              </button>
+              <button
+                className={`px-3 py-1 rounded-full border ${activeTab==='connections' ? 'bg-ocean-50 border-ocean-300 text-ocean-700' : 'bg-white border-gray-300 text-gray-700'}`}
+                onClick={() => setTab('connections')}
+              >
+                Connections {counts?.received > 0 ? `(${counts.received})` : ''}
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Content */}
-        <div className="flex">
-          {/* Sidebar */}
-          <div className="w-full md:w-96 lg:w-[26rem] border-r border-gray-200">
-            <ConversationList
-              threads={threads}
-              onSelectThread={handleSelectThread}
-              selectedThread={selectedThread}
-              currentUser={currentUser}
-            />
+        {activeTab === 'connections' ? (
+          <div className="flex">
+            <div className="w-full">
+              <ConnectionsPanel currentUserId={currentUser?.id} />
+            </div>
           </div>
+        ) : (
+          <div className="flex">
+            {/* Sidebar */}
+            <div className="w-full md:w-96 lg:w-[26rem] border-r border-gray-200">
+              <ConversationList
+                threads={threads}
+                onSelectThread={handleSelectThread}
+                selectedThread={selectedThread}
+                currentUser={currentUser}
+              />
+            </div>
 
-          {/* Main Chat Area */}
-          <div className="flex-1 flex flex-col">
-            <ChatWindow
-              thread={selectedThread}
-              currentUser={currentUser}
-            />
+            {/* Main Chat Area */}
+            <div className="flex-1 flex flex-col">
+              <ChatWindow
+                thread={selectedThread}
+                currentUser={currentUser}
+              />
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

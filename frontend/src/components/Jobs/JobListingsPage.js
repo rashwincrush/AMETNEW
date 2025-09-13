@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Link, useLocation, useSearchParams, useNavigate } from 'react-router-dom';
+import useJobsRealtime from '../../hooks/useJobsRealtime';
 import { 
   MagnifyingGlassIcon,
   FunnelIcon,
@@ -21,12 +22,13 @@ import { CalendarIcon } from '@heroicons/react/24/outline';
 import { CheckBadgeIcon } from '@heroicons/react/24/solid';
 import { CircularProgress } from '@mui/material';
 import { supabase } from '../../utils/supabase';
-import { useRealtime } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { onJobsChange } from '../../utils/supabase';
+import { coalesceAppUrl, isQuickLink, companyDisplay, getSourceType } from '../../utils/jobs';
+import { getApplicantsCount } from '../../utils/applicants';
+import { requestConnectionForJob } from '../../utils/connections';
 import toast from 'react-hot-toast';
 import { useNotification } from '../common/NotificationCenter';
-import SocialShareButtons from '../common/SocialShareButtons';
+import { shareJob } from '../../utils/share';
 import BookmarkButton from './BookmarkButton';
 
 
@@ -107,15 +109,16 @@ const filterOptions = {
 
 // Job card component for grid view
 const JobCard = ({ job, handleBookmark, isBookmarked }) => {
-  const [showShare, setShowShare] = useState(false);
+  // Share popover removed; using simple share button
+  const navigate = useNavigate();
+  const { user, userRole } = useAuth();
+  const employerId = job?.posted_by || job?.user_id || job?.employer_id;
+  const isOwner = user?.id && employerId && user.id === employerId;
+  const isStudent = ['alumni','student'].includes(userRole);
   if (!job) return null;
 
-  const formatSalary = (min, max) => {
-    if (!min && !max) return 'Not specified';
-    if (min && !max) return `From ${min / 100000}L`;
-    if (!min && max) return `Up to ${max / 100000}L`;
-    return `${min / 100000}L - ${max / 100000}L`;
-  };
+  const quick = isQuickLink(job);
+  const href = coalesceAppUrl(job);
 
   return (
     <div className="glass-card rounded-lg p-6 hover:shadow-lg transition-shadow border border-transparent h-full flex flex-col">
@@ -130,30 +133,18 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-gray-900 line-clamp-1" title={job.title}>{job.title}</h3>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">{job.companies?.name || job.company_name}</Link>
-              {job.is_verified && (
-                <div className="flex items-center text-blue-500" title="Verified Employer">
-                  <CheckBadgeIcon className="w-4 h-4" />
-                </div>
-              )}
-              <div className="text-xs text-gray-500 mt-0.5">
-                {job.created_at ? `Posted ${timeAgo(job.created_at)}` : ''}
-              </div>
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                {quick ? 'Quick Link' : 'In-App'}
+              </span>
             </div>
           </div>
         </div>
         <div className="flex items-center">
-          <div className="relative">
-            <button onClick={() => setShowShare(!showShare)} className="p-2 rounded-full hover:bg-gray-100" aria-label="Share job">
-              <ShareIcon className="w-5 h-5 text-gray-500" />
-            </button>
-            {showShare && (
-              <div className="absolute right-0 top-full mt-2 z-10 bg-white p-2 rounded-lg shadow-lg">
-                 <SocialShareButtons shareUrl={`${window.location.origin}/jobs/${job.id}`} title={job.title} />
-              </div>
-            )}
-          </div>
+          <button onClick={() => shareJob(job)} className="p-2 rounded-full hover:bg-gray-100" aria-label="Share job">
+            <ShareIcon className="w-5 h-5 text-gray-500" />
+          </button>
 
           <BookmarkButton
             jobId={job.id}
@@ -162,71 +153,72 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           />
         </div>
       </div>
-
       <p className="text-gray-600 text-sm mb-4 line-clamp-3">{job.description || 'No description provided.'}</p>
       
-      <div className="grid grid-cols-2 gap-2 mb-4">
-        <div className="flex items-center text-sm text-gray-600">
-          <MapPinIcon className="w-4 h-4 mr-1" />
-          <span>{job.location}</span>
-        </div>
-        <div className="flex items-center text-sm text-gray-600">
-          <BriefcaseIcon className="w-4 h-4 mr-1" />
-          <span className="capitalize">{job.job_type}</span>
-        </div>
-        <div className="flex items-center text-sm text-gray-600">
-          <ClockIcon className="w-4 h-4 mr-1" />
-          <span className="capitalize">{job.experience_level || 'Any Level'}</span>
-        </div>
-        <div className="flex items-center text-sm text-gray-600">
-          <CurrencyRupeeIcon className="w-4 h-4 mr-1" />
-          <span>{formatSalary(job.salary_min, job.salary_max)}</span>
-        </div>
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        {!!job.location && (
+          <div className="flex items-center text-sm text-gray-600">
+            <MapPinIcon className="w-4 h-4 mr-1" />
+            <span>{job.location}</span>
+          </div>
+        )}
+        {!!job.job_type && (
+          <div className="flex items-center text-sm text-gray-600">
+            <BriefcaseIcon className="w-4 h-4 mr-1" />
+            <span className="capitalize">{job.job_type}</span>
+          </div>
+        )}
+        {!!job.experience_level && (
+          <div className="flex items-center text-sm text-gray-600">
+            <ClockIcon className="w-4 h-4 mr-1" />
+            <span className="capitalize">{job.experience_level}</span>
+          </div>
+        )}
         {job.application_deadline && (
-          <div className="col-span-2 flex items-center text-sm text-gray-600">
+          <div className="flex items-center text-sm text-gray-600 col-span-2">
             <CalendarIcon className="w-4 h-4 mr-1" />
             <span>Deadline: {new Date(job.application_deadline).toLocaleDateString()}</span>
           </div>
         )}
       </div>
 
-      {/* Updated chip */}
-      {(job.updated_at && job.created_at && new Date(job.updated_at) > new Date(job.created_at)) && (
-        <div className="mb-3">
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800">
-            Updated {timeAgo(job.updated_at)}
-          </span>
-        </div>
-      )}
-      
-      <div className="flex flex-wrap gap-1 mb-4">
-        {(job.skills || []).slice(0, 4).map((skill, index) => (
-          <span 
-            key={index}
-            className="px-2 py-1 bg-ocean-100 text-ocean-800 rounded text-xs"
-          >
-            {skill}
-          </span>
-        ))}
-      </div>
-      
       <div className="mt-auto flex justify-between items-center">
-        <span className="text-sm text-gray-500">
-          {job.applicant_count || (job.applicants && Array.isArray(job.applicants) && job.applicants.length > 0 ? job.applicants[0].count : 0)} applicants
-        </span>
+        {(() => { const count = getApplicantsCount(job); return (count !== null && count > 0) ? (
+          <span className="text-sm text-gray-500">{count} applicant{count === 1 ? '' : 's'}</span>
+        ) : <span />; })()}
         <div className="space-x-2">
+          {isStudent && employerId && !isOwner && (
+            <button
+              onClick={async () => {
+                try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (error) {
+                  console.error('Failed to request connection:', error);
+                  toast.error('Connection request failed. Please try again.');
+                }
+                navigate(`/messages?peer=${employerId}&job=${job.id}`);
+              }}
+              className="btn-ocean-outline py-1 px-3 rounded text-sm"
+            >
+              Ask Employer
+            </button>
+          )}
           <Link 
             to={`/jobs/${job.id}`}
             className="btn-ocean-outline py-1 px-3 rounded text-sm"
           >
             View Details
           </Link>
-          <Link 
-            to={`/jobs/${job.id}/apply`}
+          <button
+            onClick={() => {
+              if (quick && href) {
+                window.open(href, '_blank', 'noopener,noreferrer');
+              } else {
+                navigate(`/jobs/${job.id}`);
+              }
+            }}
             className="btn-ocean py-1 px-3 rounded text-sm"
           >
-            Apply Now
-          </Link>
+            {quick ? 'Apply Externally' : (isOwner ? 'View Applications' : 'Apply Now')}
+          </button>
         </div>
       </div>
     </div>
@@ -235,16 +227,14 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
 
 // Job list item component for list view
 const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
-  const [showShare, setShowShare] = useState(false);
+  const navigate = useNavigate();
+  const { user, userRole } = useAuth();
+  const employerId = job?.posted_by || job?.user_id;
+  const isOwner = user?.id && employerId && user.id === employerId;
+  const isStudent = ['alumni','student'].includes(userRole);
   if (!job) return null;
 
-  const formatSalary = (min, max) => {
-    if (!min && !max) return 'Not specified';
-    if (min && !max) return `From ${min / 100000}L`;
-    if (!min && max) return `Up to ${max / 100000}L`;
-    return `${min / 100000}L - ${max / 100000}L`;
-  };
-
+  const quick = isQuickLink(job);
 
   return (
     <div className="glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border border-transparent min-h-[140px]">
@@ -259,36 +249,35 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
                 <Link to={`/jobs/${job.id}`} className="text-lg font-bold text-gray-900 hover:text-ocean-600 transition-colors duration-200 line-clamp-1" title={job.title}>
                     {job.title}
                 </Link>
-
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                  {quick ? 'Quick Link' : 'In-App'}
+                </span>
             </div>
-            <span className="text-xs text-gray-500">{timeAgo(job.created_at)}</span>
+            <span />
         </div>
         <div className="flex items-center gap-1 mb-2">
           <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">{job.companies?.name || job.company_name}</Link>
-          {job.is_verified && (
-            <div className="flex items-center text-blue-500" title="Verified Employer">
-              <CheckBadgeIcon className="w-5 h-5" />
-            </div>
-          )}
         </div>
         <p className="text-gray-600 text-sm mt-2 mb-3 line-clamp-2">{job.description ? `${job.description.slice(0, 160)}...` : 'No description provided.'}</p>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
-          <div className="flex items-center">
-            <MapPinIcon className="w-4 h-4 mr-1" />
-            <span>{job.location}</span>
-          </div>
-          <div className="flex items-center">
-            <BriefcaseIcon className="w-4 h-4 mr-1" />
-            <span className="capitalize">{job.job_type}</span>
-          </div>
-          <div className="flex items-center">
-            <CurrencyRupeeIcon className="w-4 h-4 mr-1" />
-            <span>{formatSalary(job.salary_min, job.salary_max)}</span>
-          </div>
-          <div className="flex items-center">
-            <UsersIcon className="w-4 h-4 mr-1" />
-            <span>{job.applicants && Array.isArray(job.applicants) && job.applicants.length > 0 ? job.applicants[0].count : 0} applicants</span>
-          </div>
+          {!!job.location && (
+            <div className="flex items-center">
+              <MapPinIcon className="w-4 h-4 mr-1" />
+              <span>{job.location}</span>
+            </div>
+          )}
+          {!!job.job_type && (
+            <div className="flex items-center">
+              <BriefcaseIcon className="w-4 h-4 mr-1" />
+              <span className="capitalize">{job.job_type}</span>
+            </div>
+          )}
+          {!!job.experience_level && (
+            <div className="flex items-center">
+              <ClockIcon className="w-4 h-4 mr-1" />
+              <span className="capitalize">{job.experience_level}</span>
+            </div>
+          )}
           {job.application_deadline && (
             <div className="flex items-center">
               <CalendarIcon className="w-4 h-4 mr-1" />
@@ -299,16 +288,9 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
       </div>
       <div className="flex flex-col items-end justify-between self-stretch pt-2 sm:pt-0">
         <div className="flex items-center">
-          <div className="relative">
-            <button onClick={() => setShowShare(!showShare)} className="p-2 rounded-full hover:bg-gray-100" aria-label="Share job">
-              <ShareIcon className="w-5 h-5 text-gray-500" />
-            </button>
-            {showShare && (
-              <div className="absolute right-0 top-full mt-2 z-10 bg-white p-2 rounded-lg shadow-lg">
-                <SocialShareButtons shareUrl={`${window.location.origin}/jobs/${job.id}`} title={job.title} />
-              </div>
-            )}
-          </div>
+          <button onClick={() => shareJob(job)} className="p-2 rounded-full hover:bg-gray-100" aria-label="Share job">
+            <ShareIcon className="w-5 h-5 text-gray-500" />
+          </button>
 
           <BookmarkButton
             jobId={job.id}
@@ -316,16 +298,35 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
             handleBookmark={handleBookmark}
           />
         </div>
-        {(job.updated_at && job.created_at && new Date(job.updated_at) > new Date(job.created_at)) && (
-          <div className="flex items-center gap-2 mt-4">
-            <span className="px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800" title={new Date(job.updated_at).toLocaleString()}>
-              Updated {timeAgo(job.updated_at)}
-            </span>
-          </div>
-        )}
-        <Link to={`/jobs/${job.id}`} className="btn-ocean-outline px-4 py-2 rounded-lg text-sm mt-4">
-          View Details
-        </Link>
+        <div className="flex gap-2 mt-4">
+          {isStudent && employerId && !isOwner && (
+            <button
+              className="btn-secondary-outline px-4 py-2 rounded-lg text-sm"
+              onClick={async () => {
+                try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (error) { console.error('Failed to request connection:', error); }
+                navigate(`/messages?peer=${employerId}&job=${job.id}`);
+              }}
+            >
+              Ask Employer
+            </button>
+          )}
+          <Link to={`/jobs/${job.id}`} className="btn-ocean-outline px-4 py-2 rounded-lg text-sm">
+            View Details
+          </Link>
+          <button
+            className="btn-ocean px-4 py-2 rounded-lg text-sm"
+            onClick={() => {
+              if (quick) {
+                const url = coalesceAppUrl(job);
+                if (url) window.open(url, '_blank', 'noopener');
+              } else {
+                navigate(`/jobs/${job.id}`);
+              }
+            }}
+          >
+            {quick ? 'Apply Externally' : (isOwner ? 'View Applications' : 'Apply Now')}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -357,15 +358,14 @@ const JobListingsPage = () => {
   const [totalPages, setTotalPages] = useState(0);
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'created_at,desc');
   const [bookmarkedJobs, setBookmarkedJobs] = useState([]);
+  const rawSourceQS = searchParams.get('source') || 'all';
+  const canonicalSource = rawSourceQS === 'quick' ? 'quick_link' : rawSourceQS === 'internal' ? 'in_app' : rawSourceQS;
+  const [sourceFilter, setSourceFilter] = useState(['quick_link','in_app'].includes(canonicalSource) ? canonicalSource : 'all'); // 'all' | 'quick_link' | 'in_app'
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [approvalFilter, setApprovalFilter] = useState(searchParams.get('approval') || 'all'); // admin-only client filter: all|approved|pending|rejected
 
-
-
   const fetchController = useRef(null);
-  const initialFetchDone = useRef(false);
-  const jobsSubscription = useRef(null);
 
   const fetchJobs = useCallback(async () => {
     if (fetchController.current) {
@@ -381,10 +381,9 @@ const JobListingsPage = () => {
     }
 
     const [sortField, sortOrder] = sortBy.split(',');
-    
-    // Check if the current user is an employer
-    const isEmployer = user && user.user_metadata && 
-      (user.user_metadata.role === 'employer' || user.user_metadata.user_type === 'employer');
+
+    // Use normalized role from AuthContext instead of user_metadata
+    const isEmployer = userRole === 'employer';
       
     // If user is an employer, we need to check their company ID
 
@@ -439,17 +438,32 @@ const JobListingsPage = () => {
         let rows = [];
         let totalCount = 0;
         if (isV2) {
-          rows = (data?.items || []).map(job => ({
-            ...job,
-            companies: { name: job.company_name, logo_url: job.company_logo_url }
-          }));
+          rows = (data?.items || []).map(j => {
+            const company = companyDisplay(j);
+            const appUrl = coalesceAppUrl(j);
+            const computedSource = getSourceType({ ...j, application_url: appUrl });
+            return {
+              ...j,
+              companies: { name: company.name, logo_url: company.logo_url },
+              application_url: appUrl,
+              // Preserve backend-provided source_type; compute only if absent
+              source_type: j?.source_type ?? computedSource,
+            };
+          });
           totalCount = data?.total_count || 0;
         } else {
           // employer path using get_my_posted_jobs (array shape)
-          rows = data.map(job => ({
-            ...job,
-            companies: { name: job.company_name, logo_url: job.company_logo_url }
-          }));
+          rows = data.map(j => {
+            const company = companyDisplay(j);
+            const appUrl = coalesceAppUrl(j);
+            const computedSource = getSourceType({ ...j, application_url: appUrl });
+            return {
+              ...j,
+              companies: { name: company.name, logo_url: company.logo_url },
+              application_url: appUrl,
+              source_type: j?.source_type ?? computedSource,
+            };
+          });
           totalCount = data.length > 0 && typeof data[0].total_count !== 'undefined' ? data[0].total_count : data.length;
         }
 
@@ -457,6 +471,12 @@ const JobListingsPage = () => {
         let uniqueRows = Array.from(new Map(rows.map(job => [job.id, job])).values());
         // Client-side basic filters (until RPC supports them all)
         const matchesFilters = (j) => {
+          // source filter (quick_link vs in_app)
+          if (sourceFilter !== 'all') {
+            const st = getSourceType(j);
+            if (sourceFilter === 'quick_link' && st !== 'quick_link') return false;
+            if (sourceFilter === 'in_app' && st !== 'in_app') return false;
+          }
           // jobType
           if (filters.jobType !== 'all' && (j.job_type || '').toLowerCase() !== filters.jobType) return false;
           // experience
@@ -522,6 +542,38 @@ const JobListingsPage = () => {
 
     setLoading(false);
   }, [searchQuery, sortBy, currentPage, user, supabase, pageSize, filters.department]);
+
+  // --- Realtime Subscription (after fetchJobs so dependencies are initialized) --- 
+  const handleRealtimeJobChange = useCallback((payload) => {
+    console.log('Realtime job change received:', payload);
+    const { eventType, new: newRecord, old: oldRecord } = payload;
+    setJobs(currentJobs => {
+      if (eventType === 'INSERT') {
+        toast('A new job has been posted.', { icon: 'ℹ️' });
+        return [newRecord, ...currentJobs];
+      }
+      if (eventType === 'UPDATE') {
+        toast('A job listing has been updated.', { icon: 'ℹ️' });
+        return currentJobs.map(job => job.id === newRecord.id ? newRecord : job);
+      }
+      if (eventType === 'DELETE') {
+        toast('A job listing has been removed.', { icon: 'ℹ️' });
+        return currentJobs.filter(job => job.id !== oldRecord.id);
+      }
+      return currentJobs;
+    });
+  }, []);
+
+  const handleRealtimeBookmarkChange = useCallback(() => {
+    console.log('Realtime bookmark change received, refetching jobs.');
+    fetchJobs();
+  }, [fetchJobs]);
+
+  useJobsRealtime({ 
+    userId: user?.id, 
+    onJobs: handleRealtimeJobChange, 
+    onBookmarks: handleRealtimeBookmarkChange 
+  });
   
   // Sync URL on relevant changes
   useEffect(() => {
@@ -530,6 +582,7 @@ const JobListingsPage = () => {
     Object.entries(filters).forEach(([k,v]) => {
       if (v && v !== 'all') params.set(k, v); else params.delete(k);
     });
+    if (sourceFilter && sourceFilter !== 'all') params.set('source', sourceFilter); else params.delete('source');
     params.set('page', String(currentPage));
     params.set('sort', sortBy);
     if (['admin','super_admin','employer'].includes(userRole)) {
@@ -540,14 +593,14 @@ const JobListingsPage = () => {
     if (viewMode) params.set('view', viewMode);
     setSearchParams(params, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, filters, currentPage, sortBy, approvalFilter, viewMode]);
+  }, [searchQuery, filters, currentPage, sortBy, approvalFilter, viewMode, sourceFilter]);
 
   useEffect(() => {
     fetchJobs();
   }, [fetchJobs]);
 
   // Debounce search term to query string
-  useEffect(() => {
+    useEffect(() => {
     const t = setTimeout(() => {
       setSearchQuery(searchTerm);
       setCurrentPage(1);
@@ -555,40 +608,7 @@ const JobListingsPage = () => {
     return () => clearTimeout(t);
   }, [searchTerm]);
 
-  useEffect(() => {
-    console.log('Attaching jobs listener...');
-    const unsubscribe = onJobsChange(supabase, (payload) => {
-      console.log('Change received in jobs table!', payload);
-      const { eventType, new: newRecord, old: oldRecord } = payload;
-      setJobs(currentJobs => {
-        if (eventType === 'INSERT') {
-          toast('A new job has been posted.', { icon: 'ℹ️' });
-          return [newRecord, ...currentJobs];
-        }
-        if (eventType === 'UPDATE') {
-          toast('A job listing has been updated.', { icon: 'ℹ️' });
-          return currentJobs.map(job => job.id === newRecord.id ? newRecord : job);
-        }
-        if (eventType === 'DELETE') {
-          toast('A job listing has been removed.', { icon: 'ℹ️' });
-          return currentJobs.filter(job => job.id !== oldRecord.id);
-        }
-        return currentJobs;
-      });
-    });
-
-    return () => {
-      console.log('Detaching jobs listener...');
-      unsubscribe();
-    };
-  }, [supabase]);
-
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await fetchJobs();
-    setIsRefreshing(false);
-    toast.success('Job listings have been updated!');
-  };
+  // NOTE: The old subscription logic that caused errors has been removed and replaced by the useJobsRealtime hook above.
 
   const handleBookmark = async (jobId) => {
     if (!user) {
@@ -654,7 +674,15 @@ const JobListingsPage = () => {
     setCurrentPage(pageNumber);
   };
 
-  const canPostJob = ['employer', 'admin', 'super_admin', 'mentor'].includes(userRole);
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchJobs();
+    setIsRefreshing(false);
+    toast.success('Job listings have been refreshed!');
+  };
+
+  // Only employers and admins can post jobs
+  const canPostJob = ['employer', 'admin', 'super_admin'].includes(userRole);
 
   if (authLoading) {
     return (

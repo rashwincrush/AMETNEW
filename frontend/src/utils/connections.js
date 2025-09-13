@@ -144,3 +144,47 @@ export async function removeConnection(meId, otherId) {
     }
   }
 }
+
+// High-level helper: attempt to request connection for a job context
+// Tries RPC first if available; falls back to idempotentConnect without blocking the caller
+export async function requestConnectionForJob(jobId, employerId, meId) {
+  try {
+    if (jobId) {
+      const { error } = await supabase.rpc('request_connection_for_job', { p_job_id: jobId });
+      if (!error) return;
+      // If RPC returns an error, fall through to fallback
+      console.warn('request_connection_for_job RPC error, falling back:', error?.message || error);
+    }
+  } catch (e) {
+    // benign: fall back
+    console.warn('request_connection_for_job RPC unavailable, falling back');
+  }
+  try {
+    if (meId && employerId) {
+      await idempotentConnect(meId, employerId);
+    }
+  } catch (e) {
+    // Swallow to keep UX smooth; chat page will still gate by connection state
+    console.warn('Fallback idempotentConnect failed (non-fatal):', e?.message || e);
+  }
+}
+
+// Optional convenience for events (RPC may or may not exist)
+export async function requestConnectionForEvent(eventId, organizerId, meId) {
+  try {
+    if (eventId) {
+      const { error } = await supabase.rpc('request_connection_for_event', { p_event_id: eventId });
+      if (!error) return;
+      console.warn('request_connection_for_event RPC error, falling back:', error?.message || error);
+    }
+  } catch (e) {
+    console.warn('request_connection_for_event RPC unavailable, falling back');
+  }
+  try {
+    if (meId && organizerId) {
+      await idempotentConnect(meId, organizerId);
+    }
+  } catch (e) {
+    console.warn('Fallback idempotentConnect failed (non-fatal):', e?.message || e);
+  }
+}

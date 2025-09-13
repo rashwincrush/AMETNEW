@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
   CalendarIcon,
   MapPinIcon,
@@ -17,12 +17,16 @@ import {
   TagIcon
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 import { formatInIST } from '../../utils/timezone';
 import { toast } from 'react-hot-toast';
+import { requestConnectionForEvent } from '../../utils/connections';
 
 const EventDetails = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [event, setEvent] = useState(null);
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isRSVPed, setIsRSVPed] = useState(false);
@@ -202,6 +206,18 @@ const EventDetails = () => {
             <button className="p-2 bg-white bg-opacity-20 backdrop-blur-sm rounded-full text-white hover:bg-opacity-30">
               <BookmarkIcon className="w-5 h-5" />
             </button>
+            {event.organizer_id && event.organizer_id !== user?.id && (
+              <button
+                onClick={async () => {
+                  try { await requestConnectionForEvent(event.id, event.organizer_id, user?.id); } catch (_) {}
+                  navigate(`/messages?peer=${event.organizer_id}&event=${event.id}`);
+                }}
+                className="px-3 py-1 bg-white bg-opacity-20 backdrop-blur-sm rounded-full text-white hover:bg-opacity-30 text-sm font-medium"
+                title="Contact Organizer"
+              >
+                Contact Organizer
+              </button>
+            )}
           </div>
         </div>
 
@@ -456,7 +472,7 @@ const EventDetails = () => {
                       <div className="flex-1">
                         <h4 className="font-medium text-gray-900">{organizer.name || 'Event Organizer'}</h4>
                         <p className="text-sm text-gray-600">{organizer.role || 'Organizer'}</p>
-                        <div className="flex space-x-2 mt-2">
+                        <div className="flex space-x-2 mt-2 items-center">
                           {organizer.email && (
                             <a 
                               href={`mailto:${organizer.email}`}
@@ -465,13 +481,13 @@ const EventDetails = () => {
                               <EnvelopeIcon className="w-4 h-4" />
                             </a>
                           )}
-                          {organizer.phone && (
-                            <a 
-                              href={`tel:${organizer.phone}`}
-                              className="text-ocean-600 hover:text-ocean-700"
+                          {organizer.id && (
+                            <button
+                              onClick={() => navigate(`/messages?peer=${organizer.id}`)}
+                              className="text-ocean-600 hover:text-ocean-700 text-sm font-medium"
                             >
-                              <PhoneIcon className="w-4 h-4" />
-                            </a>
+                              Contact Organizer
+                            </button>
                           )}
                         </div>
                       </div>
@@ -487,16 +503,27 @@ const EventDetails = () => {
                       <div className="flex-1">
                         <h4 className="font-medium text-gray-900">{event.organizer_name || event.creator_name || 'Event Organizer'}</h4>
                         <p className="text-sm text-gray-600">{event.organizer_role || 'Event Host'}</p>
-                        {event.organizer_email && (
-                          <div className="flex space-x-2 mt-2">
+                        <div className="flex space-x-2 mt-2 items-center">
+                          {event.organizer_email && (
                             <a 
                               href={`mailto:${event.organizer_email}`}
                               className="text-ocean-600 hover:text-ocean-700"
                             >
                               <EnvelopeIcon className="w-4 h-4" />
                             </a>
-                          </div>
-                        )}
+                          )}
+                          {event.organizer_id && event.organizer_id !== user?.id && (
+                            <button
+                              onClick={async () => {
+                                try { await requestConnectionForEvent(event.id, event.organizer_id, user?.id); } catch (_) {}
+                                navigate(`/messages?peer=${event.organizer_id}&event=${event.id}`);
+                              }}
+                              className="text-ocean-600 hover:text-ocean-700 text-sm font-medium"
+                            >
+                              Contact Organizer
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );

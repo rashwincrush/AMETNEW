@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { adminSetProfileApproval } from '../../api/admin';
+import { isRole } from '../../lib/roles';
 import { 
   UsersIcon,
   MagnifyingGlassIcon,
@@ -361,6 +362,10 @@ const UserManagement = () => {
 
   const handleSaveUser = async (userId, newRole) => {
     try {
+      if (!isRole(newRole)) {
+        toast.error('Invalid role');
+        return;
+      }
       // Guard: prevent demoting the last super_admin
       if (selectedUser?.id === userId && selectedUser?.role === 'super_admin' && newRole !== 'super_admin') {
         const { count, error: cntErr } = await supabase
@@ -372,11 +377,9 @@ const UserManagement = () => {
           return;
         }
       }
-      const makeAdmin = newRole === 'admin' || newRole === 'super_admin';
       const { error } = await supabase.rpc('admin_set_user_role', {
-        target: userId,
-        new_role: newRole,
-        make_admin: makeAdmin
+        p_user_id: userId,
+        p_role: newRole,
       });
 
       if (error) {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { 
   Box, 
@@ -45,8 +45,12 @@ import EventCalendar from './EventCalendar';
 import PriorityStrip from './PriorityStrip';
 import { parseISO, isPast, isToday, isFuture, isThisWeek, format } from 'date-fns';
 import { formatInTimeZone, utcToZonedTime } from 'date-fns-tz';
+import { useAuth } from '../../contexts/AuthContext';
 
 const EventsList = ({ isAdmin = false }) => {
+  const navigate = useNavigate();
+  const { userRole, isAdmin: isAdminRole } = useAuth();
+  const canCreate = !!(isAdminRole || userRole === 'employer');
   const [events, setEvents] = useState([]);
   const [featuredEvents, setFeaturedEvents] = useState([]);
   const [featuredLoading, setFeaturedLoading] = useState(true);
@@ -382,15 +386,14 @@ const EventsList = ({ isAdmin = false }) => {
               <CalendarIcon />
             </ToggleButton>
           </ToggleButtonGroup>
-          {isAdmin && (
-            <Button 
-              component={Link} 
-              to="/events/new" 
-              variant="contained" 
+          {canCreate && (
+            <Button
+              onClick={() => navigate('/events/new')}
+              variant="contained"
               color="primary"
               startIcon={<AddIcon />}
             >
-              Create Event
+              + Create Event
             </Button>
           )}
         </Box>

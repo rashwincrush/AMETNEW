@@ -9,7 +9,7 @@ import LoadingScreen from '../common/LoadingScreen';
 
 const CompanyProfile = () => {
   const { id } = useParams();
-  const { user, profile } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [company, setCompany] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -98,7 +98,7 @@ const CompanyProfile = () => {
               
               {/* Edit Company Button - Only visible to the owner or admin */}
               <EmployerGuard companyId={id} strict={false}>
-                {(isOwner || profile?.role === 'admin') && (
+                {(isOwner || isAdmin) && (
                   <Link to={`/company/${id}/edit`} className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-ocean-600 hover:bg-ocean-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ocean-500">
                     <PencilIcon className="-ml-1 mr-2 h-5 w-5" />
                     Edit Company
@@ -137,7 +137,7 @@ const CompanyProfile = () => {
           
           {/* Post Job Button - Only visible to the company owner or admin */}
           <EmployerGuard companyId={id} strict={false}>
-            {(isOwner || profile?.role === 'admin') && (
+            {(isOwner || isAdmin) && (
               <Link to="/jobs/post" className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-ocean-600 hover:bg-ocean-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ocean-500">
                 Post a Job
               </Link>

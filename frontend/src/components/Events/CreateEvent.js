@@ -19,7 +19,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const CreateEvent = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, userRole } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -239,7 +239,8 @@ const CreateEvent = () => {
       const eventData = {
         title: formData.title,
         description: formData.description,
-        category: formData.category,
+        // Employers create 'recruitment' events by default, else use chosen category
+        category: userRole === 'employer' ? 'recruitment' : formData.category,
         event_type: formData.type,
         // Persist timestamps in UTC to avoid client timezone shifts
         // Build from local date+time, then convert to ISO (UTC)
