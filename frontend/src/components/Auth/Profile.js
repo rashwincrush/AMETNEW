@@ -10,7 +10,8 @@ import {
   AcademicCapIcon,
   CameraIcon,
   PencilIcon,
-  XMarkIcon
+  XMarkIcon,
+  KeyIcon
 } from '@heroicons/react/24/outline';
 import ProfileResume from './ProfileResume';
 import { supabase } from '../../utils/supabase';
@@ -1009,13 +1010,25 @@ const Profile = () => {
             </div>
           </div>
           
-          <button 
-            onClick={() => setIsEditing(!isEditing)}
-            className="btn-ocean px-4 py-2 rounded-lg flex items-center transition-all hover:scale-105"
-          >
-            <PencilIcon className="w-4 h-4 mr-2" />
-            {isEditing ? 'Cancel Editing' : 'Edit Profile'}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => navigate('/update-password')}
+              className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-all flex items-center"
+              aria-label="Reset Password"
+            >
+              <KeyIcon className="w-4 h-4 mr-2" />
+              Reset Password
+            </button>
+
+            <button 
+              onClick={() => setIsEditing(!isEditing)}
+              className="btn-ocean px-4 py-2 rounded-lg flex items-center transition-all hover:scale-105"
+            >
+              <PencilIcon className="w-4 h-4 mr-2" />
+              {isEditing ? 'Cancel Editing' : 'Edit Profile'}
+            </button>
+          </div>
         </div>
       </div>
 

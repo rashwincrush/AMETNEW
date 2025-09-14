@@ -1,137 +1,182 @@
-import React, { useState, useEffect } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import LoadingScreen from '../common/LoadingScreen';
 
 /**
- * EmployerGuard component handles role-based access control for employer accounts.
- * It ensures employers only have access to their own company profile and job listings.
- * 
- * @param {Object} props - Component props
- * @param {React.ReactNode} props.children - Child components to render if access is granted
- * @param {string} props.companyId - Optional company ID to check if the employer is associated with it
- * @param {string} props.jobId - Optional job ID to check if the employer is the owner
- * @param {boolean} props.strict - If true, redirects non-employers to home, otherwise allows them through
- * @param {string} props.fallbackPath - Path to redirect to if access is denied (defaults to '/jobs')
- * @returns {React.ReactNode} - The protected children or a redirect
+ * EmployerGuard
+ * - Works in both strict and non-strict modes.
+ * - Does NOT rely on PostgREST relationship aliases.
+ * - Supports multiple companies per employer.
+ * - Retries base-table fetches on transient 401/403/406 once.
+ * - Children can be a node or a render function ({ hasAccess, loading }).
  */
-const EmployerGuard = ({ 
-  children, 
-  companyId, 
-  jobId, 
+const EmployerGuard = ({
+  children,
+  companyId,
+  jobId,
   strict = false,
-  fallbackPath = '/jobs'
 }) => {
-  const { user, userRole, isLoading: authLoading } = useAuth();
+  const { user, userRole, isAdmin, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
   const location = useLocation();
+  const retriedRef = useRef(false);
 
   useEffect(() => {
-    const checkEmployerAccess = async () => {
-      if (authLoading || !user) {
+    const run = async () => {
+      // While auth is loading, keep our spinner up
+      if (authLoading) { setLoading(true); return; }
+
+      // No session
+      if (!user) {
+        console.debug('[EmployerGuard] no user; strict=', strict);
+        setHasAccess(!strict); // allow through in non-strict
         setLoading(false);
         return;
       }
 
+      // Admins always pass
+      if (isAdmin) {
+        console.debug('[EmployerGuard] admin bypass');
+        setHasAccess(true);
+        setLoading(false);
+        return;
+      }
+
+      // Must be employer in strict mode
+      const isEmployer = userRole === 'employer';
+      if (!isEmployer) {
+        console.debug('[EmployerGuard] role is not employer; strict=', strict, 'role=', userRole);
+        setHasAccess(!strict);
+        setLoading(false);
+        return;
+      }
+
+      // Gather all companies owned by this employer (support multiple)
+      let myCompanyIds = [];
       try {
-        // Basic role check
-        const isEmployer = userRole === 'employer';
-        
-        // If not an employer and strict mode is on, deny access
-        if (!isEmployer && strict) {
+        const { data, error } = await supabase
+          .from('companies')
+          .select('id')
+          .eq('created_by', user.id);
+
+        if (error) {
+          console.warn('[EmployerGuard] companies fetch error', error);
+        } else {
+          myCompanyIds = (data || []).map(r => r.id);
+        }
+      } catch (e) {
+        console.warn('[EmployerGuard] companies fetch threw', e);
+      }
+
+      // If we only need to guard by companyId
+      if (companyId && !jobId) {
+        const ok = myCompanyIds.includes(companyId);
+        console.debug('[EmployerGuard] company check', { companyId, myCompanyIds, ok });
+        setHasAccess(ok || isAdmin);
+        setLoading(false);
+        return;
+      }
+
+      // If nothing specific is requested, allow employer who has at least one company
+      if (!companyId && !jobId) {
+        const ok = myCompanyIds.length > 0;
+        console.debug('[EmployerGuard] employer baseline access', { ok, myCompanyIds });
+        setHasAccess(ok || isAdmin);
+        setLoading(false);
+        return;
+      }
+
+      // Job ownership path: fetch the job row (base table, no joins).
+      if (jobId) {
+        // Make sure we have a fresh JWT in case of timing
+        await supabase.auth.getSession();
+
+        const fetchOnce = async () => {
+          const { data, error, status } = await supabase
+            .from('jobs')
+            .select('id, posted_by, user_id, created_by, company_id')
+            .eq('id', jobId)
+            .single();
+
+          return { data, error, status };
+        };
+
+        let jobRow = null;
+        let last = await fetchOnce();
+
+        // Retry once on transient auth/RLS timing codes
+        if ((last.error?.status && [401, 403, 406].includes(last.error.status)) && !retriedRef.current) {
+          retriedRef.current = true;
+          await new Promise(r => setTimeout(r, 300));
+          last = await fetchOnce();
+        }
+
+        if (last.error) {
+          console.debug('[EmployerGuard] job fetch error', {
+            status: last.error.status, code: last.error.code, msg: last.error.message,
+            path: location.pathname, jobId
+          });
           setHasAccess(false);
           setLoading(false);
           return;
         }
-        
-        // If not an employer but strict mode is off, allow access
-        if (!isEmployer && !strict) {
-          setHasAccess(true);
+
+        jobRow = last.data;
+        if (!jobRow) {
+          console.debug('[EmployerGuard] job not found by RLS or missing', { jobId });
+          setHasAccess(false);
           setLoading(false);
           return;
         }
-        
-        // For employers, we need to check company/job ownership
-        if (isEmployer) {
-          // Get the employer's company ID
-          const { data: employerCompany, error: companyError } = await supabase
-            .from('companies')
-            .select('id')
-            .eq('created_by', user.id)
-            .single();
-            
-          if (companyError && companyError.code !== 'PGRST116') {
-            console.error('Error fetching employer company:', companyError);
-            setHasAccess(false);
-            setLoading(false);
-            return;
-          }
-          
-          const employerCompanyId = employerCompany?.id;
-          
-          // If no specific company/job ID is required, just check if they have a company
-          if (!companyId && !jobId) {
-            setHasAccess(!!employerCompanyId);
-            setLoading(false);
-            return;
-          }
-          
-          // Check company access if companyId is provided
-          if (companyId) {
-            setHasAccess(companyId === employerCompanyId);
-            setLoading(false);
-            return;
-          }
-          
-          // Check job ownership if jobId is provided
-          if (jobId) {
-            const { data: jobData, error: jobError } = await supabase
-              .from('jobs')
-              .select('company_id')
-              .eq('id', jobId)
-              .single();
-              
-            if (jobError) {
-              console.error('Error fetching job data:', jobError);
-              setHasAccess(false);
-              setLoading(false);
-              return;
-            }
-            
-            // Check if the job belongs to the employer's company
-            setHasAccess(jobData.company_id === employerCompanyId);
-            setLoading(false);
-            return;
-          }
-        }
-      } catch (error) {
-        console.error('Error in employer access check:', error);
-        setHasAccess(false);
+
+        const ownerIds = [jobRow.posted_by, jobRow.user_id, jobRow.created_by].filter(Boolean);
+        const ownsCompany = jobRow.company_id && myCompanyIds.includes(jobRow.company_id);
+        const isOwner = ownerIds.includes(user.id);
+
+        const ok = isOwner || ownsCompany || isAdmin;
+        console.debug('[EmployerGuard] job ownership decision', {
+          jobId,
+          ownerIds,
+          me: user.id,
+          myCompanyIds,
+          jobCompanyId: jobRow.company_id,
+          isOwner,
+          ownsCompany,
+          ok
+        });
+
+        setHasAccess(ok);
+        setLoading(false);
+        return;
       }
-      
+
+      // Fallback – should never hit
+      setHasAccess(false);
       setLoading(false);
     };
 
-    checkEmployerAccess();
-  }, [user, userRole, authLoading, companyId, jobId, strict]);
+    run();
+    // re-run when auth or target changes
+  }, [authLoading, user, userRole, isAdmin, companyId, jobId, location.pathname]);
 
-  if (loading || authLoading) {
-    return <LoadingScreen />;
+  if (loading || authLoading) return <LoadingScreen />;
+
+  if (strict && !hasAccess) {
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        Employer access only (or you’re not the owner of this resource).
+      </div>
+    );
   }
 
-  // If user doesn't have access and strict mode is on, redirect
-  if (!hasAccess && strict) {
-    return <Navigate to={fallbackPath} state={{ from: location }} replace />;
-  }
-
-  // Support render-prop children to allow guarded data fetching
+  // Support render-prop usage
   if (typeof children === 'function') {
     return children({ hasAccess, loading: loading || authLoading });
   }
 
-  // For non-strict mode or if user has access, render children
   return children;
 };
 

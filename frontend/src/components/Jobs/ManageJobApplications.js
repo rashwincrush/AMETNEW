@@ -6,6 +6,7 @@ import LoadingSpinner from '../common/LoadingSpinner';
 import { toast } from 'react-hot-toast';
 import EmployerGuard from '../Auth/EmployerGuard';
 import { getLatestEdge, idempotentConnect } from '../../utils/connections';
+import { log } from '../../utils/log';
 import { isQuickLink } from '../../utils/jobs';
 
 const GuardReady = ({ onReady }) => { React.useEffect(() => { onReady && onReady(); }, [onReady]); return null; };
@@ -13,10 +14,10 @@ const GuardReady = ({ onReady }) => { React.useEffect(() => { onReady && onReady
 const ManageJobApplications = () => {
   const { jobId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [applications, setApplications] = useState([]);
   const [job, setJob] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [connMap, setConnMap] = useState(new Map()); // applicant_id -> status
 
@@ -25,32 +26,73 @@ const ManageJobApplications = () => {
 
     try {
       setLoading(true);
-      // First, verify the current user is the owner of the job or an admin
-      const { data: jobData, error: jobError } = await supabase
+      // Session snapshot
+      const { data: { session } } = await supabase.auth.getSession();
+      log.group('[APPS] session', { hasSession: !!session, userId: session?.user?.id, jobId });
+
+      // Owner-scope fetch from base table
+      const t0 = performance.now();
+      const jobResp = await supabase
         .from('jobs')
-        .select('*, company_id')
+        .select('id, title, posted_by, user_id, created_by, company_id')
         .eq('id', jobId)
         .single();
+      const jobData = jobResp.data; const jobError = jobResp.error;
+      log.group('[APPS] job fetch', {
+        ms: +(performance.now() - t0).toFixed(1),
+        error: jobError ? { code: jobError.code, message: jobError.message, details: jobError.details } : null,
+        gotRow: !!jobData
+      });
 
-      if (jobError) throw new Error('Job not found or you do not have permission to view this page.');
+      if (jobError || !jobData) {
+        setError("This job either doesn’t exist or you’re not authorized to view its applications.");
+        setJob(null);
+        setApplications([]);
+        return;
+      }
+
       setJob(jobData);
 
-      // TODO: Add more robust permission checks here based on user roles/company ownership
+      // Determine ownership (posted_by OR user_id OR created_by) or admin
+      const ownerIds = [jobData.posted_by, jobData.user_id, jobData.created_by].filter(Boolean);
+      const isOwner = ownerIds.includes(user.id) || isAdmin;
 
-      const { data, error: applicationsError } = await supabase
-        .from('job_applications')
-        .select('id, submitted_at, status, cover_letter, resume_url, profiles(id, full_name, email, avatar_url))')
-        .eq('job_id', jobId)
-        .order('submitted_at', { ascending: false });
+      // Prefer owner-scoped RPC; if missing, fallback to base table
+      let apps = [];
+      try {
+        const t1 = performance.now();
+        const { data: rpcData, error: rpcError } = await supabase
+          .rpc('get_job_applications_for_owner', { p_job_id: jobId, p_limit: 100, p_offset: 0 });
+        log.group('[APPS] list via RPC', {
+          ms: +(performance.now() - t1).toFixed(1),
+          error: rpcError ? { code: rpcError.code, message: rpcError.message, details: rpcError.details } : null,
+          rows: Array.isArray(rpcData) ? rpcData.length : 0
+        });
+        if (rpcError) throw rpcError;
+        apps = Array.isArray(rpcData) ? rpcData : [];
+      } catch (rpcErr) {
+        // Fallback to base table with join if RPC not available
+        const t2 = performance.now();
+        const { data: tblData, error: applicationsError } = await supabase
+          .from('job_applications')
+          .select('id, applicant_id, status, created_at, submitted_at, resume_url, cover_letter, applicant:profiles!job_applications_applicant_id_fkey(id, first_name, last_name, avatar_url, email)')
+          .eq('job_id', jobId)
+          .order('created_at', { ascending: false });
+        log.group('[APPS] list via base table', {
+          ms: +(performance.now() - t2).toFixed(1),
+          error: applicationsError ? { code: applicationsError.code, message: applicationsError.message, details: applicationsError.details } : null,
+          rows: Array.isArray(tblData) ? tblData.length : 0
+        });
+        if (applicationsError) throw applicationsError;
+        apps = Array.isArray(tblData) ? tblData : [];
+      }
 
-      if (applicationsError) throw applicationsError;
-
-      setApplications(data);
+      setApplications(apps);
       // Load connection status for each applicant
-      if (user?.id && Array.isArray(data)) {
+      if (user?.id && Array.isArray(apps)) {
         const entries = await Promise.all(
-          data.map(async (app) => {
-            const otherId = app.profiles?.id;
+          apps.map(async (app) => {
+            const otherId = app.applicant?.id;
             if (!otherId) return [null, null];
             try {
               const edge = await getLatestEdge(user.id, otherId);
@@ -69,7 +111,7 @@ const ManageJobApplications = () => {
     } finally {
       setLoading(false);
     }
-  }, [jobId, user]);
+  }, [jobId, user, isAdmin]);
 
   // Fetch only after guard passes
   const [guardReady, setGuardReady] = useState(false);
@@ -114,14 +156,17 @@ const ManageJobApplications = () => {
     return status === 'accepted' || status === 'connected';
   };
 
-  if (loading) return <LoadingSpinner message="Loading applications..." />;
-  if (error) return <div className="text-center py-10 text-red-500">{error}</div>;
-
   return (
     <EmployerGuard jobId={jobId} strict>
     {() => (
     <div className="container mx-auto px-4 py-8">
       <GuardReady onReady={() => setGuardReady(true)} />
+      {loading && (
+        <div className="py-10"><LoadingSpinner message="Loading applications..." /></div>
+      )}
+      {(!loading && error) && (
+        <div className="text-center py-10 text-red-500">{error}</div>
+      )}
       <div className="flex items-center mb-6">
         <button 
           onClick={() => navigate(-1)}
@@ -134,7 +179,7 @@ const ManageJobApplications = () => {
         </button>
         <div>
           <h1 className="text-3xl font-bold mb-2">Manage Applications</h1>
-          <h2 className="text-xl text-gray-600">For: {job?.title}</h2>
+          <h2 className="text-xl text-gray-600">For: {job?.title || 'Unknown job'}</h2>
         </div>
       </div>
       
@@ -144,6 +189,17 @@ const ManageJobApplications = () => {
           return (
             <div className="mb-6 p-4 rounded-md bg-blue-50 text-blue-800 border border-blue-100">
               This is a Quick Link job. Applications are collected on the external site, so there may be no in-app applicants here.
+            </div>
+          );
+        }
+        const ownerIds = [job?.posted_by, job?.user_id, job?.created_by].filter(Boolean);
+        console.debug('[MANAGE DEBUG] auth.user.id =', user?.id);
+        console.debug('[MANAGE DEBUG] job ownerIds =', ownerIds);
+        const isOwner = user?.id && ownerIds.includes(user.id);
+        if (!isOwner && !isAdmin) {
+          return (
+            <div className="mb-6 p-4 rounded-md bg-yellow-50 text-yellow-800 border border-yellow-100">
+              You’re not authorized to view applications for this job.
             </div>
           );
         }
@@ -166,19 +222,19 @@ const ManageJobApplications = () => {
                   {applications.map(app => (
                     <tr key={app.id}>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <Link to={`/profile/${app.profiles.id}`} className="flex items-center">
+                        <Link to={`/profile/${app.applicant?.id}`} className="flex items-center">
                           <div className="flex-shrink-0 h-10 w-10">
-                            <img className="h-10 w-10 rounded-full object-cover" src={app.profiles.avatar_url || '/default-avatar.png'} alt="" />
+                            <img className="h-10 w-10 rounded-full object-cover" src={app.applicant?.avatar_url || '/default-avatar.png'} alt="" />
                           </div>
                           <div className="ml-4">
-                            <div className="text-sm font-medium text-gray-900">{app.profiles.full_name}</div>
-                            {canMessage(app.profiles.id) && (
-                              <div className="text-sm text-gray-500">{app.profiles.email}</div>
+                            <div className="text-sm font-medium text-gray-900">{[app.applicant?.first_name, app.applicant?.last_name].filter(Boolean).join(' ')}</div>
+                            {canMessage(app.applicant?.id) && (
+                              <div className="text-sm text-gray-500">{app.applicant?.email}</div>
                             )}
                           </div>
                         </Link>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(app.submitted_at).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(app.created_at || app.submitted_at).toLocaleDateString()}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <a href={app.resume_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Resume</a>
                       </td>
@@ -196,11 +252,11 @@ const ManageJobApplications = () => {
                         </select>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 space-x-2">
-                        <Link to={`/profile/${app.profiles.id}`} className="text-ocean-600 hover:underline">View Profile</Link>
-                        {canMessage(app.profiles.id) ? (
-                          <button onClick={() => navigate(`/messages?peer=${app.profiles.id}&job=${jobId}`)} className="text-blue-600 hover:underline">Message</button>
+                        <Link to={`/profile/${app.applicant?.id}`} className="text-ocean-600 hover:underline">View Profile</Link>
+                        {canMessage(app.applicant?.id) ? (
+                          <button onClick={() => navigate(`/messages?peer=${app.applicant?.id}&job=${jobId}`)} className="text-blue-600 hover:underline">Message</button>
                         ) : (
-                          <button onClick={() => handleRequestConnection(app.profiles.id)} className="text-green-600 hover:underline">Request Connection</button>
+                          <button onClick={() => handleRequestConnection(app.applicant?.id)} className="text-green-600 hover:underline">Request Connection</button>
                         )}
                       </td>
                     </tr>

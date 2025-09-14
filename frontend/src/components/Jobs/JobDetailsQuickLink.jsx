@@ -9,7 +9,7 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
   const { user } = useAuth();
   const navigate = useNavigate();
   const externalUrl = useMemo(() => coalesceAppUrl(job), [job]);
-  const employerId = job?.posted_by || job?.user_id || job?.employer_id;
+  const employerId = job?.posted_by || job?.user_id || job?.created_by;
   const derivedIsOwner = !!(user?.id && employerId && user.id === employerId);
   const canEdit = (typeof isOwner === 'boolean' ? isOwner : derivedIsOwner) || isAdmin;
 

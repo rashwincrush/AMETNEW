@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { ROLES, isRole } from '../../constants/roles';
 import DegreeComboBox, { FALLBACK_CODES as DEGREE_FALLBACK_CODES } from '../forms/DegreeComboBox';
 import DepartmentInput, { isValidDepartment } from '../forms/DepartmentInput';
+import { validatePassword } from '../../utils/passwordPolicy';
 
 const EnhancedRegister = () => {
   const navigate = useNavigate();
@@ -350,8 +351,11 @@ const EnhancedRegister = () => {
       // Password validations
       if (!formData.password) {
         newErrors.password = 'Password is required.';
-      } else if (formData.password.length < 8) {
-        newErrors.password = 'Password must be at least 8 characters long.';
+      } else {
+        const policy = validatePassword(formData.password, formData.email);
+        if (!policy.ok) {
+          newErrors.password = policy.message;
+        }
       }
       if (formData.password !== formData.confirmPassword) {
         newErrors.confirmPassword = 'Passwords do not match.';

@@ -120,7 +120,7 @@ const AlumniDashboard = () => {
   const hasFetched = useRef(false);
   
   // Recent Activity Hook (RPC-only)
-  const { items: recent, loading: recentLoading, error: recentError } = useRecentActivity(5);
+  const { items: recent, loading: recentLoading, error: recentError } = useRecentActivity(10);
 
   // Improved promiseWithTimeout with retry capability
   const promiseWithTimeout = useCallback((promise, ms, maxRetries = 2, timeoutError = new Error('Request timed out')) => {

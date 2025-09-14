@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import { buildJobPayload } from '../../utils/jobPayloadBuilder';
 import {
   Box,
   Stepper,
@@ -32,7 +33,7 @@ import {
 const steps = ['Core Info', 'Job Content', 'Details & Contact'];
 
 const PostJob = () => {
-  const { user, profile } = useAuth();
+  const { user, profile, userRole } = useAuth();
   const navigate = useNavigate();
   const [activeStep, setActiveStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -56,25 +57,18 @@ const PostJob = () => {
     title: '',
     company_name: '',
     location: '',
-    work_mode: 'On-site',
     job_type: 'Full-time',
     experience_level: 'Entry',
     department: '',
     industry: '',
     salary_min: '',
     salary_max: '',
-    currency: 'USD',
-    application_deadline: '',
-    openings: 1,
-    summary: '',
-    responsibilities: '',
-    qualifications: '',
-    nice_to_have_skills: '',
-    benefits: '',
-    about_the_company: '',
-    company_website: '',
-    hiring_contact_email: '',
-    equal_opportunity_note: 'Our company is an equal opportunity employer. We celebrate diversity and are committed to creating an inclusive environment for all employees.',
+    deadline: '', // Renamed from application_deadline
+    summary: '', // Will be mapped to description
+    responsibilities: '', // Will be mapped to requirements
+    qualifications: '', // Will be mapped to requirements
+    nice_to_have_skills: '', // Will be mapped to skills array
+    contact_email: '', // Renamed from hiring_contact_email
     // Internal fields
     company_id: null,
     logo_url: '',
@@ -167,7 +161,6 @@ const PostJob = () => {
         return;
       }
 
-      // Find or create company
       const { data: existingCompany } = await supabase.from('companies').select('id').eq('name', formData.company_name.trim()).single();
       let companyId = existingCompany?.id;
       if (!companyId) {
@@ -176,15 +169,8 @@ const PostJob = () => {
         companyId = newCompany.id;
       }
 
-      const jobData = {
-        title: formData.title.trim(),
-        company_id: companyId,
-        application_url: formData.external_application_url.trim(), // The key field for Quick Links
-        summary: formData.summary?.trim(),
-        // Let the backend handle posted_by, is_approved, etc.
-      };
-
-      const { error: jobError } = await supabase.from('jobs').insert(jobData);
+      const payload = buildJobPayload(formData, companyId, 'quick');
+      const { error: jobError } = await supabase.from('jobs').insert(payload).select('id').single();
       if (jobError) throw jobError;
 
       toast.success('Quick Link job posted successfully!');
@@ -205,26 +191,24 @@ const PostJob = () => {
       return;
     }
 
-    // Additional validation for fields not in the stepper validation
-    const { salary_min, salary_max, application_deadline } = formData;
+    const { salary_min, salary_max, deadline } = formData;
     if (salary_min && salary_max && parseFloat(salary_min) > parseFloat(salary_max)) {
       toast.error('Salary minimum cannot be greater than the maximum.');
       setErrors(prev => ({ ...prev, salary_min: 'Invalid range', salary_max: 'Invalid range' }));
       return;
     }
 
-    if (application_deadline) {
+    if (deadline) {
       const today = new Date();
-      const deadlineDate = new Date(application_deadline);
-      today.setHours(0, 0, 0, 0); // Normalize today to the start of the day
+      const deadlineDate = new Date(deadline);
+      today.setHours(0, 0, 0, 0); 
       if (deadlineDate < today) {
         toast.error('Application deadline cannot be in the past.');
-        setErrors(prev => ({ ...prev, application_deadline: 'Date cannot be in the past' }));
+        setErrors(prev => ({ ...prev, deadline: 'Date cannot be in the past' }));
         return;
       }
     }
 
-    // Session guard
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user?.id) {
       toast.error('Please sign in to post a job.');
@@ -236,10 +220,8 @@ const PostJob = () => {
       let companyId = formData.company_id;
       let logoUrl = formData.logo_url;
 
-      // 1. Handle logo upload if a file is selected
       if (logoFile) {
         try {
-          // Sanitize filename: remove spaces and special characters
           const cleanFileName = logoFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
           const fileName = `${session.user.id}/${Date.now()}_${cleanFileName}`;
           
@@ -254,7 +236,6 @@ const PostJob = () => {
             throw new Error(`Failed to upload logo: ${uploadError.message}`);
           }
 
-          // Get public URL
           const { data: urlData } = supabase.storage
             .from('company-logos')
             .getPublicUrl(fileName);
@@ -267,10 +248,6 @@ const PostJob = () => {
         }
       }
 
-      // 2. Find or create the company - CRITICAL for getting a valid company_id
-      console.log("Finding or creating company with name:", formData.company_name.trim());
-      
-      // First try to find the company by exact name match
       const { data: existingCompanies, error: findError } = await supabase
         .from('companies')
         .select('id')
@@ -281,14 +258,10 @@ const PostJob = () => {
         throw new Error(`Failed to find company: ${findError.message}`);
       }
 
-      // Check if we found an existing company
       if (existingCompanies && existingCompanies.length > 0) {
         companyId = existingCompanies[0].id;
-        console.log("Found existing company with ID:", companyId);
         
-        // If there's a new logo, update the existing company's logo
         if (logoUrl) {
-          console.log("Updating company logo for ID:", companyId);
           const { error: updateError } = await supabase
             .from('companies')
             .update({ logo_url: logoUrl })
@@ -300,15 +273,12 @@ const PostJob = () => {
           }
         }
       } else {
-        // Create a new company since it doesn't exist
-        console.log("Creating new company with name:", formData.company_name.trim());
-        
         const { data: newCompany, error: createError } = await supabase
           .from('companies')
           .insert({
             name: formData.company_name.trim(),
             logo_url: logoUrl,
-            created_by: session.user.id // Ensure we set the created_by field
+            created_by: session.user.id 
           })
           .select();
           
@@ -317,92 +287,20 @@ const PostJob = () => {
           throw new Error(`Failed to create company: ${createError.message}`);
         }
         
-        if (!newCompany || newCompany.length === 0) {
-          console.error("No company data returned after creation");
-          throw new Error("Failed to create company: No data returned");
-        }
-        
         companyId = newCompany[0].id;
-        console.log("Created new company with ID:", companyId);
       }
       
-      // Verify we have a valid company_id before proceeding
       if (!companyId) {
         console.error("No valid company_id after company creation/lookup");
         throw new Error("Cannot create job without a valid company ID");
       }
 
-      // 3. Prepare and submit the job data
-      console.log("Preparing job data with company_id:", companyId);
-
-      // Explicitly remove the offending field from the form data to prevent it from being included
-      if (formData.primary_role) {
-        delete formData.primary_role;
-      }
-      
-      // Format the deadline properly
-      const rawDeadline = formData.deadline;
-      let deadline = null;
-      
-      if (rawDeadline) {
-        try {
-          const parts = rawDeadline.split('/');
-          if (parts.length === 3) {
-            const [day, month, year] = parts;
-            // Convert to strings and pad if needed
-            const dayStr = String(day).padStart(2, '0');
-            const monthStr = String(month).padStart(2, '0');
-            // Create a valid ISO date string
-            deadline = new Date(`${year}-${monthStr}-${dayStr}T00:00:00Z`).toISOString();
-          } else {
-            deadline = new Date(rawDeadline).toISOString();
-          }
-          console.log("Formatted deadline:", deadline);
-        } catch (dateError) {
-          console.error("Error formatting deadline:", dateError);
-          throw new Error(`Invalid date format for deadline: ${rawDeadline}`);
-        }
-      }
-
-      const jobData = {
-        company_id: companyId,
-        title: formData.title?.trim(),
-        location: formData.location?.trim(),
-        work_mode: formData.work_mode,
-        job_type: formData.job_type,
-        experience_level: formData.experience_level,
-        department: formData.department?.trim(),
-        industry: formData.industry?.trim(),
-        salary_min: formData.salary_min || null,
-        salary_max: formData.salary_max || null,
-        currency: formData.currency,
-        application_deadline: formData.application_deadline || null,
-        openings: formData.openings || 1,
-        summary: formData.summary?.trim(),
-        description: formData.summary?.trim(), // Using summary as the main description for now.
-        responsibilities: formData.responsibilities?.trim(),
-        qualifications: formData.qualifications?.trim(),
-        nice_to_have_skills: formData.nice_to_have_skills?.split(',').map(s => s.trim()),
-        benefits: formData.benefits?.trim(),
-        about_the_company: formData.about_the_company?.trim(),
-        company_website: formData.company_website?.trim(),
-        hiring_contact_email: formData.hiring_contact_email?.trim(),
-        // application_url is intentionally omitted for In-App jobs
-      };
-      
-      // Log the exact payload we're sending
-      console.log("Submitting job with payload:", jobData);
-      
-      // Insert the job with a specific select call to avoid issues with non-existent columns
-      const { data: newJob, error: jobError } = await supabase
-        .from('jobs')
-        .insert([jobData])
-        .select('id'); // Only return the ID to avoid column issues
+      const payload = buildJobPayload(formData, companyId, 'form');
+      console.log("Submitting In-App job with payload:", payload);
+      const { data: newJob, error: jobError } = await supabase.from('jobs').insert(payload).select('id').single();
         
-      // Check for errors
       if (jobError) {
         console.error("Error creating job:", jobError);
-        // Log the full error for debugging
         console.error('Full job creation error:', JSON.stringify(jobError, null, 2));
         throw new Error(`Failed to create job: ${jobError.message || 'RLS/validation error'}`);
       }
@@ -410,7 +308,6 @@ const PostJob = () => {
       console.log("Job created successfully");
       toast.success('Job posted!');
 
-      // Navigate to the new job details page
       if (newJob && newJob[0]?.id) {
         navigate(`/jobs/${newJob[0].id}`);
       } else {
@@ -426,7 +323,7 @@ const PostJob = () => {
 
   const getStepContent = (step) => {
     switch (step) {
-      case 0: // Core Info
+      case 0: 
         return (
           <Grid container spacing={3}>
             <Grid item xs={12}>
@@ -438,14 +335,7 @@ const PostJob = () => {
             <Grid item xs={12}>
               <TextField required fullWidth name="location" label="Location" value={formData.location} onChange={handleChange} error={!!errors.location} helperText={errors.location} placeholder="e.g., Mumbai, Maharashtra, India" />
             </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField select fullWidth required name="work_mode" label="Work Mode" value={formData.work_mode} onChange={handleChange}>
-                <MenuItem value="On-site">On-site</MenuItem>
-                <MenuItem value="Hybrid">Hybrid</MenuItem>
-                <MenuItem value="Remote">Remote</MenuItem>
-              </TextField>
-            </Grid>
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} sm={6}>
               <TextField select fullWidth required name="job_type" label="Job Type" value={formData.job_type} onChange={handleChange}>
                 <MenuItem value="Full-time">Full-time</MenuItem>
                 <MenuItem value="Part-time">Part-time</MenuItem>
@@ -454,7 +344,7 @@ const PostJob = () => {
                 <MenuItem value="Temporary">Temporary</MenuItem>
               </TextField>
             </Grid>
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} sm={6}>
               <TextField select fullWidth required name="experience_level" label="Experience Level" value={formData.experience_level} onChange={handleChange}>
                 <MenuItem value="Entry">Entry</MenuItem>
                 <MenuItem value="Mid">Mid-level</MenuItem>
@@ -464,27 +354,21 @@ const PostJob = () => {
             </Grid>
           </Grid>
         );
-      case 1: // Job Content
+      case 1: 
         return (
           <Grid container spacing={3}>
             <Grid item xs={12}>
               <TextField fullWidth multiline rows={3} name="summary" label="Summary (Short, 1-2 sentences)" value={formData.summary} onChange={handleChange} />
             </Grid>
             <Grid item xs={12}>
-              <TextField fullWidth multiline rows={5} name="responsibilities" label="Responsibilities (5-8 bullet points recommended)" value={formData.responsibilities} onChange={handleChange} placeholder="- Responsibility 1\n- Responsibility 2" />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField fullWidth multiline rows={5} name="qualifications" label="Qualifications (Skills, Education, Certs)" value={formData.qualifications} onChange={handleChange} placeholder="- Qualification 1\n- Qualification 2" />
+              <TextField fullWidth multiline rows={5} name="responsibilities" label="Responsibilities / Requirements" value={formData.responsibilities} onChange={handleChange} placeholder="- Responsibility 1\n- Responsibility 2" />
             </Grid>
             <Grid item xs={12}>
               <TextField fullWidth name="nice_to_have_skills" label="Nice-to-have Skills (comma-separated)" value={formData.nice_to_have_skills} onChange={handleChange} placeholder="e.g., AutoCAD, Project Management" />
             </Grid>
-            <Grid item xs={12}>
-              <TextField fullWidth multiline rows={4} name="benefits" label="Benefits / Perks" value={formData.benefits} onChange={handleChange} placeholder="- Perk 1\n- Perk 2" />
-            </Grid>
           </Grid>
         );
-      case 2: // Details & Contact
+      case 2: 
         return (
           <Grid container spacing={3}>
             <Grid item xs={12} sm={6}>
@@ -493,25 +377,14 @@ const PostJob = () => {
             <Grid item xs={12} sm={6}>
               <TextField fullWidth name="industry" label="Industry" value={formData.industry} onChange={handleChange} placeholder="e.g., Maritime" />
             </Grid>
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} sm={6}>
               <TextField fullWidth name="salary_min" label="Salary Minimum" type="number" value={formData.salary_min} onChange={handleChange} />
             </Grid>
-            <Grid item xs={12} sm={4}>
+            <Grid item xs={12} sm={6}>
               <TextField fullWidth name="salary_max" label="Salary Maximum" type="number" value={formData.salary_max} onChange={handleChange} />
             </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField select fullWidth name="currency" label="Currency" value={formData.currency} onChange={handleChange}>
-                <MenuItem value="USD">USD</MenuItem>
-                <MenuItem value="INR">INR</MenuItem>
-                <MenuItem value="EUR">EUR</MenuItem>
-                <MenuItem value="GBP">GBP</MenuItem>
-              </TextField>
-            </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth type="date" name="application_deadline" label="Application Deadline" value={formData.application_deadline} onChange={handleChange} InputLabelProps={{ shrink: true }} />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField fullWidth type="number" name="openings" label="Number of Openings" value={formData.openings} onChange={handleChange} />
+              <TextField fullWidth type="date" name="deadline" label="Application Deadline" value={formData.deadline} onChange={handleChange} InputLabelProps={{ shrink: true }} />
             </Grid>
             <Grid item xs={12}>
               <Divider sx={{ my: 2 }}><Typography variant="overline">Company Details</Typography></Divider>
@@ -519,20 +392,18 @@ const PostJob = () => {
             <Grid item xs={12}>
               <Typography variant="subtitle1" gutterBottom>Company Logo</Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Avatar src={logoPreview || ''} alt="Company Logo Preview" sx={{ width: 60, height: 60, border: '1px solid #ddd' }} />
-                <Button variant="outlined" component="label">Upload Logo<input type="file" hidden accept="image/png, image/jpeg, image/jpg, image/svg+xml" onChange={handleLogoChange} /></Button>
+                <Avatar src={logoPreview || profile.avatar_url || ''} alt="Company Logo Preview" sx={{ width: 60, height: 60, border: '1px solid #ddd' }} />
+                <Button variant="outlined" component="label">Upload New Logo<input type="file" hidden accept="image/png, image/jpeg, image/jpg, image/svg+xml" onChange={handleLogoChange} /></Button>
                 {logoPreview && <Button size="small" onClick={() => { setLogoFile(null); setLogoPreview(''); }}>Remove</Button>}
               </Box>
-              <Typography variant="caption" color="text.secondary">Max 2MB. PNG, JPG, SVG.</Typography>
+              {userRole === 'employer' ? (
+                <Typography variant="caption" color="text.secondary">Optional. Your profile avatar will be used by default if no logo is uploaded.</Typography>
+              ) : (
+                <Typography variant="caption" color="text.secondary">Max 2MB. PNG, JPG, SVG.</Typography>
+              )}
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="company_website" label="Company Website" value={formData.company_website} onChange={handleChange} placeholder="https://example.com" />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="hiring_contact_email" type="email" label="Hiring Contact Email (Internal Only)" value={formData.hiring_contact_email} onChange={handleChange} />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField fullWidth multiline rows={3} name="about_the_company" label="About the Company" value={formData.about_the_company} onChange={handleChange} />
+              <TextField fullWidth name="contact_email" type="email" label="Hiring Contact Email (Internal Only)" value={formData.contact_email} onChange={handleChange} />
             </Grid>
           </Grid>
         );

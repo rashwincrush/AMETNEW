@@ -26,7 +26,7 @@ import EditEvent from './components/Events/EditEvent';
 import CreateEvent from './components/Events/CreateEvent';
 import EventFeedbackReport from './components/Admin/EventFeedbackReport';
 
-// Auth Components
+import AuthListener from './components/Auth/AuthListener';
 import Login from './components/Auth/Login';
 import EnhancedRegister from './components/Auth/EnhancedRegister';
 import Profile from './components/Auth/Profile';
@@ -97,6 +97,7 @@ import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import RequireCompleteProfile from './components/Auth/RequireCompleteProfile';
 import MyMentorship from './components/Mentorship/MyMentorship';
+import Security from './pages/Profile/Security';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -189,6 +190,10 @@ function AppContent() {
               </RequireCompleteProfile>
             } />
             <Route path="/profile" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="access:profile_settings"><Profile user={profile || user} /></ProtectedRoute></RequireCompleteProfile>} />
+            {/* Security settings and password management */}
+            <Route path="/profile/security" element={<ProtectedRoute requiredPermission="access:profile_settings"><Security /></ProtectedRoute>} />
+            {/* Allow password update page for logged-in users too (e.g., via header button) */}
+            <Route path="/update-password" element={<UpdatePassword />} />
             <Route path="/companies/:id" element={<PublicCompanyProfile />} />
             <Route path="/company/edit" element={<ProtectedRoute requiredPermission="manage:company_profile"><EditCompanyProfile user={profile || user} /></ProtectedRoute>} />
             <Route path="/events/*" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="access:events"><EventsPage /></ProtectedRoute></RequireCompleteProfile>} />
@@ -303,6 +308,7 @@ function App() {
         <AuthProvider>
           <RealtimeProvider>
             <NotificationProvider>
+              <AuthListener />
               <AppContent />
               <FeedbackWidget />
               <Toaster 

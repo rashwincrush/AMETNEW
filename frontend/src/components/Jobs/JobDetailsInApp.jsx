@@ -11,7 +11,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
   const { user } = useAuth();
   const navigate = useNavigate();
   const canEdit = isOwner || isAdmin;
-  const employerId = job?.posted_by || job?.user_id;
+  const employerId = job?.posted_by || job?.user_id || job?.created_by;
 
   if (!job) return null;
 

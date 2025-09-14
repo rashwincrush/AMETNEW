@@ -380,7 +380,7 @@ const JobListingsPage = () => {
       console.log('Fetching jobs with filters:', { searchQuery, sortBy, currentPage });
     }
 
-    const [sortField, sortOrder] = sortBy.split(',');
+    const [sortCol, sortDir] = (sortBy || 'created_at,desc').split(',');
 
     // Use normalized role from AuthContext instead of user_metadata
     const isEmployer = userRole === 'employer';
@@ -393,37 +393,41 @@ const JobListingsPage = () => {
     // - Regular users will only see jobs where is_approved = true
     // - Admin users will see all jobs
     // - Employers will see their own posted jobs regardless of approval status
-    const isV2 = !isEmployer; // non-employers use v2 unified payload
     let data = null; let error = null; let serverFilteredByDepartment = false;
+
     if (isEmployer) {
       ({ data, error } = await supabase.rpc('get_my_posted_jobs', {
-        p_search_query: searchQuery,
-        p_sort_by: sortField,
-        p_sort_order: sortOrder,
+        p_search_query: searchQuery || null,
+        p_sort_by: sortCol || 'created_at',
+        p_sort_order: (sortDir || 'desc').toLowerCase(),
         p_limit: pageSize,
-        p_offset: (currentPage - 1) * pageSize
+        p_offset: (currentPage - 1) * pageSize,
       }));
     } else {
-      // Try v3 with department param; fallback to v2
       const deptParam = (filters.department && filters.department !== 'all') ? filters.department : null;
-      ({ data, error } = await supabase.rpc('get_jobs_with_bookmarks_v3', {
-        p_search_query: searchQuery,
-        p_sort_by: sortField,
-        p_sort_order: sortOrder,
+      ({ data, error } = await supabase.rpc('get_jobs_feed', {
+        p_search_query: searchQuery || null,
+        p_sort_by: sortCol || 'created_at',
+        p_sort_order: (sortDir || 'desc').toLowerCase(),
         p_limit: pageSize,
         p_offset: (currentPage - 1) * pageSize,
         p_department: deptParam,
       }));
-      if (!error) {
-        serverFilteredByDepartment = true;
+      if (error) {
+        console.warn('RPC get_jobs_feed failed, falling back to v_jobs_feed_all view');
+        const { data: viewData, error: viewError } = await supabase
+          .from('v_jobs_feed_all')
+          .select('*')
+          .order(sortCol, { ascending: sortDir === 'asc' })
+          .range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
+        if (viewError) {
+          error = viewError; // Keep the latest error
+        } else {
+          data = { items: viewData, total_count: viewData.length }; // Mock RPC structure
+          error = null; // Clear previous RPC error
+        }
       } else {
-        ({ data, error } = await supabase.rpc('get_jobs_with_bookmarks_v2', {
-          p_search_query: searchQuery,
-          p_sort_by: sortField,
-          p_sort_order: sortOrder,
-          p_limit: pageSize,
-          p_offset: (currentPage - 1) * pageSize
-        }));
+        serverFilteredByDepartment = !!deptParam;
       }
     }
 
@@ -437,8 +441,8 @@ const JobListingsPage = () => {
       if (data) {
         let rows = [];
         let totalCount = 0;
-        if (isV2) {
-          rows = (data?.items || []).map(j => {
+        if (!isEmployer) {
+          rows = (data?.items ?? []).map(j => {
             const company = companyDisplay(j);
             const appUrl = coalesceAppUrl(j);
             const computedSource = getSourceType({ ...j, application_url: appUrl });
@@ -450,7 +454,7 @@ const JobListingsPage = () => {
               source_type: j?.source_type ?? computedSource,
             };
           });
-          totalCount = data?.total_count || 0;
+          totalCount = data?.total_count ?? 0;
         } else {
           // employer path using get_my_posted_jobs (array shape)
           rows = data.map(j => {
@@ -541,7 +545,7 @@ const JobListingsPage = () => {
     }
 
     setLoading(false);
-  }, [searchQuery, sortBy, currentPage, user, supabase, pageSize, filters.department]);
+  }, [searchQuery, sortBy, currentPage, user, userRole, supabase, pageSize, filters.department]);
 
   // --- Realtime Subscription (after fetchJobs so dependencies are initialized) --- 
   const handleRealtimeJobChange = useCallback((payload) => {
