@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase, fetchGroups, joinGroup, leaveGroup } from '../../utils/supabase';
 import { fetchMembershipMap } from '../../utils/memberships';
 import { useAuth } from '../../contexts/AuthContext';
-import { can } from '../../lib/permissions';
+import { can } from '../../utils/permissions';
 import { Users, Search, Tag, Calendar, Filter } from 'lucide-react';
 
 // Skeleton loader component for a better loading experience

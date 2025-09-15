@@ -1,7 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { can } from '../lib/permissions';
+import { can } from '../utils/permissions';
 import GroupsList from '../components/Groups/GroupsList';
 import CreateGroup from '../components/Groups/CreateGroup';
 import GroupDetail from '../components/Groups/GroupDetail';
