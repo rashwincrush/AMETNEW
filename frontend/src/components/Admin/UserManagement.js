@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { adminSetProfileApproval } from '../../api/admin';
-import { isRole } from '../../lib/roles';
+import { isRole } from '../../utils/roles';
 import { 
   UsersIcon,
   MagnifyingGlassIcon,
