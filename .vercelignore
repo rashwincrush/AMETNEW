@@ -40,3 +40,6 @@ docs/
 .env.development
 .env.test
 .env.production
+
+# Ensure client-side permission helpers are included in builds
+!frontend/src/lib/**
