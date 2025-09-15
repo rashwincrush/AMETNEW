@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase, fetchGroups, joinGroup, leaveGroup } from '../../utils/supabase';
 import { fetchMembershipMap } from '../../utils/memberships';
 import { useAuth } from '../../contexts/AuthContext';
+import { can } from '../../lib/permissions';
 import { Users, Search, Tag, Calendar, Filter } from 'lucide-react';
 
 // Skeleton loader component for a better loading experience
@@ -28,7 +29,7 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
       ? 'approved'
       : 'pending';
   const isApproved = group.is_approved === true || group.approval_status === 'approved';
-  const isPrivate = group.is_private === true;
+  const isPrivate = (group.visibility || '').toLowerCase() === 'private';
   const isSiteAdmin = !!canManageAllGroups;
   const showManage = (isGroupAdmin || isSiteAdmin) && !group.is_archived;
   const showJoin = !group.is_archived && !isMember && isApproved && !isPrivate;
@@ -91,8 +92,8 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
             {group.is_archived && (
               <span className="px-2 py-1 rounded-full bg-red-100 text-red-700">Archived</span>
             )}
-            <span className={`px-2 py-1 rounded-full ${group.is_private ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
-              {group.is_private ? 'Private' : 'Public'}
+            <span className={`px-2 py-1 rounded-full ${isPrivate ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+              {isPrivate ? 'Private' : 'Public'}
             </span>
             {showModeration && (
               moderationState === 'approved' ? (
@@ -155,7 +156,7 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
 };
 
 const GroupsList = () => {
-  const { user, isAdmin, hasPermission, profile } = useAuth();
+  const { user, isAdmin, hasPermission, profile, userRole } = useAuth();
   const [groups, setGroups] = useState([]);
   const [userMemberships, setUserMemberships] = useState([]);
   const [membershipMap, setMembershipMap] = useState({});
@@ -313,9 +314,9 @@ const GroupsList = () => {
     <div className="container mx-auto p-4 md:p-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800 mb-4 md:mb-0">Networking Groups</h1>
-        {user && (
-          <Link 
-            to="/groups/new" 
+        {user && can('groups:create', userRole) && (
+          <Link
+            to="/groups/new"
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105"
           >
             Create Group

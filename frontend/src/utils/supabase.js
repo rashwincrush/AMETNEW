@@ -722,8 +722,7 @@ export const fetchGroups = async (options = {}) => {
   let publicQ = supabase
     .from('groups')
     .select(baseSelect)
-    .eq('is_archived', false)
-    .eq('is_private', false)
+    .eq('visibility', 'public')
     .eq('is_approved', true)
     .order(sortBy, { ascending: sortOrder === 'asc' })
     .limit(limit);
@@ -734,18 +733,23 @@ export const fetchGroups = async (options = {}) => {
     publicQ,
     (async () => {
       if (!currentUserId) return { data: [], error: null };
-      // Fetch groups where current user is a member (includes private ones)
-      const { data, error } = await supabase
-        .from('group_members')
-        .select(`
-          group:groups(${baseSelect})
-        `)
-        .eq('user_id', currentUserId)
-        .eq('groups.is_archived', false);
-      if (error) return { data: null, error };
-      // Map to group rows and mark membership
-      const groups = (data || []).map(r => ({ ...r.group, is_member: true }));
-      return { data: groups, error: null };
+      // Step 1: fetch membership group ids only (avoid nested embeds that can trip RLS recursion)
+      const { data: memRows, error: memErr } = await supabase
+        .from('group_memberships')
+        .select('group_id')
+        .eq('user_id', currentUserId);
+      if (memErr) return { data: null, error: memErr };
+      const groupIds = (memRows || []).map(r => r.group_id);
+      if (groupIds.length === 0) return { data: [], error: null };
+      // Step 2: fetch those groups separately with the same base select
+      const { data: groups, error: gErr } = await supabase
+        .from('groups')
+        .select(baseSelect)
+        .in('id', groupIds);
+      if (gErr) return { data: null, error: gErr };
+      // Mark membership flag on rows
+      const withFlag = (groups || []).map(g => ({ ...g, is_member: true }));
+      return { data: withFlag, error: null };
     })()
   ]);
 
@@ -768,8 +772,7 @@ export const fetchGroups = async (options = {}) => {
   });
 
   // Apply client-side filters that weren't applicable to member join select
-  // Also exclude archived groups from listings
-  let filtered = merged.filter(g => g && g.is_archived === false);
+  let filtered = merged;
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     filtered = filtered.filter(g => (g.name || '').toLowerCase().includes(q));
@@ -841,8 +844,8 @@ export const getMyGroupMembership = async (groupId) => {
 // Fetch members for a group (role + profile), load on-demand for Members tab
 export const fetchGroupMembers = async (groupId, limit = 200, offset = 0) => {
   const { data, error } = await supabase
-    .from('group_members')
-    .select('role, joined_at, user:profiles!group_members_user_id_fkey(id, full_name, avatar_url, email, headline)')
+    .from('group_memberships')
+    .select('role, joined_at, user:profiles!group_memberships_user_id_fkey(id, full_name, avatar_url, email, headline)')
     .eq('group_id', groupId)
     .order('joined_at', { ascending: false })
     .range(offset, offset + limit - 1);
@@ -862,7 +865,7 @@ export const createGroup = async (groupData) => {
 // Join a group (backend trigger/RLS infers user_id and role)
 export const joinGroup = async (groupId) => {
   const { data, error } = await supabase
-    .from('group_members')
+    .from('group_memberships')
     .insert([{ group_id: groupId }])
     .select();
   return { data, error };
@@ -871,7 +874,7 @@ export const joinGroup = async (groupId) => {
 // Leave a group
 export const leaveGroup = async (groupId, userId) => {
   const { data, error } = await supabase
-    .from('group_members')
+    .from('group_memberships')
     .delete()
     .eq('group_id', groupId)
     .eq('user_id', userId);

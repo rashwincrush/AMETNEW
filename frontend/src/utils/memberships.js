@@ -7,7 +7,7 @@ export async function fetchMembershipMap(supabase, groupIds) {
   if (!userId) return {};
 
   const { data, error } = await supabase
-    .from('group_members')
+    .from('group_memberships')
     .select('group_id, role')
     .in('group_id', groupIds)
     .eq('user_id', userId);

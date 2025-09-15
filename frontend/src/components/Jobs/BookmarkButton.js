@@ -1,6 +1,7 @@
 import React from 'react';
-import { BookmarkIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
+import { BookmarkIcon as BookmarkOutline } from '@heroicons/react/24/outline';
+import { BookmarkIcon as BookmarkSolid } from '@heroicons/react/24/solid';
 
 /**
  * BookmarkButton component to centralize bookmark logic and error handling
@@ -21,12 +22,16 @@ const BookmarkButton = ({ jobId, isBookmarked, handleBookmark }) => {
   return (
     <button
       onClick={handleClick}
-      className={`p-2 rounded-full transition-colors duration-200 ${isBookmarked ? 'bg-ocean-100 hover:bg-ocean-200' : 'hover:bg-gray-100'}`}
       aria-label={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
+      title={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
+      className={`p-2 rounded-full transition-colors duration-200
+        ${isBookmarked ? 'bg-ocean-100 text-ocean-600 hover:bg-ocean-200' : 'text-gray-500 hover:bg-gray-100'}`}
     >
-      <BookmarkIcon 
-        className={`w-5 h-5 transition-colors duration-200 ${isBookmarked ? 'text-ocean-600 fill-ocean-600' : 'text-gray-500'}`} 
-      />
+      {isBookmarked ? (
+        <BookmarkSolid className="w-5 h-5" />
+      ) : (
+        <BookmarkOutline className="w-5 h-5" />
+      )}
     </button>
   );
 };

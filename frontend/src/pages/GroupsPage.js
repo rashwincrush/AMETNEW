@@ -1,15 +1,19 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { can } from '../lib/permissions';
 import GroupsList from '../components/Groups/GroupsList';
 import CreateGroup from '../components/Groups/CreateGroup';
 import GroupDetail from '../components/Groups/GroupDetail';
 
 const GroupsPage = () => {
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, userRole } = useAuth();
   
   // Check if user has permission to access groups
   const hasGroupAccess = hasPermission('access:groups');
+
+  // Gate create-permissions to alumni/admin/super_admin as per new rules
+  const canCreate = can('groups:create', userRole);
 
   return (
     <Routes>
@@ -20,11 +24,11 @@ const GroupsPage = () => {
       <Route
         path="new"
         element={
-          user && hasGroupAccess ? (
+          user && hasGroupAccess && canCreate ? (
             <CreateGroup />
           ) : (
             <Navigate 
-              to={user ? "/dashboard" : "/login"} 
+              to={user ? "/groups" : "/login"} 
               replace 
               state={{ from: window.location.pathname }} 
             />

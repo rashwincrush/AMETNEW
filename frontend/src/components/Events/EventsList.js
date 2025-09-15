@@ -393,7 +393,7 @@ const EventsList = ({ isAdmin = false }) => {
               color="primary"
               startIcon={<AddIcon />}
             >
-              + Create Event
+              Create Event
             </Button>
           )}
         </Box>

@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { requestConnectionForJob } from '../../utils/connections';
 import { supabase } from '../../utils/supabase';
 import { ShareIcon, BookmarkIcon, MapPinIcon, BriefcaseIcon, ClockIcon } from '@heroicons/react/24/outline';
+import { toggleBookmarkRPC } from '../../utils/bookmarks';
 import { CalendarIcon } from '@heroicons/react/24/outline';
 import { shareJob } from '../../utils/share';
 
@@ -22,6 +23,7 @@ export default function JobCard({ job }) {
   const isQuick = isQuickLink(job);
   const externalUrl = useMemo(() => coalesceAppUrl(job), [job]);
   const [isBookmarked, setIsBookmarked] = useState(Boolean(job?.is_bookmarked));
+  const bookmarkedJobs = useMemo(() => user?.bookmarked_jobs || [], [user]);
 
   const toggleBookmark = async () => {
     if (!user?.id) {
@@ -29,29 +31,14 @@ export default function JobCard({ job }) {
       return;
     }
     try {
-      if (isBookmarked) {
-        const { error } = await supabase
-          .from('job_bookmarks')
-          .delete()
-          .match({ user_id: user.id, job_id: job.id });
-        if (error) throw error;
-        setIsBookmarked(false);
-        toast.success('Bookmark removed');
-      } else {
-        const { error } = await supabase
-          .from('job_bookmarks')
-          .insert({ user_id: user.id, job_id: job.id });
-        if (error) {
-          if (error.message?.includes('bookmark up to 3')) {
-            toast.error('You can only bookmark up to 3 jobs.');
-          } else {
-            throw error;
-          }
-        } else {
-          setIsBookmarked(true);
-          toast.success('Job bookmarked');
-        }
+      // Optional client-side cap before calling server
+      if (!isBookmarked && bookmarkedJobs && bookmarkedJobs.length >= 3) {
+        toast.error('You can only bookmark up to 3 jobs.');
+        return;
       }
+      const nowBookmarked = await toggleBookmarkRPC(supabase, job.id);
+      setIsBookmarked(nowBookmarked);
+      toast.success(nowBookmarked ? 'Job bookmarked' : 'Bookmark removed');
     } catch (e) {
       console.error('Bookmark error:', e);
       toast.error('Failed to update bookmark');

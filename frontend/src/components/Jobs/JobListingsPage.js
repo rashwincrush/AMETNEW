@@ -1,25 +1,20 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useLocation, useSearchParams, useNavigate } from 'react-router-dom';
 import useJobsRealtime from '../../hooks/useJobsRealtime';
-import { 
+import {
   MagnifyingGlassIcon,
   FunnelIcon,
   Squares2X2Icon,
   ListBulletIcon,
   MapPinIcon,
   BriefcaseIcon,
-  CurrencyRupeeIcon,
   ClockIcon,
-  BuildingOfficeIcon,
-  BookmarkIcon,
   ShareIcon,
   PlusIcon,
   BellIcon,
-  UsersIcon,
-  DocumentTextIcon
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 import { CalendarIcon } from '@heroicons/react/24/outline';
-import { CheckBadgeIcon } from '@heroicons/react/24/solid';
 import { CircularProgress } from '@mui/material';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -30,10 +25,9 @@ import toast from 'react-hot-toast';
 import { useNotification } from '../common/NotificationCenter';
 import { shareJob } from '../../utils/share';
 import BookmarkButton from './BookmarkButton';
+import { toggleBookmarkRPC } from '../../utils/bookmarks';
 
-
-
-// Shared helper: relative time formatter
+/* ---------- Helpers ---------- */
 const timeAgo = (date) => {
   if (!date) return '';
   const seconds = Math.floor((new Date() - new Date(date)) / 1000);
@@ -50,7 +44,6 @@ const timeAgo = (date) => {
   return Math.floor(seconds) + ' seconds ago';
 };
 
-// Define the filterOptions outside of the component to prevent re-creating on each render
 const filterOptions = {
   jobType: [
     { value: 'all', label: 'All Job Types' },
@@ -107,14 +100,13 @@ const filterOptions = {
   ],
 };
 
-// Job card component for grid view
+/* ---------- Small subcomponents that need the bookmark state passed in ---------- */
 const JobCard = ({ job, handleBookmark, isBookmarked }) => {
-  // Share popover removed; using simple share button
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id || job?.employer_id;
   const isOwner = user?.id && employerId && user.id === employerId;
-  const isStudent = ['alumni','student'].includes(userRole);
+  const isStudent = ['alumni', 'student'].includes(userRole);
   if (!job) return null;
 
   const quick = isQuickLink(job);
@@ -124,8 +116,8 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
     <div className="glass-card rounded-lg p-6 hover:shadow-lg transition-shadow border border-transparent h-full flex flex-col">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center">
-          <img 
-            src={job.companies?.logo_url || '/logo.png'} 
+          <img
+            src={job.companies?.logo_url || '/logo.png'}
             alt={job.companies?.name || 'Company'}
             className="w-12 h-12 rounded-lg object-cover mr-4"
           />
@@ -134,7 +126,9 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
               <h3 className="font-semibold text-gray-900 line-clamp-1" title={job.title}>{job.title}</h3>
             </div>
             <div className="flex items-center gap-2">
-              <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">{job.companies?.name || job.company_name}</Link>
+              <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">
+                {job.companies?.name || job.company_name}
+              </Link>
               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
                 {quick ? 'Quick Link' : 'In-App'}
               </span>
@@ -153,8 +147,9 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           />
         </div>
       </div>
+
       <p className="text-gray-600 text-sm mb-4 line-clamp-3">{job.description || 'No description provided.'}</p>
-      
+
       <div className="grid grid-cols-2 gap-2 mb-2">
         {!!job.location && (
           <div className="flex items-center text-sm text-gray-600">
@@ -201,19 +196,11 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
               Ask Employer
             </button>
           )}
-          <Link 
-            to={`/jobs/${job.id}`}
-            className="btn-ocean-outline py-1 px-3 rounded text-sm"
-          >
-            View Details
-          </Link>
+          <Link to={`/jobs/${job.id}`} className="btn-ocean-outline py-1 px-3 rounded text-sm">View Details</Link>
           <button
             onClick={() => {
-              if (quick && href) {
-                window.open(href, '_blank', 'noopener,noreferrer');
-              } else {
-                navigate(`/jobs/${job.id}`);
-              }
+              if (quick && href) window.open(href, '_blank', 'noopener,noreferrer');
+              else navigate(`/jobs/${job.id}`);
             }}
             className="btn-ocean py-1 px-3 rounded text-sm"
           >
@@ -225,65 +212,40 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   );
 };
 
-// Job list item component for list view
 const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id;
   const isOwner = user?.id && employerId && user.id === employerId;
-  const isStudent = ['alumni','student'].includes(userRole);
+  const isStudent = ['alumni', 'student'].includes(userRole);
   if (!job) return null;
 
   const quick = isQuickLink(job);
 
   return (
     <div className="glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border border-transparent min-h-[140px]">
-      <img 
-        src={job.companies?.logo_url || '/logo.png'} 
-        alt={job.companies?.name || 'Company'}
-        className="w-16 h-16 rounded-lg object-cover"
-      />
+      <img src={job.companies?.logo_url || '/logo.png'} alt={job.companies?.name || 'Company'} className="w-16 h-16 rounded-lg object-cover" />
       <div className="flex-1">
         <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-                <Link to={`/jobs/${job.id}`} className="text-lg font-bold text-gray-900 hover:text-ocean-600 transition-colors duration-200 line-clamp-1" title={job.title}>
-                    {job.title}
-                </Link>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
-                  {quick ? 'Quick Link' : 'In-App'}
-                </span>
-            </div>
-            <span />
+          <div className="flex items-center space-x-3">
+            <Link to={`/jobs/${job.id}`} className="text-lg font-bold text-gray-900 hover:text-ocean-600 transition-colors duration-200 line-clamp-1" title={job.title}>
+              {job.title}
+            </Link>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+              {quick ? 'Quick Link' : 'In-App'}
+            </span>
+          </div>
+          <span />
         </div>
         <div className="flex items-center gap-1 mb-2">
           <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">{job.companies?.name || job.company_name}</Link>
         </div>
         <p className="text-gray-600 text-sm mt-2 mb-3 line-clamp-2">{job.description ? `${job.description.slice(0, 160)}...` : 'No description provided.'}</p>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
-          {!!job.location && (
-            <div className="flex items-center">
-              <MapPinIcon className="w-4 h-4 mr-1" />
-              <span>{job.location}</span>
-            </div>
-          )}
-          {!!job.job_type && (
-            <div className="flex items-center">
-              <BriefcaseIcon className="w-4 h-4 mr-1" />
-              <span className="capitalize">{job.job_type}</span>
-            </div>
-          )}
-          {!!job.experience_level && (
-            <div className="flex items-center">
-              <ClockIcon className="w-4 h-4 mr-1" />
-              <span className="capitalize">{job.experience_level}</span>
-            </div>
-          )}
-          {job.application_deadline && (
-            <div className="flex items-center">
-              <CalendarIcon className="w-4 h-4 mr-1" />
-              <span>Deadline: {new Date(job.application_deadline).toLocaleDateString()}</span>
-            </div>
-          )}
+          {!!job.location && (<div className="flex items-center"><MapPinIcon className="w-4 h-4 mr-1" /><span>{job.location}</span></div>)}
+          {!!job.job_type && (<div className="flex items-center"><BriefcaseIcon className="w-4 h-4 mr-1" /><span className="capitalize">{job.job_type}</span></div>)}
+          {!!job.experience_level && (<div className="flex items-center"><ClockIcon className="w-4 h-4 mr-1" /><span className="capitalize">{job.experience_level}</span></div>)}
+          {job.application_deadline && (<div className="flex items-center"><CalendarIcon className="w-4 h-4 mr-1" /><span>Deadline: {new Date(job.application_deadline).toLocaleDateString()}</span></div>)}
         </div>
       </div>
       <div className="flex flex-col items-end justify-between self-stretch pt-2 sm:pt-0">
@@ -291,12 +253,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
           <button onClick={() => shareJob(job)} className="p-2 rounded-full hover:bg-gray-100" aria-label="Share job">
             <ShareIcon className="w-5 h-5 text-gray-500" />
           </button>
-
-          <BookmarkButton
-            jobId={job.id}
-            isBookmarked={isBookmarked}
-            handleBookmark={handleBookmark}
-          />
+          <BookmarkButton jobId={job.id} isBookmarked={isBookmarked} handleBookmark={handleBookmark} />
         </div>
         <div className="flex gap-2 mt-4">
           {isStudent && employerId && !isOwner && (
@@ -310,9 +267,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
               Ask Employer
             </button>
           )}
-          <Link to={`/jobs/${job.id}`} className="btn-ocean-outline px-4 py-2 rounded-lg text-sm">
-            View Details
-          </Link>
+          <Link to={`/jobs/${job.id}`} className="btn-ocean-outline px-4 py-2 rounded-lg text-sm">View Details</Link>
           <button
             className="btn-ocean px-4 py-2 rounded-lg text-sm"
             onClick={() => {
@@ -332,7 +287,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
   );
 };
 
-// Main JobListingsPage component
+/* ---------- Main Page ---------- */
 const JobListingsPage = () => {
   const { user, loading: authLoading, userRole } = useAuth();
   const location = useLocation();
@@ -351,7 +306,7 @@ const JobListingsPage = () => {
     industry: searchParams.get('industry') || 'all',
     department: searchParams.get('department') || 'all',
     salaryRange: searchParams.get('salaryRange') || 'all',
-    postedWithin: searchParams.get('postedWithin') || 'all'
+    postedWithin: searchParams.get('postedWithin') || 'all',
   });
   const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1', 10));
   const [pageSize, setPageSize] = useState(12);
@@ -360,39 +315,24 @@ const JobListingsPage = () => {
   const [bookmarkedJobs, setBookmarkedJobs] = useState([]);
   const rawSourceQS = searchParams.get('source') || 'all';
   const canonicalSource = rawSourceQS === 'quick' ? 'quick_link' : rawSourceQS === 'internal' ? 'in_app' : rawSourceQS;
-  const [sourceFilter, setSourceFilter] = useState(['quick_link','in_app'].includes(canonicalSource) ? canonicalSource : 'all'); // 'all' | 'quick_link' | 'in_app'
-
+  const [sourceFilter, setSourceFilter] = useState(['quick_link', 'in_app'].includes(canonicalSource) ? canonicalSource : 'all');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [approvalFilter, setApprovalFilter] = useState(searchParams.get('approval') || 'all'); // admin-only client filter: all|approved|pending|rejected
+  const [approvalFilter, setApprovalFilter] = useState(searchParams.get('approval') || 'all');
 
   const fetchController = useRef(null);
 
   const fetchJobs = useCallback(async () => {
-    if (fetchController.current) {
-      fetchController.current.abort();
-    }
+    if (fetchController.current) fetchController.current.abort();
     fetchController.current = new AbortController();
-    const { signal } = fetchController.current;
 
     setLoading(true);
-    // Log only in development environment
     if (process.env.NODE_ENV !== 'production') {
       console.log('Fetching jobs with filters:', { searchQuery, sortBy, currentPage });
     }
 
     const [sortCol, sortDir] = (sortBy || 'created_at,desc').split(',');
-
-    // Use normalized role from AuthContext instead of user_metadata
     const isEmployer = userRole === 'employer';
-      
-    // If user is an employer, we need to check their company ID
 
-
-    // Call appropriate RPC based on user role
-    // Note: The backend SQL functions will handle filtering by is_approved:
-    // - Regular users will only see jobs where is_approved = true
-    // - Admin users will see all jobs
-    // - Employers will see their own posted jobs regardless of approval status
     let data = null; let error = null; let serverFilteredByDepartment = false;
 
     if (isEmployer) {
@@ -421,10 +361,10 @@ const JobListingsPage = () => {
           .order(sortCol, { ascending: sortDir === 'asc' })
           .range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
         if (viewError) {
-          error = viewError; // Keep the latest error
+          error = viewError;
         } else {
-          data = { items: viewData, total_count: viewData.length }; // Mock RPC structure
-          error = null; // Clear previous RPC error
+          data = { items: viewData, total_count: viewData.length };
+          error = null;
         }
       } else {
         serverFilteredByDepartment = !!deptParam;
@@ -436,120 +376,109 @@ const JobListingsPage = () => {
       toast.error('Failed to fetch jobs.');
       setJobs([]);
       setTotalJobs(0);
-    } else {
-      console.log('Jobs fetched successfully:', data);
-      if (data) {
-        let rows = [];
-        let totalCount = 0;
-        if (!isEmployer) {
-          rows = (data?.items ?? []).map(j => {
-            const company = companyDisplay(j);
-            const appUrl = coalesceAppUrl(j);
-            const computedSource = getSourceType({ ...j, application_url: appUrl });
-            return {
-              ...j,
-              companies: { name: company.name, logo_url: company.logo_url },
-              application_url: appUrl,
-              // Preserve backend-provided source_type; compute only if absent
-              source_type: j?.source_type ?? computedSource,
-            };
-          });
-          totalCount = data?.total_count ?? 0;
-        } else {
-          // employer path using get_my_posted_jobs (array shape)
-          rows = data.map(j => {
-            const company = companyDisplay(j);
-            const appUrl = coalesceAppUrl(j);
-            const computedSource = getSourceType({ ...j, application_url: appUrl });
-            return {
-              ...j,
-              companies: { name: company.name, logo_url: company.logo_url },
-              application_url: appUrl,
-              source_type: j?.source_type ?? computedSource,
-            };
-          });
-          totalCount = data.length > 0 && typeof data[0].total_count !== 'undefined' ? data[0].total_count : data.length;
-        }
+      setLoading(false);
+      return;
+    }
 
-        // Unique by id (safety) and set
-        let uniqueRows = Array.from(new Map(rows.map(job => [job.id, job])).values());
-        // Client-side basic filters (until RPC supports them all)
-        const matchesFilters = (j) => {
-          // source filter (quick_link vs in_app)
-          if (sourceFilter !== 'all') {
-            const st = getSourceType(j);
-            if (sourceFilter === 'quick_link' && st !== 'quick_link') return false;
-            if (sourceFilter === 'in_app' && st !== 'in_app') return false;
-          }
-          // jobType
-          if (filters.jobType !== 'all' && (j.job_type || '').toLowerCase() !== filters.jobType) return false;
-          // experience
-          if (filters.experience !== 'all' && (j.experience_level || '').toLowerCase() !== filters.experience) return false;
-          // location contains
-          if (filters.location !== 'all' && !(j.location || '').toLowerCase().includes(filters.location.toLowerCase())) return false;
-          // industry equals
-          if (filters.industry !== 'all' && (j.industry || '').toLowerCase() !== filters.industry) return false;
-          // department equals
-          if (!serverFilteredByDepartment) {
-            if (filters.department !== 'all' && (j.department || '').toLowerCase() !== filters.department) return false;
-          }
-          // salaryRange
-          if (filters.salaryRange !== 'all') {
-            const [minStr, maxStr] = filters.salaryRange.split('-');
-            const min = minStr ? parseInt(minStr, 10) : 0;
-            const max = maxStr ? parseInt(maxStr, 10) : Infinity;
-            const smin = j.salary_min || 0;
-            const smax = j.salary_max || 0;
-            const anyInRange = (smin >= min && smin <= max) || (smax >= min && smax <= max) || (smin <= min && smax >= max);
-            if (!anyInRange) return false;
-          }
-          // postedWithin days from created_at
-          if (filters.postedWithin !== 'all') {
-            const days = parseInt(filters.postedWithin, 10);
-            const created = j.created_at ? new Date(j.created_at) : null;
-            if (!created) return false;
-            const diffDays = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
-            if (diffDays > days) return false;
-          }
-          return true;
+    // Normalize rows
+    let rows = [];
+    let totalCount = 0;
+    if (!isEmployer) {
+      rows = (data?.items ?? []).map(j => {
+        const company = companyDisplay(j);
+        const appUrl = coalesceAppUrl(j);
+        const computedSource = getSourceType({ ...j, application_url: appUrl });
+        return {
+          ...j,
+          companies: { name: company.name, logo_url: company.logo_url },
+          application_url: appUrl,
+          source_type: j?.source_type ?? computedSource,
         };
-        uniqueRows = uniqueRows.filter(matchesFilters);
-        // Client-side approval filter for admins/employers (if API does not support)
-        if (['admin','super_admin','employer'].includes(userRole)) {
-          if (approvalFilter === 'approved') uniqueRows = uniqueRows.filter(j => j.is_approved === true);
-          if (approvalFilter === 'pending') uniqueRows = uniqueRows.filter(j => j.is_approved === false || j.approval_status === 'pending');
-          if (approvalFilter === 'rejected') uniqueRows = uniqueRows.filter(j => j.approval_status === 'rejected');
-        }
-        setJobs(uniqueRows);
-        setTotalJobs(totalCount);
-        setTotalPages(Math.max(1, Math.ceil(totalCount / pageSize)));
+      });
+      totalCount = data?.total_count ?? 0;
+    } else {
+      rows = (data || []).map(j => {
+        const company = companyDisplay(j);
+        const appUrl = coalesceAppUrl(j);
+        const computedSource = getSourceType({ ...j, application_url: appUrl });
+        return {
+          ...j,
+          companies: { name: company.name, logo_url: company.logo_url },
+          application_url: appUrl,
+          source_type: j?.source_type ?? computedSource,
+        };
+      });
+      totalCount = rows.length > 0 && typeof rows[0].total_count !== 'undefined' ? rows[0].total_count : rows.length;
+    }
 
-        // Bookmarks
-        const newBookmarkedJobs = uniqueRows.filter(j => j.is_bookmarked).map(j => j.id);
-        setBookmarkedJobs(newBookmarkedJobs);
+    // Unique/safety
+    let uniqueRows = Array.from(new Map(rows.map(job => [job.id, job])).values());
 
-        // Keep bookmarked jobs at top in current view
-        const bookmarkedJobsIds = new Set(newBookmarkedJobs);
-        setJobs(prev => {
-          return [...uniqueRows].sort((a, b) => {
-            if (bookmarkedJobsIds.has(a.id) && !bookmarkedJobsIds.has(b.id)) return -1;
-            if (!bookmarkedJobsIds.has(a.id) && bookmarkedJobsIds.has(b.id)) return 1;
-            return 0;
-          });
+    // Client filters (until server supports all)
+    const matchesFilters = (j) => {
+      if (sourceFilter !== 'all') {
+        const st = getSourceType(j);
+        if (sourceFilter === 'quick_link' && st !== 'quick_link') return false;
+        if (sourceFilter === 'in_app' && st !== 'in_app') return false;
+      }
+      if (filters.jobType !== 'all' && (j.job_type || '').toLowerCase() !== filters.jobType) return false;
+      if (filters.experience !== 'all' && (j.experience_level || '').toLowerCase() !== filters.experience) return false;
+      if (filters.location !== 'all' && !(j.location || '').toLowerCase().includes(filters.location.toLowerCase())) return false;
+      if (filters.industry !== 'all' && (j.industry || '').toLowerCase() !== filters.industry) return false;
+      if (!serverFilteredByDepartment) {
+        if (filters.department !== 'all' && (j.department || '').toLowerCase() !== filters.department) return false;
+      }
+      if (filters.salaryRange !== 'all') {
+        const [minStr, maxStr] = filters.salaryRange.split('-');
+        const min = minStr ? parseInt(minStr, 10) : 0;
+        const max = maxStr ? parseInt(maxStr, 10) : Infinity;
+        const smin = j.salary_min || 0;
+        const smax = j.salary_max || 0;
+        const anyInRange = (smin >= min && smin <= max) || (smax >= min && smax <= max) || (smin <= min && smax >= max);
+        if (!anyInRange) return false;
+      }
+      if (filters.postedWithin !== 'all') {
+        const days = parseInt(filters.postedWithin, 10);
+        const created = j.created_at ? new Date(j.created_at) : null;
+        if (!created) return false;
+        const diffDays = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
+        if (diffDays > days) return false;
+      }
+      return true;
+    };
+    uniqueRows = uniqueRows.filter(matchesFilters);
+
+    // Set counts
+    setTotalJobs(totalCount);
+    setTotalPages(Math.max(1, Math.ceil(totalCount / pageSize)));
+
+    // Fetch bookmark ids explicitly (do NOT rely on feed flag)
+    if (user?.id) {
+      const { data: ids, error: idsErr } = await supabase
+        .from('job_bookmarks')
+        .select('job_id')
+        .eq('user_id', user.id);
+
+      if (!idsErr) {
+        const idsList = (ids || []).map(r => r.job_id);
+        setBookmarkedJobs(idsList);
+        const idSet = new Set(idsList);
+        // Keep bookmarked jobs at the top
+        uniqueRows = [...uniqueRows].sort((a, b) => {
+          const aB = idSet.has(a.id), bB = idSet.has(b.id);
+          if (aB && !bB) return -1;
+          if (!aB && bB) return 1;
+          return 0;
         });
-      } else {
-        setJobs([]);
-        setTotalJobs(0);
-        setTotalPages(0);
       }
     }
 
+    setJobs(uniqueRows);
     setLoading(false);
-  }, [searchQuery, sortBy, currentPage, user, userRole, supabase, pageSize, filters.department]);
+  }, [searchQuery, sortBy, currentPage, user, userRole, pageSize, filters.department, filters.experience, filters.industry, filters.jobType, filters.location, filters.postedWithin, filters.salaryRange, sourceFilter]);
 
-  // --- Realtime Subscription (after fetchJobs so dependencies are initialized) --- 
+  // Realtime
   const handleRealtimeJobChange = useCallback((payload) => {
-    console.log('Realtime job change received:', payload);
     const { eventType, new: newRecord, old: oldRecord } = payload;
     setJobs(currentJobs => {
       if (eventType === 'INSERT') {
@@ -568,28 +497,32 @@ const JobListingsPage = () => {
     });
   }, []);
 
-  const handleRealtimeBookmarkChange = useCallback(() => {
-    console.log('Realtime bookmark change received, refetching jobs.');
-    fetchJobs();
-  }, [fetchJobs]);
+  const handleRealtimeBookmarkChange = useCallback(async () => {
+    // Light refresh of bookmark IDs
+    if (!user?.id) return;
+    const { data: ids } = await supabase
+      .from('job_bookmarks')
+      .select('job_id')
+      .eq('user_id', user.id);
+    const idsList = (ids || []).map(r => r.job_id);
+    setBookmarkedJobs(idsList);
+  }, [user?.id]);
 
-  useJobsRealtime({ 
-    userId: user?.id, 
-    onJobs: handleRealtimeJobChange, 
-    onBookmarks: handleRealtimeBookmarkChange 
+  useJobsRealtime({
+    userId: user?.id,
+    onJobs: handleRealtimeJobChange,
+    onBookmarks: handleRealtimeBookmarkChange,
   });
-  
-  // Sync URL on relevant changes
+
+  // Sync URL
   useEffect(() => {
     const params = new URLSearchParams(searchParams);
     if (searchQuery) params.set('q', searchQuery); else params.delete('q');
-    Object.entries(filters).forEach(([k,v]) => {
-      if (v && v !== 'all') params.set(k, v); else params.delete(k);
-    });
+    Object.entries(filters).forEach(([k, v]) => { if (v && v !== 'all') params.set(k, v); else params.delete(k); });
     if (sourceFilter && sourceFilter !== 'all') params.set('source', sourceFilter); else params.delete('source');
     params.set('page', String(currentPage));
     params.set('sort', sortBy);
-    if (['admin','super_admin','employer'].includes(userRole)) {
+    if (['admin', 'super_admin', 'employer'].includes(userRole)) {
       if (approvalFilter && approvalFilter !== 'all') params.set('approval', approvalFilter); else params.delete('approval');
     } else {
       params.delete('approval');
@@ -599,101 +532,54 @@ const JobListingsPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, filters, currentPage, sortBy, approvalFilter, viewMode, sourceFilter]);
 
-  useEffect(() => {
-    fetchJobs();
-  }, [fetchJobs]);
+  useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
-  // Debounce search term to query string
-    useEffect(() => {
-    const t = setTimeout(() => {
-      setSearchQuery(searchTerm);
-      setCurrentPage(1);
-    }, 250);
+  // Debounce search input
+  useEffect(() => {
+    const t = setTimeout(() => { setSearchQuery(searchTerm); setCurrentPage(1); }, 250);
     return () => clearTimeout(t);
   }, [searchTerm]);
 
-  // NOTE: The old subscription logic that caused errors has been removed and replaced by the useJobsRealtime hook above.
-
+  /* ---------- FIXED: Optimistic toggle that doesn’t rely on feed flags ---------- */
   const handleBookmark = async (jobId) => {
     if (!user) {
       notification.showWarning('Please login to bookmark jobs');
       return;
     }
 
+    const wasBookmarked = bookmarkedJobs.includes(jobId);
+
+    // Cap before adding
+    if (!wasBookmarked && bookmarkedJobs.length >= 3) {
+      toast.error('You can only bookmark up to 3 jobs.');
+      return;
+    }
+
+    // Optimistic update
+    setBookmarkedJobs(prev => (wasBookmarked ? prev.filter(id => id !== jobId) : [...prev, jobId]));
+
     try {
-      const isBookmarked = bookmarkedJobs.includes(jobId);
-
-      if (isBookmarked) {
-        // Always allow un-bookmarking
-        const { error } = await supabase
-          .from('job_bookmarks')
-          .delete()
-          .match({ user_id: user.id, job_id: jobId });
-
-        if (error) throw error;
-        toast.success('Bookmark removed');
-      } else {
-        // Check limit before adding a new bookmark
-        if (bookmarkedJobs.length >= 3) {
-          toast.error('You can only bookmark up to 3 jobs.');
-          return;
-        }
-
-        const { error } = await supabase
-          .from('job_bookmarks')
-          .insert({ user_id: user.id, job_id: jobId });
-
-        if (error) {
-            // Handle the case where the DB trigger prevents insertion
-            if (error.message.includes('Users can only bookmark up to 3 jobs')) {
-                toast.error('You can only bookmark up to 3 jobs.');
-            } else {
-                throw error;
-            }
-        } else {
-            toast.success('Job bookmarked! It will appear at the top of your listings.');
-        }
-      }
-
-      // Refresh the job list to show the new pinned order and state
-      fetchJobs();
-
-    } catch (error) {
-      console.error('Error bookmarking job:', error);
-      notification.showError(`Failed to update bookmark: ${error.message}`);
+      const nowBookmarked = await toggleBookmarkRPC(supabase, jobId);
+      // Ensure state matches server outcome
+      setBookmarkedJobs(prev => (nowBookmarked ? Array.from(new Set([...prev, jobId])) : prev.filter(id => id !== jobId)));
+      toast.success(nowBookmarked ? 'Job bookmarked!' : 'Bookmark removed');
+    } catch (e) {
+      console.error('Error bookmarking job:', e);
+      // Revert optimistic change
+      setBookmarkedJobs(prev => (wasBookmarked ? Array.from(new Set([...prev, jobId])) : prev.filter(id => id !== jobId)));
+      notification.showError(`Failed to update bookmark: ${e.message}`);
     }
   };
 
-  const handleFilterChange = (filterType, value) => {
-    setFilters(prev => ({ ...prev, [filterType]: value }));
-    setCurrentPage(1);
-  };
+  const handleFilterChange = (filterType, value) => { setFilters(prev => ({ ...prev, [filterType]: value })); setCurrentPage(1); };
+  const handleSearch = () => { setSearchQuery(searchTerm); setCurrentPage(1); };
+  const paginate = (pageNumber) => { setCurrentPage(pageNumber); };
+  const handleRefresh = async () => { setIsRefreshing(true); await fetchJobs(); setIsRefreshing(false); toast.success('Job listings have been refreshed!'); };
 
-  const handleSearch = () => {
-    setSearchQuery(searchTerm);
-    setCurrentPage(1);
-  };
-
-  const paginate = (pageNumber) => {
-    setCurrentPage(pageNumber);
-  };
-
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await fetchJobs();
-    setIsRefreshing(false);
-    toast.success('Job listings have been refreshed!');
-  };
-
-  // Only employers and admins can post jobs
   const canPostJob = ['employer', 'admin', 'super_admin'].includes(userRole);
 
   if (authLoading) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <CircularProgress />
-      </div>
-    );
+    return (<div className="flex justify-center items-center h-screen"><CircularProgress /></div>);
   }
 
   return (
@@ -702,12 +588,11 @@ const JobListingsPage = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <div>
           <div className="flex items-center gap-4">
-          <h1 className="text-3xl font-bold text-gray-900">Find Your Next Opportunity</h1>
-        </div>
+            <h1 className="text-3xl font-bold text-gray-900">Find Your Next Opportunity</h1>
+          </div>
           <p className="text-gray-600 mt-1">Showing {jobs.length} of {totalJobs} jobs</p>
         </div>
         <div className="flex items-center space-x-2 md:space-x-4 mt-4 md:mt-0 flex-wrap">
-
           <Link to="/jobs/applications" className="btn-secondary-outline text-sm">
             <DocumentTextIcon className="w-4 h-4 mr-2" />
             My Applications
@@ -725,7 +610,7 @@ const JobListingsPage = () => {
         </div>
       </div>
 
-      {/* Search and Filter Bar */}
+      {/* Search + Filters */}
       <div className="bg-white p-4 rounded-lg shadow-sm mb-6">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="relative flex-grow">
@@ -739,12 +624,7 @@ const JobListingsPage = () => {
               className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
             />
           </div>
-          <button 
-            onClick={handleSearch}
-            className="btn-ocean px-6 py-2 rounded-lg text-sm w-full md:w-auto"
-          >
-            Search
-          </button>
+          <button onClick={handleSearch} className="btn-ocean px-6 py-2 rounded-lg text-sm w-full md:w-auto">Search</button>
           <button className="btn-ocean-outline px-4 py-2 rounded-lg text-sm w-full md:w-auto flex items-center justify-center">
             <FunnelIcon className="w-4 h-4 mr-2" />
             Filters
@@ -752,7 +632,6 @@ const JobListingsPage = () => {
         </div>
       </div>
 
-      {/* Filter Dropdowns - This can be a separate component */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         {Object.entries(filterOptions).map(([key, options]) => (
           <select
@@ -761,12 +640,10 @@ const JobListingsPage = () => {
             onChange={(e) => handleFilterChange(key, e.target.value)}
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
           >
-            {options.map(option => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
+            {options.map(option => (<option key={option.value} value={option.value}>{option.label}</option>))}
           </select>
         ))}
-        {['admin','super_admin','employer'].includes(userRole) && (
+        {['admin', 'super_admin', 'employer'].includes(userRole) && (
           <select
             value={approvalFilter}
             onChange={(e) => { setApprovalFilter(e.target.value); setCurrentPage(1); }}
@@ -783,7 +660,7 @@ const JobListingsPage = () => {
           onClick={() => {
             setSearchTerm('');
             setSearchQuery('');
-            setFilters({ jobType:'all',experience:'all',location:'all',industry:'all',department:'all',salaryRange:'all',postedWithin:'all' });
+            setFilters({ jobType: 'all', experience: 'all', location: 'all', industry: 'all', department: 'all', salaryRange: 'all', postedWithin: 'all' });
             setApprovalFilter('all');
             setSortBy('created_at,desc');
             setCurrentPage(1);
@@ -795,22 +672,16 @@ const JobListingsPage = () => {
         </button>
       </div>
 
-      {/* View mode toggle and sort */}
+      {/* View + Sort */}
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center space-x-1 bg-gray-200 p-1 rounded-lg">
-          <button 
-            onClick={() => setViewMode('grid')}
-            className={`px-3 py-1 rounded-md text-sm ${viewMode === 'grid' ? 'bg-white shadow' : 'text-gray-600'}`}
-          >
+          <button onClick={() => setViewMode('grid')} className={`px-3 py-1 rounded-md text-sm ${viewMode === 'grid' ? 'bg-white shadow' : 'text-gray-600'}`}>
             <Squares2X2Icon className="w-5 h-5" />
           </button>
-          <button 
-            onClick={() => setViewMode('list')}
-            className={`px-3 py-1 rounded-md text-sm ${viewMode === 'list' ? 'bg-white shadow' : 'text-gray-600'}`}
-          >
+          <button onClick={() => setViewMode('list')} className={`px-3 py-1 rounded-md text-sm ${viewMode === 'list' ? 'bg-white shadow' : 'text-gray-600'}`}>
             <ListBulletIcon className="w-5 h-5" />
           </button>
-          <button 
+          <button
             onClick={handleRefresh}
             disabled={isRefreshing}
             className={`px-3 py-1 rounded-md text-sm ${isRefreshing ? 'opacity-50 cursor-not-allowed' : 'text-gray-600 hover:bg-white hover:shadow'}`}
@@ -821,11 +692,7 @@ const JobListingsPage = () => {
             </svg>
           </button>
         </div>
-        <select 
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
-        >
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500">
           <option value="created_at,desc">Sort by Newest</option>
           <option value="created_at,asc">Sort by Oldest</option>
           <option value="deadline,asc">Deadline (Soonest)</option>
@@ -835,17 +702,14 @@ const JobListingsPage = () => {
         </select>
       </div>
 
-      {/* Jobs Grid/List */}
+      {/* Jobs */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-ocean-500"></div>
           <p className="ml-4 text-ocean-600">Loading Jobs...</p>
         </div>
       ) : jobs.length > 0 ? (
-        <div className={viewMode === 'grid' 
-          ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6'
-          : 'space-y-4'
-        }>
+        <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6' : 'space-y-4'}>
           {jobs.map((job) => (
             viewMode === 'grid' ? (
               <JobCard
@@ -870,18 +734,11 @@ const JobListingsPage = () => {
           <p className="text-xl text-gray-600 mb-2">No jobs found matching your criteria</p>
           <p className="text-gray-500 mb-4">Try adjusting your search or filters.</p>
           <div className="flex justify-center space-x-4">
-            <button 
+            <button
               onClick={() => {
                 setSearchTerm('');
                 setSearchQuery('');
-                setFilters({
-                  jobType: 'all',
-                  experience: 'all',
-                  location: 'all',
-                  industry: 'all',
-                  salaryRange: 'all',
-                  postedWithin: 'all'
-                });
+                setFilters({ jobType: 'all', experience: 'all', location: 'all', industry: 'all', department: 'all', salaryRange: 'all', postedWithin: 'all' });
                 setCurrentPage(1);
                 notification.showInfo('All filters cleared');
               }}
@@ -900,40 +757,33 @@ const JobListingsPage = () => {
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center space-x-2 mt-8">
-          <button 
+          <button
             onClick={() => paginate(currentPage - 1)}
             disabled={currentPage === 1}
             className={`px-3 py-2 border border-gray-300 rounded-lg text-sm ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
           >
             Previous
           </button>
-          
+
           {Array.from({ length: Math.min(5, totalPages) }).map((_, i) => {
             let pageNum;
-            if (totalPages <= 5) {
-              pageNum = i + 1;
-            } else if (currentPage <= 3) {
-              pageNum = i + 1;
-            } else if (currentPage >= totalPages - 2) {
-              pageNum = totalPages - 4 + i;
-            } else {
-              pageNum = currentPage - 2 + i;
-            }
-            
+            if (totalPages <= 5) pageNum = i + 1;
+            else if (currentPage <= 3) pageNum = i + 1;
+            else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+            else pageNum = currentPage - 2 + i;
+
             return (
               <button
                 key={pageNum}
                 onClick={() => paginate(pageNum)}
-                className={`px-3 py-2 ${currentPage === pageNum 
-                  ? 'bg-ocean-500 text-white' 
-                  : 'border border-gray-300 hover:bg-gray-50'} rounded-lg text-sm`}
+                className={`px-3 py-2 ${currentPage === pageNum ? 'bg-ocean-500 text-white' : 'border border-gray-300 hover:bg-gray-50'} rounded-lg text-sm`}
               >
                 {pageNum}
               </button>
             );
           })}
-          
-          <button 
+
+          <button
             onClick={() => paginate(currentPage + 1)}
             disabled={currentPage === totalPages}
             className={`px-3 py-2 border border-gray-300 rounded-lg text-sm ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
