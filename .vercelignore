@@ -12,7 +12,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/  # Commented out to allow frontend/src/lib/* shims for build compatibility
 lib64/
 parts/
 sdist/
