@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import { useApproval } from '../../hooks/useApproval';
+import { handleSupabaseGuardError } from '../../utils/mapSupabaseErrorToToast';
 import { buildJobPayload } from '../../utils/jobPayloadBuilder';
 import {
   Box,
@@ -34,6 +36,8 @@ const steps = ['Core Info', 'Job Content', 'Details & Contact'];
 
 const PostJob = () => {
   const { user, profile, userRole } = useAuth();
+  const { loading: apprLoading, isApprovedEmployer } = useApproval();
+
   const navigate = useNavigate();
   const [activeStep, setActiveStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,7 +52,8 @@ const PostJob = () => {
       setFormData(prev => ({
         ...prev,
         company_name: profile.company_name || '',
-        logo_url: profile.logo_url || ''
+        // Default logo for employers: prefer company logo, else use employer's profile avatar (DP)
+        logo_url: profile.logo_url || profile.avatar_url || ''
       }));
     }
   }, [profile]);
@@ -131,6 +136,8 @@ const PostJob = () => {
 
   const handleQuickLinkSubmit = async (e) => {
     e.preventDefault();
+    if (!isApprovedEmployer) { toast.error('Your profile is not approved. Kindly contact administrator.'); return; }
+
     const newErrors = {};
     if (!formData.title.trim()) newErrors.title = 'Job Title is required.';
     if (!formData.company_name.trim()) newErrors.company_name = 'Company Name is required.';
@@ -170,7 +177,8 @@ const PostJob = () => {
       }
 
       const payload = buildJobPayload(formData, companyId, 'quick');
-      const { error: jobError } = await supabase.from('jobs').insert(payload).select('id').single();
+      const insertPayload = { ...payload, is_approved: false, is_active: true };
+      const { error: jobError } = await supabase.from('jobs').insert(insertPayload).select('id').single();
       if (jobError) throw jobError;
 
       toast.success('Quick Link job posted successfully!');
@@ -178,7 +186,7 @@ const PostJob = () => {
 
     } catch (err) {
       console.error('Error submitting Quick Link job:', err);
-      toast.error(`Submission failed: ${err.message}`);
+      handleSupabaseGuardError(err);
     } finally {
       setIsSubmitting(false);
     }
@@ -186,6 +194,8 @@ const PostJob = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!isApprovedEmployer) { toast.error('Your profile is not approved. Kindly contact administrator.'); return; }
+
     if (!validateStep()) {
       toast.error('Please fix the errors on the current step.');
       return;
@@ -218,7 +228,8 @@ const PostJob = () => {
     setIsSubmitting(true);
     try {
       let companyId = formData.company_id;
-      let logoUrl = formData.logo_url;
+      // For employers, if no explicit logo chosen, default to profile logo or avatar (DP)
+      let logoUrl = formData.logo_url || (userRole === 'employer' ? (profile?.logo_url || profile?.avatar_url || '') : formData.logo_url);
 
       if (logoFile) {
         try {
@@ -296,8 +307,9 @@ const PostJob = () => {
       }
 
       const payload = buildJobPayload(formData, companyId, 'form');
-      console.log("Submitting In-App job with payload:", payload);
-      const { data: newJob, error: jobError } = await supabase.from('jobs').insert(payload).select('id').single();
+      const insertPayload = { ...payload, is_approved: false, is_active: true };
+      console.log("Submitting In-App job with payload:", insertPayload);
+      const { data: newJob, error: jobError } = await supabase.from('jobs').insert(insertPayload).select('id').single();
         
       if (jobError) {
         console.error("Error creating job:", jobError);
@@ -315,7 +327,7 @@ const PostJob = () => {
       }
     } catch (err) {
       console.error('Error submitting job:', err);
-      toast.error(`Error submitting job: ${err.message}`);
+      handleSupabaseGuardError(err);
     } finally {
       setIsSubmitting(false);
     }
@@ -443,6 +455,12 @@ const PostJob = () => {
     setPostingType(null);
     setActiveStep(0);
   };
+
+  if (!apprLoading && !isApprovedEmployer) {
+    return (
+      <div className="p-4 rounded-md bg-red-50 text-red-700 border border-red-200">Your profile is not approved. Kindly contact administrator.</div>
+    );
+  }
 
   return (
     <Box sx={{ 

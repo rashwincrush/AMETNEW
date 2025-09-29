@@ -26,19 +26,21 @@ const NewConversationModal = ({ isOpen, onClose, onConversationStarted }) => {
   const performSearch = async () => {
     setLoading(true);
     setError('');
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, full_name, email, avatar_url')
-      .textSearch('full_name', searchTerm.trim(), { type: 'websearch' })
-      .limit(10);
-
-    if (error) {
-      console.error('Error searching users:', error);
+    try {
+      const term = `%${searchTerm.trim()}%`;
+      const { data, error } = await supabase
+        .from('alumni_directory_public')
+        .select('id, full_name, avatar_url')
+        .ilike('full_name', term)
+        .limit(10);
+      if (error) throw error;
+      setSearchResults(data || []);
+    } catch (e) {
+      console.error('Error searching users:', e);
       setError('Failed to search for users.');
-    } else {
-      setSearchResults(data);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleStartConversation = async (userId) => {
@@ -111,10 +113,10 @@ const NewConversationModal = ({ isOpen, onClose, onConversationStarted }) => {
                         onClick={() => handleStartConversation(user.id)}
                         className="flex items-center p-2 rounded-md hover:bg-gray-100 cursor-pointer"
                       >
-                        <img src={user.avatar_url || `https://ui-avatars.com/api/?name=${user.full_name}`} alt={user.full_name} className="h-10 w-10 rounded-full object-cover mr-3" />
+                        <img src={user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.full_name || 'A')}`} alt={user.full_name || 'avatar'} className="h-10 w-10 rounded-full object-cover mr-3" />
                         <div>
                           <p className="font-semibold">{user.full_name}</p>
-                          <p className="text-sm text-gray-500">{user.email}</p>
+                          <p className="text-sm text-gray-500">&nbsp;</p>
                         </div>
                       </li>
                     ))}

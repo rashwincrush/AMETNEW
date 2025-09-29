@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
@@ -11,6 +11,10 @@ const MentorSettings = () => {
   const [endDate, setEndDate] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  // Default meeting link state
+  const [defaultLink, setDefaultLink] = useState('');
+  const [linkSaving, setLinkSaving] = useState(false);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
 
   const validate = () => {
     if (!title.trim()) {
@@ -26,6 +30,160 @@ const MentorSettings = () => {
       }
     }
     return true;
+  };
+
+  // Load current default link for this mentor
+  useEffect(() => {
+    const loadDefault = async () => {
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        const uid = auth?.user?.id;
+        if (!uid) return;
+        let link = '';
+        // Try mentor_profiles first
+        const { data: mp } = await supabase
+          .from('mentor_profiles')
+          .select('default_meeting_link')
+          .eq('user_id', uid)
+          .maybeSingle();
+        if (mp?.default_meeting_link) link = mp.default_meeting_link;
+        if (!link) {
+          const { data: p } = await supabase
+            .from('profiles')
+            .select('default_meeting_link')
+            .eq('id', uid)
+            .maybeSingle();
+          if (p?.default_meeting_link) link = p.default_meeting_link;
+        }
+        setDefaultLink(link || '');
+      } catch (e) {
+        // Non-fatal
+      }
+    };
+    loadDefault();
+  }, []);
+
+  const validHttpUrl = (url) => {
+    if (!url) return true; // allow empty
+    try {
+      const u = new URL(url);
+      return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  };
+
+  const saveDefaultLink = async () => {
+    if (!validHttpUrl(defaultLink)) {
+      toast.error('Please enter a valid https link');
+      return;
+    }
+    setLinkSaving(true);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) throw new Error('Not authenticated');
+      // Try mentor_profiles first
+      let err = null;
+      const { error: mpErr } = await supabase
+        .from('mentor_profiles')
+        .update({ default_meeting_link: defaultLink || null })
+        .eq('user_id', uid);
+      if (mpErr) err = mpErr;
+      // Fallback to profiles if mentor_profiles missing
+      if (err) {
+        const { error: pErr } = await supabase
+          .from('profiles')
+          .update({ default_meeting_link: defaultLink || null })
+          .eq('id', uid);
+        if (pErr) throw pErr;
+      }
+      toast.success('Default meeting link saved');
+    } catch (e) {
+      toast.error(e.message || 'Failed to save link');
+    } finally {
+      setLinkSaving(false);
+    }
+  };
+
+  const bulkApplyDefaultLink = async () => {
+    if (!defaultLink || !validHttpUrl(defaultLink)) {
+      toast.error('Please set a valid default link first');
+      return;
+    }
+    if (!window.confirm('Apply the default meeting link to all upcoming sessions that are missing a link?')) return;
+    setBulkUpdating(true);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) throw new Error('Not authenticated');
+      // Preferred path: RPC if available
+      let rpcError = null;
+      try {
+        const { error: rpcErr } = await supabase.rpc('apply_default_link_to_upcoming_sessions', { p_mentor: uid });
+        if (rpcErr) rpcError = rpcErr;
+      } catch (e) {
+        rpcError = e;
+      }
+      if (rpcError) {
+        // Fallback: manual update of sessions that belong to this mentor via accepted/active requests
+        const nowIso = new Date().toISOString();
+        // Fetch request ids (accepted/active) for this mentor
+        const { data: reqs, error: reqErr } = await supabase
+          .from('mentorship_requests')
+          .select('id')
+          .eq('mentor_id', uid)
+          .in('status', ['accepted', 'active']);
+        if (reqErr) throw reqErr;
+        const ids = (reqs || []).map(r => r.id);
+        if (ids.length > 0) {
+          const { error } = await supabase
+            .from('mentorship_sessions')
+            .update({ meeting_url: defaultLink })
+            .gte('start_time', nowIso)
+            .in('mentorship_request_id', ids)
+            .or('meeting_url.is.null,meeting_url.eq.""');
+          if (error) throw error;
+        }
+      }
+      toast.success('Default link applied to upcoming sessions');
+    } catch (e) {
+      toast.error(e.message || 'Failed to apply link');
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
+  const broadcastLinkToAccepted = async () => {
+    if (!defaultLink || !validHttpUrl(defaultLink)) {
+      toast.error('Please set a valid default link first');
+      return;
+    }
+    if (!window.confirm('Send your meeting link to all accepted mentees?')) return;
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id;
+      if (!uid) throw new Error('Not authenticated');
+      const { data: accepted, error } = await supabase
+        .from('mentorship_requests')
+        .select('id')
+        .eq('mentor_id', uid)
+        .eq('status', 'accepted');
+      if (error) throw error;
+      for (const r of accepted || []) {
+        const { error: insErr } = await supabase
+          .from('mentorship_messages')
+          .insert({
+            mentorship_request_id: r.id,
+            sender_id: uid,
+            message: `Here’s my meeting link for our sessions: ${defaultLink}`
+          });
+        if (insErr) throw insErr;
+      }
+      toast.success('Link sent to accepted mentees');
+    } catch (e) {
+      toast.error(e.message || 'Failed to send link');
+    }
   };
 
   const handleCreateProgram = async (e) => {
@@ -64,6 +222,26 @@ const MentorSettings = () => {
     <div className="container mx-auto p-6">
       <div className="glass-card p-8">
         <h1 className="text-2xl font-bold text-gray-900 mb-6">Mentor Settings</h1>
+
+        {/* Default meeting link */}
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Default Meeting Link</h2>
+          <p className="text-sm text-gray-600 mb-3">Used for all new sessions. You can bulk-apply it to upcoming sessions.</p>
+          <div className="flex items-center gap-2">
+            <input
+              type="url"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
+              placeholder="https://meet.google.com/..."
+              value={defaultLink}
+              onChange={(e) => setDefaultLink(e.target.value)}
+            />
+            <button onClick={saveDefaultLink} disabled={linkSaving} className={`btn-ocean px-4 py-2 rounded ${linkSaving ? 'opacity-70' : ''}`}>{linkSaving ? 'Saving...' : 'Save'}</button>
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button onClick={bulkApplyDefaultLink} disabled={bulkUpdating || !defaultLink} className={`btn-ocean-outline px-4 py-2 rounded ${bulkUpdating ? 'opacity-70' : ''}`}>Apply to Upcoming Sessions</button>
+            <button onClick={broadcastLinkToAccepted} disabled={!defaultLink} className="btn-secondary-outline px-4 py-2 rounded">Send Link to Accepted Mentees</button>
+          </div>
+        </div>
 
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-2">Create Mentorship Program</h2>

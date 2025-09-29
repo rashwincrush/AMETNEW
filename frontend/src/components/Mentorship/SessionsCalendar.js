@@ -28,25 +28,45 @@ const SessionsCalendar = () => {
   const fetchSessions = useCallback(async () => {
     try {
       setLoading(true);
-      
-      // Read sessions and join mentor/mentee profile names/avatars via mentorship_requests
-      const { data, error } = await supabase
+
+      // Read sessions with mentorship request IDs and user IDs only
+      const { data: rows, error } = await supabase
         .from('mentorship_sessions')
         .select(`
           *,
           mentorship_request:mentorship_request_id (
             id,
             mentor_id,
-            mentee_id,
-            mentor:profiles!mentorship_requests_mentor_id_fkey(full_name, avatar_url),
-            mentee:profiles!mentorship_requests_mentee_id_fkey(full_name, avatar_url)
+            mentee_id
           )
         `)
         .order('scheduled_time', { ascending: true });
-        
+
       if (error) throw error;
-      
-      setSessions(data || []);
+
+      const mentorIds = Array.from(new Set((rows || []).map(r => r.mentorship_request?.mentor_id).filter(Boolean)));
+      const menteeIds = Array.from(new Set((rows || []).map(r => r.mentorship_request?.mentee_id).filter(Boolean)));
+      const ids = Array.from(new Set([...mentorIds, ...menteeIds]));
+
+      let idMap = new Map();
+      if (ids.length) {
+        const { data: pubs } = await supabase
+          .from('alumni_directory_public')
+          .select('id, full_name, avatar_url')
+          .in('id', ids);
+        (pubs || []).forEach(p => idMap.set(p.id, p));
+      }
+
+      const hydrated = (rows || []).map(r => ({
+        ...r,
+        mentorship_request: r.mentorship_request ? {
+          ...r.mentorship_request,
+          mentor: idMap.get(r.mentorship_request.mentor_id) || { id: r.mentorship_request.mentor_id, full_name: 'Mentor', avatar_url: null },
+          mentee: idMap.get(r.mentorship_request.mentee_id) || { id: r.mentorship_request.mentee_id, full_name: 'Mentee', avatar_url: null }
+        } : null
+      }));
+
+      setSessions(hydrated);
     } catch (error) {
       console.error('Error fetching mentorship sessions:', error);
       toast.error('Failed to load mentorship sessions');

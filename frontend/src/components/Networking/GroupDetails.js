@@ -49,27 +49,27 @@ const GroupDetails = () => {
         // Step 3: Get the list of user IDs from the members
         const userIds = memberData.map(member => member.user_id);
         
-        // Step 4: Fetch all profile data for those users in a separate query
+        // Step 4: Fetch public identities for those users
         if (userIds.length > 0) {
-          const { data: profileData, error: profileError } = await supabase
-            .from('profiles')
+          const { data: publicRows, error: publicErr } = await supabase
+            .from('alumni_directory_public')
             .select('id, full_name, avatar_url')
             .in('id', userIds);
-          
-          if (profileError) {
-            throw new Error('Could not fetch member profiles.');
+
+          if (publicErr) {
+            throw new Error('Could not fetch member identities.');
           }
-          
+
           // Step 5: Join the data manually
-          const membersWithProfiles = memberData.map(member => {
-            const profile = profileData.find(p => p.id === member.user_id);
+          const membersWithIdent = memberData.map(member => {
+            const ident = (publicRows || []).find(p => p.id === member.user_id);
             return {
               role: member.role,
-              profiles: profile || { id: member.user_id, full_name: 'Unknown User', avatar_url: null }
+              profiles: ident || { id: member.user_id, full_name: 'Unknown User', avatar_url: null }
             };
           });
-          
-          setMembers(membersWithProfiles || []);
+
+          setMembers(membersWithIdent || []);
           
           // Step 6: Check if the current user is a member and get their role
           if (user) {
@@ -96,21 +96,21 @@ const GroupDetails = () => {
         if (postError) {
           console.error('Error fetching posts:', postError.message);
         } else {
-          // Step 8: Fetch profiles for post authors
+          // Step 8: Fetch public identities for post authors
           const postUserIds = [...new Set(postData.map(post => post.user_id))];
           
           if (postUserIds.length > 0) {
-            const { data: postProfilesData, error: postProfilesError } = await supabase
-              .from('profiles')
+            const { data: postPublicData, error: postPublicErr } = await supabase
+              .from('alumni_directory_public')
               .select('id, full_name, avatar_url')
               .in('id', postUserIds);
 
-            if (postProfilesError) {
-              console.error('Error fetching post author profiles:', postProfilesError.message);
+            if (postPublicErr) {
+              console.error('Error fetching post author identities:', postPublicErr.message);
             } else {
               // Join posts with their author profiles
               const postsWithProfiles = postData.map(post => {
-                const profile = postProfilesData.find(p => p.id === post.user_id);
+                const profile = (postPublicData || []).find(p => p.id === post.user_id);
                 return {
                   ...post,
                   profiles: profile || { id: post.user_id, full_name: 'Unknown User', avatar_url: null }

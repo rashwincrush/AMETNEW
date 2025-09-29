@@ -23,18 +23,31 @@ const MentorshipChat = () => {
 
   const fetchRequestDetails = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      // Verify request exists and is accepted
+      const { data: req, error } = await supabase
         .from('mentorship_requests')
-        .select(`
-          *,
-          mentor:profiles!mentorship_requests_mentor_id_fkey(full_name, avatar_url),
-          mentee:profiles!mentorship_requests_mentee_id_fkey(full_name, avatar_url)
-        `)
+        .select('*')
         .eq('id', requestId)
         .eq('status', 'accepted')
         .single();
       if (error) throw new Error('Failed to verify mentorship status or access denied.');
-      setRequestDetails(data);
+
+      // Hydrate identities from public directory view
+      const ids = [req.mentor_id, req.mentee_id].filter(Boolean);
+      let identities = {};
+      if (ids.length) {
+        const { data: pub } = await supabase
+          .from('alumni_directory_public')
+          .select('id, full_name, avatar_url')
+          .in('id', ids);
+        (pub || []).forEach(p => { identities[p.id] = { full_name: p.full_name, avatar_url: p.avatar_url }; });
+      }
+
+      setRequestDetails({
+        ...req,
+        mentor: identities[req.mentor_id] || { full_name: 'Mentor', avatar_url: null },
+        mentee: identities[req.mentee_id] || { full_name: 'Mentee', avatar_url: null }
+      });
     } catch (error) {
       toast.error(error.message);
       setRequestDetails(null); // Deny access
@@ -133,6 +146,11 @@ const MentorshipChat = () => {
           {messages.map((msg) => (
             <Box key={msg.id} sx={{ mb: 2, display: 'flex', justifyContent: msg.sender_id === user.id ? 'flex-end' : 'flex-start' }}>
               <Paper sx={{ p: 1.5, borderRadius: '10px', backgroundColor: msg.sender_id === user.id ? '#1976d2' : '#e0e0e0', color: msg.sender_id === user.id ? 'white' : 'black' }}>
+                {msg.pinned ? (
+                  <Typography variant="caption" sx={{ display: 'block', opacity: 0.85, mb: 0.5 }}>
+                    📌 Pinned
+                  </Typography>
+                ) : null}
                 <Typography variant="body1">{msg.message}</Typography>
               </Paper>
             </Box>

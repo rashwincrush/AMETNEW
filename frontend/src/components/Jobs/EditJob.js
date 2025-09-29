@@ -144,9 +144,37 @@ const EditJob = () => {
       company_id, deadline, is_active
     } = formData || {};
 
+    // Normalize and enforce the DB constraint jobs_external_target_at_most_one
+    // Only one of apply_url, application_url, external_url can be non-null
+    const clean = (v) => {
+      if (v === undefined || v === null) return null;
+      if (typeof v !== 'string') return v;
+      const t = v.trim();
+      return t === '' ? null : t;
+    };
+
+    const norm_apply_url = clean(apply_url);
+    const norm_application_url = clean(application_url);
+    const norm_external_url = clean(external_url);
+
+    const chosen = [norm_apply_url, norm_application_url, norm_external_url].filter(Boolean).length;
+    if (chosen > 1) {
+      toast.error('Please provide only ONE of: Apply URL, Application URL, or External URL.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Additional validation to match jobs_application_url_valid
+    if (norm_application_url && !(norm_application_url.startsWith('https://') || norm_application_url.startsWith('mailto:'))) {
+      toast.error('Application URL must start with https:// or mailto:');
+      setIsSubmitting(false);
+      return;
+    }
+
     const updateData = {
       title, company_name, location, job_type, description, requirements,
-      salary_range, application_url, contact_email, external_url, apply_url,
+      salary_range, application_url: norm_application_url, contact_email,
+      external_url: norm_external_url, apply_url: norm_apply_url,
       company_id, deadline, is_active
     };
 

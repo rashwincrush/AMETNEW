@@ -3,33 +3,65 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
+import MentorContactPanel from './MentorContactPanel';
+import ApprovedGuard from '../guards/ApprovedGuard';
+import { useApproval } from '../../hooks/useApproval';
 
 const MentorProfile = () => {
   const { id: mentorId } = useParams();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [mentor, setMentor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [requestMessage, setRequestMessage] = useState('');
+  const [requestGoals, setRequestGoals] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [existingRequest, setExistingRequest] = useState(null);
 
+  const { isApprovedMentee } = useApproval();
+
   const handleRequestSubmit = async () => {
-    if (!requestMessage.trim()) {
-      toast.error('Please enter a message for the mentor.');
+    if (!requestMessage.trim() && !requestGoals.trim()) {
+      toast.error('Please enter a short message or your goals.');
       return;
     }
-    setIsSubmitting(true);
+    if (!user) {
+      toast.error('You need to be logged in to send a request.');
+      return;
+    }
+        if (!isApprovedMentee) {
+      toast.error('Your profile is not approved. Kindly contact administrator.');
+      return;
+    }
+
+setIsSubmitting(true);
     try {
+      // Prevent duplicate pending requests from this mentee to this mentor
+      const { data: dup, error: dupErr } = await supabase
+        .from('mentorship_requests')
+        .select('id, status')
+        .eq('mentor_id', mentorId)
+        .eq('mentee_id', user.id)
+        .eq('status', 'pending')
+        .maybeSingle();
+      if (!dupErr && dup) {
+        toast.error('You already have a pending request for this mentor.');
+        setExistingRequest(dup);
+        return;
+      }
+
+      const payload = {
+        mentor_id: mentorId,
+        mentee_id: user.id,
+        message: requestMessage || null,
+        goals: requestGoals || null,
+        status: 'pending',
+      };
+
       const { data, error } = await supabase
         .from('mentorship_requests')
-        .insert({
-          mentor_id: mentorId,
-          mentee_id: user.id,
-          request_message: requestMessage,
-          status: 'pending',
-        })
-        .select()
+        .insert(payload)
+        .select('id, mentor_id, mentee_id, status, created_at')
         .single();
 
       if (error) throw error;
@@ -37,9 +69,10 @@ const MentorProfile = () => {
       setExistingRequest(data);
       setShowRequestModal(false);
       setRequestMessage('');
-      toast.success('Mentorship request sent successfully!');
+      setRequestGoals('');
+      toast.success('Request sent to mentor.');
     } catch (error) {
-      toast.error(`Failed to send request: ${error.message}`);
+      toast.error(error.message || 'Failed to send request.');
     } finally {
       setIsSubmitting(false);
     }
@@ -51,16 +84,28 @@ const MentorProfile = () => {
 
       try {
         setLoading(true);
-        // Fetch mentor profile
-        const { data: mentorData, error: mentorError } = await supabase
+        // Fetch mentor core row (no profiles join)
+        const { data: mentorRow, error: mentorError } = await supabase
           .from('mentors')
-          .select(`*, profile:user_id (full_name, avatar_url)`)
+          .select(`*`)
           .eq('user_id', mentorId)
           .single();
 
         if (mentorError) throw mentorError;
-        if (mentorData) setMentor(mentorData);
-        else toast.error('Mentor not found.');
+        if (!mentorRow) {
+          toast.error('Mentor not found.');
+          setLoading(false);
+          return;
+        }
+
+        // Hydrate identity from public directory (no PII)
+        const { data: ident } = await supabase
+          .from('alumni_directory_public')
+          .select('id, full_name, avatar_url')
+          .eq('id', mentorId)
+          .maybeSingle();
+
+        setMentor({ ...mentorRow, profile: ident || { full_name: 'Mentor', avatar_url: null } });
 
         // Check for an existing mentorship request
         const { data: requestData, error: requestError } = await supabase
@@ -128,7 +173,7 @@ const MentorProfile = () => {
               <li><strong>Experience:</strong> {mentor.mentoring_experience_years} years</li>
               <li><strong>Max Mentees:</strong> {mentor.max_mentees}</li>
               <li><strong>Capacity:</strong> {mentor.mentoring_capacity_hours_per_month} hours/month</li>
-                            <li>
+              <li>
                 <strong>Preferences:</strong>
                 {typeof mentor.mentoring_preferences === 'object' && mentor.mentoring_preferences ? (
                   <ul className="list-disc list-inside pl-4 mt-1 text-sm">
@@ -141,13 +186,21 @@ const MentorProfile = () => {
                 )}
               </li>
             </ul>
-            <button 
-              className="btn-ocean w-full mt-6 py-2 disabled:opacity-50"
-              onClick={() => setShowRequestModal(true)}
-              disabled={loading || !!existingRequest || user?.id === mentorId}
-            >
-              {user?.id === mentorId ? 'This is your profile' : existingRequest ? `Request ${existingRequest.status}` : 'Request Mentorship'}
-            </button>
+
+            {/* Contact unlock panel: only shows contact post-acceptance; otherwise CTA */}
+            <div className="mt-4">
+              <MentorContactPanel mentorId={mentorId} />
+            </div>
+
+            {hasPermission?.('request:mentorship') && mentor?.status === 'approved' && (
+              <button 
+                className="btn-ocean w-full mt-6 py-2 disabled:opacity-50"
+                onClick={() => setShowRequestModal(true)}
+                disabled={loading || !!existingRequest || user?.id === mentorId}
+              >
+                {user?.id === mentorId ? 'This is your profile' : existingRequest ? `Request ${existingRequest.status}` : 'Request Mentorship'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -163,9 +216,16 @@ const MentorProfile = () => {
               value={requestMessage}
               onChange={(e) => setRequestMessage(e.target.value)}
             />
+            <input
+              type="text"
+              className="w-full border rounded-md p-2 mt-3"
+              placeholder="Your goals (optional)"
+              value={requestGoals}
+              onChange={(e) => setRequestGoals(e.target.value)}
+            />
             <div className="flex justify-end gap-4 mt-6">
               <button onClick={() => setShowRequestModal(false)} className="btn-secondary-outline">Cancel</button>
-              <button onClick={handleRequestSubmit} className="btn-primary" disabled={isSubmitting || !requestMessage.trim()}>
+              <button onClick={handleRequestSubmit} className="btn-primary" disabled={isSubmitting || (!requestMessage.trim() && !requestGoals.trim())}>
                 {isSubmitting ? 'Sending...' : 'Send Request'}
               </button>
             </div>

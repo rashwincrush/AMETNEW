@@ -36,7 +36,7 @@ export default function DirectoryGrid({ items = [], meId, currentTab = 'all', on
   if (!Array.isArray(items) || items.length === 0) {
     return (
       <div className="rounded-xl border border-slate-100 bg-white p-10 text-center text-slate-500 shadow-sm">
-        <p>No profiles to show.</p>
+        <p>No alumni match your search.</p>
         <p className="mt-1 text-sm">Try adjusting your filters or search criteria.</p>
       </div>
     );

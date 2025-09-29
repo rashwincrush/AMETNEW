@@ -19,6 +19,7 @@ import { CircularProgress } from '@mui/material';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { coalesceAppUrl, isQuickLink, companyDisplay, getSourceType } from '../../utils/jobs';
+import { useApproval } from '../../hooks/useApproval';
 import { getApplicantsCount } from '../../utils/applicants';
 import { requestConnectionForJob } from '../../utils/connections';
 import toast from 'react-hot-toast';
@@ -112,6 +113,16 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   const quick = isQuickLink(job);
   const href = coalesceAppUrl(job);
 
+  const renderStatusBadge = () => {
+    if (job.is_approved === true) {
+      return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-800">Approved</span>);
+    }
+    if (job.is_active === false) {
+      return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-800">Rejected</span>);
+    }
+    return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800">Pending</span>);
+  };
+
   return (
     <div className="glass-card rounded-lg p-6 hover:shadow-lg transition-shadow border border-transparent h-full flex flex-col">
       <div className="flex items-start justify-between mb-4">
@@ -132,6 +143,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
               <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
                 {quick ? 'Quick Link' : 'In-App'}
               </span>
+              {renderStatusBadge()}
             </div>
           </div>
         </div>
@@ -222,6 +234,16 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
 
   const quick = isQuickLink(job);
 
+  const renderStatusBadge = () => {
+    if (job.is_approved === true) {
+      return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-800">Approved</span>);
+    }
+    if (job.is_active === false) {
+      return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-800">Rejected</span>);
+    }
+    return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800">Pending</span>);
+  };
+
   return (
     <div className="glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border border-transparent min-h-[140px]">
       <img src={job.companies?.logo_url || '/logo.png'} alt={job.companies?.name || 'Company'} className="w-16 h-16 rounded-lg object-cover" />
@@ -234,6 +256,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
               {quick ? 'Quick Link' : 'In-App'}
             </span>
+            {renderStatusBadge()}
           </div>
           <span />
         </div>
@@ -290,6 +313,16 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
 /* ---------- Main Page ---------- */
 const JobListingsPage = () => {
   const { user, loading: authLoading, userRole } = useAuth();
+  const { loading: apprLoading, isApprovedEmployer } = useApproval();
+  const navigateJob = useNavigate();
+  const goPostJob = () => {
+    if (!isApprovedEmployer) {
+      toast.error('Your profile is not approved. Kindly contact administrator.');
+      return;
+    }
+    navigateJob('/jobs/post');
+  };
+
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const notification = useNotification();
@@ -354,9 +387,9 @@ const JobListingsPage = () => {
         p_department: deptParam,
       }));
       if (error) {
-        console.warn('RPC get_jobs_feed failed, falling back to v_jobs_feed_all view');
+        console.warn('RPC get_jobs_feed failed, falling back to v_jobs_public view');
         const { data: viewData, error: viewError } = await supabase
-          .from('v_jobs_feed_all')
+          .from('v_jobs_public')
           .select('*')
           .order(sortCol, { ascending: sortDir === 'asc' })
           .range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
@@ -385,7 +418,11 @@ const JobListingsPage = () => {
     let totalCount = 0;
     if (!isEmployer) {
       rows = (data?.items ?? []).map(j => {
-        const company = companyDisplay(j);
+        // Prefer company_logo_url if present in row
+        const company = {
+          name: companyDisplay(j).name,
+          logo_url: j.company_logo_url || companyDisplay(j).logo_url
+        };
         const appUrl = coalesceAppUrl(j);
         const computedSource = getSourceType({ ...j, application_url: appUrl });
         return {
@@ -398,7 +435,10 @@ const JobListingsPage = () => {
       totalCount = data?.total_count ?? 0;
     } else {
       rows = (data || []).map(j => {
-        const company = companyDisplay(j);
+        const company = {
+          name: companyDisplay(j).name,
+          logo_url: j.company_logo_url || companyDisplay(j).logo_url
+        };
         const appUrl = coalesceAppUrl(j);
         const computedSource = getSourceType({ ...j, application_url: appUrl });
         return {
@@ -416,6 +456,12 @@ const JobListingsPage = () => {
 
     // Client filters (until server supports all)
     const matchesFilters = (j) => {
+      // Guard: Students and general audience should only see approved & active
+      if (!isEmployer) {
+        const approved = j.is_approved === true;
+        const active = j.is_active !== false;
+        if (!(approved && active)) return false;
+      }
       if (sourceFilter !== 'all') {
         const st = getSourceType(j);
         if (sourceFilter === 'quick_link' && st !== 'quick_link') return false;
@@ -602,10 +648,10 @@ const JobListingsPage = () => {
             My Job Alerts
           </Link>
           {canPostJob && (
-            <Link to="/jobs/post" className="btn-primary text-sm">
+            <button onClick={goPostJob} disabled={apprLoading || !isApprovedEmployer} aria-disabled={apprLoading || !isApprovedEmployer} title={!isApprovedEmployer ? 'Your profile is not approved. Kindly contact administrator.' : 'Post a Job'} className={"btn-primary text-sm " + ((apprLoading || !isApprovedEmployer) ? 'opacity-60 cursor-not-allowed' : '')}>
               <PlusIcon className="w-4 h-4 mr-2" />
               Post a Job
-            </Link>
+            </button>
           )}
         </div>
       </div>

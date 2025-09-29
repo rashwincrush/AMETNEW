@@ -92,6 +92,7 @@ import ManageJobApplications from './components/Jobs/ManageJobApplications';
 import MentorshipDashboard from './components/Mentorship/MentorshipDashboard';
 import MentorshipStatus from './components/Mentorship/MentorshipStatus';
 import MentorshipChat from './components/Mentorship/MentorshipChat';
+import ApprovedGuard from './components/guards/ApprovedGuard';
 import AdminMentorApprovals from './components/Mentorship/AdminMentorApprovals';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
@@ -205,10 +206,10 @@ function AppContent() {
             <Route path="/admin/events/moderation" element={<ProtectedRoute requiredPermission="access:all"><EventModerationPanel /></ProtectedRoute>} />
             <Route path="/jobs" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:jobs"><JobListingsPage /></ProtectedRoute></RequireCompleteProfile>} />
             <Route path="/jobs/alerts" element={<ProtectedRoute requiredPermission="view:jobs"><JobAlerts /></ProtectedRoute>} />
-            <Route path="/jobs/post" element={<ProtectedRoute requiredPermission="post:jobs"><PostJob /></ProtectedRoute>} />
-            <Route path="/jobs/post/select" element={<ProtectedRoute requiredPermission="post:jobs"><PostJobSelection /></ProtectedRoute>} />
-            <Route path="/jobs/post/link" element={<ProtectedRoute requiredPermission="post:jobs"><PostJobWithLink /></ProtectedRoute>} />
-            <Route path="/jobs/create" element={<ProtectedRoute requiredPermission="post:jobs"><JobPostingForm /></ProtectedRoute>} />
+            <Route path="/jobs/post" element={<ApprovedGuard require="approved-employer" skeleton={<div/>}><ProtectedRoute requiredPermission="post:jobs"><PostJob /></ProtectedRoute></ApprovedGuard>} />
+            <Route path="/jobs/post/select" element={<ApprovedGuard require="approved-employer" skeleton={<div/>}><ProtectedRoute requiredPermission="post:jobs"><PostJobSelection /></ProtectedRoute></ApprovedGuard>} />
+            <Route path="/jobs/post/link" element={<ApprovedGuard require="approved-employer" skeleton={<div/>}><ProtectedRoute requiredPermission="post:jobs"><PostJobWithLink /></ProtectedRoute></ApprovedGuard>} />
+            <Route path="/jobs/create" element={<ApprovedGuard require="approved-employer" skeleton={<div/>}><ProtectedRoute requiredPermission="post:jobs"><JobPostingForm /></ProtectedRoute></ApprovedGuard>} />
             <Route path="/jobs/applications" element={<ProtectedRoute requiredPermission="apply:jobs"><ApplicationTracking /></ProtectedRoute>} />
             <Route path="/jobs/applications/:id" element={<ProtectedRoute requiredPermission="apply:jobs"><ApplicationTracking /></ProtectedRoute>} />
             <Route path="/jobs/:jobId/apply" element={<JobApplication />} />
@@ -245,7 +246,7 @@ function AppContent() {
             <Route path="/mentorship/become-mentee" element={<ProtectedRoute requiredPermission="request:mentorship"><MenteeRegistrationForm /></ProtectedRoute>} />
             <Route path="/mentorship" element={<ProtectedRoute requiredPermission="request:mentorship"><Mentorship /></ProtectedRoute>} />
             <Route path="/mentorship/me" element={<ProtectedRoute requiredPermission="request:mentorship"><MyMentorship /></ProtectedRoute>} />
-            <Route path="/mentorship/dashboard" element={<ProtectedRoute requiredPermission="request:mentorship"><MentorshipDashboard /></ProtectedRoute>} />
+            <Route path="/mentorship/dashboard" element={<ApprovedGuard require="approved-mentor" skeleton={<div/>}><ProtectedRoute requiredPermission="request:mentorship"><MentorshipDashboard /></ProtectedRoute></ApprovedGuard>} />
             { /* Deprecated: MentorDirectory route removed */ }
             <Route path="/mentorship/requests" element={<ProtectedRoute requiredPermission="manage:mentee_requests"><MentorshipStatus /></ProtectedRoute>} />
             <Route path="/mentorship/chat/:requestId" element={<ProtectedRoute requiredPermission="chat:mentees"><MentorshipChat /></ProtectedRoute>} />

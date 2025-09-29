@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from '../../constants/support';
 
 const RejectionPage = () => {
   const navigate = useNavigate();
@@ -64,7 +65,7 @@ const RejectionPage = () => {
         ) : (
           <p className="mb-4 text-gray-800">{rejectionReason}</p>
         )}
-        <p className="mb-6 text-gray-600">If you believe this is a mistake, please contact <a href="mailto:Alumni@ametuniv.ac.in" className="text-blue-600">Alumni@ametuniv.ac.in</a>.</p>
+        <p className="mb-6 text-gray-600">If you believe this is a mistake, please contact <a href={SUPPORT_MAILTO} className="text-blue-600">{SUPPORT_EMAIL}</a>.</p>
         <button
           onClick={handleLogout}
           className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"

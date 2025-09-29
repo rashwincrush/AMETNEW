@@ -23,14 +23,25 @@ const MentorshipProfile = () => {
 
   const fetchProfile = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', id)
-      .single();
-    if (error) setError('Profile not found');
-    setProfile(data);
-    setLoading(false);
+    try {
+      const { data: pub, error } = await supabase
+        .from('alumni_directory_public')
+        .select('id, full_name, avatar_url, current_job_title, company_name, location_city, location_country')
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!pub) {
+        setError("This profile isn’t publicly visible.");
+        setProfile(null);
+      } else {
+        setProfile(pub);
+      }
+    } catch (e) {
+      setError("This profile isn’t publicly visible.");
+      setProfile(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const checkIfRequested = async () => {
@@ -73,21 +84,26 @@ const MentorshipProfile = () => {
     return <Alert severity="error">{error}</Alert>;
   }
   if (!profile) {
-    return <Alert severity="info">Profile not found.</Alert>;
+    return <Alert severity="info">This profile isn’t publicly visible.</Alert>;
   }
 
   return (
     <Box sx={{ maxWidth: 700, mx: 'auto', py: 4 }}>
       <Paper sx={{ p: 4, borderRadius: 2, display: 'flex', gap: 3, alignItems: 'center' }}>
-        <Avatar src={profile.avatar_url} alt={profile.full_name} sx={{ width: 96, height: 96 }} />
+        <Avatar src={profile.avatar_url || '/default-avatar.png'} alt={profile.full_name || 'avatar'} sx={{ width: 96, height: 96 }} />
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 'bold' }}>{profile.full_name}</Typography>
-          <Typography variant="body1" color="textSecondary">{profile.department}</Typography>
-          {profile.expertise && <Chip label={profile.expertise} color="info" sx={{ mt: 1 }} />}
-          {profile.bio && <Typography sx={{ mt: 2 }}>{profile.bio}</Typography>}
+          <Typography variant="h5" sx={{ fontWeight: 'bold' }}>{profile.full_name || 'Alumni'}</Typography>
+          <Typography variant="body1" color="textSecondary">
+            {(profile.current_job_title || 'Maritime Professional')}
+            {profile.company_name ? ` • ${profile.company_name}` : ''}
+          </Typography>
+          <Typography variant="body2" color="textSecondary">
+            {[profile.location_city, profile.location_country].filter(Boolean).join(', ') || '—'}
+          </Typography>
         </Box>
       </Paper>
-      {profile.is_mentor && user && user.id !== profile.id && (
+      {/* CTA remains; visibility of mentor tools handled elsewhere */}
+      {user && user.id !== profile.id && (
         <Box sx={{ mt: 3 }}>
           <Button
             variant="contained"

@@ -49,8 +49,8 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const EventsList = ({ isAdmin = false }) => {
   const navigate = useNavigate();
-  const { userRole, isAdmin: isAdminRole } = useAuth();
-  const canCreate = !!(isAdminRole || userRole === 'employer');
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission('events:create');
   const [events, setEvents] = useState([]);
   const [featuredEvents, setFeaturedEvents] = useState([]);
   const [featuredLoading, setFeaturedLoading] = useState(true);

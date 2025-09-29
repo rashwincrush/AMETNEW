@@ -14,6 +14,8 @@ import { StarIcon } from '@heroicons/react/24/solid';
 import ConnectionCTA from '../shared/ConnectionCTA';
 import { TextPill } from '../shared/Chips';
 import { useConnectionRel } from '../../hooks/useConnectionRel';
+import { useAuth } from '../../contexts/AuthContext';
+import MentorContactPanel from '../Mentorship/MentorContactPanel';
 
 const AchievementCard = ({ achievement }) => (
   <div className="bg-white rounded-lg p-4 border border-gray-200 hover:shadow-md transition-shadow duration-300">
@@ -38,6 +40,8 @@ const AlumniProfile = () => {
   const [currentUser, setCurrentUser] = useState(null);
   // Connection rel (live)
   const rel = useConnectionRel(currentUser?.id, id);
+  const { getUserRole } = useAuth();
+  const role = getUserRole?.();
   
   useEffect(() => {
     const getCurrentUser = async () => {
@@ -55,63 +59,107 @@ const AlumniProfile = () => {
       setError(null);
 
       try {
-        const { data, error: supabaseError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', id)
-          .single();
+        let data = null;
+        let supabaseError = null;
+        if (role === 'student') {
+          // Load from public view (no PII)
+          const res = await supabase
+            .from('alumni_directory_public')
+            .select('*')
+            .eq('id', id)
+            .single();
+          data = res.data;
+          supabaseError = res.error;
+        } else {
+          const res = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', id)
+            .single();
+          data = res.data;
+          supabaseError = res.error;
+        }
 
         if (supabaseError) {
           if (supabaseError.code === 'PGRST116') {
-             setError('Alumni profile not found');
+             setError("This profile isn’t publicly visible.");
           } else {
-             setError('Failed to load alumni profile');
+             setError("This profile isn’t publicly visible.");
           }
           console.error('Error fetching alumni:', supabaseError);
           return;
         }
 
         if (!data) {
-          setError('Alumni profile not found');
+          setError("This profile isn’t publicly visible.");
           return;
         }
 
         console.log('Fetched alumni from Supabase:', data);
 
-        const transformedAlumnus = {
-          id: data.id,
-          name: data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Unknown',
-          email: data.email || '',
-          phone: data.phone || '',
-          // Current schema fields
-          graduationYear: data.graduation_year ?? 'Not specified',
-          degree: data.degree_program ?? 'Not specified',
-          department: data.department ?? 'Not specified',
-          currentPosition: data.current_job_title ?? 'Not specified',
-          company: data.company_name ?? 'Not specified',
-          location: data.location ?? 'Not specified',
-          avatar: data.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.full_name || data.email || 'User')}&background=3B82F6&color=fff`,
-          coverImage: data.cover_image || 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
-          verified: data.is_verified || false,
-          joinedDate: new Date(data.created_at || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-          about: data.about || '',
-          experience: Array.isArray(data.experience) ? data.experience : [],
-          education: Array.isArray(data.education) ? data.education : [],
-          skills: Array.isArray(data.skills) ? data.skills : [],
-          achievements: Array.isArray(data.achievements) ? data.achievements : [],
-          interests: Array.isArray(data.interests) ? data.interests : [],
-          languages: Array.isArray(data.languages) ? data.languages : [],
-          socialLinks: {
-            linkedin: data.linkedin_url || '',
-            website: data.website || '',
-            twitter: data.twitter || ''
+        const transformedAlumnus = (() => {
+          if (role === 'student') {
+            const city = data.location_city || '';
+            const country = data.location_country || '';
+            return {
+              id: data.id,
+              name: data.full_name || 'Unknown',
+              email: '',
+              phone: '',
+              graduationYear: data.graduation_year ?? 'Not specified',
+              degree: data.degree_program ?? 'Not specified',
+              department: data.department ?? '', // not provided by view; keep blank
+              currentPosition: data.current_job_title ?? 'Not specified',
+              company: data.company_name ?? 'Not specified',
+              location: [city, country].filter(Boolean).join(', ') || 'Not specified',
+              avatar: data.avatar_url || '/default-avatar.png',
+              coverImage: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
+              verified: false,
+              joinedDate: '',
+              about: '',
+              experience: [],
+              education: [],
+              skills: [],
+              achievements: typeof data.achievements === 'string' ? [data.achievements] : (Array.isArray(data.achievements) ? data.achievements : []),
+              interests: [],
+              languages: [],
+              socialLinks: {},
+            };
           }
-        };
+          return {
+            id: data.id,
+            name: data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Unknown',
+            email: data.email || '',
+            phone: data.phone || '',
+            graduationYear: data.graduation_year ?? 'Not specified',
+            degree: data.degree_program ?? 'Not specified',
+            department: data.department ?? 'Not specified',
+            currentPosition: data.current_job_title ?? 'Not specified',
+            company: data.company_name ?? 'Not specified',
+            location: data.location ?? 'Not specified',
+            avatar: data.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.full_name || data.email || 'User')}&background=3B82F6&color=fff`,
+            coverImage: data.cover_image || 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
+            verified: data.is_verified || false,
+            joinedDate: new Date(data.created_at || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+            about: data.about || '',
+            experience: Array.isArray(data.experience) ? data.experience : [],
+            education: Array.isArray(data.education) ? data.education : [],
+            skills: Array.isArray(data.skills) ? data.skills : [],
+            achievements: Array.isArray(data.achievements) ? data.achievements : [],
+            interests: Array.isArray(data.interests) ? data.interests : [],
+            languages: Array.isArray(data.languages) ? data.languages : [],
+            socialLinks: {
+              linkedin: data.linkedin_url || '',
+              website: data.website || '',
+              twitter: data.twitter || ''
+            }
+          };
+        })();
 
         setAlumnus(transformedAlumnus);
       } catch (err) {
         console.error('An unexpected error occurred:', err);
-        setError('An unexpected error occurred while fetching the profile.');
+        setError("This profile isn’t publicly visible.");
       } finally {
         setLoading(false);
       }
@@ -120,9 +168,10 @@ const AlumniProfile = () => {
     fetchAlumnusData();
   }, [id]);
 
-  // Enrich contact details for logged-in users via RPC with RLS (owner/admin/accepted connection rules)
+  // Enrich contact details via RPC for non-students only
   useEffect(() => {
     if (!alumnus?.id) return;
+    if (role === 'student') return; // never fetch contacts for students
     (async () => {
       try {
         const { data: contact, error } = await supabase
@@ -141,7 +190,7 @@ const AlumniProfile = () => {
         console.error('contact rpc error', e);
       }
     })();
-  }, [alumnus?.id]);
+  }, [alumnus?.id, role]);
 
   const handleMessage = () => {
     if (!currentUser || !alumnus) return;
@@ -301,7 +350,7 @@ const AlumniProfile = () => {
 
         {/* Right Sidebar */}
         <div className="space-y-6">
-          {/* Contact Info */}
+          {/* Contact Info (no email/phone for students) */}
           <div className="glass-card rounded-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
             <div className="space-y-3">
@@ -329,7 +378,7 @@ const AlumniProfile = () => {
                 </div>
               </div>
 
-              {alumnus.email && (
+              {role !== 'student' && alumnus.email && (
                 <div className="flex items-center">
                   <EnvelopeIcon className="w-6 h-6 mr-4 text-ocean-600" />
                   <div>
@@ -341,7 +390,7 @@ const AlumniProfile = () => {
                 </div>
               )}
 
-              {alumnus.phone && (
+              {role !== 'student' && alumnus.phone && (
                 <div className="flex items-center">
                   <PhoneIcon className="w-6 h-6 mr-4 text-ocean-600" />
                   <div>
@@ -354,6 +403,9 @@ const AlumniProfile = () => {
               )}
             </div>
           </div>
+
+          {/* Mentor contact unlock panel for students */}
+          {role === 'student' && <MentorContactPanel mentorId={alumnus.id} />}
 
           {/* Skills */}
           <div className="glass-card rounded-lg p-6">
@@ -374,30 +426,32 @@ const AlumniProfile = () => {
             </div>
           </div>
 
-          {/* Social Links */}
-          <div className="glass-card rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Social Links</h3>
-            <div className="space-y-2">
-              {alumnus.socialLinks && Object.values(alumnus.socialLinks).some(link => link) ? (
-                Object.entries(alumnus.socialLinks).map(([platform, url]) => (
-                  url && (
-                    <a 
-                      key={platform}
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm"
-                    >
-                      <LinkIcon className="w-4 h-4 mr-2" />
-                      {platform.charAt(0).toUpperCase() + platform.slice(1)}
-                    </a>
-                  )
-                ))
-              ) : (
-                <p className="text-gray-500 text-sm">No social links provided.</p>
-              )}
+          {/* Social Links (hidden for students) */}
+          {role !== 'student' && (
+            <div className="glass-card rounded-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Social Links</h3>
+              <div className="space-y-2">
+                {alumnus.socialLinks && Object.values(alumnus.socialLinks).some(link => link) ? (
+                  Object.entries(alumnus.socialLinks).map(([platform, url]) => (
+                    url && (
+                      <a 
+                        key={platform}
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm"
+                      >
+                        <LinkIcon className="w-4 h-4 mr-2" />
+                        {platform.charAt(0).toUpperCase() + platform.slice(1)}
+                      </a>
+                    )
+                  ))
+                ) : (
+                  <p className="text-gray-500 text-sm">No social links provided.</p>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

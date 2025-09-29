@@ -1,16 +1,22 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { supabase } from '../../utils/supabase';
+import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import MentorRegistrationForm from './MentorRegistrationForm';
+import CreateSessionModal from './CreateSessionModal';
 
 export default function MyMentorship() {
-  const { user, profile, fetchUserProfile } = useAuth();
+  const { user, profile, fetchUserProfile, getUserRole } = useAuth();
+  const role = getUserRole ? getUserRole() : undefined;
   const [mentorRow, setMentorRow] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isAvailable, setIsAvailable] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Mentee requests state
+  const [requests, setRequests] = useState([]);
+  const [reqLoading, setReqLoading] = useState(true);
+  const [sessionModal, setSessionModal] = useState({ open: false, requestId: null, mentorId: null, menteeId: null });
 
   useEffect(() => {
     const fetchMyMentor = async () => {
@@ -44,6 +50,80 @@ export default function MyMentorship() {
     };
     readAvailability();
   }, [user, profile]);
+
+  // Fetch my mentee requests
+  const fetchMyRequests = useCallback(async () => {
+    if (!user) return;
+    setReqLoading(true);
+    try {
+      const { data: rows, error } = await supabase
+        .from('mentorship_requests')
+        .select('id, mentor_id, mentee_id, status, message, goals, created_at')
+        .eq('mentee_id', user.id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+
+      const ids = Array.from(new Set((rows || []).map(r => r.mentor_id).filter(Boolean)));
+      let map = new Map();
+      if (ids.length) {
+        const { data: pubs } = await supabase
+          .from('alumni_directory_public')
+          .select('id, full_name, avatar_url')
+          .in('id', ids);
+        (pubs || []).forEach(p => map.set(p.id, p));
+      }
+
+      const hydrated = (rows || []).map(r => ({
+        ...r,
+        mentor: map.get(r.mentor_id) || { id: r.mentor_id, full_name: 'Mentor', avatar_url: null }
+      }));
+      setRequests(hydrated);
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to load your mentorship requests');
+    } finally {
+      setReqLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchMyRequests();
+  }, [fetchMyRequests]);
+
+  // Realtime for my requests (INSERT/UPDATE)
+  useEffect(() => {
+    if (!user?.id) return;
+    const channelName = `mentee-requests-${user.id}`;
+    onPostgresChangesOnce(
+      channelName,
+      `mentee-requests-insert-${user.id}`,
+      { event: 'INSERT', schema: 'public', table: 'mentorship_requests', filter: `mentee_id=eq.${user.id}` },
+      () => fetchMyRequests()
+    );
+    onPostgresChangesOnce(
+      channelName,
+      `mentee-requests-update-${user.id}`,
+      { event: 'UPDATE', schema: 'public', table: 'mentorship_requests', filter: `mentee_id=eq.${user.id}` },
+      () => fetchMyRequests()
+    );
+  }, [user, fetchMyRequests]);
+
+  const openSchedule = (req) => {
+    setSessionModal({ open: true, requestId: req.id, mentorId: null, menteeId: null });
+  };
+  const closeSchedule = () => setSessionModal({ open: false, requestId: null, mentorId: null, menteeId: null });
+
+  const statusChip = (status) => {
+    const map = {
+      pending: 'bg-yellow-100 text-yellow-800',
+      accepted: 'bg-green-100 text-green-800',
+      rejected: 'bg-red-100 text-red-800',
+      active: 'bg-blue-100 text-blue-800',
+      completed: 'bg-gray-100 text-gray-800'
+    };
+    const cls = map[status] || 'bg-gray-100 text-gray-800';
+    return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{status}</span>;
+  };
 
   const toggleAvailability = useCallback(async (next) => {
     if (!user) return;
@@ -94,34 +174,47 @@ export default function MyMentorship() {
     );
   }
 
-  // No mentor profile yet → show registration form
+  // No mentor profile yet → for students and non-mentors, show mentee view only (no registration form here)
   if (!mentorRow) {
     return (
-      <div className="max-w-5xl mx-auto">
-        <div className="bg-white shadow rounded-lg p-6 mb-4">
+      <div className="max-w-5xl mx-auto space-y-4">
+        <div className="bg-white shadow rounded-lg p-6">
           <h1 className="text-2xl font-semibold text-gray-800">My Mentorship</h1>
-          {/* Availability Switch */}
-          <div className="mt-3 flex items-center gap-3">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                className="toggle-checkbox h-5 w-10"
-                checked={isAvailable}
-                onChange={(e) => toggleAvailability(e.target.checked)}
-                disabled={isSaving}
-              />
-              <span className="text-sm font-medium">Accepting mentees</span>
-            </label>
-          </div>
-          <p className="text-xs text-gray-500 mt-1">
-            {isAvailable
-              ? "You’re visible in the Mentor directory and can receive new requests."
-              : "You’re hidden from the Mentor directory and cannot receive new requests."}
-          </p>
-          {compositeBadge()}
-          <p className="mt-2 text-gray-600">You haven’t created a mentor profile yet. Fill the form to get started.</p>
+          <p className="text-sm text-gray-600 mt-1">Your mentorship requests and sessions as a mentee.</p>
         </div>
-        <MentorRegistrationForm />
+
+        {/* My Requests (as Mentee) */}
+        <div className="bg-white shadow rounded-lg p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-semibold text-gray-800">Requests I Sent</h2>
+            <button className="text-sm text-ocean-600 hover:underline" onClick={fetchMyRequests}>Refresh</button>
+          </div>
+          {reqLoading ? (
+            <p className="text-gray-500">Loading...</p>
+          ) : requests.length === 0 ? (
+            <p className="text-gray-600">You haven't sent any mentorship requests yet.</p>
+          ) : (
+            <ul className="divide-y">
+              {requests.map((r) => (
+                <li key={r.id} className="py-3 flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-gray-900">{r.mentor?.full_name || 'Mentor'}</div>
+                    <div className="text-sm text-gray-600">{new Date(r.created_at).toLocaleString()}</div>
+                    <div className="mt-1">{statusChip(r.status)}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {r.status === 'accepted' && (
+                      <>
+                        <Link to={`/mentorship/chat/${r.id}`} className="btn-ocean px-3 py-1.5 rounded">Start Chat</Link>
+                        <button onClick={() => openSchedule(r)} className="btn-ocean-outline px-3 py-1.5 rounded">Schedule Session</button>
+                      </>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     );
   }
@@ -263,6 +356,45 @@ export default function MyMentorship() {
           <Link to="/mentorship" className="btn-ocean-outline px-4 py-2 rounded">Sessions</Link>
         </div>
       </div>
+
+      {/* My Requests (as Mentee) */}
+      <div className="bg-white shadow rounded-lg p-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xl font-semibold text-gray-800">Requests I Sent</h2>
+          <button className="text-sm text-ocean-600 hover:underline" onClick={fetchMyRequests}>Refresh</button>
+        </div>
+        {reqLoading ? (
+          <p className="text-gray-500">Loading...</p>
+        ) : requests.length === 0 ? (
+          <p className="text-gray-600">You haven't sent any mentorship requests yet.</p>
+        ) : (
+          <ul className="divide-y">
+            {requests.map((r) => (
+              <li key={r.id} className="py-3 flex items-center justify-between">
+                <div>
+                  <div className="font-medium text-gray-900">{r.mentor?.full_name || 'Mentor'}</div>
+                  <div className="text-sm text-gray-600">{new Date(r.created_at).toLocaleString()}</div>
+                  <div className="mt-1">{statusChip(r.status)}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {r.status === 'accepted' && (
+                    <>
+                      <Link to={`/mentorship/chat/${r.id}`} className="btn-ocean px-3 py-1.5 rounded">Start Chat</Link>
+                      <button onClick={() => openSchedule(r)} className="btn-ocean-outline px-3 py-1.5 rounded">Schedule Session</button>
+                    </>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <CreateSessionModal
+        open={sessionModal.open}
+        onClose={closeSchedule}
+        requestId={sessionModal.requestId}
+      />
     </div>
   );
 }

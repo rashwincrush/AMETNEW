@@ -1,0 +1,7 @@
+ios/
+android/
+.build/
+.DS_Store
+node_modules/
+.vscode/
+.caps/

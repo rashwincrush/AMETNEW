@@ -203,6 +203,33 @@ const NotificationBell = ({ currentUser }) => {
     return <IconComponent className="h-4 w-4" />;
   };
 
+  // Safely parse metadata payload which may be JSON or object
+  const parseMetadata = (metadata) => {
+    if (!metadata) return null;
+    if (typeof metadata === 'object') return metadata;
+    try {
+      return JSON.parse(metadata);
+    } catch {
+      return null;
+    }
+  };
+
+  // Compute a destination link for specific types if link is not set
+  const deriveLink = (notification) => {
+    if (!notification) return null;
+    const { type, metadata } = notification;
+    const meta = parseMetadata(metadata);
+    if (type === 'mentorship_request' && meta) {
+      if (meta.status === 'accepted' && meta.request_id) {
+        return `/mentorship/chat/${meta.request_id}`;
+      }
+      if (meta.status === 'rejected') {
+        return '/mentorship/me';
+      }
+    }
+    return null;
+  };
+
   return (
     <div className="relative" ref={dropdownRef}>
       <div className="flex items-center">
@@ -246,7 +273,7 @@ const NotificationBell = ({ currentUser }) => {
                 {notifications.map((notification) => (
                   <Link 
                     key={notification.id} 
-                    to={notification.link || '#'} 
+                    to={notification.link || deriveLink(notification) || '#'} 
                     className="block"
                     onClick={() => handleNotificationClick(notification)}
                   >

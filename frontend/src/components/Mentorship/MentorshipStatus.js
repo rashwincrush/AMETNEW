@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../../utils/supabase';
+import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { Link } from 'react-router-dom';
@@ -16,18 +16,32 @@ const MentorshipStatus = () => {
     if (!user) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data: rows, error } = await supabase
         .from('mentorship_requests')
-        .select(`
-          id, created_at, status,
-          mentor:profiles!mentorship_requests_mentor_id_fkey ( id, full_name, avatar_url ),
-          mentee:profiles!mentorship_requests_mentee_id_fkey ( id, full_name, avatar_url )
-        `)
+        .select('*')
         .or(`mentor_id.eq.${user.id},mentee_id.eq.${user.id}`)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setRequests(data || []);
+
+      // Hydrate mentor/mentee identities from public view
+      const ids = Array.from(new Set((rows || []).flatMap(r => [r.mentor_id, r.mentee_id]).filter(Boolean)));
+      let idMap = new Map();
+      if (ids.length) {
+        const { data: pubs } = await supabase
+          .from('alumni_directory_public')
+          .select('id, full_name, avatar_url')
+          .in('id', ids);
+        (pubs || []).forEach(p => idMap.set(p.id, p));
+      }
+
+      const hydrated = (rows || []).map(r => ({
+        ...r,
+        mentor: idMap.get(r.mentor_id) || { id: r.mentor_id, full_name: 'Mentor', avatar_url: null },
+        mentee: idMap.get(r.mentee_id) || { id: r.mentee_id, full_name: 'Mentee', avatar_url: null }
+      }));
+
+      setRequests(hydrated);
     } catch (error) {
       toast.error('Failed to fetch mentorship requests: ' + error.message);
     } finally {
@@ -38,6 +52,30 @@ const MentorshipStatus = () => {
   useEffect(() => {
     fetchRequests();
   }, [fetchRequests]);
+
+  // Realtime updates: refresh when requests are inserted/updated for me
+  useEffect(() => {
+    if (!user?.id) return;
+    const channelName = `mentorship-status-${user.id}`;
+    onPostgresChangesOnce(
+      channelName,
+      `requests-insert-${user.id}`,
+      { event: 'INSERT', schema: 'public', table: 'mentorship_requests', filter: `mentor_id=eq.${user.id}` },
+      () => fetchRequests()
+    );
+    onPostgresChangesOnce(
+      channelName,
+      `requests-update-${user.id}`,
+      { event: 'UPDATE', schema: 'public', table: 'mentorship_requests', filter: `mentor_id=eq.${user.id}` },
+      () => fetchRequests()
+    );
+    onPostgresChangesOnce(
+      channelName,
+      `requests-update-mentee-${user.id}`,
+      { event: 'UPDATE', schema: 'public', table: 'mentorship_requests', filter: `mentee_id=eq.${user.id}` },
+      () => fetchRequests()
+    );
+  }, [user, fetchRequests]);
 
   useEffect(() => {
     const fetchMyMentorRow = async () => {
@@ -57,7 +95,8 @@ const MentorshipStatus = () => {
       const { error } = await supabase
         .from('mentorship_requests')
         .update({ status: newStatus, updated_at: new Date().toISOString() })
-        .eq('id', requestId);
+        .eq('id', requestId)
+        .eq('mentor_id', user.id);
 
       if (error) throw error;
       toast.success(`Request ${newStatus}.`);
@@ -98,7 +137,6 @@ const MentorshipStatus = () => {
                     .from('mentorship_requests')
                     .delete()
                     .eq('id', request.id);
-                  if (error) throw error;
                   toast.success('Request withdrawn');
                   fetchRequests();
                 } catch (e) {

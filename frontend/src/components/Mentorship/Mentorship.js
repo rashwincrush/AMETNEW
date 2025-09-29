@@ -20,6 +20,9 @@ import {
   PencilIcon
 } from '@heroicons/react/24/outline';
 
+import ApprovedGuard from '../guards/ApprovedGuard';
+import RequestMentorshipButton from './RequestMentorshipButton';
+
 const Mentorship = () => {
   const location = useLocation();
   const [activeTab, setActiveTab] = useState('find-mentors');
@@ -35,12 +38,18 @@ const Mentorship = () => {
   // State for data from Supabase
   const [mentors, setMentors] = useState([]);
   const [mentorshipRequests, setMentorshipRequests] = useState([]);
+  const [mentorRequests, setMentorRequests] = useState([]); // requests received (as mentor)
+  const [mentorReqLoading, setMentorReqLoading] = useState(false);
   const [myMentees, setMyMentees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isCurrentUserMentor, setIsCurrentUserMentor] = useState(false);
-  const { user, profile } = useAuth();
+  const [isMentorApproved, setIsMentorApproved] = useState(false);
+  const [isMentorPending, setIsMentorPending] = useState(false);
+  const { user, profile, getUserRole } = useAuth();
   const hasFetched = useRef(false);
+  const isStudentUnapproved = ((getUserRole ? getUserRole() : '') .toLowerCase() === 'student') && !(profile?.is_approved || profile?.approval_status === 'approved');
+
   
   // Fetch mentors on component mount
   useEffect(() => {
@@ -70,7 +79,7 @@ const Mentorship = () => {
     try {
       const { data, error } = await supabase
         .from('mentors')
-        .select('*')
+        .select('status, user_id')
         .eq('user_id', user.id)
         .single();
         
@@ -80,6 +89,8 @@ const Mentorship = () => {
       }
       
       setIsCurrentUserMentor(!!data);
+      setIsMentorApproved(data?.status === 'approved');
+      setIsMentorPending(data?.status === 'pending');
     } catch (err) {
       console.error('Error checking if user is mentor:', err);
     }
@@ -93,47 +104,76 @@ const Mentorship = () => {
       
       console.log('Fetching approved mentors from Supabase...');
       
-      // Only list approved mentors and join their profile (name/avatar, availability flag from profiles)
-      const { data: mentorsData, error: mentorsError } = await supabase
+      // Only list approved mentors; hydrate identity from alumni_directory_public
+      const { data: mentorsRows, error: mentorsError } = await supabase
         .from('mentors')
-        .select(`
-          *,
-          profiles:profiles!mentors_user_id_fkey (full_name, avatar_url, is_available_for_mentorship)
-        `)
+        .select('*')
         .eq('status', 'approved');
       
-      console.log('Supabase query result:', mentorsData, mentorsError);
-      console.debug('mentor availability sample:', mentorsData?.[0]?.profiles?.is_available_for_mentorship);
+      console.log('Supabase query result:', mentorsRows, mentorsError);
       
       if (mentorsError) {
         throw mentorsError;
       }
       
-      console.log('Fetched mentors:', mentorsData);
-      
-      // Transform data to match the expected structure for rendering
-      const transformedMentors = mentorsData.map(mentor => ({
-        id: mentor.id,
-        user_id: mentor.user_id,
-        name: mentor.profiles?.full_name || 'Anonymous Mentor',
-        avatar: mentor.profiles?.avatar_url || '/default-avatar.png',
-        title: 'Maritime Professional', // Default as we no longer fetch title
-        company: 'AMET', // Default value
-        location: 'Unknown', // Default value
-        bio: mentor.mentoring_statement || '', // Use mentoring_statement as bio
-        expertise: mentor.expertise || [],
-        experience: `${mentor.mentoring_experience_years || 0} years`,
-        responseTime: '48 hours',
-        // Availability derived solely from profiles.is_available_for_mentorship
-        profileAvailable: mentor.profiles?.is_available_for_mentorship === true,
-        accepting: mentor.profiles?.is_available_for_mentorship === true,
-        availability: (mentor.profiles?.is_available_for_mentorship === true) ? 'Available' : 'Unavailable',
-        compatibilityScore: 85, // Placeholder compatibility score
-        ratings: '5.0', // Default or can be calculated if you have ratings
-        totalMentees: mentor.max_mentees || 0,
-        preferences: mentor.mentoring_preferences || {},
-        isBookmarked: false // You can add logic to check if bookmarked by current user
-      }));
+      console.log('Fetched mentors:', mentorsRows);
+
+      // Hydrate public identity
+      const userIds = (mentorsRows || []).map(m => m.user_id).filter(Boolean);
+      let identityMap = new Map();
+      if (userIds.length > 0) {
+        const { data: pubRows } = await supabase
+          .from('alumni_directory_public')
+          .select('id, full_name, avatar_url, current_job_title, company_name, location_city, location_country')
+          .in('id', userIds);
+        (pubRows || []).forEach(r => identityMap.set(r.id, r));
+      }
+
+      // Read accepting flags from mentor_profiles
+      let acceptingMap = new Map();
+      if (userIds.length > 0) {
+        const { data: mpRows, error: mpErr } = await supabase
+          .from('mentor_profiles')
+          .select('user_id, is_accepting_mentees')
+          .in('user_id', userIds);
+        if (!mpErr) {
+          (mpRows || []).forEach(r => acceptingMap.set(r.user_id, !!r.is_accepting_mentees));
+        }
+      }
+
+      // Transform data to match rendering needs
+      const transformedMentors = (mentorsRows || []).map(mentor => {
+        const ident = identityMap.get(mentor.user_id) || {};
+        const title = ident.current_job_title || 'Maritime Professional';
+        const company = ident.company_name || 'AMET';
+        const location = [ident.location_city, ident.location_country].filter(Boolean).join(', ') || 'Unknown';
+        // Acceptance flag from mentor_profiles; default to true when unknown so directory isn't empty
+        const acceptingFlag = acceptingMap.has(mentor.user_id)
+          ? acceptingMap.get(mentor.user_id) === true
+          : true;
+        return {
+          id: mentor.id,
+          user_id: mentor.user_id,
+          name: ident.full_name || 'Anonymous Mentor',
+          avatar: ident.avatar_url || '/default-avatar.png',
+          title,
+          company,
+          location,
+          bio: mentor.mentoring_statement || '',
+          expertise: mentor.expertise || [],
+          experience: `${mentor.mentoring_experience_years || 0} years`,
+          responseTime: '48 hours',
+          // Use mentor_profiles flag for accepting-only (fallback to true if unknown)
+          profileAvailable: acceptingFlag,
+          accepting: acceptingFlag,
+          availability: 'Available',
+          compatibilityScore: 85,
+          ratings: '5.0',
+          totalMentees: mentor.max_mentees || 0,
+          preferences: mentor.mentoring_preferences || {},
+          isBookmarked: false,
+        };
+      });
       
       console.log('Transformed mentors:', transformedMentors);
       // Show all approved mentors. Request button will be disabled if unavailable.
@@ -147,6 +187,55 @@ const Mentorship = () => {
     }
   };
   
+
+  // Fetch requests received by the current user as mentor
+  const fetchMentorRequests = async () => {
+    if (!user?.id || !isMentorApproved) return;
+    try {
+      setMentorReqLoading(true);
+      const { data: rows, error } = await supabase
+        .from('mentorship_requests')
+        .select('id, mentor_id, mentee_id, status, message, goals, created_at')
+        .eq('mentor_id', user.id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+
+      const menteeIds = Array.from(new Set((rows || []).map(r => r.mentee_id).filter(Boolean)));
+      let idMap = new Map();
+      if (menteeIds.length) {
+        const { data: pubs } = await supabase
+          .from('alumni_directory_public')
+          .select('id, full_name, avatar_url')
+          .in('id', menteeIds);
+        (pubs || []).forEach(p => idMap.set(p.id, p));
+        const missing = menteeIds.filter(id => !idMap.has(id));
+        if (missing.length) {
+          const { data: profs } = await supabase
+            .from('profiles')
+            .select('id, full_name, avatar_url')
+            .in('id', missing);
+          (profs || []).forEach(p => idMap.set(p.id, p));
+        }
+      }
+
+      const hydrated = (rows || []).map(r => ({
+        ...r,
+        mentee: idMap.get(r.mentee_id) || { id: r.mentee_id, full_name: 'Mentee', avatar_url: null }
+      }));
+      setMentorRequests(hydrated);
+    } catch (e) {
+      console.error('Error fetching mentor-side requests:', e);
+      toast.error('Failed to load requests received');
+    } finally {
+      setMentorReqLoading(false);
+    }
+  
+  };
+
+  // Load mentor-side requests when user is an approved mentor
+  useEffect(() => {
+    if (isMentorApproved) fetchMentorRequests();
+  }, [isMentorApproved, user?.id]);
 
   const expertiseOptions = [
     { value: 'all', label: 'All Expertise Areas' },
@@ -169,6 +258,13 @@ const Mentorship = () => {
         toast.error('Please sign in to request mentorship.');
         return;
       }
+
+    const role = getUserRole ? getUserRole() : undefined;
+    const isApproved = !!(profile?.is_approved || profile?.approval_status === 'approved');
+    if (role && role.toLowerCase() === 'student' && !isApproved) {
+      toast.error('Your profile is not approved. Kindly contact administrator.');
+      return;
+    }
 
       const menteeId = profile?.id || user.id; // profiles.id equals auth user id in this schema
       const mentorId = mentorObj?.user_id;
@@ -261,7 +357,7 @@ const Mentorship = () => {
                             mentor.expertise.some(exp => 
                               exp.toLowerCase().replace(/\s+/g, '-').includes(filters.expertise.replace('all', ''))
                             );
-    const matchesAccepting = !showOnlyAccepting || mentor.profileAvailable;
+    const matchesAccepting = showOnlyAccepting;
     return matchesSearch && matchesExpertise && matchesAccepting;
   });
 
@@ -381,14 +477,9 @@ const Mentorship = () => {
         >
           View Profile
         </Link>
-        <button 
-          onClick={() => handleSendRequest(mentor)}
-          className="flex-1 btn-ocean py-2 px-3 rounded text-sm disabled:opacity-50"
-          disabled={!mentor.profileAvailable}
-          title={!mentor.profileAvailable ? "This mentor isn’t accepting requests right now." : undefined}
-        >
-          Request Mentorship
-        </button>
+        <ApprovedGuard require="approved-mentee">
+          <RequestMentorshipButton mentorId={mentor.user_id} disabled={!mentor.profileAvailable} />
+        </ApprovedGuard>
       </div>
     </div>
   );
@@ -409,22 +500,35 @@ const Mentorship = () => {
             >
               My Mentorship
             </Link>
-            <Link 
-              to="/mentorship/become-mentor"
-              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center"
-            >
-              {isCurrentUserMentor ? (
-                <>
-                  <PencilIcon className="w-5 h-5 mr-2" />
-                  Edit Mentorship Details
-                </>
-              ) : (
-                <>
-                  <PlusIcon className="w-5 h-5 mr-2" />
-                  Become a Mentor
-                </>
-              )}
-            </Link>
+            {/* Secondary CTA based on role/status */}
+            {isMentorApproved ? (
+              <Link 
+                to="/mentorship/dashboard"
+                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center"
+              >
+                <AcademicCapIcon className="w-5 h-5 mr-2" />
+                Open Mentor Dashboard
+              </Link>
+            ) : isMentorPending ? (
+              <div className="px-3 py-2 rounded-lg bg-yellow-100 text-yellow-800 text-sm font-semibold">
+                Mentor application pending
+              </div>
+            ) : (
+              (() => {
+                const role = getUserRole ? getUserRole() : undefined;
+                // Hide Become a Mentor for students; show for alumni/admin
+                if (role && role.toLowerCase() === 'student') return null;
+                return (
+                  <Link 
+                    to="/mentorship/become-mentor"
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center"
+                  >
+                    <PlusIcon className="w-5 h-5 mr-2" />
+                    Become a Mentor
+                  </Link>
+                );
+              })()
+            )}
           </div>
         </div>
       </div>
@@ -433,11 +537,14 @@ const Mentorship = () => {
       <div className="glass-card rounded-lg">
         <div className="border-b border-gray-200">
           <nav className="flex">
-            {[
-              { id: 'find-mentors', label: 'Find Mentors', icon: MagnifyingGlassIcon },
-              { id: 'my-requests', label: 'My Requests', icon: UserGroupIcon },
-              { id: 'my-mentoring', label: 'My Mentoring', icon: AcademicCapIcon }
-            ].map((tab) => {
+            {(() => {
+              const tabs = [
+                { id: 'find-mentors', label: 'Find Mentors', icon: MagnifyingGlassIcon },
+                { id: 'my-requests', label: 'My Requests', icon: UserGroupIcon },
+              ];
+              if (isMentorApproved) tabs.push({ id: 'my-mentoring', label: 'Mentor Dashboard', icon: AcademicCapIcon });
+              return tabs;
+            })().map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
@@ -493,7 +600,7 @@ const Mentorship = () => {
                     checked={showOnlyAccepting}
                     onChange={(e) => setShowOnlyAccepting(e.target.checked)}
                   />
-                  Show accepting mentors only
+                  Show mentors
                 </label>
               </div>
 
@@ -633,79 +740,66 @@ const Mentorship = () => {
 
           {/* My Mentoring Tab */}
           {activeTab === 'my-mentoring' && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">My Mentees</h3>
-              
-              {myMentees.length === 0 ? (
-                <div className="text-center py-12">
-                  <AcademicCapIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No mentees yet</h3>
-                  <p className="text-gray-600 mb-4">
-                    Start mentoring and help fellow alumni advance their careers
-                  </p>
-                  <Link 
-                    to="/mentorship/become-mentor"
-                    className="btn-ocean px-4 py-2 rounded-lg"
-                  >
-                    Become a Mentor
-                  </Link>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {myMentees.map((mentee) => (
-                    <div key={mentee.id} className="border border-gray-200 rounded-lg p-6">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start space-x-4 flex-1">
-                          <img 
-                            src={mentee.avatar} 
-                            alt={mentee.name}
-                            className="w-12 h-12 rounded-full object-cover"
-                          />
-                          <div className="flex-1">
-                            <h4 className="font-semibold text-gray-900">{mentee.name}</h4>
-                            <p className="text-ocean-600 text-sm">{mentee.program} • Year of Completion : {mentee.graduationYear}</p>
-                            
-                            <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
-                              <span>Started: {new Date(mentee.requestDate).toLocaleDateString()}</span>
-                              <span>•</span>
-                              <span>{mentee.sessionsCompleted} sessions completed</span>
-                              {mentee.nextSession && (
-                                <>
-                                  <span>•</span>
-                                  <span>Next: {new Date(mentee.nextSession).toLocaleDateString()}</span>
-                                </>
-                              )}
-                            </div>
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-gray-900">Mentor Dashboard</h3>
 
-                            <div className="mt-3">
-                              <h5 className="text-sm font-medium text-gray-700 mb-1">Goals:</h5>
-                              <div className="flex flex-wrap gap-1">
-                                {mentee.goals.map((goal, index) => (
-                                  <span 
-                                    key={index}
-                                    className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
-                                  >
-                                    {goal}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
+              {/* Requests Received */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-md font-medium text-gray-900">Requests Received</h4>
+                  <button onClick={fetchMentorRequests} className="text-sm text-ocean-600 hover:underline">Refresh</button>
+                </div>
+                {mentorReqLoading ? (
+                  <p className="text-gray-500">Loading requests…</p>
+                ) : mentorRequests.length === 0 ? (
+                  <div className="text-center py-8">
+                    <AcademicCapIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                    <p className="text-gray-700">No requests yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {mentorRequests.map((r) => (
+                      <div key={r.id} className="border border-gray-200 rounded-lg p-4 flex items-start justify-between">
+                        <div className="flex items-start gap-3">
+                          <img src={r.mentee?.avatar_url || '/default-avatar.png'} alt={r.mentee?.full_name || 'Mentee'} className="w-10 h-10 rounded-full object-cover" />
+                          <div>
+                            <div className="font-medium text-gray-900">{r.mentee?.full_name || 'Mentee'}</div>
+                            <div className="text-xs text-gray-500">{new Date(r.created_at).toLocaleString()}</div>
+                            {r.message && <div className="text-sm text-gray-700 mt-1">{r.message}</div>}
                           </div>
                         </div>
-                        
-                        <div className="flex space-x-2">
-                          <button className="btn-ocean-outline px-3 py-1 rounded text-sm">
-                            Schedule Session
-                          </button>
-                          <button className="btn-ocean px-3 py-1 rounded text-sm">
-                            Message
-                          </button>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(r.status)}`}>{r.status}</span>
+                          {r.status === 'pending' && (
+                            <>
+                              <button
+                                onClick={async () => {
+                                  const { error } = await supabase.from('mentorship_requests').update({ status: 'accepted' }).eq('id', r.id);
+                                  if (!error) { toast.success('Request accepted'); fetchMentorRequests(); }
+                                  else toast.error('Failed');
+                                }}
+                                className="btn-ocean px-3 py-1 rounded text-sm"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  const { error } = await supabase.from('mentorship_requests').update({ status: 'rejected' }).eq('id', r.id);
+                                  if (!error) { toast('Request rejected', { icon: '🙇' }); fetchMentorRequests(); }
+                                  else toast.error('Failed');
+                                }}
+                                className="btn-ocean-outline px-3 py-1 rounded text-sm"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

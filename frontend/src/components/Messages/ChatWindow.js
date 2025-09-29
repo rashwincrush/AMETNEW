@@ -74,13 +74,22 @@ const ChatWindow = ({ thread, currentUser }) => {
     const load = async () => {
       setLoading(true);
       try {
-        // Fetch other participant profile (to get avatar, title)
-        const { data: profile, error: pErr } = await supabase
-          .from('profiles')
-          .select('id, full_name, avatar_url, job_title, company')
+        // Fetch other participant identity from public view (no PII)
+        const { data: pub, error: pErr } = await supabase
+          .from('alumni_directory_public')
+          .select('id, full_name, avatar_url, current_job_title, company_name, location_city, location_country')
           .eq('id', thread.other_user_id)
-          .single();
-        if (!pErr) setOtherProfile(profile);
+          .maybeSingle();
+        if (!pErr && pub) {
+          setOtherProfile({
+            id: pub.id,
+            full_name: pub.full_name,
+            avatar_url: pub.avatar_url,
+            job_title: pub.current_job_title,
+            company: pub.company_name,
+            location: [pub.location_city, pub.location_country].filter(Boolean).join(', ')
+          });
+        }
 
         // Fetch last 30 days messages in this thread
         const sinceISO = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();

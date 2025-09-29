@@ -41,21 +41,34 @@ const SessionScheduler = ({ mentorshipRequestId, onSuccess }) => {
 
   const fetchMentorshipRequest = async () => {
     try {
-      const { data, error } = await supabase
+      const { data: req, error } = await supabase
         .from('mentorship_requests')
-        .select(`
-          *,
-          mentor:profiles!mentorship_requests_mentor_id_fkey(full_name, avatar_url, id),
-          mentee:profiles!mentorship_requests_mentee_id_fkey(full_name, avatar_url, id)
-        `)
+        .select(`*`)
         .eq('id', mentorshipRequestId)
         .single();
-        
-      if (error) throw error;
       
-      setMentorshipRequest(data);
+      if (error) throw error;
+
+      // Hydrate identities
+      const ids = [req.mentor_id, req.mentee_id].filter(Boolean);
+      let idMap = new Map();
+      if (ids.length) {
+        const { data: pubs } = await supabase
+          .from('alumni_directory_public')
+          .select('id, full_name, avatar_url')
+          .in('id', ids);
+        (pubs || []).forEach(p => idMap.set(p.id, p));
+      }
+
+      const hydrated = {
+        ...req,
+        mentor: idMap.get(req.mentor_id) || { id: req.mentor_id, full_name: 'Mentor', avatar_url: null },
+        mentee: idMap.get(req.mentee_id) || { id: req.mentee_id, full_name: 'Mentee', avatar_url: null }
+      };
+
+      setMentorshipRequest(hydrated);
       // Check if the current user is the mentor for this request
-      if (data && user && data.mentor_id === user.id) {
+      if (hydrated && user && hydrated.mentor_id === user.id) {
         setIsMentor(true);
       }
     } catch (error) {

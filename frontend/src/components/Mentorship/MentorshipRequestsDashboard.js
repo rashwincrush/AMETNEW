@@ -52,14 +52,32 @@ const MentorshipRequestsDashboard = () => {
     setError('');
     let query = supabase
       .from('mentorship_requests')
-      .select('*, mentor:profiles!mentorship_requests_mentor_id_fkey(*), mentee:profiles!mentorship_requests_mentee_id_fkey(*)')
+      .select('*')
       .order('created_at', { ascending: false });
     if (!isAdmin) {
       query = query.or(`mentor_id.eq.${user.id},mentee_id.eq.${user.id}`);
     }
-    const { data, error } = await query;
+    const { data: rows, error } = await query;
     if (error) setError('Failed to fetch requests');
-    setRequests(data || []);
+
+    // Hydrate mentor/mentee identities from public view
+    const ids = Array.from(new Set((rows || []).flatMap(r => [r.mentor_id, r.mentee_id]).filter(Boolean)));
+    let idMap = new Map();
+    if (ids.length) {
+      const { data: pubs } = await supabase
+        .from('alumni_directory_public')
+        .select('id, full_name, avatar_url')
+        .in('id', ids);
+      (pubs || []).forEach(p => idMap.set(p.id, p));
+    }
+
+    const hydrated = (rows || []).map(r => ({
+      ...r,
+      mentor: idMap.get(r.mentor_id) || { id: r.mentor_id, full_name: 'Mentor', avatar_url: null },
+      mentee: idMap.get(r.mentee_id) || { id: r.mentee_id, full_name: 'Mentee', avatar_url: null }
+    }));
+
+    setRequests(hydrated);
     setLoading(false);
   };
 

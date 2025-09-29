@@ -701,8 +701,8 @@ export const fetchGroups = async (options = {}) => {
     currentUserId = null,
   } = options;
 
-  // Base selection with creator explicit embed using profiles via FK
-  const baseSelect = `*, creator:profiles!groups_created_by_fkey(id, full_name, avatar_url)`;
+  // Base selection without profiles embed (avoid RLS errors). If you need creator identity, hydrate from alumni_directory_public at call site.
+  const baseSelect = `*`;
 
   // Admin path: fetch all groups
   if (isAdmin) {
@@ -791,36 +791,28 @@ export const fetchPublicGroups = async () => {
 
 // Fetch a single group's details, including members
 export const fetchGroupDetails = async (groupId) => {
-  // Fetch group with creator only (avoid members embed that can trigger RLS recursion)
-  let { data, error } = await supabase
+  // Fetch group without profiles embed
+  let { data: base, error } = await supabase
     .from('groups')
-    .select(`
-      *,
-      creator:profiles!groups_created_by_fkey(id, full_name, avatar_url)
-    `)
+    .select(`*`)
     .eq('id', groupId)
     .single();
 
-  if (error) {
-    // Fallback: fetch without creator embed, then resolve creator manually
-    const { data: base, error: baseErr } = await supabase
-      .from('groups')
-      .select(`*`)
-      .eq('id', groupId)
-      .single();
-    if (baseErr) return { data: null, error: baseErr };
-    let creator = null;
-    if (base?.created_by) {
-      const { data: prof } = await supabase
-        .from('profiles')
-        .select('id, full_name, avatar_url')
-        .eq('id', base.created_by)
-        .maybeSingle();
-      creator = prof || null;
-    }
-    data = { ...base, creator };
-    error = null;
+  if (error) return { data: null, error };
+
+  // Resolve creator identity from alumni_directory_public (safe)
+  let creator = null;
+  if (base?.created_by) {
+    const { data: ident } = await supabase
+      .from('alumni_directory_public')
+      .select('id, full_name, avatar_url')
+      .eq('id', base.created_by)
+      .maybeSingle();
+    creator = ident || null;
   }
+
+  let data = { ...base, creator };
+
   // Attach members (role, joined_at, user) without embedding to avoid recursive policy path
   const { data: members, error: membersErr } = await fetchGroupMembers(groupId, 200, 0);
   if (!membersErr) data = { ...data, members };

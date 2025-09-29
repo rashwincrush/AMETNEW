@@ -8,7 +8,7 @@ import LinkIcon from '@mui/icons-material/Link';
 import DescriptionIcon from '@mui/icons-material/Description';
 
 const JobPostingForm = () => {
-  const { user } = useAuth();
+  const { user, profile, userRole } = useAuth();
   const navigate = useNavigate();
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -107,6 +107,29 @@ const JobPostingForm = () => {
     setError('');
     try {
       const deadline = formData.deadline ? new Date(formData.deadline).toISOString() : null;
+
+      // If employer, ensure the selected company's logo is set from profile DP when missing
+      if (userRole === 'employer' && formData.company_id) {
+        try {
+          const { data: comp, error: compErr } = await supabase
+            .from('companies')
+            .select('id, logo_url')
+            .eq('id', formData.company_id)
+            .maybeSingle();
+          if (!compErr && comp && (!comp.logo_url || comp.logo_url.trim() === '')) {
+            const inferredLogo = profile?.logo_url || profile?.avatar_url || '';
+            if (inferredLogo) {
+              await supabase
+                .from('companies')
+                .update({ logo_url: inferredLogo })
+                .eq('id', comp.id);
+            }
+          }
+        } catch (e) {
+          // Non-fatal; proceed with job insert even if logo update fails
+          console.warn('Company logo inference skipped:', e?.message || e);
+        }
+      }
 
       const { error: jobError } = await supabase.from('jobs').insert([{
         ...formData,

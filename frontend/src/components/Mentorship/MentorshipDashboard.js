@@ -1,14 +1,38 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import { Container, Typography, Paper, Button, Grid, Box, Tabs, Tab } from '@mui/material';
 import SessionScheduler from './SessionScheduler';
 import SessionsCalendar from './SessionsCalendar';
+import { supabase } from '../../utils/supabase';
+import { toast } from 'react-hot-toast';
 
 const MentorshipDashboard = () => {
   const { user, profile, getUserRole } = useAuth();
   const role = getUserRole();
   const [activeTab, setActiveTab] = useState(0);
+  const [isApprovedMentor, setIsApprovedMentor] = useState(false);
+
+  // Route guard: only approved mentors can view this dashboard
+  useEffect(() => {
+    let ignore = false;
+    const check = async () => {
+      if (!user?.id) return;
+      const { data, error } = await supabase
+        .from('mentors')
+        .select('status')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      const approved = !!(data && data.status === 'approved');
+      if (!ignore) setIsApprovedMentor(approved);
+      if (!approved) {
+        toast.error('Mentor tools are available after your mentor profile is approved.');
+        window.location.replace('/mentorship');
+      }
+    };
+    check();
+    return () => { ignore = true; };
+  }, [user]);
 
   // This is a placeholder. In a real app, you'd fetch mentorship-specific data.
   const isMentor = profile?.is_mentor;

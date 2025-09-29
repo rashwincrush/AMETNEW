@@ -62,19 +62,23 @@ export default function DirectoryPage() {
     return 'name_asc';
   }, [sortBy]);
 
+  // Role-aware source: students use public view (no PII), others use existing RPC
+  const { isAdmin, getUserRole } = useAuth();
+  const source = (getUserRole && getUserRole() === 'student') ? 'public' : 'rpc';
+
   const { items, total, loading: dirLoading, error: dirError, dataset } = useDirectory({
     query: debouncedSearch,
     filters: { graduation_year: filters.graduation_year, department: filters.department },
     sort: sortKey,
     page: currentPage,
-    pageSize: itemsPerPage
+    pageSize: itemsPerPage,
+    source
   });
 
   // Use hook loading directly
   const loading = dirLoading;
 
-  // Auth context for admin flag
-  const { isAdmin } = useAuth();
+  // Auth context for admin flag (already destructured above)
 
   // Normalize dataset for consistent fields
   const base = useMemo(() => (dataset || []).map(normalizeProfile), [dataset]);
@@ -263,7 +267,7 @@ export default function DirectoryPage() {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                placeholder="Search alumni..."
+                placeholder="Search by name, degree, company, city, or country"
                 className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-3 pr-10 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
               {searchTerm ? (

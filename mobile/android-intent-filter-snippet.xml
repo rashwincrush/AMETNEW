@@ -1,0 +1,7 @@
+<!-- Add this inside BridgeActivity in android/app/src/main/AndroidManifest.xml -->
+<intent-filter android:autoVerify="true">
+  <action android:name="android.intent.action.VIEW" />
+  <category android:name="android.intent.category.DEFAULT" />
+  <category android:name="android.intent.category.BROWSABLE" />
+  <data android:scheme="ametnew" android:host="auth-callback" />
+</intent-filter>
