@@ -142,7 +142,7 @@ setIsSubmitting(true);
       <div className="bg-white rounded-lg shadow-lg p-6">
         <div className="flex items-center space-x-4 mb-6">
           <img 
-            src={mentor.profile?.avatar_url || '/default-avatar.png'} 
+            src={mentor.profile?.avatar_url || '/default-avatar.svg'} 
             alt={mentor.profile?.full_name}
             className="w-24 h-24 rounded-full object-cover"
           />

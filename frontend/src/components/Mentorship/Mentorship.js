@@ -155,7 +155,7 @@ const Mentorship = () => {
           id: mentor.id,
           user_id: mentor.user_id,
           name: ident.full_name || 'Anonymous Mentor',
-          avatar: ident.avatar_url || '/default-avatar.png',
+          avatar: ident.avatar_url || '/default-avatar.svg',
           title,
           company,
           location,
@@ -477,7 +477,7 @@ const Mentorship = () => {
         >
           View Profile
         </Link>
-        <ApprovedGuard require="approved-mentee">
+        <ApprovedGuard require="approved-mentee" showBlockedMessage={false}>
           <RequestMentorshipButton mentorId={mentor.user_id} disabled={!mentor.profileAvailable} />
         </ApprovedGuard>
       </div>
@@ -761,7 +761,7 @@ const Mentorship = () => {
                     {mentorRequests.map((r) => (
                       <div key={r.id} className="border border-gray-200 rounded-lg p-4 flex items-start justify-between">
                         <div className="flex items-start gap-3">
-                          <img src={r.mentee?.avatar_url || '/default-avatar.png'} alt={r.mentee?.full_name || 'Mentee'} className="w-10 h-10 rounded-full object-cover" />
+                          <img src={r.mentee?.avatar_url || '/default-avatar.svg'} alt={r.mentee?.full_name || 'Mentee'} className="w-10 h-10 rounded-full object-cover" />
                           <div>
                             <div className="font-medium text-gray-900">{r.mentee?.full_name || 'Mentee'}</div>
                             <div className="text-xs text-gray-500">{new Date(r.created_at).toLocaleString()}</div>
@@ -776,7 +776,7 @@ const Mentorship = () => {
                                 onClick={async () => {
                                   const { error } = await supabase.from('mentorship_requests').update({ status: 'accepted' }).eq('id', r.id);
                                   if (!error) { toast.success('Request accepted'); fetchMentorRequests(); }
-                                  else toast.error('Failed');
+                                  else toast.error('Failed: ' + (error?.message || 'Unknown error'));
                                 }}
                                 className="btn-ocean px-3 py-1 rounded text-sm"
                               >

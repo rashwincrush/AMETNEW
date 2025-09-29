@@ -353,7 +353,6 @@ export default function MyMentorship() {
         <div className="mt-6 flex gap-2">
           <Link to="/mentorship/requests" className="btn-ocean px-4 py-2 rounded">Requests</Link>
           <Link to="/messages" className="btn-ocean-outline px-4 py-2 rounded">Chat</Link>
-          <Link to="/mentorship" className="btn-ocean-outline px-4 py-2 rounded">Sessions</Link>
         </div>
       </div>
 

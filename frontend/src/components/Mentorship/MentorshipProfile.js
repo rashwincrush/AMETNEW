@@ -90,7 +90,7 @@ const MentorshipProfile = () => {
   return (
     <Box sx={{ maxWidth: 700, mx: 'auto', py: 4 }}>
       <Paper sx={{ p: 4, borderRadius: 2, display: 'flex', gap: 3, alignItems: 'center' }}>
-        <Avatar src={profile.avatar_url || '/default-avatar.png'} alt={profile.full_name || 'avatar'} sx={{ width: 96, height: 96 }} />
+        <Avatar src={profile.avatar_url || '/default-avatar.svg'} alt={profile.full_name || 'avatar'} sx={{ width: 96, height: 96 }} />
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 'bold' }}>{profile.full_name || 'Alumni'}</Typography>
           <Typography variant="body1" color="textSecondary">

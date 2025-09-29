@@ -3,16 +3,16 @@ import { useAuth } from '../contexts/AuthContext';
 
 // Centralized approval/role status using existing AuthContext profile
 export function useApproval() {
-  const { user, profile, getUserRole } = useAuth();
+  const { user, profile, getUserRole, hasPermission } = useAuth();
 
   const state = useMemo(() => {
     const role = (getUserRole ? getUserRole() : profile?.role || '').toLowerCase();
     const approvalStatus = (profile?.approval_status || (profile?.is_approved ? 'approved' : undefined)) || 'pending';
 
     const isApproved = approvalStatus === 'approved';
-    const isMentor = role === 'mentor';
-    const isMentee = role === 'mentee' || role === 'student';
-    const isEmployer = role === 'employer';
+    const isMentor = role === 'mentor' || (hasPermission ? hasPermission('manage:mentor_profile') : false);
+    const isMentee = role === 'mentee' || role === 'student' || role === 'alumni' || (hasPermission ? hasPermission('request:mentorship') : false);
+    const isEmployer = role === 'employer' || (hasPermission ? hasPermission('post:jobs') : false);
 
     // If granular statuses exist on profile, prefer them; otherwise fall back to global approval
     const menteeStatus = profile?.mentee_status || (isMentee ? approvalStatus : undefined);
@@ -26,9 +26,10 @@ export function useApproval() {
       isMentor,
       isMentee,
       isEmployer,
-      isApprovedMentor: isMentor && mentorStatus === 'approved' && isApproved,
-      isApprovedMentee: isMentee && menteeStatus === 'approved' && isApproved,
-      isApprovedEmployer: isEmployer && (employerStatus ? employerStatus === 'approved' : isApproved),
+      // If granular statuses are missing, fall back to global approval to avoid false negatives
+      isApprovedMentor: isMentor && ((mentorStatus ? mentorStatus === 'approved' : true) && isApproved),
+      isApprovedMentee: isMentee && ((menteeStatus ? menteeStatus === 'approved' : true) && isApproved),
+      isApprovedEmployer: isEmployer && ((employerStatus ? employerStatus === 'approved' : true) && isApproved),
     };
   }, [user, profile, getUserRole]);
 
