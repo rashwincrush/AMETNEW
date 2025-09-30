@@ -89,7 +89,6 @@ import EventModerationPanel from './components/Events/EventModerationPanel';
 import MenteeRegistrationForm from './components/Mentorship/MenteeRegistrationForm';
 import JobApplicationStatus from './components/Jobs/JobApplicationStatus';
 import ManageJobApplications from './components/Jobs/ManageJobApplications';
-import MentorshipDashboard from './components/Mentorship/MentorshipDashboard';
 import MentorshipStatus from './components/Mentorship/MentorshipStatus';
 import MentorshipChat from './components/Mentorship/MentorshipChat';
 import ApprovedGuard from './components/guards/ApprovedGuard';
@@ -246,7 +245,7 @@ function AppContent() {
             <Route path="/mentorship/become-mentee" element={<ProtectedRoute requiredPermission="request:mentorship"><MenteeRegistrationForm /></ProtectedRoute>} />
             <Route path="/mentorship" element={<ProtectedRoute requiredPermission="request:mentorship"><Mentorship /></ProtectedRoute>} />
             <Route path="/mentorship/me" element={<ProtectedRoute requiredPermission="request:mentorship"><MyMentorship /></ProtectedRoute>} />
-            <Route path="/mentorship/dashboard" element={<ApprovedGuard require="approved-mentor" skeleton={<div/>}><ProtectedRoute requiredPermission="request:mentorship"><MentorshipDashboard /></ProtectedRoute></ApprovedGuard>} />
+            { /* Removed dead MentorshipDashboard route */ }
             { /* Deprecated: MentorDirectory route removed */ }
             <Route path="/mentorship/requests" element={<ProtectedRoute requiredPermission="manage:mentee_requests"><MentorshipStatus /></ProtectedRoute>} />
             <Route path="/mentorship/chat/:requestId" element={<ProtectedRoute requiredPermission="chat:mentees"><MentorshipChat /></ProtectedRoute>} />

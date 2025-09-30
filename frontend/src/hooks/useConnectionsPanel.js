@@ -1,6 +1,6 @@
 // frontend/src/hooks/useConnectionsPanel.js
 import { useCallback, useEffect, useState } from 'react';
-import { supabase } from '../utils/supabase';
+import { supabase, onPostgresChangesOnce } from '../utils/supabase';
 import toast from 'react-hot-toast';
 
 export default function useConnectionsPanel(currentUserId) {
@@ -64,15 +64,23 @@ export default function useConnectionsPanel(currentUserId) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Realtime subscribe to changes
+  // Realtime subscribe to changes (idempotent via registry)
   useEffect(() => {
     if (!currentUserId) return;
-    const channel = supabase
-      .channel(`conn-panel-${currentUserId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'connections', filter: `requester_id=eq.${currentUserId}` }, () => load())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'connections', filter: `recipient_id=eq.${currentUserId}` }, () => load())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const chName = `conn-panel-${currentUserId}`;
+    onPostgresChangesOnce(
+      chName,
+      `conn-panel-req-${currentUserId}`,
+      { event: '*', schema: 'public', table: 'connections', filter: `requester_id=eq.${currentUserId}` },
+      () => load()
+    );
+    onPostgresChangesOnce(
+      chName,
+      `conn-panel-rec-${currentUserId}`,
+      { event: '*', schema: 'public', table: 'connections', filter: `recipient_id=eq.${currentUserId}` },
+      () => load()
+    );
+    return () => { /* no-op; registry manages channel lifecycle */ };
   }, [currentUserId, load]);
 
   // Actions
@@ -127,5 +135,22 @@ export default function useConnectionsPanel(currentUserId) {
     } catch (_) { toast.error('Cancel failed'); }
   };
 
-  return { loading, lists, counts, reload: load, actions: { accept, reject, cancel } };
+  const disconnect = async (peerId) => {
+    try {
+      // Find the accepted/connected edge between current user and peer
+      const { data: edge } = await supabase
+        .from('connections')
+        .select('id')
+        .or(`and(requester_id.eq.${currentUserId},recipient_id.eq.${peerId}),and(requester_id.eq.${peerId},recipient_id.eq.${currentUserId})`)
+        .in('status', ['accepted', 'connected'])
+        .maybeSingle();
+      if (!edge) return;
+      const { error } = await supabase.from('connections').delete().eq('id', edge.id);
+      if (error) throw error;
+      toast.success('Connection removed');
+      load();
+    } catch (_) { toast.error('Disconnect failed'); }
+  };
+
+  return { loading, lists, counts, reload: load, actions: { accept, reject, cancel, disconnect } };
 }

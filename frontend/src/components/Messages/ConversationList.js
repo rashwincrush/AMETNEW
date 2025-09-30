@@ -141,7 +141,7 @@ const ConversationList = ({
               <div className="flex items-center">
                 {/* Avatar */}
                 <div className="relative">
-                  <Avatar url={undefined} name={thread.other_user_name} />
+                  <Avatar url={thread.other_user_avatar_url} name={thread.other_user_name} />
                   
                   {/* Online status indicator */}
                   {thread.can_send && (
@@ -152,22 +152,27 @@ const ConversationList = ({
                 {/* Name and timestamp */}
                 <div className="ml-4 flex-1">
                   <div className="flex justify-between items-center">
-                    <h4 className="font-medium">
-                      {thread.other_user_name}
-                      {/* Unread indicator */}
-                      {thread.unread_count > 0 && (
-                        <span className="ml-2 px-1.5 py-0.5 bg-ocean-500 text-white text-xs rounded-full">
-                          {thread.unread_count}
-                        </span>
+                    <div className="flex-1">
+                      <h4 className="font-medium">
+                        {(thread.other_user_name || '').replace(/\s*\(\d+\)\s*$/, '').trim()}
+                        {/* Unread indicator - subtle dot */}
+                        {thread.unread_count > 0 && (
+                          <span className="ml-2 inline-block w-2 h-2 bg-ocean-500 rounded-full"></span>
+                        )}
+                      </h4>
+                      {/* Role-based subtitle */}
+                      {thread.other_user_role === 'employer' ? (
+                        <p className="text-xs text-gray-500 truncate">
+                          {thread.other_user_company || 'Company'}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-500 truncate">
+                          {[thread.other_user_title, thread.other_user_company].filter(Boolean).join(' · ')}
+                        </p>
                       )}
-                    </h4>
+                    </div>
                     <span className="text-xs text-gray-500">{/* timestamp unavailable in view */}</span>
                   </div>
-                  
-                  {/* Message preview */}
-                  <p className="text-sm text-gray-500 truncate">
-                    {/* preview unavailable in view */}
-                  </p>
                 </div>
               </div>
             </div>

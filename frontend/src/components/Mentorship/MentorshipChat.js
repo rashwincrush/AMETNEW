@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-// Import new realtime utilities
-import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
+import { supabase, onPostgresChangesOnce, checkConnectionStatus } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
-import { Box, TextField, Button, Paper, Typography, CircularProgress, Avatar } from '@mui/material';
+import { Box, TextField, Button, Paper, Typography, CircularProgress, Alert, AlertTitle } from '@mui/material';
 
 const MentorshipChat = () => {
   const { requestId } = useParams();
@@ -13,6 +12,9 @@ const MentorshipChat = () => {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [requestDetails, setRequestDetails] = useState(null);
+  const [canSend, setCanSend] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [checkingConnection, setCheckingConnection] = useState(false);
   const messagesEndRef = useRef(null);
   // Track component mount state
   const isMountedRef = useRef(true);
@@ -23,14 +25,42 @@ const MentorshipChat = () => {
 
   const fetchRequestDetails = useCallback(async () => {
     try {
-      // Verify request exists and is accepted
+      // Load request regardless of status to allow read-only history
       const { data: req, error } = await supabase
         .from('mentorship_requests')
         .select('*')
         .eq('id', requestId)
-        .eq('status', 'accepted')
-        .single();
-      if (error) throw new Error('Failed to verify mentorship status or access denied.');
+        .maybeSingle();
+      if (error || !req) {
+        throw new Error('This chat is not available.');
+      }
+
+      // Participant check: only mentor or mentee may view
+      if (user?.id !== req.mentor_id && user?.id !== req.mentee_id) {
+        throw new Error('This chat is not available.');
+      }
+
+      // Determine if conversation is open for sending
+      // Dual condition: mentorship active AND users connected
+      let relationshipActive = false;
+      const { data: rel } = await supabase
+        .from('mentorship_relationships')
+        .select('id, status')
+        .eq('mentor_id', req.mentor_id)
+        .eq('mentee_id', req.mentee_id)
+        .in('status', ['active'])
+        .limit(1);
+      relationshipActive = Array.isArray(rel) && rel.length > 0;
+
+      // Check connection status
+      const connected = await checkConnectionStatus(user?.id, 
+        user?.id === req.mentor_id ? req.mentee_id : req.mentor_id
+      );
+      setIsConnected(connected);
+
+      // Both conditions must be true
+      const allowed = (req.status === 'accepted') && relationshipActive && connected;
+      setCanSend(allowed);
 
       // Hydrate identities from public directory view
       const ids = [req.mentor_id, req.mentee_id].filter(Boolean);
@@ -49,10 +79,10 @@ const MentorshipChat = () => {
         mentee: identities[req.mentee_id] || { full_name: 'Mentee', avatar_url: null }
       });
     } catch (error) {
-      toast.error(error.message);
-      setRequestDetails(null); // Deny access
+      // Show minimal error but allow component to render a friendly message
+      setRequestDetails(null);
     }
-  }, [requestId]);
+  }, [requestId, user?.id]);
 
   const fetchMessages = useCallback(async () => {
     setLoading(true);
@@ -142,6 +172,16 @@ const MentorshipChat = () => {
         <Box sx={{ p: 2, borderBottom: '1px solid #ddd', backgroundColor: '#f5f5f5' }}>
           <Typography variant="h6">Chat with {otherParty.full_name}</Typography>
         </Box>
+        
+        {/* Warning banner for disconnection */}
+        {requestDetails.status === 'accepted' && !isConnected && (
+          <Alert severity="warning" sx={{ borderRadius: 0 }}>
+            <AlertTitle>Connection Required</AlertTitle>
+            Your mentorship is active, but you are disconnected from {otherParty.full_name}. 
+            You must reconnect to continue chatting. Message history is read-only.
+          </Alert>
+        )}
+        
         <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2, backgroundColor: '#fafafa' }}>
           {messages.map((msg) => (
             <Box key={msg.id} sx={{ mb: 2, display: 'flex', justifyContent: msg.sender_id === user.id ? 'flex-end' : 'flex-start' }}>
@@ -157,16 +197,17 @@ const MentorshipChat = () => {
           ))}
           <div ref={messagesEndRef} />
         </Box>
-        <Box component="form" onSubmit={handleSendMessage} sx={{ p: 2, borderTop: '1px solid #ddd', display: 'flex', gap: 1 }}>
+        <Box component="form" onSubmit={handleSendMessage} sx={{ p: 2, borderTop: '1px solid #ddd', display: 'flex', gap: 1, alignItems: 'center' }}>
           <TextField
             fullWidth
             variant="outlined"
             size="small"
-            placeholder="Type a message..."
+            placeholder={canSend ? 'Type a message...' : 'This conversation is closed.'}
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
+            disabled={!canSend}
           />
-          <Button type="submit" variant="contained" disabled={!newMessage.trim()}>Send</Button>
+          <Button type="submit" variant="contained" disabled={!canSend || !newMessage.trim()}>Send</Button>
         </Box>
       </Paper>
     </Box>

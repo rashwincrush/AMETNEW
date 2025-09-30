@@ -2,21 +2,29 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import { MentorStatusChip } from '../../lib/statusChips';
 
 const PAGE_SIZE = 10;
 
-const StatusBadge = ({ status }) => {
-  const map = {
-    approved: 'bg-green-100 text-green-800',
-    pending: 'bg-yellow-100 text-yellow-800',
-    rejected: 'bg-red-100 text-red-800',
-  };
-  return (
-    <span className={`px-2 py-1 rounded text-xs font-medium ${map[status] || 'bg-gray-100 text-gray-800'}`}>
-      {status}
-    </span>
-  );
-};
+// Simple CSV export for filtered rows
+function exportMentorsCSV(rows) {
+  const header = ['name', 'email', 'status', 'created_at'];
+  const lines = [header.join(',')];
+  (rows || []).forEach(r => {
+    const name = (r.applicant?.full_name || '').replaceAll(',', ' ');
+    const email = (r.applicant?.email || '').replaceAll(',', ' ');
+    const status = r.status || '';
+    const createdAt = r.created_at || '';
+    lines.push([name, email, status, createdAt].join(','));
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'mentors.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const MentorsTab = () => {
   const { userRole } = useAuth();
@@ -43,7 +51,7 @@ const MentorsTab = () => {
           created_at,
           applicant:profiles!mentors_user_id_fkey (id, full_name, email, avatar_url, location, last_seen, role, is_available_for_mentorship)
         `, { count: 'exact' })
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false });
 
       if (statusFilter && statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
@@ -148,6 +156,12 @@ const MentorsTab = () => {
             placeholder="Search name/email"
             className="form-input px-3 py-2 rounded"
           />
+          <button
+            className="px-3 py-2 rounded border text-sm"
+            onClick={() => exportMentorsCSV(filtered)}
+          >
+            Download CSV
+          </button>
         </div>
       </div>
 
@@ -190,13 +204,13 @@ const MentorsTab = () => {
                     {row.status === 'approved' ? 'Mentor' : 'Mentor Pending'}
                   </td>
                   <td className="px-4 py-3">
-                    <StatusBadge status={row.status} />
+                    <MentorStatusChip status={row.status} />
                   </td>
                   <td className="px-4 py-3">
                     {row.applicant?.is_available_for_mentorship ? (
-                      <span className="px-2 py-1 rounded bg-green-100 text-green-800 text-xs">On</span>
+                      <span className="px-2 py-1 rounded bg-green-100 text-green-800 text-xs">Accepting mentees</span>
                     ) : (
-                      <span className="px-2 py-1 rounded bg-gray-100 text-gray-700 text-xs">Off</span>
+                      <span className="px-2 py-1 rounded bg-gray-100 text-gray-700 text-xs">Unavailable</span>
                     )}
                   </td>
                   <td className="px-4 py-3">{row.applicant?.location || '-'}</td>

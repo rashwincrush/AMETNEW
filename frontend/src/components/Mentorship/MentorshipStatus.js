@@ -24,22 +24,35 @@ const MentorshipStatus = () => {
 
       if (error) throw error;
 
-      // Hydrate mentor/mentee identities from public view
+      // Hydrate mentor/mentee identities from public view, then fallback to profiles
       const ids = Array.from(new Set((rows || []).flatMap(r => [r.mentor_id, r.mentee_id]).filter(Boolean)));
-      let idMap = new Map();
+      const idMap = new Map();
       if (ids.length) {
         const { data: pubs } = await supabase
           .from('alumni_directory_public')
           .select('id, full_name, avatar_url')
           .in('id', ids);
         (pubs || []).forEach(p => idMap.set(p.id, p));
+
+        // Fallback for IDs missing from the public view (e.g., not public or not yet approved)
+        const missing = ids.filter(id => !idMap.has(id));
+        if (missing.length) {
+          const { data: profs } = await supabase
+            .from('profiles')
+            .select('id, full_name, first_name, last_name, email, avatar_url')
+            .in('id', missing);
+          (profs || []).forEach(p => {
+            const display = p.full_name || [p.first_name, p.last_name].filter(Boolean).join(' ') || (p.email ? p.email.split('@')[0] : 'User');
+            idMap.set(p.id, { id: p.id, full_name: display, avatar_url: p.avatar_url });
+          });
+        }
       }
 
-      const hydrated = (rows || []).map(r => ({
-        ...r,
-        mentor: idMap.get(r.mentor_id) || { id: r.mentor_id, full_name: 'Mentor', avatar_url: null },
-        mentee: idMap.get(r.mentee_id) || { id: r.mentee_id, full_name: 'Mentee', avatar_url: null }
-      }));
+      const hydrated = (rows || []).map(r => {
+        const mentor = idMap.get(r.mentor_id) || { id: r.mentor_id, full_name: 'Mentor', avatar_url: null };
+        const mentee = idMap.get(r.mentee_id) || { id: r.mentee_id, full_name: 'Mentee', avatar_url: null };
+        return { ...r, mentor, mentee };
+      });
 
       setRequests(hydrated);
     } catch (error) {
@@ -148,7 +161,14 @@ const MentorshipStatus = () => {
             </Button>
           )}
           {request.status === 'accepted' && (
-            <Button component={Link} to={`/mentorship/chat/${request.id}`} variant="contained" color="primary">Go to Chat</Button>
+            <Button
+              component={Link}
+              to={`/messages?peer=${encodeURIComponent((isMentorView ? request.mentee.id : request.mentor.id) || '')}`}
+              variant="contained"
+              color="primary"
+            >
+              Go to Chat
+            </Button>
           )}
         </Box>
       </Paper>

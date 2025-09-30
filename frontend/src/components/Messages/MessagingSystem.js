@@ -3,12 +3,15 @@ import { supabase } from '../../utils/supabase';
 import { logActivity } from '../../utils/activityLogger';
 import ConversationList from './ConversationList';
 import ChatWindow from './ChatWindow';
+import { createThread } from '../../utils/supabase';
 import { useNotification } from '../../hooks/useNotification';
 import useConnectionsPanel from '../../hooks/useConnectionsPanel';
 import ConnectionsPanel from './ConnectionsPanel';
+import { useLocation } from 'react-router-dom';
 
 const MessagingSystem = () => {
   const { showInfo, showSuccess, showError } = useNotification();
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [threads, setThreads] = useState([]);
   const [selectedThread, setSelectedThread] = useState(null);
@@ -30,6 +33,16 @@ const MessagingSystem = () => {
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
+    // Preselect peer stub from query string so right panel isn't empty
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const peerInit = params.get('peer');
+      if (peerInit) {
+        setSelectedThread({ other_user_id: peerInit });
+      }
+    } catch (_) {
+      // benign: ignore URL parsing errors
+    }
     const fetchCurrentUser = async () => {
       try {
         // Prefer session-based lookup to avoid extra network request
@@ -145,23 +158,36 @@ const MessagingSystem = () => {
 
   // If /messages?peer=<id> is present, try to select that thread or create it
   useEffect(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const peer = params.get('peer');
-      if (!peer || !currentUser) return;
-      if (!Array.isArray(threads) || threads.length === 0) return;
+    (async () => {
+      try {
+        const params = new URLSearchParams(location.search || window.location.search);
+        const peer = params.get('peer');
+        if (!peer || !currentUser) return;
 
-      const existing = threads.find(t => String(t.other_user_id) === String(peer));
-      if (existing) {
-        setSelectedThread(existing);
-      } else {
-        // Fallback: attempt to create/resolve by checking connection and reloading threads
-        handleCreateConversation(peer);
+        // If already selected for this peer, do nothing
+        if (selectedThread?.other_user_id && String(selectedThread.other_user_id) === String(peer)) {
+          return;
+        }
+
+        // Try selecting an existing thread directly
+        const { data: existing } = await supabase
+          .from('v_my_dm_threads')
+          .select('*')
+          .eq('other_user_id', peer)
+          .maybeSingle();
+        if (existing) {
+          setSelectedThread(existing);
+          return;
+        }
+        // Otherwise try to create/resolve
+        await handleCreateConversation(peer);
+        // If still not found, set a stub so ChatWindow can show context
+        setSelectedThread((cur) => cur || { other_user_id: peer });
+      } catch (e) {
+        // no-op
       }
-    } catch (e) {
-      // no-op
-    }
-  }, [threads, currentUser]);
+    })();
+  }, [location.search, currentUser]);
 
   // Realtime is handled inside ChatWindow per selected thread
 
@@ -179,26 +205,16 @@ const MessagingSystem = () => {
     try {
       setLoading(true);
 
-      // Check if a connection exists with status accepted/connected
-      const { data: connection, error: connectionError } = await supabase
-        .from('connections')
-        .select('status')
-        .or(
-          `and(requester_id.eq.${currentUser.id},recipient_id.eq.${targetUserId}),` +
-          `and(requester_id.eq.${targetUserId},recipient_id.eq.${currentUser.id})`
-        )
-        .in('status', ['accepted','connected'])
-        .maybeSingle();
-
-      if (connectionError || !connection) {
-        showError('You must connect with this user first before messaging.');
-        setLoading(false);
-        return;
+      // Create or get DM thread using new RPC
+      const { data: threadId, error: threadErr } = await createThread(currentUser.id, targetUserId);
+      if (threadErr) {
+        console.warn('createThread failed:', threadErr?.message || threadErr);
+        // Continue anyway - ChatWindow will show connection banner if needed
       }
 
-      // Threads are auto-created by backend trigger; fetch threads and select the one for target user
+      // Fetch threads and select the one for target user
       await fetchUserThreads();
-      const thread = (Array.isArray(threads) ? threads : []).find(t => t.other_user_id === targetUserId);
+      const thread = (Array.isArray(threads) ? threads : []).find(t => String(t.other_user_id) === String(targetUserId));
       if (thread) {
         setSelectedThread(thread);
         showSuccess('Conversation ready.');
@@ -213,7 +229,7 @@ const MessagingSystem = () => {
           setSelectedThread(data);
           showSuccess('Conversation ready.');
         } else {
-          showInfo('Thread will appear shortly after connection is established.');
+          showInfo('Thread will appear shortly or after connection is established.');
         }
       }
     } catch (err) {

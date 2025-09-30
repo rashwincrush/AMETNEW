@@ -3,6 +3,12 @@ import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { useApproval } from '../../hooks/useApproval';
+import { getPublicIdentity } from '../../lib/hydrateIdentity';
+import { fetchMenteeRequests, fetchMentorRequests as qFetchMentorRequests } from '../../lib/queries/mentorship';
+import { RequestStatusChip } from '../../lib/statusChips';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { mapSupabaseErrorToToast } from '../../utils/mapSupabaseErrorToToast';
 import { 
   UserGroupIcon,
   AcademicCapIcon,
@@ -16,12 +22,29 @@ import {
   CheckCircleIcon,
   XCircleIcon,
   PlusIcon,
-  HeartIcon,
   PencilIcon
 } from '@heroicons/react/24/outline';
 
 import ApprovedGuard from '../guards/ApprovedGuard';
 import RequestMentorshipButton from './RequestMentorshipButton';
+
+// Availability chip color helper (module scope so MentorCard can use it)
+const getAvailabilityColor = (availability) => {
+  switch (availability) {
+    case 'Available':
+      return 'text-green-600 bg-green-100';
+    case 'Unavailable':
+      return 'text-gray-600 bg-gray-100';
+    case 'Busy':
+      return 'text-yellow-600 bg-yellow-100';
+    case 'Limited':
+      return 'text-orange-600 bg-orange-100';
+    case 'Hidden':
+      return 'text-gray-600 bg-gray-100';
+    default:
+      return 'text-gray-600 bg-gray-100';
+  }
+};
 
 const Mentorship = () => {
   const location = useLocation();
@@ -38,8 +61,8 @@ const Mentorship = () => {
   // State for data from Supabase
   const [mentors, setMentors] = useState([]);
   const [mentorshipRequests, setMentorshipRequests] = useState([]);
-  const [mentorRequests, setMentorRequests] = useState([]); // requests received (as mentor)
-  const [mentorReqLoading, setMentorReqLoading] = useState(false);
+  const queryClient = useQueryClient();
+  const [mentorFilter, setMentorFilter] = useState('pending');
   const [myMentees, setMyMentees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -47,11 +70,95 @@ const Mentorship = () => {
   const [isMentorApproved, setIsMentorApproved] = useState(false);
   const [isMentorPending, setIsMentorPending] = useState(false);
   const { user, profile, getUserRole } = useAuth();
+  const { isApprovedMentee, isApprovedMentor } = useApproval();
   const hasFetched = useRef(false);
   const isStudentUnapproved = ((getUserRole ? getUserRole() : '') .toLowerCase() === 'student') && !(profile?.is_approved || profile?.approval_status === 'approved');
 
-  
-  // Fetch mentors on component mount
+  // Load mentee-side requests (My Requests)
+  const loadMenteeRequests = async () => {
+    if (!user?.id) return;
+    try {
+      const q = await fetchMenteeRequests(user.id, {});
+      const { data: rows, error } = await q;
+      if (error) throw error;
+      const hydrated = await Promise.all((rows || []).map(async (r) => ({
+        ...r,
+        mentor: await getPublicIdentity(r.mentor_id),
+      })));
+      setMentorshipRequests(hydrated);
+    } catch (e) {
+      console.error('Failed to load your mentorship requests', e);
+      toast.error('Failed to load your mentorship requests');
+    }
+  };
+
+  // Mentor requests via React Query
+  const mentorReqQuery = useQuery({
+    queryKey: ['mentorRequests', user?.id, mentorFilter || 'all'],
+    enabled: !!user?.id && isMentorApproved,
+    queryFn: async () => {
+      const q = await qFetchMentorRequests(user.id, mentorFilter === 'pending' ? { status: 'pending' } : {});
+      const { data: rows, error } = await q;
+      if (error) throw error;
+      const hydrated = await Promise.all((rows || []).map(async (r) => ({
+        ...r,
+        mentee: await getPublicIdentity(r.mentee_id),
+      })));
+      return hydrated;
+    },
+    staleTime: 60_000,
+  });
+  const mentorRequests = mentorReqQuery.data || [];
+  const mentorReqLoading = mentorReqQuery.isLoading || mentorReqQuery.isFetching;
+
+  // Accept/Reject with optimistic updates
+  const acceptMutation = useMutation({
+    mutationFn: async (id) => {
+      const { error } = await supabase.from('mentorship_requests').update({ status: 'accepted' }).eq('id', id);
+      if (error) throw error;
+      return { id };
+    },
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['mentorRequests'] });
+      const prev = queryClient.getQueryData(['mentorRequests', user?.id, mentorFilter || 'all']);
+      queryClient.setQueryData(['mentorRequests', user?.id, mentorFilter || 'all'], (old = []) => old.map(r => r.id === id ? { ...r, status: 'accepted' } : r));
+      toast.dismiss('rq-info');
+      toast.success('Request accepted', { id: 'rq-info' });
+      return { prev };
+    },
+    onError: (err, id, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['mentorRequests', user?.id, mentorFilter || 'all'], ctx.prev);
+      mapSupabaseErrorToToast(err, 'Failed to accept request');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['mentorRequests'] });
+    }
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (id) => {
+      const { error } = await supabase.from('mentorship_requests').update({ status: 'rejected' }).eq('id', id);
+      if (error) throw error;
+      return { id };
+    },
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['mentorRequests'] });
+      const prev = queryClient.getQueryData(['mentorRequests', user?.id, mentorFilter || 'all']);
+      queryClient.setQueryData(['mentorRequests', user?.id, mentorFilter || 'all'], (old = []) => old.map(r => r.id === id ? { ...r, status: 'rejected' } : r));
+      toast.dismiss('rq-info');
+      toast.success('Request rejected', { id: 'rq-info' });
+      return { prev };
+    },
+    onError: (err, id, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['mentorRequests', user?.id, mentorFilter || 'all'], ctx.prev);
+      mapSupabaseErrorToToast(err, 'Failed to reject request');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['mentorRequests'] });
+    }
+  });
+
+  // Initial mount: fetch mentors and current user's mentor status once
   useEffect(() => {
     console.log('Mentorship component mounted, user:', user);
     if (!hasFetched.current) {
@@ -70,6 +177,25 @@ const Mentorship = () => {
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
+  // Re-fetch when the checkbox flips (server-side filter applied in query)
+  useEffect(() => {
+    fetchApprovedMentors();
+  }, [showOnlyAccepting]);
+
+  // Realtime subscription to availability updates
+  useEffect(() => {
+    const channel = supabase
+      .channel('profiles-availability')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', columns: ['is_available_for_mentorship'] },
+        () => fetchApprovedMentors()
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
   
   // Check if the current user is already a mentor
@@ -96,7 +222,7 @@ const Mentorship = () => {
     }
   };
   
-  // Function to fetch approved mentors who are available
+  // Function to fetch approved mentors; CTA disabled when unavailable via profiles.is_available_for_mentorship
   const fetchApprovedMentors = async () => {
     try {
       setLoading(true);
@@ -105,10 +231,26 @@ const Mentorship = () => {
       console.log('Fetching approved mentors from Supabase...');
       
       // Only list approved mentors; hydrate identity from alumni_directory_public
-      const { data: mentorsRows, error: mentorsError } = await supabase
+      let q = supabase
         .from('mentors')
-        .select('*')
-        .eq('status', 'approved');
+        .select(`
+          id, user_id, status, expertise, created_at,
+          applicant:profiles!mentors_user_id_fkey(
+            id, full_name, avatar_url, location, is_available_for_mentorship, approval_status
+          )
+        `)
+        .eq('status', 'approved')
+        .order('created_at', { ascending: false });
+
+      // Only show mentors whose profile is approved
+      q = q.eq('applicant.approval_status', 'approved');
+
+      // When the checkbox is ON, filter on the related table's column server-side
+      if (showOnlyAccepting) {
+        q = q.eq('applicant.is_available_for_mentorship', true);
+      }
+
+      const { data: mentorsRows, error: mentorsError } = await q;
       
       console.log('Supabase query result:', mentorsRows, mentorsError);
       
@@ -129,17 +271,7 @@ const Mentorship = () => {
         (pubRows || []).forEach(r => identityMap.set(r.id, r));
       }
 
-      // Read accepting flags from mentor_profiles
-      let acceptingMap = new Map();
-      if (userIds.length > 0) {
-        const { data: mpRows, error: mpErr } = await supabase
-          .from('mentor_profiles')
-          .select('user_id, is_accepting_mentees')
-          .in('user_id', userIds);
-        if (!mpErr) {
-          (mpRows || []).forEach(r => acceptingMap.set(r.user_id, !!r.is_accepting_mentees));
-        }
-      }
+      // Availability now read from joined applicant in mentorsRows; no separate profiles query.
 
       // Transform data to match rendering needs
       const transformedMentors = (mentorsRows || []).map(mentor => {
@@ -147,10 +279,8 @@ const Mentorship = () => {
         const title = ident.current_job_title || 'Maritime Professional';
         const company = ident.company_name || 'AMET';
         const location = [ident.location_city, ident.location_country].filter(Boolean).join(', ') || 'Unknown';
-        // Acceptance flag from mentor_profiles; default to true when unknown so directory isn't empty
-        const acceptingFlag = acceptingMap.has(mentor.user_id)
-          ? acceptingMap.get(mentor.user_id) === true
-          : true;
+        // Use applicant.is_available_for_mentorship directly as single source of truth
+        const isAvailable = !!mentor.applicant?.is_available_for_mentorship;
         return {
           id: mentor.id,
           user_id: mentor.user_id,
@@ -163,10 +293,9 @@ const Mentorship = () => {
           expertise: mentor.expertise || [],
           experience: `${mentor.mentoring_experience_years || 0} years`,
           responseTime: '48 hours',
-          // Use mentor_profiles flag for accepting-only (fallback to true if unknown)
-          profileAvailable: acceptingFlag,
-          accepting: acceptingFlag,
-          availability: 'Available',
+          // Single source of truth for availability
+          is_available_for_mentorship: isAvailable,
+          applicant: mentor.applicant, // Keep for access in MentorCard
           compatibilityScore: 85,
           ratings: '5.0',
           totalMentees: mentor.max_mentees || 0,
@@ -188,54 +317,17 @@ const Mentorship = () => {
   };
   
 
-  // Fetch requests received by the current user as mentor
-  const fetchMentorRequests = async () => {
-    if (!user?.id || !isMentorApproved) return;
-    try {
-      setMentorReqLoading(true);
-      const { data: rows, error } = await supabase
-        .from('mentorship_requests')
-        .select('id, mentor_id, mentee_id, status, message, goals, created_at')
-        .eq('mentor_id', user.id)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-
-      const menteeIds = Array.from(new Set((rows || []).map(r => r.mentee_id).filter(Boolean)));
-      let idMap = new Map();
-      if (menteeIds.length) {
-        const { data: pubs } = await supabase
-          .from('alumni_directory_public')
-          .select('id, full_name, avatar_url')
-          .in('id', menteeIds);
-        (pubs || []).forEach(p => idMap.set(p.id, p));
-        const missing = menteeIds.filter(id => !idMap.has(id));
-        if (missing.length) {
-          const { data: profs } = await supabase
-            .from('profiles')
-            .select('id, full_name, avatar_url')
-            .in('id', missing);
-          (profs || []).forEach(p => idMap.set(p.id, p));
-        }
-      }
-
-      const hydrated = (rows || []).map(r => ({
-        ...r,
-        mentee: idMap.get(r.mentee_id) || { id: r.mentee_id, full_name: 'Mentee', avatar_url: null }
-      }));
-      setMentorRequests(hydrated);
-    } catch (e) {
-      console.error('Error fetching mentor-side requests:', e);
-      toast.error('Failed to load requests received');
-    } finally {
-      setMentorReqLoading(false);
-    }
-  
-  };
-
-  // Load mentor-side requests when user is an approved mentor
+  // Default mentor filter to pending when approved
   useEffect(() => {
-    if (isMentorApproved) fetchMentorRequests();
-  }, [isMentorApproved, user?.id]);
+    if (isMentorApproved) setMentorFilter('pending');
+  }, [isMentorApproved]);
+
+  // Load mentee requests when switching to the tab
+  useEffect(() => {
+    if (activeTab === 'my-requests' && isApprovedMentee) {
+      loadMenteeRequests();
+    }
+  }, [activeTab, isApprovedMentee, user?.id]);
 
   const expertiseOptions = [
     { value: 'all', label: 'All Expertise Areas' },
@@ -247,10 +339,6 @@ const Mentorship = () => {
     { value: 'logistics', label: 'Logistics' },
     { value: 'research', label: 'Research & Development' }
   ];
-
-  const handleBookmark = (mentorId) => {
-    console.log('Bookmark mentor:', mentorId);
-  };
 
   const handleSendRequest = async (mentorObj) => {
     try {
@@ -335,18 +423,7 @@ const Mentorship = () => {
     }
   };
 
-  const getAvailabilityColor = (availability) => {
-    switch (availability) {
-      case 'Available':
-        return 'text-green-600 bg-green-100';
-      case 'Busy':
-        return 'text-yellow-600 bg-yellow-100';
-      case 'Limited':
-        return 'text-orange-600 bg-orange-100';
-      default:
-        return 'text-gray-600 bg-gray-100';
-    }
-  };
+  
 
   const filteredMentors = mentors.filter(mentor => {
     const matchesSearch = mentor.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -357,11 +434,307 @@ const Mentorship = () => {
                             mentor.expertise.some(exp => 
                               exp.toLowerCase().replace(/\s+/g, '-').includes(filters.expertise.replace('all', ''))
                             );
-    const matchesAccepting = showOnlyAccepting;
+    const matchesAccepting = !showOnlyAccepting || mentor.is_available_for_mentorship;
     return matchesSearch && matchesExpertise && matchesAccepting;
   });
 
-  const MentorCard = ({ mentor }) => (
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="glass-card rounded-lg p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Mentorship Program</h1>
+            <p className="text-gray-600">Connect with experienced professionals and advance your maritime career</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link 
+              to="/mentorship/me"
+              className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-semibold py-2 px-4 rounded-lg shadow-sm transition duration-150 ease-in-out"
+            >
+              My Mentorship
+            </Link>
+            {isMentorPending && (
+              <div className="px-3 py-2 rounded-lg bg-yellow-100 text-yellow-800 text-sm font-semibold">
+                Mentor application pending
+              </div>
+            )}
+            {(() => {
+              const role = getUserRole ? getUserRole() : undefined;
+              if (role && role.toLowerCase() === 'student') return null;
+              if (!isMentorApproved) {
+                return (
+                  <Link 
+                    to="/mentorship/become-mentor"
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center"
+                  >
+                    <PlusIcon className="w-5 h-5 mr-2" />
+                    Become a Mentor
+                  </Link>
+                );
+              }
+              return null;
+            })()}
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="glass-card rounded-lg">
+        <div className="border-b border-gray-200">
+          <nav className="flex">
+            {(() => {
+              const tabs = [];
+              if (isApprovedMentee) {
+                tabs.push({ id: 'find-mentors', label: 'Find Mentors', icon: MagnifyingGlassIcon });
+                tabs.push({ id: 'my-requests', label: 'My Requests', icon: UserGroupIcon });
+              }
+              if (isApprovedMentor) {
+                tabs.push({ id: 'my-mentoring', label: 'Mentor Dashboard', icon: AcademicCapIcon });
+              }
+              return tabs;
+            })().map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex-1 flex items-center justify-center px-6 py-4 text-sm font-medium ${
+                    activeTab === tab.id
+                      ? 'text-ocean-600 border-b-2 border-ocean-600 bg-ocean-50'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <Icon className="w-5 h-5 mr-2" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        <div className="p-6">
+          {/* Find Mentors Tab */}
+          {activeTab === 'find-mentors' && (
+            <div className="space-y-6">
+              {/* Search and Filters */}
+              <div className="flex flex-col lg:flex-row gap-4">
+                <div className="flex-1">
+                  <div className="relative">
+                    <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="form-input w-full pl-10 pr-4 py-2 rounded-lg"
+                      placeholder="Search mentors by name, expertise, or company..."
+                    />
+                  </div>
+                </div>
+
+                <select
+                  value={filters.expertise}
+                  onChange={(e) => setFilters(prev => ({ ...prev, expertise: e.target.value }))}
+                  className="form-input px-3 py-2 rounded-lg"
+                >
+                  {expertiseOptions.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={showOnlyAccepting}
+                    onChange={(e) => setShowOnlyAccepting(e.target.checked)}
+                  />
+                  Show accepting mentors
+                </label>
+              </div>
+
+              {/* Results */}
+              {loading ? (
+                <div className="text-center py-12">
+                  <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-ocean-500"></div>
+                  <h3 className="text-lg font-medium text-gray-700 mt-4">Loading mentors...</h3>
+                </div>
+              ) : error ? (
+                <div className="bg-red-50 p-8 rounded-lg text-center">
+                  <XCircleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-red-800 mb-2">Failed to load mentors</h3>
+                  <p className="text-red-600 mb-6">{error}</p>
+                  <button 
+                    onClick={fetchApprovedMentors}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              ) : filteredMentors.length === 0 ? (
+                <div className="bg-gray-50 p-8 rounded-lg text-center">
+                  <UserGroupIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No mentors found</h3>
+                  <p className="text-gray-600 mb-6">
+                    Try adjusting your filters or search criteria
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-gray-600">
+                      Found <span className="font-medium">{filteredMentors.length}</span> mentors
+                    </p>
+                    <select className="form-input px-3 py-1 rounded text-sm">
+                      <option>Sort by Compatibility</option>
+                      <option>Sort by Rating</option>
+                      <option>Sort by Experience</option>
+                      <option>Sort by Availability</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {filteredMentors.map((mentor) => (
+                      <MentorCard key={mentor.id} mentor={mentor} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* My Requests Tab (mentee) */}
+          {activeTab === 'my-requests' && (
+            <ApprovedGuard require="approved-mentee">
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold text-gray-900">Mentorship Requests</h3>
+                {mentorshipRequests.length === 0 ? (
+                  <div className="text-center py-12">
+                    <UserGroupIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No mentorship requests yet</h3>
+                    <p className="text-gray-600 mb-4">Start by requesting mentorship from experienced professionals</p>
+                    <button onClick={() => setActiveTab('find-mentors')} className="btn-ocean px-4 py-2 rounded-lg">Find Mentors</button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {mentorshipRequests.map((r) => (
+                      <div key={r.id} className={`border border-gray-200 rounded-lg p-6 ${r.status.startsWith('cancelled') || r.status === 'rejected' ? 'opacity-70' : ''}`} title={r.status.startsWith('cancelled') || r.status === 'rejected' ? 'This request is closed.' : ''}>
+                        {r.status === 'cancelled_by_system' && (
+                          <div className="mb-2 p-2 rounded bg-gray-50 text-gray-700 text-sm">This mentorship was closed because the mentor is no longer eligible.</div>
+                        )}
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start space-x-4 flex-1">
+                            <img src={r.mentor.avatar_url || '/default-avatar.svg'} alt={r.mentor.full_name || 'Mentor'} className="w-12 h-12 rounded-full object-cover" />
+                            <div className="flex-1">
+                              <h4 className="font-semibold text-gray-900">{r.mentor.full_name || 'Mentor'}</h4>
+                              <p className="text-gray-600 text-sm mt-1">{new Date(r.created_at).toLocaleString()}</p>
+                              {r.message && <p className="text-gray-700 text-sm mt-2">{r.message}</p>}
+                            </div>
+                          </div>
+                          <RequestStatusChip status={r.status} />
+                        </div>
+                        <div className="mt-3 flex items-center gap-2">
+                          {r.status === 'accepted' && (
+                            <>
+                              <Link to={`/mentorship/chat/${r.id}`} className="btn-ocean px-3 py-1.5 rounded">Open Chat</Link>
+                              <Link to={`/mentorship/mentor/${r.mentor.id}`} className="btn-ocean-outline px-3 py-1.5 rounded">View Mentor</Link>
+                            </>
+                          )}
+                          {r.status === 'pending' && (
+                            <button
+                              className="btn-ocean-outline px-3 py-1.5 rounded"
+                              onClick={async () => {
+                                const { error } = await supabase.from('mentorship_requests').update({ status: 'cancelled_by_user' }).eq('id', r.id);
+                                if (!error) {
+                                  toast.success('Request cancelled');
+                                  // refresh list
+                                  await loadMenteeRequests();
+                                } else {
+                                  toast.error('Failed: ' + (error?.message || 'Unknown error'));
+                                }
+                              }}
+                            >
+                              Cancel Request
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </ApprovedGuard>
+          )}
+
+          {/* My Mentoring Tab */}
+          {activeTab === 'my-mentoring' && (
+            <ApprovedGuard require="approved-mentor">
+              <div className="space-y-6">
+                <h3 className="text-lg font-semibold text-gray-900">Mentor Dashboard</h3>
+
+                {/* Requests Received */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-md font-medium text-gray-900">Requests Received</h4>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setMentorFilter('pending')} className={`text-sm ${mentorFilter==='pending' ? 'text-ocean-700 font-semibold' : 'text-ocean-600 hover:underline'}`}>Pending</button>
+                      <span className="text-gray-400">|</span>
+                      <button onClick={() => setMentorFilter('all')} className={`text-sm ${mentorFilter!=='pending' ? 'text-ocean-700 font-semibold' : 'text-ocean-600 hover:underline'}`}>All</button>
+                    </div>
+                  </div>
+                  {mentorReqLoading ? (
+                    <ListSkeleton rows={3} />
+                  ) : mentorRequests.length === 0 ? (
+                    <div className="text-center py-8 text-gray-600">No items yet.</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {mentorRequests.map((r) => (
+                        <div key={r.id} className="border border-gray-200 rounded-lg p-4 flex items-start justify-between">
+                          <div className="flex items-start gap-3">
+                            <img src={r.mentee.avatar_url || '/default-avatar.svg'} alt={r.mentee.full_name || 'Mentee'} className="w-10 h-10 rounded-full object-cover" />
+                            <div>
+                              <div className="font-medium text-gray-900">{r.mentee.full_name || 'Mentee'}</div>
+                              <div className="text-xs text-gray-500">{new Date(r.created_at).toLocaleString()}</div>
+                              {r.message && <div className="text-sm text-gray-700 mt-1">{r.message}</div>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <RequestStatusChip status={r.status} />
+                            {r.status === 'pending' && (
+                              <>
+                                <button
+                                  onClick={() => acceptMutation.mutate(r.id)}
+                                  className="btn-ocean px-3 py-1 rounded text-sm"
+                                >
+                                  Accept
+                                </button>
+                                <button
+                                  onClick={() => rejectMutation.mutate(r.id)}
+                                  className="btn-ocean-outline px-3 py-1 rounded text-sm"
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </ApprovedGuard>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Mentor Card Component
+const MentorCard = ({ mentor }) => {
+  const isAvailable = mentor.is_available_for_mentorship === true;
+  return (
     <div className="glass-card rounded-lg p-6 card-hover">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-start space-x-4">
@@ -372,8 +745,7 @@ const Mentorship = () => {
               className="w-16 h-16 rounded-full object-cover"
             />
             <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
-              mentor.availability === 'Available' ? 'bg-green-500' : 
-              mentor.availability === 'Busy' ? 'bg-yellow-500' : 'bg-red-500'
+              isAvailable ? 'bg-green-500' : 'bg-gray-500'
             }`}></div>
           </div>
           <div className="flex-1">
@@ -386,16 +758,6 @@ const Mentorship = () => {
             </div>
           </div>
         </div>
-        <button 
-          onClick={() => handleBookmark(mentor.id)}
-          className={`p-2 rounded-lg transition-colors ${
-            mentor.isBookmarked 
-              ? 'text-red-500 bg-red-50' 
-              : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
-          }`}
-        >
-          <HeartIcon className="w-5 h-5" />
-        </button>
       </div>
 
       <p className="text-gray-700 text-sm mb-4 line-clamp-2">{mentor.bio}</p>
@@ -415,8 +777,8 @@ const Mentorship = () => {
           <span className="text-gray-600">{mentor.responseTime}</span>
         </div>
         <div className="flex items-center">
-          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAvailabilityColor(mentor.availability)}`}>
-            {mentor.availability}
+          <span className={`px-2 py-1 rounded-full text-xs font-medium ${isAvailable ? 'text-green-600 bg-green-100' : 'text-gray-600 bg-gray-100'}`}>
+            {isAvailable ? 'Available' : 'Unavailable'}
           </span>
         </div>
       </div>
@@ -478,334 +840,30 @@ const Mentorship = () => {
           View Profile
         </Link>
         <ApprovedGuard require="approved-mentee" showBlockedMessage={false}>
-          <RequestMentorshipButton mentorId={mentor.user_id} disabled={!mentor.profileAvailable} />
+          <RequestMentorshipButton mentorId={mentor.user_id} disabled={!mentor.is_available_for_mentorship} />
         </ApprovedGuard>
       </div>
     </div>
   );
+};
 
+// Small 3-row skeleton for lists
+function ListSkeleton({ rows = 3 }) {
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="glass-card rounded-lg p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Mentorship Program</h1>
-            <p className="text-gray-600">Connect with experienced professionals and advance your maritime career</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link 
-              to="/mentorship/me"
-              className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-semibold py-2 px-4 rounded-lg shadow-sm transition duration-150 ease-in-out"
-            >
-              My Mentorship
-            </Link>
-            {/* Secondary CTA based on role/status */}
-            {isMentorApproved ? (
-              <Link 
-                to="/mentorship/dashboard"
-                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center"
-              >
-                <AcademicCapIcon className="w-5 h-5 mr-2" />
-                Open Mentor Dashboard
-              </Link>
-            ) : isMentorPending ? (
-              <div className="px-3 py-2 rounded-lg bg-yellow-100 text-yellow-800 text-sm font-semibold">
-                Mentor application pending
-              </div>
-            ) : (
-              (() => {
-                const role = getUserRole ? getUserRole() : undefined;
-                // Hide Become a Mentor for students; show for alumni/admin
-                if (role && role.toLowerCase() === 'student') return null;
-                return (
-                  <Link 
-                    to="/mentorship/become-mentor"
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-150 ease-in-out flex items-center"
-                  >
-                    <PlusIcon className="w-5 h-5 mr-2" />
-                    Become a Mentor
-                  </Link>
-                );
-              })()
-            )}
+    <div className="space-y-3">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="border border-gray-200 rounded-lg p-4 animate-pulse">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-full bg-gray-200" />
+            <div className="flex-1">
+              <div className="h-3 bg-gray-200 rounded w-1/3 mb-2" />
+              <div className="h-3 bg-gray-100 rounded w-1/4" />
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="glass-card rounded-lg">
-        <div className="border-b border-gray-200">
-          <nav className="flex">
-            {(() => {
-              const tabs = [
-                { id: 'find-mentors', label: 'Find Mentors', icon: MagnifyingGlassIcon },
-                { id: 'my-requests', label: 'My Requests', icon: UserGroupIcon },
-              ];
-              if (isMentorApproved) tabs.push({ id: 'my-mentoring', label: 'Mentor Dashboard', icon: AcademicCapIcon });
-              return tabs;
-            })().map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center px-6 py-4 text-sm font-medium ${
-                    activeTab === tab.id
-                      ? 'text-ocean-600 border-b-2 border-ocean-600 bg-ocean-50'
-                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  <Icon className="w-5 h-5 mr-2" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="p-6">
-          {/* Find Mentors Tab */}
-          {activeTab === 'find-mentors' && (
-            <div className="space-y-6">
-              {/* Search and Filters */}
-              <div className="flex flex-col lg:flex-row gap-4">
-                <div className="flex-1">
-                  <div className="relative">
-                    <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="form-input w-full pl-10 pr-4 py-2 rounded-lg"
-                      placeholder="Search mentors by name, expertise, or company..."
-                    />
-                  </div>
-                </div>
-
-                <select
-                  value={filters.expertise}
-                  onChange={(e) => setFilters(prev => ({ ...prev, expertise: e.target.value }))}
-                  className="form-input px-3 py-2 rounded-lg"
-                >
-                  {expertiseOptions.map(option => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-
-                <label className="flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={showOnlyAccepting}
-                    onChange={(e) => setShowOnlyAccepting(e.target.checked)}
-                  />
-                  Show mentors
-                </label>
-              </div>
-
-              {/* Results */}
-              {loading ? (
-                <div className="text-center py-12">
-                  <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-ocean-500"></div>
-                  <h3 className="text-lg font-medium text-gray-700 mt-4">Loading mentors...</h3>
-                </div>
-              ) : error ? (
-                <div className="bg-red-50 p-8 rounded-lg text-center">
-                  <XCircleIcon className="w-16 h-16 text-red-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-red-800 mb-2">Failed to load mentors</h3>
-                  <p className="text-red-600 mb-6">{error}</p>
-                  <button 
-                    onClick={fetchApprovedMentors}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-                  >
-                    Try Again
-                  </button>
-                </div>
-              ) : filteredMentors.length === 0 ? (
-                <div className="bg-gray-50 p-8 rounded-lg text-center">
-                  <UserGroupIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No mentors found</h3>
-                  <p className="text-gray-600 mb-6">
-                    Try adjusting your filters or search criteria
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <p className="text-gray-600">
-                      Found <span className="font-medium">{filteredMentors.length}</span> mentors
-                    </p>
-                    <select className="form-input px-3 py-1 rounded text-sm">
-                      <option>Sort by Compatibility</option>
-                      <option>Sort by Rating</option>
-                      <option>Sort by Experience</option>
-                      <option>Sort by Availability</option>
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {filteredMentors.map((mentor) => (
-                      <MentorCard key={mentor.id} mentor={mentor} />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* My Requests Tab */}
-          {activeTab === 'my-requests' && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-gray-900">Mentorship Requests</h3>
-              
-              {mentorshipRequests.length === 0 ? (
-                <div className="text-center py-12">
-                  <UserGroupIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No mentorship requests yet</h3>
-                  <p className="text-gray-600 mb-4">
-                    Start by requesting mentorship from experienced professionals
-                  </p>
-                  <button
-                    onClick={() => setActiveTab('find-mentors')}
-                    className="btn-ocean px-4 py-2 rounded-lg"
-                  >
-                    Find Mentors
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {mentorshipRequests.map((request) => (
-                    <div key={request.id} className="border border-gray-200 rounded-lg p-6">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start space-x-4 flex-1">
-                          <img 
-                            src={request.mentorAvatar} 
-                            alt={request.mentorName}
-                            className="w-12 h-12 rounded-full object-cover"
-                          />
-                          <div className="flex-1">
-                            <h4 className="font-semibold text-gray-900">{request.mentorName}</h4>
-                            <p className="text-ocean-600 text-sm">{request.expertise}</p>
-                            <p className="text-gray-600 text-sm mt-2">{request.message}</p>
-                            
-                            <div className="flex items-center space-x-4 mt-3 text-sm text-gray-500">
-                              <span>Requested: {new Date(request.requestedDate).toLocaleDateString()}</span>
-                              <span>•</span>
-                              <span>{request.sessionType}</span>
-                              <span>•</span>
-                              <span>{request.preferredDuration}</span>
-                            </div>
-
-                            {request.status === 'accepted' && request.scheduledDate && (
-                              <div className="mt-2 p-3 bg-green-50 rounded-lg">
-                                <p className="text-green-800 text-sm font-medium">
-                                  Session scheduled for {new Date(request.scheduledDate).toLocaleDateString()} at {request.scheduledTime}
-                                </p>
-                              </div>
-                            )}
-
-                            {request.status === 'completed' && (
-                              <div className="mt-2 p-3 bg-blue-50 rounded-lg">
-                                <p className="text-blue-800 text-sm font-medium">Session completed</p>
-                                {request.feedback && (
-                                  <p className="text-blue-700 text-sm mt-1">"{request.feedback}"</p>
-                                )}
-                                <div className="flex items-center mt-2">
-                                  <span className="text-sm text-blue-700 mr-2">Your Rating:</span>
-                                  <div className="flex">
-                                    {[...Array(5)].map((_, i) => (
-                                      <StarIcon
-                                        key={i}
-                                        className={`w-4 h-4 ${i < request.rating ? 'text-yellow-500' : 'text-gray-300'}`}
-                                      />
-                                    ))}
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusBadge(request.status)}`}>
-                          {request.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* My Mentoring Tab */}
-          {activeTab === 'my-mentoring' && (
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-gray-900">Mentor Dashboard</h3>
-
-              {/* Requests Received */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-md font-medium text-gray-900">Requests Received</h4>
-                  <button onClick={fetchMentorRequests} className="text-sm text-ocean-600 hover:underline">Refresh</button>
-                </div>
-                {mentorReqLoading ? (
-                  <p className="text-gray-500">Loading requests…</p>
-                ) : mentorRequests.length === 0 ? (
-                  <div className="text-center py-8">
-                    <AcademicCapIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-gray-700">No requests yet.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {mentorRequests.map((r) => (
-                      <div key={r.id} className="border border-gray-200 rounded-lg p-4 flex items-start justify-between">
-                        <div className="flex items-start gap-3">
-                          <img src={r.mentee?.avatar_url || '/default-avatar.svg'} alt={r.mentee?.full_name || 'Mentee'} className="w-10 h-10 rounded-full object-cover" />
-                          <div>
-                            <div className="font-medium text-gray-900">{r.mentee?.full_name || 'Mentee'}</div>
-                            <div className="text-xs text-gray-500">{new Date(r.created_at).toLocaleString()}</div>
-                            {r.message && <div className="text-sm text-gray-700 mt-1">{r.message}</div>}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(r.status)}`}>{r.status}</span>
-                          {r.status === 'pending' && (
-                            <>
-                              <button
-                                onClick={async () => {
-                                  const { error } = await supabase.from('mentorship_requests').update({ status: 'accepted' }).eq('id', r.id);
-                                  if (!error) { toast.success('Request accepted'); fetchMentorRequests(); }
-                                  else toast.error('Failed: ' + (error?.message || 'Unknown error'));
-                                }}
-                                className="btn-ocean px-3 py-1 rounded text-sm"
-                              >
-                                Accept
-                              </button>
-                              <button
-                                onClick={async () => {
-                                  const { error } = await supabase.from('mentorship_requests').update({ status: 'rejected' }).eq('id', r.id);
-                                  if (!error) { toast('Request rejected', { icon: '🙇' }); fetchMentorRequests(); }
-                                  else toast.error('Failed');
-                                }}
-                                className="btn-ocean-outline px-3 py-1 rounded text-sm"
-                              >
-                                Reject
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      ))}
     </div>
   );
-};
+}
 
 export default Mentorship;

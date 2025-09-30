@@ -57,7 +57,6 @@ const _channelRegistry = (() => {
   if (typeof window !== 'undefined') {
     if (!window.__sb_channels__) {
       window.__sb_channels__ = {};
-
     }
     return window.__sb_channels__;
   }
@@ -92,20 +91,29 @@ export function getOrCreateChannel(name) {
  * Safe to call multiple times; subsequent calls are no-ops.
  */
 export function ensureChannelSubscribed(name) {
-  const entry = _channelRegistry[name] || { hasSubscribeCall: false, subscribed: false };
+  // Always get (and create if needed) the registry entry first
+  const channel = getOrCreateChannel(name);
+  const entry = _channelRegistry[name];
   if (!entry.hasSubscribeCall) {
-    const channel = getOrCreateChannel(name);
     console.log(`Subscribing to ${name}`);
+    // Mark before calling subscribe to prevent re-entry
     entry.hasSubscribeCall = true;
-    _channelRegistry[name] = { ...entry, channel };
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        console.log('Realtime is ready');
-        _channelRegistry[name].subscribed = true;
+    try {
+      channel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('Realtime is ready');
+          entry.subscribed = true;
+        }
+      });
+    } catch (e) {
+      // Ignore duplicate subscribe attempts on the same channel instance
+      const msg = String(e?.message || e || '');
+      if (!msg.toLowerCase().includes('subscribe') || !msg.toLowerCase().includes('only be called a single time')) {
+        console.error(`Failed subscribing to channel ${name}:`, e);
       }
-    });
+    }
   }
-  return _channelRegistry[name].channel;
+  return channel;
 }
 
 /**
@@ -551,40 +559,23 @@ export const fetchConversations = async (userId) => {
   }
 };
 
-export const createConversation = async (user1Id, user2Id) => {
-  // Check for existing conversation via join table: conversations having both users
-  const { data: parts, error: partsErr } = await supabase
-    .from('conversation_participants')
-    .select('conversation_id, user_id')
-    .in('user_id', [user1Id, user2Id]);
-  if (partsErr) return { data: null, error: partsErr };
-
-  const counts = {};
-  (parts || []).forEach(r => {
-    counts[r.conversation_id] = (counts[r.conversation_id] || 0) + 1;
-  });
-  const existingId = Object.keys(counts).find(cid => counts[cid] >= 2);
-  if (existingId) {
-    return { data: { id: existingId }, error: null };
-  }
-
-  // Use RPC to create or get conversation relative to current auth user
-  // Determine which of the provided IDs matches the current user
-  const { data: { user }, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !user) return { data: null, error: authErr || new Error('Not authenticated') };
-
-  const currentId = user.id;
-  let otherId = null;
-  if (currentId === user1Id) otherId = user2Id;
-  else if (currentId === user2Id) otherId = user1Id;
-  else return { data: null, error: new Error('Current user must be one of the participants') };
-
-  const { data, error } = await supabase.rpc('get_or_create_conversation', {
-    user_1_id: currentId,
-    user_2_id: otherId,
+/**
+ * Creates or retrieves a DM thread between two users.
+ * Uses the new dm_get_or_create_thread RPC.
+ */
+export const createThread = async (userAId, userBId) => {
+  const { data, error } = await supabase.rpc('dm_get_or_create_thread', {
+    u1: userAId,
+    u2: userBId,
   });
   return { data, error };
 };
+
+// Legacy alias for backward compatibility during migration
+export const createConversation = createThread;
+
+// Legacy alias - now points to createThread
+export const createOrGetDmThread = createThread;
 
 export const fetchMessages = async (conversationId) => {
   const { data, error } = await supabase
@@ -1061,5 +1052,47 @@ export const fetchMentorshipRequests = async (userId) => {
     `)
     .or(`mentor_id.eq.${userId},mentee_id.eq.${userId}`);
   return { data, error };
+};
+
+/**
+ * Check if two users are connected (accepted/connected status)
+ * @param {string} currentUserId - Current user's ID
+ * @param {string} peerId - Other user's ID
+ * @returns {Promise<boolean>} - True if connected, false otherwise
+ */
+export const checkConnectionStatus = async (currentUserId, peerId) => {
+  if (!currentUserId || !peerId || currentUserId === peerId) {
+    return false;
+  }
+  
+  try {
+    // Try RPC function first (most efficient)
+    const { data, error } = await supabase.rpc('are_users_connected', {
+      a: currentUserId,
+      b: peerId
+    });
+    
+    if (!error && data !== null) {
+      return data;
+    }
+    
+    // Fallback: direct query if RPC not available
+    const { data: connection, error: connError } = await supabase
+      .from('connections')
+      .select('id, status')
+      .or(`and(requester_id.eq.${currentUserId},recipient_id.eq.${peerId}),and(requester_id.eq.${peerId},recipient_id.eq.${currentUserId})`)
+      .in('status', ['accepted', 'connected'])
+      .maybeSingle();
+    
+    if (connError) {
+      console.error('Error checking connection status:', connError);
+      return false;
+    }
+    
+    return !!connection;
+  } catch (err) {
+    console.error('Error in checkConnectionStatus:', err);
+    return false;
+  }
 };
 

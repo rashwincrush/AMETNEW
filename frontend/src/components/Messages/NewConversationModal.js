@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
-import { supabase } from '../../utils/supabase';
+import { supabase, createThread } from '../../utils/supabase';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 
 const NewConversationModal = ({ isOpen, onClose, onConversationStarted }) => {
@@ -45,13 +45,15 @@ const NewConversationModal = ({ isOpen, onClose, onConversationStarted }) => {
 
   const handleStartConversation = async (userId) => {
     try {
-      const { data: conversationId, error } = await supabase.rpc('find_or_create_conversation', {
-        other_user_id: userId
-      });
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
 
+      // Create or get thread using new RPC
+      const { data: threadId, error } = await createThread(user.id, userId);
       if (error) throw error;
 
-      onConversationStarted(conversationId);
+      onConversationStarted(threadId);
       onClose();
     } catch (err) {
       console.error('Error starting conversation:', err);

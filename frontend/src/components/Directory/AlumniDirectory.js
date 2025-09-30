@@ -9,7 +9,7 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../utils/supabase';
+import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import AlumniCard from './AlumniCard';
 import AlumniListItem from './AlumniListItem';
 import { logActivity } from '../../utils/activityLogger';
@@ -166,17 +166,15 @@ const AlumniDirectory = () => {
     setSearchParams(params, { replace: true });
   }, [searchTerm, sortBy]);
   
-  // Realtime refresh when profiles change; subscribe only after initial load and only once
+  // Realtime refresh when profiles change; subscribe only after initial load (idempotent)
   useEffect(() => {
     if (!initialLoadDoneRef.current || subscribedRef.current) return;
     subscribedRef.current = true;
-    const channel = supabase
-      .channel('alumni-directory-refresh')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'profiles'
-      }, (payload) => {
+    onPostgresChangesOnce(
+      'alumni-directory-refresh',
+      'alumni-directory-refresh-handler',
+      { event: '*', schema: 'public', table: 'profiles' },
+      (payload) => {
         try {
           const evt = payload.eventType;
           if (evt === 'INSERT' || evt === 'DELETE') {
@@ -202,20 +200,9 @@ const AlumniDirectory = () => {
         } catch (e) {
           console.error('Realtime directory refresh error:', e);
         }
-      })
-      .subscribe();
-    channelRef.current = channel;
-
-    return () => {
-      try {
-        if (channelRef.current) {
-          supabase.removeChannel(channelRef.current);
-          channelRef.current = null;
-        }
-      } catch (e) {
-        console.warn('Failed to remove channel', e);
       }
-    };
+    );
+    return () => { /* registry manages channel lifecycle */ };
   }, [initialLoaded]);
 
   // Separate useEffect for visibility change to avoid unnecessary data fetching

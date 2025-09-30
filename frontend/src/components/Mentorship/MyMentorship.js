@@ -5,6 +5,71 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import MentorRegistrationForm from './MentorRegistrationForm';
 import CreateSessionModal from './CreateSessionModal';
+import { getPublicIdentity } from '../../lib/hydrateIdentity';
+import { idempotentConnect, acceptPending } from '../../utils/connections';
+import { RequestStatusChip } from '../../lib/statusChips';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { fetchMenteeRequests, fetchMentorRequests } from '../../lib/queries/mentorship';
+import { mapSupabaseErrorToToast } from '../../utils/mapSupabaseErrorToToast';
+
+// Small 3-row skeleton for lists
+function ListSkeleton({ rows = 3 }) {
+  return (
+    <ul className="divide-y">
+      {Array.from({ length: rows }).map((_, i) => (
+        <li key={i} className="py-3 animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-gray-200" />
+            <div className="flex-1">
+              <div className="h-3 bg-gray-200 rounded w-1/3 mb-2" />
+              <div className="h-3 bg-gray-100 rounded w-1/4" />
+            </div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// Cancel button with optimistic React Query update
+function CancelButton({ requestId }) {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async (id) => {
+      const { error } = await supabase
+        .from('mentorship_requests')
+        .update({ status: 'cancelled_by_user' })
+        .eq('id', id);
+      if (error) throw error;
+      return { id };
+    },
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ['menteeRequests', user?.id] });
+      const prev = queryClient.getQueryData(['menteeRequests', user?.id]);
+      queryClient.setQueryData(['menteeRequests', user?.id], (old = []) => old.map((r) => r.id === id ? { ...r, status: 'cancelled_by_user' } : r));
+      toast.dismiss('rq-info');
+      toast.success('Request cancelled', { id: 'rq-info' });
+      return { prev };
+    },
+    onError: (err, id, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['menteeRequests', user?.id], ctx.prev);
+      mapSupabaseErrorToToast(err, 'Failed to cancel request');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['menteeRequests', user?.id] });
+    },
+  });
+  return (
+    <button
+      className="btn-ocean-outline px-3 py-1.5 rounded"
+      onClick={() => mutation.mutate(requestId)}
+      disabled={mutation.isLoading}
+    >
+      Cancel Request
+    </button>
+  );
+}
 
 export default function MyMentorship() {
   const { user, profile, fetchUserProfile, getUserRole } = useAuth();
@@ -13,9 +78,45 @@ export default function MyMentorship() {
   const [loading, setLoading] = useState(true);
   const [isAvailable, setIsAvailable] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  // Mentee requests state
-  const [requests, setRequests] = useState([]);
-  const [reqLoading, setReqLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const [requestTab, setRequestTab] = useState('received'); // 'received' | 'sent'
+  // Mentee requests via React Query
+  const menteeReqQuery = useQuery({
+    queryKey: ['menteeRequests', user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const q = await fetchMenteeRequests(user.id, {});
+      const { data: rows, error } = await q;
+      if (error) throw error;
+      const hydrated = await Promise.all((rows || []).map(async (r) => ({
+        ...r,
+        mentor: await getPublicIdentity(r.mentor_id),
+      })));
+      return hydrated;
+    },
+    staleTime: 60_000,
+  });
+  const requests = menteeReqQuery.data || [];
+  const reqLoading = menteeReqQuery.isLoading || menteeReqQuery.isFetching;
+
+  // Mentor (received) requests via React Query
+  const mentorReqQuery = useQuery({
+    queryKey: ['mentorRequests', user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const q = await fetchMentorRequests(user.id, {});
+      const { data: rows, error } = await q;
+      if (error) throw error;
+      const hydrated = await Promise.all((rows || []).map(async (r) => ({
+        ...r,
+        mentee: await getPublicIdentity(r.mentee_id),
+      })));
+      return hydrated;
+    },
+    staleTime: 60_000,
+  });
+  const received = mentorReqQuery.data || [];
+  const receivedLoading = mentorReqQuery.isLoading || mentorReqQuery.isFetching;
   const [sessionModal, setSessionModal] = useState({ open: false, requestId: null, mentorId: null, menteeId: null });
 
   useEffect(() => {
@@ -51,44 +152,10 @@ export default function MyMentorship() {
     readAvailability();
   }, [user, profile]);
 
-  // Fetch my mentee requests
-  const fetchMyRequests = useCallback(async () => {
-    if (!user) return;
-    setReqLoading(true);
-    try {
-      const { data: rows, error } = await supabase
-        .from('mentorship_requests')
-        .select('id, mentor_id, mentee_id, status, message, goals, created_at')
-        .eq('mentee_id', user.id)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-
-      const ids = Array.from(new Set((rows || []).map(r => r.mentor_id).filter(Boolean)));
-      let map = new Map();
-      if (ids.length) {
-        const { data: pubs } = await supabase
-          .from('alumni_directory_public')
-          .select('id, full_name, avatar_url')
-          .in('id', ids);
-        (pubs || []).forEach(p => map.set(p.id, p));
-      }
-
-      const hydrated = (rows || []).map(r => ({
-        ...r,
-        mentor: map.get(r.mentor_id) || { id: r.mentor_id, full_name: 'Mentor', avatar_url: null }
-      }));
-      setRequests(hydrated);
-    } catch (e) {
-      console.error(e);
-      toast.error('Failed to load your mentorship requests');
-    } finally {
-      setReqLoading(false);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    fetchMyRequests();
-  }, [fetchMyRequests]);
+  // Manual refresh
+  const refreshMenteeRequests = useCallback(() => {
+    if (user?.id) queryClient.invalidateQueries({ queryKey: ['menteeRequests', user.id] });
+  }, [queryClient, user?.id]);
 
   // Realtime for my requests (INSERT/UPDATE)
   useEffect(() => {
@@ -98,32 +165,82 @@ export default function MyMentorship() {
       channelName,
       `mentee-requests-insert-${user.id}`,
       { event: 'INSERT', schema: 'public', table: 'mentorship_requests', filter: `mentee_id=eq.${user.id}` },
-      () => fetchMyRequests()
+      () => refreshMenteeRequests()
     );
     onPostgresChangesOnce(
       channelName,
       `mentee-requests-update-${user.id}`,
       { event: 'UPDATE', schema: 'public', table: 'mentorship_requests', filter: `mentee_id=eq.${user.id}` },
-      () => fetchMyRequests()
+      () => refreshMenteeRequests()
     );
-  }, [user, fetchMyRequests]);
+  }, [user, refreshMenteeRequests]);
+
+  // Realtime for mentor received requests (INSERT/UPDATE)
+  useEffect(() => {
+    if (!user?.id) return;
+    const channelName = `mentor-requests-${user.id}`;
+    onPostgresChangesOnce(
+      channelName,
+      `mentor-requests-insert-${user.id}`,
+      { event: 'INSERT', schema: 'public', table: 'mentorship_requests', filter: `mentor_id=eq.${user.id}` },
+      () => queryClient.invalidateQueries({ queryKey: ['mentorRequests', user?.id] })
+    );
+    onPostgresChangesOnce(
+      channelName,
+      `mentor-requests-update-${user.id}`,
+      { event: 'UPDATE', schema: 'public', table: 'mentorship_requests', filter: `mentor_id=eq.${user.id}` },
+      () => queryClient.invalidateQueries({ queryKey: ['mentorRequests', user?.id] })
+    );
+  }, [user, queryClient]);
+
+  // Accept/Reject handlers for mentor side
+  const handleAccept = useCallback(async (req) => {
+    try {
+      const { error } = await supabase
+        .from('mentorship_requests')
+        .update({ status: 'accepted', updated_at: new Date().toISOString() })
+        .eq('id', req.id)
+        .eq('mentor_id', user.id);
+      if (error) throw error;
+      toast.success('Request accepted');
+      // Ensure a connection exists so chat can start immediately
+      try {
+        // Try to accept if mentee already requested connection
+        await acceptPending(user.id, req.mentee_id);
+      } catch (_) { /* benign */ }
+      try {
+        // Otherwise send a request; DM will be available once mentee accepts
+        await idempotentConnect(user.id, req.mentee_id);
+      } catch (_) { /* benign */ }
+      queryClient.invalidateQueries({ queryKey: ['mentorRequests', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['menteeRequests', user?.id] });
+    } catch (e) {
+      mapSupabaseErrorToToast(e, 'Failed to accept request');
+    }
+  }, [user?.id]);
+
+  const handleReject = useCallback(async (id) => {
+    try {
+      const { error } = await supabase
+        .from('mentorship_requests')
+        .update({ status: 'rejected', updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('mentor_id', user.id);
+      if (error) throw error;
+      toast.success('Request rejected');
+      queryClient.invalidateQueries({ queryKey: ['mentorRequests'] });
+      queryClient.invalidateQueries({ queryKey: ['menteeRequests'] });
+    } catch (e) {
+      mapSupabaseErrorToToast(e, 'Failed to reject request');
+    }
+  }, [user?.id]);
 
   const openSchedule = (req) => {
     setSessionModal({ open: true, requestId: req.id, mentorId: null, menteeId: null });
   };
   const closeSchedule = () => setSessionModal({ open: false, requestId: null, mentorId: null, menteeId: null });
 
-  const statusChip = (status) => {
-    const map = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      accepted: 'bg-green-100 text-green-800',
-      rejected: 'bg-red-100 text-red-800',
-      active: 'bg-blue-100 text-blue-800',
-      completed: 'bg-gray-100 text-gray-800'
-    };
-    const cls = map[status] || 'bg-gray-100 text-gray-800';
-    return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{status}</span>;
-  };
+  const statusChip = (status) => <RequestStatusChip status={status} />;
 
   const toggleAvailability = useCallback(async (next) => {
     if (!user) return;
@@ -183,36 +300,94 @@ export default function MyMentorship() {
           <p className="text-sm text-gray-600 mt-1">Your mentorship requests and sessions as a mentee.</p>
         </div>
 
-        {/* My Requests (as Mentee) */}
+        {/* Requests panel (Received/Sent) */}
         <div className="bg-white shadow rounded-lg p-6">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xl font-semibold text-gray-800">Requests I Sent</h2>
-            <button className="text-sm text-ocean-600 hover:underline" onClick={fetchMyRequests}>Refresh</button>
+            <h2 className="text-xl font-semibold text-gray-800">Requests</h2>
+            <div className="flex gap-2">
+              <button
+                className={`px-3 py-1.5 rounded text-sm ${requestTab === 'received' ? 'btn-ocean' : 'btn-ocean-outline'}`}
+                onClick={() => setRequestTab('received')}
+              >
+                Received ({received.length})
+              </button>
+              <button
+                className={`px-3 py-1.5 rounded text-sm ${requestTab === 'sent' ? 'btn-ocean' : 'btn-ocean-outline'}`}
+                onClick={() => setRequestTab('sent')}
+              >
+                Sent ({requests.length})
+              </button>
+            </div>
           </div>
-          {reqLoading ? (
-            <p className="text-gray-500">Loading...</p>
-          ) : requests.length === 0 ? (
-            <p className="text-gray-600">You haven't sent any mentorship requests yet.</p>
-          ) : (
-            <ul className="divide-y">
-              {requests.map((r) => (
-                <li key={r.id} className="py-3 flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-gray-900">{r.mentor?.full_name || 'Mentor'}</div>
-                    <div className="text-sm text-gray-600">{new Date(r.created_at).toLocaleString()}</div>
-                    <div className="mt-1">{statusChip(r.status)}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {r.status === 'accepted' && (
-                      <>
-                        <Link to={`/mentorship/chat/${r.id}`} className="btn-ocean px-3 py-1.5 rounded">Start Chat</Link>
-                        <button onClick={() => openSchedule(r)} className="btn-ocean-outline px-3 py-1.5 rounded">Schedule Session</button>
-                      </>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
+
+          {/* Received tab */}
+          {requestTab === 'received' && (
+            receivedLoading ? (
+              <ListSkeleton rows={3} />
+            ) : received.length === 0 ? (
+              <p className="text-gray-600">No requests received.</p>
+            ) : (
+              <ul className="divide-y">
+                {received.map((r) => (
+                  <li key={r.id} className={`py-3 flex items-center justify-between ${r.status === 'rejected' ? 'opacity-70' : ''}`}>
+                    <div className="flex items-center gap-3">
+                      <img src={r.mentee?.avatar_url || '/default-avatar.svg'} alt={r.mentee?.full_name || 'Mentee'} className="w-10 h-10 rounded-full object-cover" />
+                      <div>
+                        <div className="font-medium text-gray-900">{r.mentee?.full_name || 'Mentee'}</div>
+                        <div className="text-sm text-gray-600">{new Date(r.created_at).toLocaleString()}</div>
+                        <div className="mt-1">{statusChip(r.status)}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {r.status === 'pending' && (
+                        <>
+                          <button onClick={() => handleAccept(r)} className="btn-ocean px-3 py-1.5 rounded">Accept</button>
+                          <button onClick={() => handleReject(r.id)} className="btn-ocean-outline px-3 py-1.5 rounded">Reject</button>
+                        </>
+                      )}
+                      {r.status === 'accepted' && (
+                        <Link to={`/messages?tab=chats&peer=${encodeURIComponent(r.mentee?.id || r.mentee_id)}`} className="btn-ocean px-3 py-1.5 rounded">Go to Chat</Link>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )
+          )}
+
+          {/* Sent tab */}
+          {requestTab === 'sent' && (
+            reqLoading ? (
+              <ListSkeleton rows={3} />
+            ) : requests.length === 0 ? (
+              <p className="text-gray-600">No items yet.</p>
+            ) : (
+              <ul className="divide-y">
+                {requests.map((r) => (
+                  <li key={r.id} className={`py-3 flex items-center justify-between ${r.status === 'rejected' || r.status?.startsWith('cancelled') ? 'opacity-70' : ''}`} title={r.status === 'rejected' || (r.status && r.status.startsWith('cancelled')) ? 'This request is closed.' : ''}>
+                    <div className="flex items-center gap-3">
+                      <img src={r.mentor?.avatar_url || '/default-avatar.svg'} alt={r.mentor?.full_name || 'Mentor'} className="w-10 h-10 rounded-full object-cover" />
+                      <div>
+                        <div className="font-medium text-gray-900">{r.mentor?.full_name || 'Mentor'}</div>
+                        <div className="text-sm text-gray-600">{new Date(r.created_at).toLocaleString()}</div>
+                        <div className="mt-1">{statusChip(r.status)}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {r.status === 'accepted' && (
+                        <>
+                          <Link to={`/messages?tab=chats&peer=${encodeURIComponent(r.mentor?.id || r.mentor_id)}`} className="btn-ocean px-3 py-1.5 rounded">Start Chat</Link>
+                          <button onClick={() => openSchedule(r)} className="btn-ocean-outline px-3 py-1.5 rounded">Schedule Session</button>
+                        </>
+                      )}
+                      {r.status === 'pending' && (
+                        <CancelButton requestId={r.id} />
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )
           )}
         </div>
       </div>
@@ -350,45 +525,101 @@ export default function MyMentorship() {
             )}
           </div>
         </div>
-        <div className="mt-6 flex gap-2">
-          <Link to="/mentorship/requests" className="btn-ocean px-4 py-2 rounded">Requests</Link>
-          <Link to="/messages" className="btn-ocean-outline px-4 py-2 rounded">Chat</Link>
+        {/* Requests panel (Received/Sent) */}
+        <div className="mt-6 bg-white shadow rounded-lg p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xl font-semibold text-gray-800">Requests</h2>
+            <div className="flex gap-2">
+              <button
+                className={`px-3 py-1.5 rounded text-sm ${requestTab === 'received' ? 'btn-ocean' : 'btn-ocean-outline'}`}
+                onClick={() => setRequestTab('received')}
+              >
+                Received ({received.length})
+              </button>
+              <button
+                className={`px-3 py-1.5 rounded text-sm ${requestTab === 'sent' ? 'btn-ocean' : 'btn-ocean-outline'}`}
+                onClick={() => setRequestTab('sent')}
+              >
+                Sent ({requests.length})
+              </button>
+            </div>
+          </div>
+
+          {/* Received tab */}
+          {requestTab === 'received' && (
+            receivedLoading ? (
+              <ListSkeleton rows={3} />
+            ) : received.length === 0 ? (
+              <p className="text-gray-600">No requests received.</p>
+            ) : (
+              <ul className="divide-y">
+                {received.map((r) => (
+                  <li key={r.id} className={`py-3 flex items-center justify-between ${r.status === 'rejected' ? 'opacity-70' : ''}`}>
+                    <div className="flex items-center gap-3">
+                      <img src={r.mentee?.avatar_url || '/default-avatar.svg'} alt={r.mentee?.full_name || 'Mentee'} className="w-10 h-10 rounded-full object-cover" />
+                      <div>
+                        <div className="font-medium text-gray-900">{r.mentee?.full_name || 'Mentee'}</div>
+                        <div className="text-sm text-gray-600">{new Date(r.created_at).toLocaleString()}</div>
+                        <div className="mt-1">{statusChip(r.status)}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {r.status === 'pending' && (
+                        <>
+                          <button onClick={() => handleAccept(r)} className="btn-ocean px-3 py-1.5 rounded">Accept</button>
+                          <button onClick={() => handleReject(r.id)} className="btn-ocean-outline px-3 py-1.5 rounded">Reject</button>
+                        </>
+                      )}
+                      {r.status === 'accepted' && (
+                        <Link to={`/messages?tab=chats&peer=${encodeURIComponent(r.mentee?.id || r.mentee_id)}`} className="btn-ocean px-3 py-1.5 rounded">Go to Chat</Link>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )
+          )}
+
+          {/* Sent tab */}
+          {requestTab === 'sent' && (
+            reqLoading ? (
+              <ListSkeleton rows={3} />
+            ) : requests.length === 0 ? (
+              <p className="text-gray-600">No items yet.</p>
+            ) : (
+              <ul className="divide-y">
+                {requests.map((r) => (
+                  <li key={r.id} className={`py-3 flex items-center justify-between ${r.status === 'rejected' || r.status?.startsWith('cancelled') ? 'opacity-70' : ''}`} title={r.status === 'rejected' || (r.status && r.status.startsWith('cancelled')) ? 'This request is closed.' : ''}>
+                    <div className="flex items-center gap-3">
+                      <img src={r.mentor?.avatar_url || '/default-avatar.svg'} alt={r.mentor?.full_name || 'Mentor'} className="w-10 h-10 rounded-full object-cover" />
+                      <div>
+                        <div className="font-medium text-gray-900">{r.mentor?.full_name || 'Mentor'}</div>
+                        <div className="text-sm text-gray-600">{new Date(r.created_at).toLocaleString()}</div>
+                        <div className="mt-1">{statusChip(r.status)}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {r.status === 'accepted' && (
+                        <>
+                          <Link to={`/messages?tab=chats&peer=${encodeURIComponent(r.mentor?.id || r.mentor_id)}`} className="btn-ocean px-3 py-1.5 rounded">Start Chat</Link>
+                          <button onClick={() => openSchedule(r)} className="btn-ocean-outline px-3 py-1.5 rounded">Schedule Session</button>
+                        </>
+                      )}
+                      {r.status === 'pending' && (
+                        <CancelButton requestId={r.id} />
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )
+          )}
         </div>
       </div>
 
-      {/* My Requests (as Mentee) */}
-      <div className="bg-white shadow rounded-lg p-6">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xl font-semibold text-gray-800">Requests I Sent</h2>
-          <button className="text-sm text-ocean-600 hover:underline" onClick={fetchMyRequests}>Refresh</button>
-        </div>
-        {reqLoading ? (
-          <p className="text-gray-500">Loading...</p>
-        ) : requests.length === 0 ? (
-          <p className="text-gray-600">You haven't sent any mentorship requests yet.</p>
-        ) : (
-          <ul className="divide-y">
-            {requests.map((r) => (
-              <li key={r.id} className="py-3 flex items-center justify-between">
-                <div>
-                  <div className="font-medium text-gray-900">{r.mentor?.full_name || 'Mentor'}</div>
-                  <div className="text-sm text-gray-600">{new Date(r.created_at).toLocaleString()}</div>
-                  <div className="mt-1">{statusChip(r.status)}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {r.status === 'accepted' && (
-                    <>
-                      <Link to={`/mentorship/chat/${r.id}`} className="btn-ocean px-3 py-1.5 rounded">Start Chat</Link>
-                      <button onClick={() => openSchedule(r)} className="btn-ocean-outline px-3 py-1.5 rounded">Schedule Session</button>
-                    </>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      
 
+      {/* Session Modal */}
       <CreateSessionModal
         open={sessionModal.open}
         onClose={closeSchedule}

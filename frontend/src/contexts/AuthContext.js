@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { supabase, mapOAuthToProfileData } from '../utils/supabase';
+import { supabase, mapOAuthToProfileData, onPostgresChangesOnce } from '../utils/supabase';
 import { ROLES, isRole } from '../constants/roles';
 
 // Helper for conditional logging
@@ -523,33 +523,21 @@ export const AuthProvider = ({ children }) => {
     if (!user?.id) return;
     logger.log('Subscribing to realtime profile changes for user:', user.id);
 
-    const channel = supabase
-      .channel(`profile-changes-${user.id}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'profiles',
-        filter: `id=eq.${user.id}`
-      }, async (payload) => {
+    onPostgresChangesOnce(
+      `profile-changes-${user.id}`,
+      `profile-changes-handler-${user.id}`,
+      { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
+      async (payload) => {
         logger.log('Realtime profile update received:', payload.eventType);
         try {
           await fetchUserProfile(user.id);
         } catch (err) {
           logger.error('Failed to refresh profile after realtime update:', err);
         }
-      })
-      .subscribe((status) => {
-        logger.log('Realtime channel status:', status);
-      });
-
-    return () => {
-      try {
-        supabase.removeChannel(channel);
-        logger.log('Unsubscribed from realtime profile changes for user:', user.id);
-      } catch (e) {
-        // ignore
       }
-    };
+    );
+
+    return () => { /* registry manages channel lifecycle */ };
   }, [user?.id, fetchUserProfile]);
   
   // Monitor loading state changes
