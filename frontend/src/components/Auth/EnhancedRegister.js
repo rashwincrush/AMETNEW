@@ -623,17 +623,17 @@ const EnhancedRegister = () => {
           <div className="flex flex-col items-center">
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-semibold transition-all duration-300 ease-in-out
-                ${stepNum <= currentStep ? 'bg-blue-600 text-white ring-2 ring-blue-600 ring-offset-2' : 'bg-gray-200 text-gray-500'}`}
+                ${stepNum <= currentStep ? 'bg-ocean-600 text-white ring-2 ring-ocean-600 ring-offset-2' : 'bg-gray-200 text-gray-500'}`}
             >
               {stepNum < currentStep ? <CheckIcon className="w-6 h-6" /> : stepNum}
             </div>
-            <p className={`mt-2 text-xs ${stepNum <= currentStep ? 'text-blue-600 font-medium' : 'text-gray-500'}`}>
+            <p className={`mt-2 text-xs ${stepNum <= currentStep ? 'text-ocean-600 font-medium' : 'text-gray-500'}`}>
               {stepNum === 1 && 'Basic Info'}
               {stepNum === 2 && 'Details'}
             </p>
           </div>
           {index < arr.length - 1 && (
-            <div className={`flex-1 h-1 mx-2 transition-all duration-300 ease-in-out ${stepNum < currentStep ? 'bg-blue-600' : 'bg-gray-200'}`} />
+            <div className={`flex-1 h-1 mx-2 transition-all duration-300 ease-in-out ${stepNum < currentStep ? 'bg-ocean-600' : 'bg-gray-200'}`} />
           )}
         </React.Fragment>
       ))}
@@ -641,14 +641,14 @@ const EnhancedRegister = () => {
   );
 
   const commonInputClass = (hasError) =>
-    `w-full px-3 py-2 border ${hasError ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm`;
+    `w-full px-3 py-2 border-2 ${hasError ? 'border-red-500' : 'border-ocean-200'} rounded-lg min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:border-ocean-500 placeholder:text-gray-500 shadow-sm`;
   const commonLabelClass = "block text-sm font-medium text-gray-700 mb-1";
   const commonErrorClass = "text-red-500 text-xs mt-1";
 
   const renderStep1 = () => (
     <div className="space-y-6">
       <div className="space-y-3">
-        <button type="button" onClick={() => handleSocialLogin(signInWithGoogle)} className="w-full flex justify-center items-center py-3 px-4 border border-gray-300 rounded-lg shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
+        <button type="button" onClick={() => handleSocialLogin(signInWithGoogle)} aria-label="Continue with Google" className="w-full flex justify-center items-center py-3 px-4 border border-gray-300 rounded-lg shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ocean-500 transition-colors">
           <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google" className="w-5 h-5 mr-3" />
           Continue with Google
         </button>
@@ -850,8 +850,8 @@ const EnhancedRegister = () => {
       {formData.primaryRole === 'employer' && (
         <>
           <h3 className="text-xl font-semibold text-gray-800 mb-4">Company Details</h3>
-          <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-4 rounded-md">
-            <p className="text-sm text-blue-700">Employer registrations require admin approval. You will be notified by email once your account is active.</p>
+          <div className="bg-ocean-50 border-l-4 border-ocean-400 p-4 mb-4 rounded-md">
+            <p className="text-sm text-ocean-700">Employer registrations require admin approval. You will be notified by email once your account is active.</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
             <div>
@@ -924,13 +924,13 @@ const EnhancedRegister = () => {
             type="checkbox"
             checked={!!formData.agreeToTerms}
             onChange={handleChange}
-            className="mt-1 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            className="mt-1 h-4 w-4 text-ocean-600 border-gray-300 rounded focus-visible:ring-2 focus-visible:ring-ocean-500"
           />
           <label htmlFor="agreeToTerms" className="ml-2 text-sm text-gray-700">
             I agree to the
-            {' '}<a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Terms of Service</a>
+            {' '}<a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-ocean-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Terms of Service</a>
             {' '}and{' '}
-            <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Privacy Policy</a>.
+            <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-ocean-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Privacy Policy</a>.
           </label>
         </div>
         {errors.agreeToTerms && <p className={commonErrorClass}>{errors.agreeToTerms}</p>}
@@ -983,7 +983,7 @@ const EnhancedRegister = () => {
                   type="button"
                   onClick={handlePrevious}
                   disabled={isLoading}
-                  className="flex-1 px-6 py-3 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50"
+                  className="flex-1 px-6 py-3 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ocean-500 transition-colors disabled:opacity-50"
                 >
                   Previous
                 </button>
@@ -992,7 +992,7 @@ const EnhancedRegister = () => {
                 type={currentStep === 2 ? "submit" : "button"}
                 onClick={currentStep < 2 ? handleNext : undefined}
                 disabled={isLoading || showCompletionBanner}
-                className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                className="flex-1 px-6 py-3 bg-gradient-to-b from-ocean-500 to-ocean-600 text-white rounded-lg text-sm font-medium min-h-[44px] hover:from-ocean-600 hover:to-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ocean-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
               >
                 {isLoading && currentStep === 2 ? (
                   <>
@@ -1011,7 +1011,7 @@ const EnhancedRegister = () => {
         <div className="text-center mt-8">
           <p className="text-sm text-gray-600">
             Already have an account?{' '}
-            <Link to="/login" className="font-medium text-blue-600 hover:text-blue-700 hover:underline">
+            <Link to="/login" className="font-medium text-ocean-600 hover:text-ocean-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">
               Sign in here
             </Link>
           </p>
@@ -1068,7 +1068,7 @@ const EnhancedRegister = () => {
               <div className="items-center px-4 py-3">
                 <button
                   onClick={() => navigate('/home', { replace: true })}
-                  className="px-4 py-2 bg-blue-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="px-4 py-2 bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-base font-medium rounded-md w-full shadow-sm min-h-[44px] hover:from-ocean-600 hover:to-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
                 >
                   OK
                 </button>

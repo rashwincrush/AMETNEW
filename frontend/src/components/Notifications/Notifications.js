@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase, onPostgresChangesOnce, getOrCreateChannel } from '../../utils/supabase';
+import { NOTIF_ID_FIELD, notifScopeFilter } from '../../utils/notifications';
 import toast from 'react-hot-toast';
 import { 
   AcademicCapIcon, 
@@ -52,7 +53,7 @@ const Notifications = () => {
       let query = supabase
         .from('notifications')
         .select('*')
-        .eq('profile_id', currentUser.id)
+        .or(notifScopeFilter(currentUser.id))
         .order('created_at', { ascending: false });
       
       if (activeTab === 'unread') {
@@ -158,7 +159,7 @@ const Notifications = () => {
       event: '*', 
       schema: 'public', 
       table: 'notifications', 
-      filter: `profile_id=eq.${currentUser.id}` 
+      filter: `${NOTIF_ID_FIELD}=eq.${currentUser.id}` 
     };
     onPostgresChangesOnce(
       `notifications:${currentUser.id}`,
@@ -197,6 +198,9 @@ const Notifications = () => {
       setNotifications(prev => 
         prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
       );
+      // refresh unread counts by type (optional usage in UI)
+      try { await supabase.rpc('get_unread_notifications_count_by_type'); }
+      catch (e) { console.debug('Unread count refresh failed (non-fatal).'); }
     } catch (err) {
       console.error('Error marking notification as read:', err);
       toast.error('Failed to update notification.');
@@ -209,7 +213,7 @@ const Notifications = () => {
       const { error } = await supabase
         .from('notifications')
         .update({ is_read: true })
-        .eq('profile_id', currentUser.id)
+        .eq(NOTIF_ID_FIELD, currentUser.id)
         .eq('is_read', false);
 
       if (error) throw error;
@@ -217,6 +221,8 @@ const Notifications = () => {
       // Update local state
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       toast.success('All notifications marked as read');
+      try { await supabase.rpc('get_unread_notifications_count_by_type'); }
+      catch (e) { console.debug('Unread count refresh failed (non-fatal).'); }
     } catch (err) {
       console.error('Error marking all notifications as read:', err);
       toast.error('Failed to mark notifications as read');

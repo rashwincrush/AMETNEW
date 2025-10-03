@@ -20,8 +20,8 @@ const HomePage = () => {
       icon: UsersIcon,
       title: 'Alumni Directory',
       description: 'Connect with fellow alumni across industries, locations, and graduation years.',
-      bgColor: 'bg-blue-50',
-      iconColor: 'text-blue-600'
+      bgColor: 'bg-ocean-50',
+      iconColor: 'text-ocean-600'
     },
     {
       icon: CalendarIcon,
@@ -92,27 +92,27 @@ const HomePage = () => {
 
             {/* Navigation Links */}
             <div className="hidden md:flex items-center space-x-6">
-              <Link to="/" className="text-blue-600 font-medium flex items-center hover:text-blue-800 transition-colors">
+              <Link to="/" className="text-ocean-600 font-medium flex items-center hover:text-ocean-800 transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">
                 <HomeIcon className="w-5 h-5 mr-1.5" />
                 Home
               </Link>
-              <Link to="/directory" className="text-gray-600 hover:text-blue-600 font-medium flex items-center transition-colors">
+              <Link to="/directory" className="text-gray-600 hover:text-ocean-600 font-medium flex items-center transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">
                 <UsersIcon className="w-5 h-5 mr-1.5" />
                 Directory
               </Link>
-              <Link to="/events" className="text-gray-600 hover:text-blue-600 font-medium flex items-center transition-colors">
+              <Link to="/events" className="text-gray-600 hover:text-ocean-600 font-medium flex items-center transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">
                 <CalendarIcon className="w-5 h-5 mr-1.5" />
                 Events
               </Link>
-              <Link to="/jobs" className="text-gray-600 hover:text-blue-600 font-medium flex items-center transition-colors">
+              <Link to="/jobs" className="text-gray-600 hover:text-ocean-600 font-medium flex items-center transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">
                 <BriefcaseIcon className="w-5 h-5 mr-1.5" />
                 Jobs
               </Link>
-              <Link to="/mentorship" className="text-gray-600 hover:text-blue-600 font-medium flex items-center transition-colors">
+              <Link to="/mentorship" className="text-gray-600 hover:text-ocean-600 font-medium flex items-center transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">
                 <AcademicCapIcon className="w-5 h-5 mr-1.5" />
                 Mentorship
               </Link>
-              <Link to="/about" className="text-gray-600 hover:text-blue-600 font-medium flex items-center transition-colors">
+              <Link to="/about" className="text-gray-600 hover:text-ocean-600 font-medium flex items-center transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">
                 <InformationCircleIcon className="w-5 h-5 mr-1.5" />
                 About
               </Link>
@@ -126,20 +126,20 @@ const HomePage = () => {
                   <input
                     type="text"
                     placeholder="Search alumni, events..."
-                    className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="pl-10 pr-4 py-2 border-2 border-ocean-200 rounded-lg min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:border-ocean-500 placeholder:text-gray-500"
                   />
                 </div>
               </div>
               
               <Link
                 to="/login"
-                className="text-gray-600 hover:text-blue-600 font-medium"
+                className="text-gray-600 hover:text-ocean-600 font-medium min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded px-2"
               >
                 Login
               </Link>
               <Link
                 to="/register"
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                className="bg-gradient-to-b from-ocean-500 to-ocean-600 text-white px-4 py-2 rounded-lg font-medium min-h-[44px] hover:from-ocean-600 hover:to-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors"
               >
                 Register
               </Link>
@@ -234,7 +234,7 @@ const HomePage = () => {
                 <span className="text-gray-400 text-xs">{job.posted}</span>
                 <Link
                   to={`/jobs/${job.id}`}
-                  className="text-blue-600 hover:text-blue-700 font-medium text-sm flex items-center"
+                  className="text-ocean-600 hover:text-ocean-700 font-medium text-sm flex items-center min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded"
                 >
                   View Details
                   <ArrowRightIcon className="w-4 h-4 ml-1" />
@@ -248,7 +248,7 @@ const HomePage = () => {
         <div className="text-center">
           <Link
             to="/jobs"
-            className="bg-blue-600 text-white px-8 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors inline-flex items-center"
+            className="bg-gradient-to-b from-ocean-500 to-ocean-600 text-white px-8 py-3 rounded-lg font-medium min-h-[44px] hover:from-ocean-600 hover:to-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors inline-flex items-center"
           >
             View All Jobs
             <ArrowRightIcon className="w-5 h-5 ml-2" />
@@ -267,28 +267,28 @@ const HomePage = () => {
             {/* Placeholder Event 1 */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
               <div className="p-6">
-                <p className="text-sm text-blue-600 font-semibold">Oct 25, 2025</p>
+                <p className="text-sm text-ocean-600 font-semibold">Oct 25, 2025</p>
                 <h3 className="mt-2 text-xl font-bold text-gray-900">Annual Alumni Gala</h3>
                 <p className="mt-3 text-gray-600">A night of celebration and networking.</p>
-                <Link to="#" className="mt-4 inline-block text-blue-600 font-semibold hover:text-blue-800">Learn More &rarr;</Link>
+                <Link to="#" className="mt-4 inline-block text-ocean-600 font-semibold hover:text-ocean-800 min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Learn More &rarr;</Link>
               </div>
             </div>
             {/* Placeholder Event 2 */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
               <div className="p-6">
-                <p className="text-sm text-blue-600 font-semibold">Nov 12, 2025</p>
+                <p className="text-sm text-ocean-600 font-semibold">Nov 12, 2025</p>
                 <h3 className="mt-2 text-xl font-bold text-gray-900">Maritime Tech Webinar</h3>
                 <p className="mt-3 text-gray-600">Exploring the future of maritime technology.</p>
-                <Link to="#" className="mt-4 inline-block text-blue-600 font-semibold hover:text-blue-800">Learn More &rarr;</Link>
+                <Link to="#" className="mt-4 inline-block text-ocean-600 font-semibold hover:text-ocean-800 min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Learn More &rarr;</Link>
               </div>
             </div>
             {/* Placeholder Event 3 */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
               <div className="p-6">
-                <p className="text-sm text-blue-600 font-semibold">Dec 05, 2025</p>
+                <p className="text-sm text-ocean-600 font-semibold">Dec 05, 2025</p>
                 <h3 className="mt-2 text-xl font-bold text-gray-900">Career Development Workshop</h3>
                 <p className="mt-3 text-gray-600">Enhance your skills with industry experts.</p>
-                <Link to="#" className="mt-4 inline-block text-blue-600 font-semibold hover:text-blue-800">Learn More &rarr;</Link>
+                <Link to="#" className="mt-4 inline-block text-ocean-600 font-semibold hover:text-ocean-800 min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Learn More &rarr;</Link>
               </div>
             </div>
           </div>
@@ -298,7 +298,7 @@ const HomePage = () => {
       {/* Alumni Spotlight Section */}
       <div className="bg-white py-20">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <BuildingLibraryIcon className="mx-auto h-12 w-12 text-blue-600" />
+          <BuildingLibraryIcon className="mx-auto h-12 w-12 text-ocean-600" />
           <h2 className="mt-6 text-3xl font-bold text-gray-900">Alumni Spotlight</h2>
           <div className="mt-8">
             <img className="mx-auto h-24 w-24 rounded-full" src="/default-avatar.svg" alt="Alumni Spotlight Placeholder" />
@@ -318,7 +318,7 @@ const HomePage = () => {
       <div className="bg-gray-50 py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <ChatBubbleLeftRightIcon className="mx-auto h-12 w-12 text-blue-600" />
+            <ChatBubbleLeftRightIcon className="mx-auto h-12 w-12 text-ocean-600" />
             <h2 className="mt-6 text-3xl font-bold text-gray-900">What Our Alumni Say</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -357,20 +357,20 @@ const HomePage = () => {
             <div>
               <h4 className="text-gray-900 font-semibold mb-4">Quick Links</h4>
               <ul className="space-y-2 text-gray-600">
-                <li><Link to="/about" className="hover:text-blue-600 transition-colors">About AMET</Link></li>
-                <li><Link to="/events" className="hover:text-blue-600 transition-colors">Events</Link></li>
-                <li><Link to="/jobs" className="hover:text-blue-600 transition-colors">Career Center</Link></li>
-                <li><Link to="/directory" className="hover:text-blue-600 transition-colors">Alumni Directory</Link></li>
+                <li><Link to="/about" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">About AMET</Link></li>
+                <li><Link to="/events" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Events</Link></li>
+                <li><Link to="/jobs" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Career Center</Link></li>
+                <li><Link to="/directory" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Alumni Directory</Link></li>
               </ul>
             </div>
             
             <div>
               <h4 className="text-gray-900 font-semibold mb-4">Support</h4>
               <ul className="space-y-2 text-gray-600">
-                <li><Link to="/help" className="hover:text-blue-600 transition-colors">Help Center</Link></li>
-                <li><Link to="/contact" className="hover:text-blue-600 transition-colors">Contact Us</Link></li>
-                <li><Link to="/privacy" className="hover:text-blue-600 transition-colors">Privacy Policy</Link></li>
-                <li><Link to="/terms" className="hover:text-blue-600 transition-colors">Terms of Service</Link></li>
+                <li><Link to="/help" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Help Center</Link></li>
+                <li><Link to="/contact" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Contact Us</Link></li>
+                <li><Link to="/privacy" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Privacy Policy</Link></li>
+                <li><Link to="/terms" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Terms of Service</Link></li>
               </ul>
             </div>
           </div>

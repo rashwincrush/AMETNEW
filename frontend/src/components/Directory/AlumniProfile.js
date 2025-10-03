@@ -200,7 +200,7 @@ const AlumniProfile = () => {
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto p-6 text-center">
-        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-600 mb-4"></div>
         <p className="text-gray-600">Loading alumni profile...</p>
       </div>
     );

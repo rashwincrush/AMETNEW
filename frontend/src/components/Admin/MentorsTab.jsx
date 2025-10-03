@@ -3,6 +3,7 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { MentorStatusChip } from '../../lib/statusChips';
+import { Skeleton } from '../ui/skeleton';
 
 const PAGE_SIZE = 10;
 
@@ -167,7 +168,18 @@ const MentorsTab = () => {
 
 
       {loading ? (
-        <div className="text-center py-8 text-gray-500">Loading...</div>
+        <div className="space-y-4">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="flex items-center gap-4 p-4 border border-ocean-100 rounded-lg">
+              <Skeleton className="h-10 w-10 rounded-full" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="h-3 w-1/2" />
+              </div>
+              <Skeleton className="h-8 w-24" />
+            </div>
+          ))}
+        </div>
       ) : error ? (
         <div className="text-center py-8 text-red-600">{error}</div>
       ) : filtered.length === 0 ? (
@@ -259,22 +271,28 @@ const MentorsTab = () => {
       )}
 
       {/* Pagination */}
-      <div className="flex items-center justify-end gap-2 mt-4">
-        <div className="flex-1 text-sm text-gray-600">Showing {filtered.length} mentor(s)</div>
+      <nav aria-label="Pagination" className="flex items-center justify-center gap-4 mt-6">
         <button
           onClick={() => setPage(p => Math.max(1, p - 1))}
-          className="px-3 py-1 rounded border text-sm disabled:opacity-50"
           disabled={page === 1}
+          aria-label="Go to previous page"
+          className="inline-flex items-center min-h-[44px] min-w-[44px] px-4 py-2 rounded-lg border-2 border-ocean-300 text-ocean-700 hover:bg-ocean-50 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors duration-200"
         >
           Previous
         </button>
-        <span className="text-sm">Page {page}</span>
+        <span aria-current="page" className="min-h-[44px] px-4 py-2 rounded-lg bg-ocean-600 text-white font-medium flex items-center">
+          Page {page}
+        </span>
         <button
           onClick={() => setPage(p => p + 1)}
-          className="px-3 py-1 rounded border text-sm"
+          aria-label="Go to next page"
+          className="inline-flex items-center min-h-[44px] min-w-[44px] px-4 py-2 rounded-lg border-2 border-ocean-300 text-ocean-700 hover:bg-ocean-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors duration-200"
         >
           Next
         </button>
+      </nav>
+      <div className="text-center mt-3 text-sm text-gray-600" role="status" aria-live="polite">
+        Showing {filtered.length} mentor(s)
       </div>
     </div>
   );

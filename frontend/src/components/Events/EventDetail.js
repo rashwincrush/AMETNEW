@@ -305,7 +305,7 @@ const EventDetail = () => {
                       <button onClick={() => handleRsvp('not_going')} disabled={rsvpLoading} className="text-sm text-red-500 hover:underline">Cancel RSVP</button>
                     </div>
                   ) : (
-                    <button onClick={() => handleRsvp('going')} disabled={rsvpLoading || (event.end_date && isPast(parseISO(event.end_date)))} className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 disabled:bg-gray-400 transition duration-200">
+                    <button onClick={() => handleRsvp('going')} disabled={rsvpLoading || (event.end_date && isPast(parseISO(event.end_date)))} className="inline-flex items-center justify-center w-full min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white font-bold hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 disabled:bg-gray-400 disabled:opacity-50 disabled:cursor-not-allowed">
                       {rsvpLoading ? 'Processing...' : 'Attend Event'}
                     </button>
                   )}
@@ -354,7 +354,7 @@ const EventDetail = () => {
                         <Trash2 className="w-4 h-4 mr-2"/> Delete
                       </button>
                       {canViewFeedback ? (
-                        <Link to={`/admin/events/${id}/feedback`} className="flex items-center justify-center w-full bg-indigo-500 text-white font-bold py-2 px-4 rounded hover:bg-indigo-600 transition duration-200">
+                        <Link to={`/admin/events/${id}/feedback`} className="flex items-center justify-center w-full min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white font-bold hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">
                           <BarChart2 className="w-4 h-4 mr-2"/> View Feedback
                         </Link>
                       ) : (

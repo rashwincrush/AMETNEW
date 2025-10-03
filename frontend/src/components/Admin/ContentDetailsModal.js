@@ -82,7 +82,7 @@ const ContentDetailsModal = ({ item, isOpen, onClose }) => {
                 </div>
 
                 <div className="mt-6 flex justify-end">
-                  <button type="button" className="inline-flex justify-center rounded-md border border-transparent bg-indigo-100 px-4 py-2 text-sm font-medium text-indigo-900 hover:bg-indigo-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2" onClick={onClose}>
+                  <button type="button" className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gray-100 text-gray-800 text-sm font-medium hover:bg-gray-200 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2" onClick={onClose}>
                     Close
                   </button>
                 </div>

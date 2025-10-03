@@ -59,6 +59,13 @@ const Navigation = () => {
 
   return (
     <div className="w-64 bg-white shadow-lg border-r border-ocean-200">
+      {/* Skip to main content link */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-ocean-600 focus:text-white focus:rounded-lg focus:shadow-lg focus:ring-2 focus:ring-ocean-500 focus:ring-offset-2"
+      >
+        Skip to main content
+      </a>
       {/* Logo Section */}
       <div className="p-6 border-b border-ocean-200">
         <div className="flex items-center space-x-3">
@@ -72,15 +79,17 @@ const Navigation = () => {
 
 
       {/* Navigation Menu */}
-      <nav className="flex-1 px-4 py-6 space-y-1">
+      <nav aria-label="Main navigation" className="flex-1 px-4 py-6 space-y-1">
         {getMenuItems().map((item) => {
           const Icon = item.icon;
           return (
             <Link
               key={item.path}
               to={item.path}
+              aria-current={isActive(item.path) ? 'page' : undefined}
               className={`
-                group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 relative
+                group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 relative min-h-[44px]
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2
                 ${isActive(item.path) 
                   ? 'nav-active text-white' 
                   : 'text-gray-700 hover:bg-ocean-50 hover:text-ocean-700'
@@ -98,7 +107,7 @@ const Navigation = () => {
       <div className="p-4 border-t border-ocean-200">
         <Link
           to="/profile"
-          className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-ocean-50 hover:text-ocean-700 transition-all duration-200 mb-2"
+          className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-ocean-50 hover:text-ocean-700 transition-all duration-200 mb-2 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
         >
           <CogIcon className="w-5 h-5 mr-3" />
           Profile Settings
@@ -108,7 +117,7 @@ const Navigation = () => {
         {isAdmin && (
           <Link
             to="/admin/settings"
-            className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-ocean-50 hover:text-ocean-700 transition-all duration-200 mb-2"
+            className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-ocean-50 hover:text-ocean-700 transition-all duration-200 mb-2 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
           >
             <ShieldCheckIcon className="w-5 h-5 mr-3" />
             Admin Settings
@@ -117,7 +126,7 @@ const Navigation = () => {
         
         <button
           onClick={handleLogout}
-          className="w-full flex items-center px-3 py-2 text-sm font-medium text-red-700 rounded-lg hover:bg-red-50 transition-all duration-200"
+          className="w-full flex items-center px-3 py-2 text-sm font-medium text-ocean-700 rounded-lg hover:bg-ocean-50 transition-all duration-200 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
         >
           <svg className="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

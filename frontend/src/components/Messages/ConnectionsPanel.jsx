@@ -37,19 +37,19 @@ function Row({ peer, onAccept, onReject, onCancel, onMessage, onDisconnect }) {
       </div>
       <div className="flex items-center gap-2">
         {onAccept && (
-          <button className="px-2 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700" onClick={onAccept}>Accept</button>
+          <button className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2" onClick={onAccept}>Accept</button>
         )}
         {onReject && (
-          <button className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700" onClick={onReject}>Reject</button>
+          <button className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2" onClick={onReject}>Reject</button>
         )}
         {onCancel && (
-          <button className="px-2 py-1 text-xs rounded bg-gray-200 text-gray-700 hover:bg-gray-300" onClick={onCancel}>Cancel</button>
+          <button className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gray-100 text-gray-800 hover:bg-gray-200 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2" onClick={onCancel}>Cancel</button>
         )}
         {onMessage && (
-          <button className="px-2 py-1 text-xs rounded bg-ocean-600 text-white hover:bg-ocean-700" onClick={onMessage}>Message</button>
+          <button className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2" onClick={onMessage}>Message</button>
         )}
         {onDisconnect && (
-          <button className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700" onClick={onDisconnect}>Disconnect</button>
+          <button className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2" onClick={onDisconnect}>Disconnect</button>
         )}
       </div>
     </div>

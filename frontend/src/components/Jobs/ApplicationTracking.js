@@ -19,6 +19,7 @@ const ApplicationTracking = () => {
     const fetchApplications = async () => {
       try {
         // Query that joins job_applications with jobs to get full details
+        // Note: source_type is derived client-side (same logic as v_jobs_public view)
         const { data, error } = await supabase
           .from('job_applications')
           .select(`
@@ -33,18 +34,35 @@ const ApplicationTracking = () => {
               location,
               job_type,
               deadline,
-              source_type
+              apply_url,
+              application_url,
+              external_url
             )
           `)
           .eq('applicant_id', user.id)
-          .eq('jobs.source_type', 'in_app')
           .order('created_at', { ascending: false });
 
         if (error) {
           throw error;
         }
 
-        setApplications(data || []);
+        // Derive source_type client-side (same semantics as v_jobs_public)
+        const appsWithSourceType = (data || []).map(app => ({
+          ...app,
+          jobs: app.jobs ? {
+            ...app.jobs,
+            source_type: (app.jobs.apply_url || app.jobs.application_url || app.jobs.external_url)
+              ? 'quick_link'
+              : 'in_app'
+          } : null
+        }));
+
+        // Filter for in_app jobs only (matching original intent)
+        const inAppApplications = appsWithSourceType.filter(app => 
+          app.jobs && app.jobs.source_type === 'in_app'
+        );
+
+        setApplications(inAppApplications);
       } catch (error) {
         console.error('Error fetching applications:', error);
         toast.error('Failed to load your applications');
@@ -74,7 +92,7 @@ const ApplicationTracking = () => {
   const getStatusBadgeClass = (status) => {
     switch (status) {
       case 'submitted':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-ocean-100 text-ocean-800';
       case 'reviewing':
         return 'bg-yellow-100 text-yellow-800';
       case 'interview':

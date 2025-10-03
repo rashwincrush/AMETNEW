@@ -80,6 +80,7 @@ import MentorSettings from './components/Mentorship/MentorSettings';
 import CreateGroup from './components/Networking/CreateGroup';
 import GroupDetails from './components/Networking/GroupDetails';
 import Analytics from './components/Admin/Analytics';
+import AdminGate from './components/Admin/AdminGate';
 import UserManagement from './components/Admin/UserManagement';
 
 import AdminSettings from './components/Admin/AdminSettings';
@@ -178,7 +179,7 @@ function AppContent() {
       <Navigation user={profile || user} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header user={profile || user} />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gradient-to-br from-ocean-50 to-blue-50 p-6">
+        <main id="main-content" className="flex-1 overflow-x-hidden overflow-y-auto bg-gradient-to-br from-ocean-50 to-ocean-100 p-6">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/terms-of-service" element={<TermsOfService />} />
@@ -265,7 +266,7 @@ function AppContent() {
             />
             <Route path="/messages" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="message:users"><Messages /></ProtectedRoute></RequireCompleteProfile>} />
             <Route path="/notifications" element={<Notifications />} />
-            <Route path="/admin/analytics" element={<ProtectedRoute requiredPermission="access:all"><Analytics /></ProtectedRoute>} />
+            <Route path="/admin/analytics" element={<ProtectedRoute requiredPermission="access:all"><AdminGate><Analytics /></AdminGate></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute requiredPermission="access:all"><UserManagement /></ProtectedRoute>} />
             <Route path="/admin/activity-logs" element={<ProtectedRoute requiredPermission="access:all"><ActivityLogs /></ProtectedRoute>} />
             <Route path="/admin/settings" element={<ProtectedRoute requiredPermission="access:all"><AdminSettings /></ProtectedRoute>} />

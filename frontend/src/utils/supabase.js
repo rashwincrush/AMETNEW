@@ -981,6 +981,58 @@ export const deleteGroup = async (groupId) => {
   return { data, error };
 };
 
+/**
+ * Fetch a compact summary of the current user's most recent group memberships.
+ * Tries group_memberships first (primary in this codebase), then falls back to group_members.
+ */
+export async function fetchMyGroupsSummary(limit = 3, userId) {
+  if (!userId) return { data: [], error: null };
+
+  // Step A: memberships (prefer group_memberships)
+  let mships = [];
+  try {
+    const { data: ms1, error: mErr1 } = await supabase
+      .from('group_memberships')
+      .select('group_id, joined_at:created_at, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (mErr1) throw mErr1;
+    mships = ms1 || [];
+  } catch (e) {
+    // Fallback to group_members table naming
+    const { data: ms2, error: mErr2 } = await supabase
+      .from('group_members')
+      .select('group_id, joined_at:created_at, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (mErr2) return { data: [], error: mErr2 };
+    mships = ms2 || [];
+  }
+
+  const ids = (mships ?? []).map(m => m.group_id);
+  if (ids.length === 0) return { data: [], error: null };
+
+  // Step B: hydrate groups
+  const { data: groups, error: gErr } = await supabase
+    .from('groups')
+    .select('id, name, group_avatar_url, is_private, is_archived, is_admin_only_posts, is_approved, approval_status, tags, created_at')
+    .in('id', ids);
+  if (gErr) return { data: [], error: gErr };
+
+  const byId = Object.fromEntries((groups || []).map(g => [g.id, g]));
+  const merged = (mships || [])
+    .map(m => {
+      const g = byId[m.group_id];
+      if (!g) return null; // RLS may hide
+      return { ...g, joined_at: m.joined_at || m.created_at };
+    })
+    .filter(Boolean);
+
+  return { data: merged, error: null };
+}
+
 // Upload group avatar
 export const uploadGroupAvatar = async (file, groupId) => {
   try {

@@ -702,14 +702,14 @@ const CreateEvent = () => {
           <button
             type="button"
             onClick={() => navigate('/events')}
-            className="btn-ocean-outline px-6 py-2 rounded-lg"
+            className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={isSubmitting}
-            className="btn-ocean px-6 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
           >
             {isSubmitting ? (
               <div className="flex items-center">

@@ -389,7 +389,7 @@ const ContentApproval = () => {
   
   const getContentTypeIcon = (type) => {
     switch(type) {
-      case 'post': return <DocumentTextIcon className="w-6 h-6 text-blue-500" />;
+      case 'post': return <DocumentTextIcon className="w-6 h-6 text-ocean-600" />;
       case 'comment': return <ChatBubbleLeftRightIcon className="w-6 h-6 text-green-500" />;
       case 'event': return <CalendarIcon className="w-6 h-6 text-red-500" />;
       case 'job': return <BriefcaseIcon className="w-6 h-6 text-indigo-500" />;
@@ -403,7 +403,7 @@ const ContentApproval = () => {
   const getContentTypeBadge = (type) => {
     const baseClasses = "px-2 py-1 text-xs font-medium rounded-full";
     switch (type) {
-      case 'post': return 'bg-blue-100 text-blue-800';
+      case 'post': return 'bg-ocean-100 text-ocean-800';
       case 'comment': return 'bg-green-100 text-green-800';
       case 'event': return 'bg-red-100 text-red-800';
       case 'job': return 'bg-indigo-100 text-indigo-800';
@@ -491,7 +491,7 @@ const ContentApproval = () => {
           <button 
             title="View Details" 
             onClick={() => handleViewDetails(item)} 
-            className="text-gray-500 hover:text-indigo-600 p-2 rounded-full hover:bg-gray-100"
+            className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg text-gray-500 hover:text-ocean-600 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
             aria-label={`View details for ${item.type} ${item.title || item.job_title || ''}`}
           >
             <EyeIcon className="h-6 w-6" />
@@ -499,7 +499,7 @@ const ContentApproval = () => {
           <button 
             title="Approve" 
             onClick={() => handleApprove(item)} 
-            className="text-green-600 hover:text-green-800 p-2 rounded-full hover:bg-green-100"
+            className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg text-green-600 hover:text-green-800 hover:bg-green-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
             aria-label={`Approve ${item.type} ${item.title || item.job_title || ''}`}
           >
             <CheckCircleIcon className="h-6 w-6" />
@@ -507,7 +507,7 @@ const ContentApproval = () => {
           <button 
             title="Reject" 
             onClick={() => handleReject(item)} 
-            className="text-red-600 hover:text-red-800 p-2 rounded-full hover:bg-red-100"
+            className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg text-red-600 hover:text-red-800 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
             aria-label={`Reject ${item.type} ${item.title || item.job_title || ''}`}
           >
             <XCircleIcon className="h-6 w-6" />
@@ -543,7 +543,7 @@ const ContentApproval = () => {
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            className="block rounded-md border-gray-300 shadow-sm focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm"
             aria-label="Filter content type"
             aria-controls="content-list"
           >
@@ -557,7 +557,7 @@ const ContentApproval = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            className="block rounded-md border-gray-300 shadow-sm focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm"
             aria-label="Filter by moderation status"
           >
             <option value="pending">Pending</option>
@@ -572,9 +572,9 @@ const ContentApproval = () => {
               onClick={() => setViewMode('list')}
               className={`relative inline-flex items-center px-3 py-2 rounded-l-md border ${
                 viewMode === 'list'
-                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  ? 'bg-ocean-600 text-white border-ocean-600'
                   : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-              }`}
+              } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
               aria-pressed={viewMode === 'list'}
               aria-label="List view"
             >
@@ -585,9 +585,9 @@ const ContentApproval = () => {
               onClick={() => setViewMode('grid')}
               className={`relative inline-flex items-center px-3 py-2 rounded-r-md border ${
                 viewMode === 'grid'
-                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  ? 'bg-ocean-600 text-white border-ocean-600'
                   : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-              }`}
+              } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
               aria-pressed={viewMode === 'grid'}
               aria-label="Grid view"
             >
@@ -597,7 +597,7 @@ const ContentApproval = () => {
 
           <button
             onClick={fetchPendingContent}
-            className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            className="inline-flex items-center justify-center min-h-[44px] px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ocean-500"
             aria-label="Refresh content list"
           >
             <ArrowPathIcon className="w-4 h-4 mr-1" />
@@ -609,7 +609,7 @@ const ContentApproval = () => {
       {/* Content display */}
       {loading ? (
         <div className="flex justify-center py-8">
-                    <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-indigo-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-ocean-600"></div>
         </div>
       ) : error ? (
         <div className="bg-red-50 p-4 rounded-md">

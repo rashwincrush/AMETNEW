@@ -293,9 +293,9 @@ const AdminSettings = () => {
   const availableTabs = tabs; // All tabs visible except Reports gated above
 
   return (
-    <div className="space-y-6">
+    <main id="main-content" className="space-y-6">
       {/* Header */}
-      <div className="rounded-lg p-6 bg-gradient-to-r from-purple-600 to-blue-600 shadow-lg">
+      <div className="rounded-lg p-6 bg-gradient-to-r from-ocean-500 to-ocean-600 shadow-lg">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center text-white">
@@ -317,15 +317,16 @@ const AdminSettings = () => {
       {/* Main Content with Tabs */}
       <div className="glass-card rounded-lg p-2 sm:p-6">
         <Tab.Group selectedIndex={selectedIndex} onChange={setSelectedIndex}>
-          <Tab.List className="flex space-x-1 rounded-xl bg-blue-50 p-1">
+          <Tab.List className="flex space-x-1 rounded-lg bg-ocean-50 p-1" role="tablist">
             {availableTabs.map((tab) => (
               <Tab
                 key={tab.name}
                 className={({ selected }) =>
-                  `w-full py-3 text-sm font-medium leading-5 text-blue-700 rounded-lg flex items-center justify-center focus:outline-none focus:ring-2 ring-offset-2 ring-offset-blue-400 ring-white ring-opacity-60
+                  `w-full py-3 text-sm font-medium leading-5 rounded-lg flex items-center justify-center min-h-[44px] transition-all duration-200
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2
                    ${selected
-                      ? 'bg-white shadow'
-                      : 'text-blue-500 hover:bg-white/[0.12] hover:text-blue-700'
+                      ? 'bg-white text-ocean-700 shadow border-b-2 border-ocean-600'
+                      : 'text-gray-700 hover:bg-white/50 hover:text-ocean-700'
                    }`
                 }
               >
@@ -338,7 +339,8 @@ const AdminSettings = () => {
             {availableTabs.map((tab, idx) => (
               <Tab.Panel
                 key={idx}
-                className={'rounded-xl bg-white p-1'}
+                className="rounded-lg bg-white p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
+                role="tabpanel"
               >
                 {!isSuperAdmin ? (
                   <PermissionGate
@@ -361,7 +363,7 @@ const AdminSettings = () => {
           </Tab.Panels>
         </Tab.Group>
       </div>
-    </div>
+    </main>
   );
 };
 

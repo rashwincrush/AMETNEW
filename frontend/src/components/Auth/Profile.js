@@ -1223,9 +1223,9 @@ const Profile = () => {
               <div className="w-full px-3 py-2 rounded-lg border border-gray-300 focus-within:ring-2 focus-within:ring-ocean-500">
                 <div className="flex flex-wrap gap-2">
                   {(formData.skills || []).map((skill, idx) => (
-                    <span key={`${skill}-${idx}`} className="inline-flex items-center bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
+                    <span key={`${skill}-${idx}`} className="inline-flex items-center bg-ocean-100 text-ocean-800 px-2 py-1 rounded-full text-xs">
                       {skill}
-                      <button type="button" className="ml-1 text-blue-600 hover:text-blue-800" onClick={() => removeSkill(skill)} aria-label={`Remove ${skill}`}>
+                      <button type="button" className="ml-1 text-ocean-600 hover:text-ocean-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded" onClick={() => removeSkill(skill)} aria-label={`Remove ${skill}`}>
                         ×
                       </button>
                     </span>
@@ -1469,7 +1469,7 @@ const Profile = () => {
                     <h3 className="font-medium text-gray-900 mb-2">Skills</h3>
                     <div className="flex flex-wrap gap-2">
                       {formData.skills.map((skill, index) => (
-                        <span key={index} className="bg-blue-100 text-blue-800 px-2 py-1 rounded-md text-sm">
+                        <span key={index} className="bg-ocean-100 text-ocean-800 px-2 py-1 rounded-md text-sm">
                           {skill}
                         </span>
                       ))}

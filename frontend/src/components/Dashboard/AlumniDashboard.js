@@ -2,9 +2,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../hooks/useNotification'; // Import useAuth
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import useRecentActivity from '../../hooks/useRecentActivity';
+// Removed legacy useRecentActivity in favor of self-contained ActivitiesWidget
 import { supabase } from '../../utils/supabase'; // Updated Supabase client import
 import toast from 'react-hot-toast'; // For error notifications
+import ActivitiesWidget from './ActivitiesWidget';
+import MyGroupsWidget from './MyGroupsWidget';
 import { 
   UsersIcon, 
   CalendarIcon, 
@@ -19,20 +21,20 @@ import {
 
 // Skeleton Card Component for loading states
 const SkeletonCard = ({ className = '' }) => (
-  <div className={`bg-gray-200 animate-pulse rounded-lg p-6 ${className}`}>
-    <div className="h-6 bg-gray-300 rounded w-3/4 mb-4"></div>
-    <div className="h-10 bg-gray-300 rounded w-1/2 mb-2"></div>
-    <div className="h-4 bg-gray-300 rounded w-full"></div>
+  <div className={`bg-ocean-50 animate-pulse rounded-lg p-6 border border-ocean-100 ${className}`}>
+    <div className="h-6 bg-ocean-100 rounded-lg w-3/4 mb-4"></div>
+    <div className="h-10 bg-ocean-100 rounded-lg w-1/2 mb-2"></div>
+    <div className="h-4 bg-ocean-100 rounded-lg w-full"></div>
   </div>
 );
 
 const StatSkeletonCard = ({ className = '' }) => (
-  <div className={`bg-gray-200 animate-pulse rounded-lg p-4 ${className}`}>
+  <div className={`bg-ocean-50 animate-pulse rounded-lg p-4 border border-ocean-100 ${className}`}>
     <div className="flex items-center">
-      <div className="h-8 w-8 bg-gray-300 rounded-full mr-3"></div>
+      <div className="h-8 w-8 bg-ocean-100 rounded-full mr-3"></div>
       <div>
-        <div className="h-4 bg-gray-300 rounded w-24 mb-2"></div>
-        <div className="h-6 bg-gray-300 rounded w-12"></div>
+        <div className="h-4 bg-ocean-100 rounded-lg w-24 mb-2"></div>
+        <div className="h-6 bg-ocean-100 rounded-lg w-12"></div>
       </div>
     </div>
   </div>
@@ -64,41 +66,7 @@ const formatEventDateTime = (dateString, timeString) => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
-function renderActivityTitle(a) {
-  const t = a.activity_type;
-  const title = a.title || 'Activity';
-  const meta = a.meta || {};
-  switch (t) {
-    case 'event_rsvp': {
-      const st = (meta.attendance_status || '').toLowerCase();
-      return st === 'going' ? `RSVP’d Going: ${title}`
-           : st === 'not_going' ? `Declined: ${title}`
-           : st === 'accepted' ? `RSVP Accepted: ${title}`
-           : st === 'rejected' ? `RSVP Rejected: ${title}`
-           : `RSVP: ${title}`;
-    }
-    case 'job_applied':
-      return `Applied: ${title}`;
-    case 'connection_sent':
-      return 'Connection request sent';
-    case 'connection_accepted':
-      return 'Connection accepted';
-    case 'connection_rejected':
-      return 'Connection rejected';
-    case 'connection_disconnected':
-      return 'Disconnected from a connection';
-    case 'group_joined':
-      return `Joined ${title}`;
-    case 'group_left':
-      return `Left ${title}`;
-    case 'mentor_update':
-      return `Mentor update: ${title}`;
-    case 'mentee_update':
-      return `Mentee update: ${title}`;
-    default:
-      return title;
-  }
-}
+// Removed legacy renderActivityTitle; ActivitiesWidget handles its own copy
 
 const AlumniDashboard = () => {
   const { showInfo } = useNotification();
@@ -119,8 +87,7 @@ const AlumniDashboard = () => {
   const userName = profile?.full_name || user?.user_metadata?.full_name || user?.email || 'Alumni';
   const hasFetched = useRef(false);
   
-  // Recent Activity Hook (RPC-only)
-  const { items: recent, loading: recentLoading, error: recentError } = useRecentActivity(10);
+  // Recent Activity now fully handled by <ActivitiesWidget />
 
   // Improved promiseWithTimeout with retry capability
   const promiseWithTimeout = useCallback((promise, ms, maxRetries = 2, timeoutError = new Error('Request timed out')) => {
@@ -507,7 +474,7 @@ const AlumniDashboard = () => {
   }
 
   return (
-    <div className="p-4 md:p-6 bg-gray-50 min-h-screen">
+    <main id="main-content" className="p-4 md:p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-800 mb-6">Welcome back, {userName}!</h1>
         {loading ? (
@@ -522,9 +489,9 @@ const AlumniDashboard = () => {
             {/* Stats Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
               {/* Total Alumni */}
-              <div className="glass-card rounded-lg p-4 flex items-center">
-                <div className="bg-blue-100 rounded-full p-3 mr-4">
-                  <UsersIcon className="w-6 h-6 text-blue-500" />
+              <div className="glass-card p-4 flex items-center">
+                <div className="bg-ocean-100 rounded-full p-3 mr-4">
+                  <UsersIcon className="w-6 h-6 text-ocean-600" />
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Total Alumni</p>
@@ -533,9 +500,9 @@ const AlumniDashboard = () => {
               </div>
 
               {/* Upcoming Events */}
-              <div className="glass-card rounded-lg p-4 flex items-center">
+              <div className="glass-card p-4 flex items-center">
                 <div className="bg-green-100 rounded-full p-3 mr-4">
-                  <CalendarIcon className="w-6 h-6 text-green-500" />
+                  <CalendarIcon className="w-6 h-6 text-green-600" />
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Upcoming Events</p>
@@ -544,9 +511,9 @@ const AlumniDashboard = () => {
               </div>
 
               {/* Job Opportunities */}
-              <div className="glass-card rounded-lg p-4 flex items-center">
+              <div className="glass-card p-4 flex items-center">
                 <div className="bg-orange-100 rounded-full p-3 mr-4">
-                  <BriefcaseIcon className="w-6 h-6 text-orange-500" />
+                  <BriefcaseIcon className="w-6 h-6 text-orange-600" />
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Job Opportunities</p>
@@ -555,9 +522,9 @@ const AlumniDashboard = () => {
               </div>
 
               {/* Personal Connections */}
-              <div className="glass-card rounded-lg p-4 flex items-center">
+              <div className="glass-card p-4 flex items-center">
                 <div className="bg-purple-100 rounded-full p-3 mr-4">
-                  <UsersIcon className="w-6 h-6 text-purple-500" />
+                  <UsersIcon className="w-6 h-6 text-purple-600" />
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Connections</p>
@@ -568,55 +535,13 @@ const AlumniDashboard = () => {
 
             {/* Main Content Area */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-              {/* Left Column: News/Updates and My Groups */}
+              {/* Left Column: Widgets */}
               <div className="lg:col-span-2 space-y-6">
-                {/* My Groups - Placeholder */}
-                <div className="glass-card rounded-lg p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">My Networking Groups</h3>
-                  <div className="text-center py-4">
-                    <div className="w-12 h-12 bg-purple-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <ChatBubbleLeftRightIcon className="w-6 h-6 text-purple-400" />
-                    </div>
-                    <h4 className="text-md font-semibold text-gray-700">No Groups Joined</h4>
-                    <p className="text-sm text-gray-500 mt-1">Join a group to start networking with peers.</p>
-                    <Link 
-                      to="/groups"
-                      className="mt-4 inline-block btn-ocean-fill text-sm py-2 px-4 rounded-lg"
-                    >
-                      Explore Groups
-                    </Link>
-                  </div>
-                </div>
+                {/* My Groups - Widget */}
+                <MyGroupsWidget />
 
-                {/* Recent Activity (RPC-only) */}
-                <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <div className="mb-2 flex items-center justify-between">
-                    <h3 className="font-semibold">Recent Activity</h3>
-                    <Link to="/notifications" className="text-sm text-blue-600 hover:underline">View all</Link>
-                  </div>
-
-                  {recentError && <p className="text-sm text-red-600">Couldn’t load activity.</p>}
-                  {recentLoading ? (
-                    <p className="text-sm text-gray-500">Loading…</p>
-                  ) : recent.length === 0 ? (
-                    <p className="text-sm text-gray-500">No recent activity</p>
-                  ) : (
-                    <ul className="space-y-3">
-                      {recent.map((a, i) => (
-                        <li key={`${a.activity_type}-${a.ref_id ?? i}-${a.created_at}`}>
-                          <Link to={a.url || "#"} className="block hover:bg-gray-50 rounded-md p-2">
-                            <div className="text-sm font-medium">
-                              {renderActivityTitle(a)}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              {new Date(a.created_at).toLocaleString()}
-                            </div>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+                {/* Recent Activities (new widget) */}
+                <ActivitiesWidget />
               </div>
 
               {/* Right Column: Upcoming Events and Job Recommendations */}
@@ -686,6 +611,8 @@ const AlumniDashboard = () => {
                     </Link>
                   </div>
                 </div>
+
+                
               </div>
             </div>
           </React.Fragment>
@@ -715,7 +642,7 @@ const AlumniDashboard = () => {
           <p className="text-sm font-medium text-gray-900">Join Groups</p>
         </Link>
       </div>
-    </div>
+    </main>
   );
 };
 

@@ -243,7 +243,7 @@ const UserManagement = () => {
       case 'super_admin':
         return 'bg-purple-100 text-purple-800';
       case 'mentor':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-ocean-100 text-ocean-800';
       case 'employer':
         return 'bg-indigo-100 text-indigo-800';
       case 'mentee_student':
@@ -716,14 +716,14 @@ const UserManagement = () => {
                         <button 
                           title="View Details"
                           onClick={() => handleUserAction('view', user.id)}
-                          className="p-1 text-gray-400 hover:text-ocean-600"
+                          className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg text-gray-400 hover:text-ocean-600 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                         >
                           <EyeIcon className="w-4 h-4" />
                         </button>
                         <button 
                           title="Edit User"
                           onClick={() => handleUserAction('edit', user.id)}
-                          className="p-1 text-gray-400 hover:text-blue-600"
+                          className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg text-gray-400 hover:text-ocean-600 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                         >
                           <PencilIcon className="w-4 h-4" />
                         </button>
@@ -733,7 +733,7 @@ const UserManagement = () => {
                               title={user.approval_status === 'approved' ? 'Already approved' : 'Approve User'}
                               disabled={user.approval_status === 'approved'}
                               onClick={() => handleUserAction('approve', user.id)}
-                              className={`p-1 ${user.approval_status === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600'}`}
+                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${user.approval_status === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
                             >
                               <CheckCircleIcon className="w-4 h-4" />
                             </button>
@@ -741,7 +741,7 @@ const UserManagement = () => {
                               title={user.approval_status === 'rejected' ? 'Already rejected' : 'Reject User'}
                               disabled={user.approval_status === 'rejected'}
                               onClick={() => handleUserAction('reject', user.id)}
-                              className={`p-1 ${user.approval_status === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600'}`}
+                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${user.approval_status === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
                             >
                               <XCircleIcon className="w-4 h-4" />
                             </button>
@@ -754,7 +754,7 @@ const UserManagement = () => {
                                 title="Purge User Data"
                                 onClick={() => handleUserAction('purge', user.id)}
                                 disabled={deletingId === user.id}
-                                className={`p-1 ${deletingId === user.id ? 'opacity-50 cursor-not-allowed' : 'text-gray-400 hover:text-red-800'}`}
+                                className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${deletingId === user.id ? 'opacity-50 cursor-not-allowed' : 'text-gray-400 hover:text-red-800 hover:bg-red-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
                                 aria-label="Purge user data permanently"
                               >
                                 {deletingId === user.id ? (
@@ -769,7 +769,7 @@ const UserManagement = () => {
                                 title="Delete Auth User"
                                 onClick={() => handleUserAction('delete-auth', user.id)}
                                 disabled={deletingId === user.id}
-                                className={`p-1 ${deletingId === user.id ? 'opacity-50 cursor-not-allowed' : 'text-gray-400 hover:text-red-900'}`}
+                                className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${deletingId === user.id ? 'opacity-50 cursor-not-allowed' : 'text-gray-400 hover:text-red-900 hover:bg-red-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
                                 aria-label="Delete user from Supabase Auth"
                               >
                                 {deletingId === user.id ? (
@@ -783,7 +783,7 @@ const UserManagement = () => {
                                 title="Soft Delete User"
                                 onClick={() => handleUserAction('delete', user.id)}
                                 disabled={deletingId === user.id}
-                                className={`p-1 ${deletingId === user.id ? 'opacity-50 cursor-not-allowed' : 'text-gray-400 hover:text-red-600'}`}
+                                className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${deletingId === user.id ? 'opacity-50 cursor-not-allowed' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
                                 aria-label="Soft delete user"
                               >
                                 {deletingId === user.id ? (
@@ -812,10 +812,10 @@ const UserManagement = () => {
                 <span className="font-medium">{users.length}</span> users
               </p>
               <div className="flex space-x-2">
-                <button className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
+                <button className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">
                   Previous
                 </button>
-                <button className="px-3 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">
+                <button className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">
                   Next
                 </button>
               </div>

@@ -392,7 +392,8 @@ const Events = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <main id="main-content" className="p-4 md:p-6 lg:p-8 space-y-6">
+      <div className="max-w-7xl mx-auto">
       {/* Header */}
       <div className="glass-card rounded-lg p-6">
         <div className="flex items-center justify-between">
@@ -554,58 +555,43 @@ const Events = () => {
           )}
         </div>
       ) : (
-        <div className="text-center py-10 glass-card rounded-lg">
-          <h3 className="text-lg font-semibold">No Events Found</h3>
-          <p className="text-gray-500 mt-2">Try adjusting your search or filters.</p>
+        <div className="text-center py-12 glass-card rounded-lg">
+          <div className="w-16 h-16 bg-ocean-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CalendarIcon className="w-8 h-8 text-ocean-600" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">No Events Found</h3>
+          <p className="text-gray-600 mb-6">Try adjusting your search or filters.</p>
         </div>
       )}
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center space-x-2 mt-8">
+        <nav aria-label="Pagination" className="flex items-center justify-center gap-4 mt-8">
           <button 
             onClick={() => paginate(currentPage - 1)}
             disabled={currentPage === 1}
-            className={`px-3 py-2 border border-gray-300 rounded-lg text-sm ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+            aria-label="Go to previous page"
+            className="inline-flex items-center min-h-[44px] min-w-[44px] px-4 py-2 rounded-lg border-2 border-ocean-300 text-ocean-700 hover:bg-ocean-50 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors duration-200"
           >
             Previous
           </button>
           
-          {Array.from({ length: Math.min(5, totalPages) }).map((_, i) => {
-            let pageNum;
-            if (totalPages <= 5) {
-              pageNum = i + 1;
-            } else if (currentPage <= 3) {
-              pageNum = i + 1;
-            } else if (currentPage >= totalPages - 2) {
-              pageNum = totalPages - 4 + i;
-            } else {
-              pageNum = currentPage - 2 + i;
-            }
-            
-            return (
-              <button
-                key={pageNum}
-                onClick={() => paginate(pageNum)}
-                className={`px-3 py-2 ${currentPage === pageNum 
-                  ? 'bg-ocean-500 text-white' 
-                  : 'border border-gray-300 hover:bg-gray-50'} rounded-lg text-sm`}
-              >
-                {pageNum}
-              </button>
-            );
-          })}
+          <span aria-current="page" className="min-h-[44px] px-4 py-2 rounded-lg bg-ocean-600 text-white font-medium flex items-center">
+            Page {currentPage} of {totalPages}
+          </span>
           
           <button 
             onClick={() => paginate(currentPage + 1)}
             disabled={currentPage === totalPages}
-            className={`px-3 py-2 border border-gray-300 rounded-lg text-sm ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+            aria-label="Go to next page"
+            className="inline-flex items-center min-h-[44px] min-w-[44px] px-4 py-2 rounded-lg border-2 border-ocean-300 text-ocean-700 hover:bg-ocean-50 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors duration-200"
           >
             Next
           </button>
-        </div>
+        </nav>
       )}
-    </div>
+      </div>
+    </main>
   );
 };
 

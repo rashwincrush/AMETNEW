@@ -140,7 +140,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
               <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">
                 {job.companies?.name || job.company_name}
               </Link>
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-ocean-100 text-ocean-800' : 'bg-green-100 text-green-800'}`}>
                 {quick ? 'Quick Link' : 'In-App'}
               </span>
               {renderStatusBadge()}
@@ -148,7 +148,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           </div>
         </div>
         <div className="flex items-center">
-          <button onClick={() => shareJob(job)} className="p-2 rounded-full hover:bg-gray-100" aria-label="Share job">
+          <button onClick={() => shareJob(job)} className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80" aria-label="Share job">
             <ShareIcon className="w-5 h-5 text-gray-500" />
           </button>
 
@@ -203,18 +203,18 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
                 }
                 navigate(`/messages?peer=${employerId}&job=${job.id}`);
               }}
-              className="btn-ocean-outline py-1 px-3 rounded text-sm"
+              className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
             >
               Ask Employer
             </button>
           )}
-          <Link to={`/jobs/${job.id}`} className="btn-ocean-outline py-1 px-3 rounded text-sm">View Details</Link>
+          <Link to={`/jobs/${job.id}`} className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">View Details</Link>
           <button
             onClick={() => {
               if (quick && href) window.open(href, '_blank', 'noopener,noreferrer');
               else navigate(`/jobs/${job.id}`);
             }}
-            className="btn-ocean py-1 px-3 rounded text-sm"
+            className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
           >
             {quick ? 'Apply Externally' : (isOwner ? 'View Applications' : 'Apply Now')}
           </button>
@@ -253,7 +253,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
             <Link to={`/jobs/${job.id}`} className="text-lg font-bold text-gray-900 hover:text-ocean-600 transition-colors duration-200 line-clamp-1" title={job.title}>
               {job.title}
             </Link>
-            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-ocean-100 text-ocean-800' : 'bg-green-100 text-green-800'}`}>
               {quick ? 'Quick Link' : 'In-App'}
             </span>
             {renderStatusBadge()}
@@ -292,7 +292,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
           )}
           <Link to={`/jobs/${job.id}`} className="btn-ocean-outline px-4 py-2 rounded-lg text-sm">View Details</Link>
           <button
-            className="btn-ocean px-4 py-2 rounded-lg text-sm"
+            className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
             onClick={() => {
               if (quick) {
                 const url = coalesceAppUrl(job);
@@ -353,6 +353,27 @@ const JobListingsPage = () => {
   const [approvalFilter, setApprovalFilter] = useState(searchParams.get('approval') || 'all');
 
   const fetchController = useRef(null);
+  const filtersRef = useRef(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const toggleFilters = useCallback(() => {
+    setFiltersOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        // Opening: scroll and focus the first filter control
+        setTimeout(() => {
+          try {
+            if (filtersRef.current) {
+              filtersRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              const firstSelect = filtersRef.current.querySelector('select');
+              if (firstSelect) firstSelect.focus();
+            }
+          } catch (_) { /* noop */ }
+        }, 0);
+      }
+      return next;
+    });
+  }, []);
 
   const fetchJobs = useCallback(async () => {
     if (fetchController.current) fetchController.current.abort();
@@ -629,7 +650,8 @@ const JobListingsPage = () => {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 bg-gray-50 min-h-screen">
+    <main id="main-content" className="p-4 md:p-6 lg:p-8 bg-gray-50 min-h-screen">
+      <div className="max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <div>
@@ -671,14 +693,15 @@ const JobListingsPage = () => {
             />
           </div>
           <button onClick={handleSearch} className="btn-ocean px-6 py-2 rounded-lg text-sm w-full md:w-auto">Search</button>
-          <button className="btn-ocean-outline px-4 py-2 rounded-lg text-sm w-full md:w-auto flex items-center justify-center">
+          <button onClick={toggleFilters} aria-label="Toggle filters" aria-expanded={filtersOpen} aria-controls="job-filters" className="btn-ocean-outline px-4 py-2 rounded-lg text-sm w-full md:w-auto flex items-center justify-center min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">
             <FunnelIcon className="w-4 h-4 mr-2" />
-            Filters
+            {filtersOpen ? 'Hide Filters' : 'Filters'}
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+      {filtersOpen && (
+      <div id="job-filters" ref={filtersRef} className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         {Object.entries(filterOptions).map(([key, options]) => (
           <select
             key={key}
@@ -711,26 +734,27 @@ const JobListingsPage = () => {
             setSortBy('created_at,desc');
             setCurrentPage(1);
           }}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm hover:bg-white"
+          className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
           aria-label="Reset filters"
         >
           Reset Filters
         </button>
       </div>
+      )}
 
       {/* View + Sort */}
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center space-x-1 bg-gray-200 p-1 rounded-lg">
-          <button onClick={() => setViewMode('grid')} className={`px-3 py-1 rounded-md text-sm ${viewMode === 'grid' ? 'bg-white shadow' : 'text-gray-600'}`}>
+          <button onClick={() => setViewMode('grid')} className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg text-sm ${viewMode === 'grid' ? 'bg-white shadow' : 'text-gray-600'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}>
             <Squares2X2Icon className="w-5 h-5" />
           </button>
-          <button onClick={() => setViewMode('list')} className={`px-3 py-1 rounded-md text-sm ${viewMode === 'list' ? 'bg-white shadow' : 'text-gray-600'}`}>
+          <button onClick={() => setViewMode('list')} className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg text-sm ${viewMode === 'list' ? 'bg-white shadow' : 'text-gray-600'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}>
             <ListBulletIcon className="w-5 h-5" />
           </button>
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className={`px-3 py-1 rounded-md text-sm ${isRefreshing ? 'opacity-50 cursor-not-allowed' : 'text-gray-600 hover:bg-white hover:shadow'}`}
+            className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg text-sm ${isRefreshing ? 'opacity-50 cursor-not-allowed' : 'text-gray-600 hover:bg-white hover:shadow'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
             title="Refresh job listings"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`}>
@@ -750,9 +774,26 @@ const JobListingsPage = () => {
 
       {/* Jobs */}
       {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-ocean-500"></div>
-          <p className="ml-4 text-ocean-600">Loading Jobs...</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="glass-card rounded-lg p-6 space-y-4">
+              <div className="flex items-start justify-between">
+                <div className="flex-1 space-y-2">
+                  <div className="h-6 bg-ocean-100 rounded-lg w-3/4"></div>
+                  <div className="h-4 bg-ocean-100 rounded-lg w-1/2"></div>
+                </div>
+                <div className="h-8 w-8 bg-ocean-100 rounded-full"></div>
+              </div>
+              <div className="space-y-2">
+                <div className="h-4 bg-ocean-100 rounded-lg w-full"></div>
+                <div className="h-4 bg-ocean-100 rounded-lg w-5/6"></div>
+              </div>
+              <div className="flex gap-2">
+                <div className="h-6 bg-ocean-100 rounded-full w-16"></div>
+                <div className="h-6 bg-ocean-100 rounded-full w-20"></div>
+              </div>
+            </div>
+          ))}
         </div>
       ) : jobs.length > 0 ? (
         <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6' : 'space-y-4'}>
@@ -775,10 +816,12 @@ const JobListingsPage = () => {
           ))}
         </div>
       ) : (
-        <div className="text-center py-10 glass-card rounded-lg p-6 shadow-md">
-          <MagnifyingGlassIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <p className="text-xl text-gray-600 mb-2">No jobs found matching your criteria</p>
-          <p className="text-gray-500 mb-4">Try adjusting your search or filters.</p>
+        <div className="text-center py-12 glass-card rounded-lg">
+          <div className="w-16 h-16 bg-ocean-50 rounded-full flex items-center justify-center mx-auto mb-4">
+            <MagnifyingGlassIcon className="w-8 h-8 text-ocean-600" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">No Jobs Found</h3>
+          <p className="text-gray-600 mb-6">Try adjusting your search or filters.</p>
           <div className="flex justify-center space-x-4">
             <button
               onClick={() => {
@@ -802,43 +845,32 @@ const JobListingsPage = () => {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center space-x-2 mt-8">
+        <nav aria-label="Pagination" className="flex items-center justify-center gap-4 mt-8">
           <button
             onClick={() => paginate(currentPage - 1)}
             disabled={currentPage === 1}
-            className={`px-3 py-2 border border-gray-300 rounded-lg text-sm ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+            aria-label="Go to previous page"
+            className="inline-flex items-center min-h-[44px] min-w-[44px] px-4 py-2 rounded-lg border-2 border-ocean-300 text-ocean-700 hover:bg-ocean-50 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors duration-200"
           >
             Previous
           </button>
 
-          {Array.from({ length: Math.min(5, totalPages) }).map((_, i) => {
-            let pageNum;
-            if (totalPages <= 5) pageNum = i + 1;
-            else if (currentPage <= 3) pageNum = i + 1;
-            else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
-            else pageNum = currentPage - 2 + i;
-
-            return (
-              <button
-                key={pageNum}
-                onClick={() => paginate(pageNum)}
-                className={`px-3 py-2 ${currentPage === pageNum ? 'bg-ocean-500 text-white' : 'border border-gray-300 hover:bg-gray-50'} rounded-lg text-sm`}
-              >
-                {pageNum}
-              </button>
-            );
-          })}
+          <span aria-current="page" className="min-h-[44px] px-4 py-2 rounded-lg bg-ocean-600 text-white font-medium flex items-center">
+            Page {currentPage} of {totalPages}
+          </span>
 
           <button
             onClick={() => paginate(currentPage + 1)}
             disabled={currentPage === totalPages}
-            className={`px-3 py-2 border border-gray-300 rounded-lg text-sm ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+            aria-label="Go to next page"
+            className="inline-flex items-center min-h-[44px] min-w-[44px] px-4 py-2 rounded-lg border-2 border-ocean-300 text-ocean-700 hover:bg-ocean-50 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors duration-200"
           >
             Next
           </button>
-        </div>
+        </nav>
       )}
-    </div>
+      </div>
+    </main>
   );
 };
 

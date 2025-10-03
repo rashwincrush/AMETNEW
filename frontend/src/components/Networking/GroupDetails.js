@@ -357,7 +357,7 @@ const GroupDetails = () => {
                       <button
                         onClick={handleCreatePost}
                         disabled={isPosting || !newPostContent.trim()}
-                        className="bg-ocean-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-ocean-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition duration-300"
+                        className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white hover:from-ocean-600 hover:to-ocean-700 disabled:opacity-50 disabled:cursor-not-allowed transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                       >
                         {isPosting ? 'Posting...' : 'Post'}
                       </button>
@@ -410,7 +410,7 @@ const GroupDetails = () => {
                 {isMember ? (
                   <button
                     onClick={handleLeaveGroup}
-                    className="flex items-center gap-2 text-sm bg-red-100 text-red-700 font-semibold py-2 px-3 rounded-lg hover:bg-red-200 transition duration-300"
+                    className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-red-500 to-red-600 text-white text-sm font-semibold hover:from-red-600 hover:to-red-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                   >
                     <ArrowRightOnRectangleIcon className="h-5 w-5" />
                     <span>Leave</span>
@@ -418,7 +418,7 @@ const GroupDetails = () => {
                 ) : (
                   <button
                     onClick={handleJoinGroup}
-                    className="flex items-center gap-2 text-sm bg-ocean-100 text-ocean-700 font-semibold py-2 px-3 rounded-lg hover:bg-ocean-200 transition duration-300"
+                    className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm font-semibold transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                   >
                     <UserPlusIcon className="h-5 w-5" />
                     <span>Join Group</span>

@@ -23,7 +23,7 @@ const ActivityLogs = () => {
       if (fromDate) query = query.gte('created_at', new Date(fromDate).toISOString());
       if (toDate) {
         const end = new Date(toDate);
-        end.setHours(23,59,59,999);
+        end.setHours(23, 59, 59, 999);
         query = query.lte('created_at', end.toISOString());
       }
 
@@ -42,7 +42,6 @@ const ActivityLogs = () => {
     fetchLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">User Activity Logs</h1>
@@ -58,11 +57,10 @@ const ActivityLogs = () => {
         <input type="date" className="form-input" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
         <input type="date" className="form-input" value={toDate} onChange={(e) => setToDate(e.target.value)} />
         <div className="flex gap-2">
-          <button className="btn-ocean px-4" onClick={fetchLogs}>Apply</button>
-          <button className="btn-ocean-outline px-4" onClick={() => { setActionFilter(''); setFromDate(''); setToDate(''); fetchLogs(); }}>Reset</button>
+          <button className="btn-ocean px-4 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2" onClick={fetchLogs}>Apply</button>
+          <button className="btn-ocean-outline px-4 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2" onClick={() => { setActionFilter(''); setFromDate(''); setToDate(''); fetchLogs(); }}>Reset</button>
         </div>
       </div>
-
       {loading ? (
         <div>Loading logs...</div>
       ) : error ? (

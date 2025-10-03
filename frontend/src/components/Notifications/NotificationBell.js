@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
+import { NOTIF_ID_FIELD, notifScopeFilter } from '../../utils/notifications';
 import { BellIcon, EnvelopeIcon, UserIcon, CalendarIcon, BriefcaseIcon, ChatBubbleLeftRightIcon, UserGroupIcon } from '@heroicons/react/24/outline';
 import { Link } from 'react-router-dom';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -67,7 +68,7 @@ const NotificationBell = ({ currentUser }) => {
       event: 'INSERT',
       schema: 'public',
       table: 'notifications',
-      filter: `recipient_id=eq.${currentUser.id}`
+      filter: `${NOTIF_ID_FIELD}=eq.${currentUser.id}`
     };
     
     // Attach listener exactly once per user-specific key
@@ -111,7 +112,7 @@ const NotificationBell = ({ currentUser }) => {
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
-        .eq('recipient_id', currentUser.id)
+        .or(notifScopeFilter(currentUser.id))
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -158,7 +159,7 @@ const NotificationBell = ({ currentUser }) => {
       const { error } = await supabase
         .from('notifications')
         .update({ is_read: true })
-        .eq('recipient_id', currentUser.id)
+        .eq(NOTIF_ID_FIELD, currentUser.id)
         .eq('is_read', false);
 
       if (error) throw error;

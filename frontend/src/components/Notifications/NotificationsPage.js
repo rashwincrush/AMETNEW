@@ -263,13 +263,13 @@ const NotificationsPage = ({ currentUser }) => {
                       <div className="flex space-x-2">
                         <button 
                           onClick={() => handleConnectionResponse(req.id, 'accepted')}
-                          className="px-4 py-2 bg-ocean-500 text-white rounded hover:bg-ocean-600 text-sm font-medium"
+                          className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm font-medium hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                         >
                           Accept
                         </button>
                         <button 
                           onClick={() => handleConnectionResponse(req.id, 'declined')}
-                          className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 text-sm font-medium"
+                          className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-red-500 to-red-600 text-white text-sm font-medium hover:from-red-600 hover:to-red-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                         >
                           Decline
                         </button>
@@ -307,7 +307,7 @@ const NotificationsPage = ({ currentUser }) => {
                       </div>
                       <button 
                         onClick={() => handleCancelRequest(req.id)}
-                        className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 text-sm font-medium"
+                        className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gray-100 text-gray-800 hover:bg-gray-200 text-sm font-medium transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                       >
                         Cancel Request
                       </button>
@@ -332,7 +332,7 @@ const NotificationsPage = ({ currentUser }) => {
           <h2 className="text-xl font-semibold">All Notifications</h2>
           <button 
             onClick={markAllAsRead} 
-            className="text-sm text-ocean-600 hover:text-ocean-800"
+            className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
           >
             Mark all as read
           </button>
@@ -376,7 +376,7 @@ const NotificationsPage = ({ currentUser }) => {
                   className="block"
                   onClick={() => !notification.is_read && markAsRead(notification.id)}
                 >
-                  <div className={`p-4 hover:bg-gray-50 ${!notification.is_read ? 'bg-blue-50' : ''}`}>
+                  <div className={`p-4 hover:bg-gray-50 ${!notification.is_read ? 'bg-ocean-50' : ''}`}>
                     <div className="flex justify-between">
                       <h3 className="font-medium text-gray-900">{notification.title}</h3>
                       <span className="text-sm text-gray-500">{formatDate(notification.created_at)}</span>

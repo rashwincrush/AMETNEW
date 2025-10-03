@@ -444,7 +444,7 @@ const ChatWindow = ({ thread, currentUser }) => {
               {(ctxJobId || ctxEventId) && (
                 <div className="mt-1 flex items-center gap-2">
                   {ctxJobId && (
-                    <button onClick={() => navigate(`/jobs/${ctxJobId}`)} className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs border border-blue-200">Job: {ctxJobId}</button>
+                    <button onClick={() => navigate(`/jobs/${ctxJobId}`)} className="px-2 py-0.5 rounded-full bg-ocean-50 text-ocean-700 text-xs border border-ocean-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">Job: {ctxJobId}</button>
                   )}
                   {ctxEventId && (
                     <button onClick={() => navigate(`/events/${ctxEventId}`)} className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 text-xs border border-green-200">Event: {ctxEventId}</button>

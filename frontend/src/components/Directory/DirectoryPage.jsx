@@ -268,7 +268,7 @@ export default function DirectoryPage() {
                 value={searchTerm}
                 onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                 placeholder="Search by name, degree, company, city, or country"
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-3 pr-10 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-3 pr-10 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
               />
               {searchTerm ? (
                 <button
@@ -308,30 +308,30 @@ export default function DirectoryPage() {
         {(filters.graduation_year || filters.department) && (
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {filters.graduation_year && (
-              <span className="flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 pl-2.5 pr-1 py-1 text-xs font-medium text-indigo-700">
+              <span className="flex items-center gap-1 rounded-full border border-ocean-200 bg-ocean-50 pl-2.5 pr-1 py-1 text-xs font-medium text-ocean-700">
                 Batch: <span className="font-semibold">{filters.graduation_year}</span>
                 <button 
                   onClick={() => { setFilters(f => ({ ...f, graduation_year: '' })); setCurrentPage(1); }} 
-                  className="ml-1 rounded-full bg-indigo-100 p-0.5 hover:bg-indigo-200"
+                  className="ml-1 rounded-full bg-ocean-100 hover:bg-ocean-200 p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                 >
-                  <XMarkIcon className="h-3 w-3 text-indigo-600" />
+                  <XMarkIcon className="h-3 w-3 text-ocean-600" />
                 </button>
               </span>
             )}
             {filters.department && (
-              <span className="flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 pl-2.5 pr-1 py-1 text-xs font-medium text-indigo-700">
+              <span className="flex items-center gap-1 rounded-full border border-ocean-200 bg-ocean-50 pl-2.5 pr-1 py-1 text-xs font-medium text-ocean-700">
                 Department: <span className="font-semibold">{filters.department}</span>
                 <button 
                   onClick={() => { setFilters(f => ({ ...f, department: '' })); setCurrentPage(1); }} 
-                  className="ml-1 rounded-full bg-indigo-100 p-0.5 hover:bg-indigo-200"
+                  className="ml-1 rounded-full bg-ocean-100 hover:bg-ocean-200 p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                 >
-                  <XMarkIcon className="h-3 w-3 text-indigo-600" />
+                  <XMarkIcon className="h-3 w-3 text-ocean-600" />
                 </button>
               </span>
             )}
             <button 
               onClick={() => { setFilters({ graduation_year: '', department: '' }); setCurrentPage(1); }} 
-              className="text-xs text-slate-500 hover:text-indigo-600"
+              className="inline-flex items-center justify-center text-xs text-ocean-600 underline-offset-2 hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
             >
               Clear all
             </button>
@@ -433,7 +433,7 @@ export default function DirectoryPage() {
                       value={filters.graduation_year}
                       onChange={(e) => setFilters(f => ({ ...f, graduation_year: e.target.value }))}
                       placeholder="e.g., 2015"
-                      className="w-full rounded-lg border border-slate-300 bg-white py-2 px-3 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      className="w-full rounded-lg border border-slate-300 bg-white py-2 px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
                     />
                   </div>
                   
@@ -455,13 +455,13 @@ export default function DirectoryPage() {
                 <div className="flex items-center justify-between gap-4">
                   <button
                     onClick={() => { setFilters({ graduation_year: '', department: '' }); }}
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gray-100 text-gray-800 hover:bg-gray-200 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                   >
                     Clear All
                   </button>
                   <button
                     onClick={() => { setShowFilters(false); setCurrentPage(1); }}
-                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                    className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                   >
                     Apply Filters
                   </button>

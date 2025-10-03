@@ -36,8 +36,11 @@
 .text-ocean-800 { color: var(--ocean-800); }
 .text-ocean-900 { color: var(--ocean-900); }
 
+.border-ocean-100 { border-color: var(--ocean-100); }
 .border-ocean-200 { border-color: var(--ocean-200); }
 .border-ocean-300 { border-color: var(--ocean-300); }
+.border-ocean-500 { border-color: var(--ocean-500); }
+.border-ocean-600 { border-color: var(--ocean-600); }
 
 /* Ocean Wave Animation */
 @keyframes ocean-wave {
@@ -57,10 +60,16 @@
 }
 
 .glass-card {
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(14, 165, 233, 0.1);
-  box-shadow: 0 8px 32px rgba(14, 165, 233, 0.1);
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px 0 rgba(14, 165, 233, 0.1);
+  transition: box-shadow 0.2s ease-in-out;
+}
+
+.glass-card:hover {
+  box-shadow: 0 4px 12px 0 rgba(14, 165, 233, 0.15);
 }
 
 /* Custom Scrollbar */
@@ -187,4 +196,15 @@
 @keyframes loading-wave {
   0%, 40%, 100% { transform: scaleY(0.4); }
   20% { transform: scaleY(1.0); }
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -282,7 +282,7 @@ const AlumniDirectory = () => {
             value={filters[filter.name] || ''}
             onChange={handleFilterChange}
             placeholder={filter.placeholder}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
           />
         );
       case 'boolean':
@@ -293,7 +293,7 @@ const AlumniDirectory = () => {
               name={filter.name}
               checked={!!filters[filter.name]}
               onChange={handleFilterChange}
-              className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+              className="h-4 w-4 text-ocean-600 border-gray-300 rounded focus-visible:ring-2 focus-visible:ring-ocean-500"
             />
           </div>
         );
@@ -312,8 +312,8 @@ const AlumniDirectory = () => {
   }
 
   return (
-    <div className="bg-gray-100 min-h-screen">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <main id="main-content" className="bg-gray-100 min-h-screen p-4 md:p-6 lg:p-8">
+      <div className="max-w-7xl mx-auto">
         <header className="mb-8">
           <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Alumni Directory</h1>
           <p className="mt-2 text-lg text-gray-600">Explore and connect with the AMET University alumni network.</p>
@@ -327,7 +327,7 @@ const AlumniDirectory = () => {
               placeholder="Search by name, degree, location, or department"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
             />
             {isDebouncing && (
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">Searching…</span>
@@ -369,11 +369,11 @@ const AlumniDirectory = () => {
             );
           })}
           {Object.keys(filters).length > 0 && (
-            <button onClick={handleClearAllFilters} className="text-sm text-gray-600 hover:text-indigo-600 hover:underline">Clear all</button>
+            <button onClick={handleClearAllFilters} className="text-sm inline-flex items-center justify-center text-ocean-600 underline-offset-2 hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">Clear all</button>
           )}
         </div>
 
-        <main>
+        <section>
           {loading ? (
             <div className="flex flex-col items-center justify-center flex-grow py-20">
               <img src="/logo.png" alt="Loading..." className="h-24 w-24 animate-spin" />
@@ -413,34 +413,44 @@ const AlumniDirectory = () => {
                 })}
               </div>
               {!loading && totalPages > 1 && (
-                  <div className="mt-10 flex flex-col items-center">
+                  <nav aria-label="Pagination" className="mt-10 flex flex-col items-center">
                       <div className="border-t w-full pt-6">
-                          <div className="flex justify-between items-center">
-                              <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                          <div className="flex justify-center items-center gap-4">
+                              <button 
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                                disabled={currentPage === 1} 
+                                aria-label="Go to previous page"
+                                className="inline-flex items-center min-h-[44px] min-w-[44px] px-4 py-2 rounded-lg border-2 border-ocean-300 text-ocean-700 hover:bg-ocean-50 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors duration-200"
+                              >
                                   Previous
                               </button>
-                              <span className="text-sm text-gray-700">Page {currentPage} of {totalPages}</span>
-                              <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                              <span aria-current="page" className="min-h-[44px] px-4 py-2 rounded-lg bg-ocean-600 text-white font-medium flex items-center">
+                                Page {currentPage} of {totalPages}
+                              </span>
+                              <button 
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+                                disabled={currentPage === totalPages} 
+                                aria-label="Go to next page"
+                                className="inline-flex items-center min-h-[44px] min-w-[44px] px-4 py-2 rounded-lg border-2 border-ocean-300 text-ocean-700 hover:bg-ocean-50 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors duration-200"
+                              >
                                   Next
                               </button>
                           </div>
                       </div>
-                      <div className="mt-3 text-sm text-gray-500">
+                      <div className="mt-3 text-sm text-gray-500" role="status" aria-live="polite">
                           Showing <span className="font-medium">{alumni.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}</span> to <span className="font-medium">{Math.min(currentPage * itemsPerPage, totalAlumni)}</span> of <span className="font-medium">{totalAlumni}</span> alumni
                       </div>
-                  </div>
+                  </nav>
               )}
             </>
-          )}
-        </main>
-      </div>
-
-      {showFilters && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setShowFilters(false)}></div>
-      )}
-      <div className={`fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-xl z-50 transform transition-transform ${showFilters ? 'translate-x-0' : 'translate-x-full'}`}>
+          </section>
+        </div>
+        
+        {showFilters && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setShowFilters(false)}></div>
+        )}
+        <div className={`fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-xl z-50 transform transition-transform ${showFilters ? 'translate-x-0' : 'translate-x-full'}`}>
           <div className="p-6 h-full flex flex-col">
-              <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-bold text-gray-900">Filters</h2>
                   <button onClick={() => setShowFilters(false)} className="p-2 rounded-full hover:bg-gray-100">
                       <XMarkIcon className="h-6 w-6 text-gray-600" />
@@ -455,12 +465,12 @@ const AlumniDirectory = () => {
                   ))}
               </div>
               <div className="pt-6 border-t mt-auto flex justify-between">
-                  <button onClick={handleClearAllFilters} className="px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm text-sm font-medium hover:bg-gray-50">Clear All</button>
-                  <button onClick={handleApplyFilters} className="px-4 py-2 bg-indigo-600 text-white rounded-lg shadow-sm text-sm font-medium hover:bg-indigo-700">Apply Filters</button>
+                  <button onClick={handleClearAllFilters} className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gray-100 text-gray-800 hover:bg-gray-200 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">Clear All</button>
+                  <button onClick={handleApplyFilters} className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">Apply Filters</button>
               </div>
           </div>
       </div>
-    </div>
+    </main>
   );
 };
 

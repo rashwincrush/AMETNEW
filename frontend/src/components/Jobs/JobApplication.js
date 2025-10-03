@@ -291,7 +291,7 @@ const JobApplication = () => {
         <p className="text-xl mb-4">You must be logged in to apply for jobs.</p>
         <button
           onClick={() => navigate('/login', { state: { returnTo: `/jobs/${jobId}/apply` } })}
-          className="px-6 py-2 bg-blue-600 text-white rounded-lg"
+          className="px-6 py-2 bg-gradient-to-b from-ocean-500 to-ocean-600 text-white rounded-lg min-h-[44px] hover:from-ocean-600 hover:to-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
         >
           Go to Login
         </button>
@@ -302,7 +302,7 @@ const JobApplication = () => {
   return (
     <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-lg">
       <h2 className="text-2xl font-bold mb-2 text-gray-800">Apply for Position</h2>
-      {job && <h3 className="text-xl font-semibold mb-6 text-blue-600">{job.title} at {job.company_name}</h3>}
+      {job && <h3 className="text-xl font-semibold mb-6 text-ocean-600">{job.title} at {job.company_name}</h3>}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Resume Selection */}
@@ -316,7 +316,7 @@ const JobApplication = () => {
                     type="radio"
                     id="use-existing-resume"
                     name="resume-choice"
-                    className="h-4 w-4 text-blue-600"
+                    className="h-4 w-4 text-ocean-600 focus-visible:ring-2 focus-visible:ring-ocean-500"
                     checked={selectedResumeId !== ''}
                     onChange={() => setSelectedResumeId(userResumes[0].id)}
                   />
@@ -330,7 +330,7 @@ const JobApplication = () => {
                     <select
                       value={selectedResumeId}
                       onChange={(e) => setSelectedResumeId(e.target.value)}
-                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                      className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-2 border-ocean-200 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:border-ocean-500 sm:text-sm rounded-md"
                     >
                       {userResumes.map(resume => (
                         <option key={resume.id} value={resume.id}>
@@ -381,8 +381,8 @@ const JobApplication = () => {
                     file:mr-4 file:py-2 file:px-4
                     file:rounded-full file:border-0
                     file:text-sm file:font-semibold
-                    file:bg-blue-50 file:text-blue-700
-                    hover:file:bg-blue-100"
+                    file:bg-ocean-50 file:text-ocean-700
+                    hover:file:bg-ocean-100"
                   required={!selectedResumeId}
                 />
                 <p className="mt-1 text-xs text-gray-500">PDF or Word documents, max 5MB</p>
@@ -391,7 +391,7 @@ const JobApplication = () => {
 
             {userResumes.length === 0 && !resumeFile && (
               <div className="mt-2 text-sm text-gray-600">
-                <p>You can manage all your resumes in your <a href="/profile" className="text-blue-600 hover:underline">Profile Settings</a>.</p>
+                <p>You can manage all your resumes in your <a href="/profile" className="text-ocean-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Profile Settings</a>.</p>
               </div>
             )}
           </div>
@@ -417,14 +417,14 @@ const JobApplication = () => {
           <button
             type="button"
             onClick={() => navigate(`/jobs/${jobId}`)}
-            className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors duration-200"
+            className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg min-h-[44px] hover:bg-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors duration-200"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={isSubmitting}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 disabled:bg-blue-400"
+            className="px-6 py-3 bg-gradient-to-b from-ocean-500 to-ocean-600 text-white rounded-lg min-h-[44px] hover:from-ocean-600 hover:to-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting ? 'Submitting...' : 'Submit Application'}
           </button>

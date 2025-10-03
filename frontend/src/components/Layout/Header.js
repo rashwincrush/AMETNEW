@@ -38,7 +38,7 @@ const Header = ({ user }) => {
   };
 
   return (
-    <header className="bg-white shadow-sm border-b border-ocean-200 px-6 py-4">
+    <header role="banner" className="bg-white shadow-sm border-b border-ocean-200 px-6 py-4">
       <div className="flex items-center justify-between space-x-6">
         {/* Logo and Title */}
         <div className="flex items-center">
@@ -110,7 +110,9 @@ const Header = ({ user }) => {
           <div className="relative" ref={userMenuRef}>
             <button
               onClick={() => setShowUserMenu(prev => !prev)}
-              className="flex items-center space-x-3 focus:outline-none p-2 rounded-lg hover:bg-gray-100"
+              aria-expanded={showUserMenu}
+              aria-label="User menu"
+              className="flex items-center space-x-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 p-2 rounded-lg hover:bg-gray-100 min-h-[44px]"
             >
               <div className="text-right">
                 <p className="text-sm font-medium text-gray-900">{currentUser.full_name || currentUser.name || 'User'}</p>
@@ -135,7 +137,7 @@ const Header = ({ user }) => {
 
             {/* Dropdown Menu */}
             {showUserMenu && (
-              <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg z-50 border border-gray-200">
+              <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg z-50 border border-gray-200" role="menu" aria-label="User menu">
                 <div className="py-1">
                   <div className="px-4 py-3 border-b border-gray-200">
                     <p className="text-sm font-semibold text-gray-900 truncate">{currentUser.full_name || currentUser.name || 'User'}</p>
@@ -150,22 +152,25 @@ const Header = ({ user }) => {
                   </div>
                   <Link
                     to="/profile"
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 min-h-[44px] flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
                     onClick={() => setShowUserMenu(false)}
+                    role="menuitem"
                   >
                     Your Profile
                   </Link>
                   <Link
                     to="/dashboard"
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 min-h-[44px] flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
                     onClick={() => setShowUserMenu(false)}
+                    role="menuitem"
                   >
                     Dashboard
                   </Link>
                   <div className="border-t border-gray-200 my-1"></div>
                   <button
                     onClick={handleLogout}
-                    className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                    className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
+                    role="menuitem"
                   >
                     Sign out
                   </button>
