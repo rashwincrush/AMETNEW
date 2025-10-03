@@ -65,16 +65,16 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
   };
 
   return (
-    <div className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md hover:border-sky-200 transition-all">
+    <div className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md hover:border-ocean-300 transition-all duration-200">
       <div className="p-4 flex flex-col">
         {/* Top section: Avatar and Name */}
         <div className="flex items-center mb-3">
           {/* Avatar */}
-          <div className="h-16 w-16 rounded-full overflow-hidden ring-1 ring-slate-200 shadow-sm mr-3">
+          <div className="h-16 w-16 flex-shrink-0 rounded-full overflow-hidden ring-1 ring-slate-200 shadow-sm mr-3">
             {profile.avatar_url ? (
               <img 
                 src={profile.avatar_url} 
-                alt={profile.full_name || 'Profile'} 
+                alt={`${profile.full_name || 'Profile'}'s avatar`} 
                 className="h-full w-full object-cover" 
               />
             ) : (
@@ -91,7 +91,7 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
                 {displayName}
               </h3>
               {profile.is_verified && 
-                <CheckBadgeIcon className="h-4 w-4 shrink-0 text-sky-500" title="Verified" />
+                <CheckBadgeIcon className="h-4 w-4 shrink-0 text-sky-500" aria-label="Verified" title="Verified" />
               }
               {isAdmin && (profile?.is_employer || profile?.role === 'employer') && (
                 <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 text-[10px] font-medium" title="Employer">
@@ -110,31 +110,31 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
           <div className="flex flex-wrap gap-1.5 mb-2">
             {degreeLabel && (
               <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
-                <AcademicCapIcon className="h-3 w-3 text-slate-400 shrink-0" />
+                <AcademicCapIcon className="h-3 w-3 text-slate-400 shrink-0" aria-hidden="true" />
                 <span className="truncate" title={degreeLabel}>{degreeLabel}</span>
               </div>
             )}
             {departmentLabel && (
               <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
-                <AcademicCapIcon className="h-3 w-3 text-slate-400 shrink-0" />
+                <AcademicCapIcon className="h-3 w-3 text-slate-400 shrink-0" aria-hidden="true" />
                 <span className="truncate" title={departmentLabel}>{departmentLabel}</span>
               </div>
             )}
             {batch && (
               <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
-                <AcademicCapIcon className="h-3 w-3 text-slate-400 shrink-0" />
+                <AcademicCapIcon className="h-3 w-3 text-slate-400 shrink-0" aria-hidden="true" />
                 <span className="truncate" title={`Batch ${batch}`}>Batch {batch}</span>
               </div>
             )}
             {company && (
               <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
-                <BuildingOffice2Icon className="h-3 w-3 text-slate-400 shrink-0" />
+                <BuildingOffice2Icon className="h-3 w-3 text-slate-400 shrink-0" aria-hidden="true" />
                 <span className="truncate" title={company}>{company}</span>
               </div>
             )}
             {position && (
               <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
-                <BriefcaseIcon className="h-3 w-3 text-slate-400 shrink-0" />
+                <BriefcaseIcon className="h-3 w-3 text-slate-400 shrink-0" aria-hidden="true" />
                 <span className="truncate" title={position}>{position}</span>
               </div>
             )}
@@ -158,12 +158,13 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
           
           {/* View Profile button */}
           <button
+            type="button"
             onClick={viewProfile}
-            className="shrink-0 inline-flex items-center justify-center gap-1 rounded-lg px-3 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500"
-            aria-label="View Profile"
+            className="shrink-0 inline-flex items-center justify-center gap-1 min-h-[40px] rounded-lg px-3 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-ocean-500"
+            aria-label="View full profile"
           >
             <span>View Profile</span>
-            <ChevronRightIcon className="h-4 w-4" />
+            <ChevronRightIcon className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       </div>

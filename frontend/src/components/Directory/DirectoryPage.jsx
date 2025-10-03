@@ -268,12 +268,14 @@ export default function DirectoryPage() {
                 value={searchTerm}
                 onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                 placeholder="Search by name, degree, company, city, or country"
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-3 pr-10 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
+                aria-label="Search alumni"
+                className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white py-2.5 pl-3 pr-10 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
               />
               {searchTerm ? (
                 <button
+                  type="button"
                   onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1"
                   aria-label="Clear search"
                 >
                   <XMarkIcon className="h-4 w-4" />
@@ -283,17 +285,20 @@ export default function DirectoryPage() {
             
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={() => setShowFilters(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+                className="inline-flex items-center gap-1.5 min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                aria-label="Open filters"
               >
-                <FunnelIcon className="h-4 w-4 text-slate-500" />
+                <FunnelIcon className="h-4 w-4 text-slate-500" aria-hidden="true" />
                 Filters
               </button>
               
               <select
                 value={sortBy}
                 onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
-                className="rounded-lg border border-slate-200 bg-white py-1.5 pl-3 pr-8 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+                aria-label="Sort alumni"
+                className="min-h-[44px] rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-8 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
               >
                 <option value="full_name,asc">Name (A–Z)</option>
                 <option value="full_name,desc">Name (Z–A)</option>
@@ -311,10 +316,12 @@ export default function DirectoryPage() {
               <span className="flex items-center gap-1 rounded-full border border-ocean-200 bg-ocean-50 pl-2.5 pr-1 py-1 text-xs font-medium text-ocean-700">
                 Batch: <span className="font-semibold">{filters.graduation_year}</span>
                 <button 
+                  type="button"
                   onClick={() => { setFilters(f => ({ ...f, graduation_year: '' })); setCurrentPage(1); }} 
-                  className="ml-1 rounded-full bg-ocean-100 hover:bg-ocean-200 p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                  className="ml-1 rounded-full bg-ocean-100 hover:bg-ocean-200 p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1"
+                  aria-label="Remove batch filter"
                 >
-                  <XMarkIcon className="h-3 w-3 text-ocean-600" />
+                  <XMarkIcon className="h-3 w-3 text-ocean-600" aria-hidden="true" />
                 </button>
               </span>
             )}
@@ -322,16 +329,20 @@ export default function DirectoryPage() {
               <span className="flex items-center gap-1 rounded-full border border-ocean-200 bg-ocean-50 pl-2.5 pr-1 py-1 text-xs font-medium text-ocean-700">
                 Department: <span className="font-semibold">{filters.department}</span>
                 <button 
+                  type="button"
                   onClick={() => { setFilters(f => ({ ...f, department: '' })); setCurrentPage(1); }} 
-                  className="ml-1 rounded-full bg-ocean-100 hover:bg-ocean-200 p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                  className="ml-1 rounded-full bg-ocean-100 hover:bg-ocean-200 p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1"
+                  aria-label="Remove department filter"
                 >
-                  <XMarkIcon className="h-3 w-3 text-ocean-600" />
+                  <XMarkIcon className="h-3 w-3 text-ocean-600" aria-hidden="true" />
                 </button>
               </span>
             )}
             <button 
+              type="button"
               onClick={() => { setFilters({ graduation_year: '', department: '' }); setCurrentPage(1); }} 
-              className="inline-flex items-center justify-center text-xs text-ocean-600 underline-offset-2 hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+              className="inline-flex items-center justify-center min-h-[32px] px-2 text-xs font-medium text-ocean-600 underline-offset-2 hover:underline rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+              aria-label="Clear all filters"
             >
               Clear all
             </button>
@@ -351,9 +362,9 @@ export default function DirectoryPage() {
       
       {/* Priority strip */}
       {priority.length > 0 && activeFilter === 'all' && (
-        <div className="bg-gradient-to-r from-sky-50 to-indigo-50 rounded-xl border border-sky-200 p-4 sm:p-6">
+        <div className="bg-gradient-to-r from-sky-50 to-indigo-50 rounded-xl border border-sky-200 shadow-sm p-4 sm:p-6" role="region" aria-label="Priority Connections">
           <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800 mb-4">
-            <span className="inline-block h-2 w-2 rounded-full bg-sky-500"></span>
+            <span className="inline-block h-2 w-2 rounded-full bg-sky-500" aria-hidden="true"></span>
             Priority Connections
           </h2>
           <DirectoryGrid items={priority} meId={me?.id} currentTab={activeFilter} onChanged={reloadRelsAndCounts} compact loading={loading} />
@@ -386,9 +397,11 @@ export default function DirectoryPage() {
         {totalAlumni > itemsPerPage && (
           <div className="mt-8 flex items-center justify-between border-t border-slate-200 pt-4">
             <button
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              type="button"
+              className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={currentPage === 1}
+              aria-label="Previous page"
             >
               Previous
             </button>
@@ -396,9 +409,11 @@ export default function DirectoryPage() {
               Page <span className="text-indigo-600">{currentPage}</span> of <span>{Math.ceil((totalAlumni || 0) / itemsPerPage)}</span>
             </div>
             <button
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              type="button"
+              className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
               onClick={() => setCurrentPage(p => p + 1)}
               disabled={currentPage >= Math.ceil((totalAlumni || 0) / itemsPerPage)}
+              aria-label="Next page"
             >
               Next
             </button>
@@ -409,17 +424,19 @@ export default function DirectoryPage() {
       {/* Filters drawer */}
       {showFilters && (
         <>
-          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40" onClick={() => setShowFilters(false)}></div>
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40" onClick={() => setShowFilters(false)} aria-hidden="true"></div>
           <div className="fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-xl z-50 overflow-hidden">
             <div className="flex h-full flex-col">
               {/* Header */}
               <div className="flex items-center justify-between border-b border-slate-200 p-4">
                 <h2 className="text-xl font-semibold text-slate-900">Filter Alumni</h2>
                 <button 
+                  type="button"
                   onClick={() => setShowFilters(false)} 
-                  className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                  aria-label="Close filters"
                 >
-                  <XMarkIcon className="h-6 w-6" />
+                  <XMarkIcon className="h-6 w-6" aria-hidden="true" />
                 </button>
               </div>
               
@@ -433,7 +450,8 @@ export default function DirectoryPage() {
                       value={filters.graduation_year}
                       onChange={(e) => setFilters(f => ({ ...f, graduation_year: e.target.value }))}
                       placeholder="e.g., 2015"
-                      className="w-full rounded-lg border border-slate-300 bg-white py-2 px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
+                      aria-label="Filter by batch year"
+                      className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white py-2.5 px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
                     />
                   </div>
                   
@@ -444,7 +462,8 @@ export default function DirectoryPage() {
                       value={filters.department}
                       onChange={(e) => setFilters(f => ({ ...f, department: e.target.value }))}
                       placeholder="e.g., Marine Engineering"
-                      className="w-full rounded-lg border border-slate-300 bg-white py-2 px-3 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      aria-label="Filter by department"
+                      className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white py-2.5 px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
                     />
                   </div>
                 </div>
@@ -454,14 +473,16 @@ export default function DirectoryPage() {
               <div className="border-t border-slate-200 p-4 bg-slate-50">
                 <div className="flex items-center justify-between gap-4">
                   <button
+                    type="button"
                     onClick={() => { setFilters({ graduation_year: '', department: '' }); }}
-                    className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gray-100 text-gray-800 hover:bg-gray-200 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                    className="inline-flex items-center justify-center min-h-[44px] px-6 rounded-lg bg-slate-100 text-slate-800 font-medium hover:bg-slate-200 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                   >
                     Clear All
                   </button>
                   <button
+                    type="button"
                     onClick={() => { setShowFilters(false); setCurrentPage(1); }}
-                    className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                    className="inline-flex items-center justify-center min-h-[44px] px-6 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white font-medium shadow-sm hover:from-ocean-600 hover:to-ocean-700 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                   >
                     Apply Filters
                   </button>

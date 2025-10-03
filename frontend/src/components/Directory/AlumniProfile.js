@@ -18,14 +18,14 @@ import { useAuth } from '../../contexts/AuthContext';
 import MentorContactPanel from '../Mentorship/MentorContactPanel';
 
 const AchievementCard = ({ achievement }) => (
-  <div className="bg-white rounded-lg p-4 border border-gray-200 hover:shadow-md transition-shadow duration-300">
+  <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-300">
     <div className="flex items-start">
       <div className="flex-shrink-0">
-        <StarIcon className="w-6 h-6 text-yellow-500" />
+        <StarIcon className="w-6 h-6 text-yellow-500" aria-hidden="true" />
       </div>
       <div className="ml-3">
-        <p className="text-md font-semibold text-gray-800">{achievement.title || achievement}</p>
-        {achievement.description && <p className="text-sm text-gray-600 mt-1">{achievement.description}</p>}
+        <p className="text-md font-semibold text-slate-900">{achievement.title || achievement}</p>
+        {achievement.description && <p className="text-sm text-slate-600 mt-1">{achievement.description}</p>}
       </div>
     </div>
   </div>
@@ -200,8 +200,8 @@ const AlumniProfile = () => {
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto p-6 text-center">
-        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-600 mb-4"></div>
-        <p className="text-gray-600">Loading alumni profile...</p>
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-600 mb-4" aria-hidden="true"></div>
+        <p className="text-slate-600">Loading alumni profile...</p>
       </div>
     );
   }
@@ -209,12 +209,13 @@ const AlumniProfile = () => {
   if (error) {
     return (
       <div className="max-w-4xl mx-auto p-6 text-center">
-        <div className="text-red-500 text-5xl mb-4">⚠️</div>
-        <h2 className="text-xl font-semibold text-gray-800 mb-2">Profile Not Found</h2>
-        <p className="text-gray-600 mb-6">{error}</p>
+        <div className="text-red-500 text-5xl mb-4" aria-hidden="true">⚠️</div>
+        <h2 className="text-xl font-semibold text-slate-900 mb-2">Profile Not Found</h2>
+        <p className="text-slate-600 mb-6">{error}</p>
         <button 
+          type="button"
           onClick={() => navigate('/directory')} 
-          className="btn-ocean px-4 py-2 rounded-lg"
+          className="btn-ocean px-6 py-2.5 min-h-[44px] rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
         >
           Back to Directory
         </button>
@@ -225,12 +226,13 @@ const AlumniProfile = () => {
   if (!alumnus) {
     return (
       <div className="max-w-4xl mx-auto p-6 text-center">
-        <div className="text-gray-500 text-5xl mb-4">🔍</div>
-        <h2 className="text-xl font-semibold text-gray-800 mb-2">Profile Not Available</h2>
-        <p className="text-gray-600 mb-6">The requested alumni profile could not be found.</p>
+        <div className="text-slate-500 text-5xl mb-4" aria-hidden="true">🔍</div>
+        <h2 className="text-xl font-semibold text-slate-900 mb-2">Profile Not Available</h2>
+        <p className="text-slate-600 mb-6">The requested alumni profile could not be found.</p>
         <button 
+          type="button"
           onClick={() => navigate('/directory')} 
-          className="btn-ocean px-4 py-2 rounded-lg"
+          className="btn-ocean px-6 py-2.5 min-h-[44px] rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
         >
           Back to Directory
         </button>
@@ -241,7 +243,7 @@ const AlumniProfile = () => {
   return (
     <div className="max-w-4xl mx-auto space-y-6 p-4">
       {/* Centered Header */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition flex flex-col items-center text-center">
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col items-center text-center">
         {/* Profile Picture */}
         <div className="relative mb-4">
           <img
@@ -252,7 +254,7 @@ const AlumniProfile = () => {
         </div>
         {/* Basic Info */}
         <div className="flex-1 mb-2">
-          <h1 className="text-3xl font-bold text-gray-900">{alumnus.name}</h1>
+          <h1 className="text-3xl font-bold text-slate-900">{alumnus.name}</h1>
           {/* Batch pill under name */}
           {(() => {
             const batch = alumnus.batch_year ?? alumnus.graduation_year ?? alumnus.batch ?? alumnus.graduationYear ?? null;
@@ -283,62 +285,62 @@ const AlumniProfile = () => {
         {/* Left Column */}
         <div className="lg:col-span-2 space-y-6">
           {/* About */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">About</h2>
-            <p className="text-gray-700 leading-relaxed">{alumnus.about || 'No biography provided.'}</p>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">About</h2>
+            <p className="text-slate-700 leading-relaxed">{alumnus.about || 'No biography provided.'}</p>
           </div>
 
           {/* Experience */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Experience</h2>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">Experience</h2>
             <div className="space-y-6">
               {Array.isArray(alumnus.experience) && alumnus.experience.length > 0 ? (
                 alumnus.experience.map((exp, index) => (
                   <div key={index} className="flex items-start space-x-3">
                     <div className="w-10 h-10 bg-ocean-gradient rounded-lg flex items-center justify-center flex-shrink-0">
-                      <BriefcaseIcon className="w-5 h-5 text-white" />
+                      <BriefcaseIcon className="w-5 h-5 text-white" aria-hidden="true" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{exp.position}</h3>
+                      <h3 className="font-semibold text-slate-900">{exp.position}</h3>
                       <p className="text-ocean-600 font-medium">{exp.company}</p>
-                      <p className="text-sm text-gray-600">{exp.duration} • {exp.location}</p>
-                      <p className="text-gray-700 mt-2">{exp.description}</p>
+                      <p className="text-sm text-slate-600">{exp.duration} • {exp.location}</p>
+                      <p className="text-slate-700 mt-2">{exp.description}</p>
                     </div>
                   </div>
                 ))
               ) : (
-                <p className="text-gray-500">No experience information available.</p>
+                <p className="text-slate-500">No experience information available.</p>
               )}
             </div>
           </div>
 
           {/* Education */}
-          <div className="glass-card rounded-lg p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Education</h2>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">Education</h2>
             <div className="space-y-4">
               {Array.isArray(alumnus.education) && alumnus.education.length > 0 ? (
                 alumnus.education.map((edu, index) => (
                   <div key={index} className="flex items-start space-x-3">
                     <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <AcademicCapIcon className="w-5 h-5 text-white" />
+                      <AcademicCapIcon className="w-5 h-5 text-white" aria-hidden="true" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{edu.degree}</h3>
+                      <h3 className="font-semibold text-slate-900">{edu.degree}</h3>
                       <p className="text-ocean-600 font-medium">{edu.institution}</p>
-                      <p className="text-sm text-gray-600">{edu.year} • {edu.grade}</p>
+                      <p className="text-sm text-slate-600">{edu.year} • {edu.grade}</p>
                     </div>
                   </div>
                 ))
               ) : (
-                <p className="text-gray-500">No education information available.</p>
+                <p className="text-slate-500">No education information available.</p>
               )}
             </div>
           </div>
 
           {/* Achievements */}
           {Array.isArray(alumnus.achievements) && alumnus.achievements.length > 0 && (
-            <div className="glass-card rounded-lg p-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Key Achievements</h2>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Key Achievements</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {alumnus.achievements.map((achievement, index) => (
                   <AchievementCard key={index} achievement={achievement} />
@@ -351,11 +353,11 @@ const AlumniProfile = () => {
         {/* Right Sidebar */}
         <div className="space-y-6">
           {/* Contact Info (no email/phone for students) */}
-          <div className="glass-card rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-slate-900 mb-4">Contact Information</h3>
             <div className="space-y-3">
               <div className="flex items-center">  
-                <BriefcaseIcon className="w-6 h-6 mr-4 text-ocean-600" />
+                <BriefcaseIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
                 <div>
                   <div className="text-sm text-gray-500">Currently</div>
                   <div className="font-medium">{alumnus.currentPosition} at {alumnus.company}</div>
@@ -363,7 +365,7 @@ const AlumniProfile = () => {
               </div>
 
               <div className="flex items-center">
-                <MapPinIcon className="w-6 h-6 mr-4 text-ocean-600" />
+                <MapPinIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
                 <div>
                   <div className="text-sm text-gray-500">Location</div>
                   <div className="font-medium">{alumnus.location}</div>
@@ -371,7 +373,7 @@ const AlumniProfile = () => {
               </div>
 
               <div className="flex items-center">
-                <AcademicCapIcon className="w-6 h-6 mr-4 text-ocean-600" />
+                <AcademicCapIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
                 <div>
                   <div className="text-sm text-gray-500">Education</div>
                   <div className="font-medium">{alumnus.degree}, {alumnus.department} ({alumnus.graduationYear})</div>
@@ -380,10 +382,10 @@ const AlumniProfile = () => {
 
               {role !== 'student' && alumnus.email && (
                 <div className="flex items-center">
-                  <EnvelopeIcon className="w-6 h-6 mr-4 text-ocean-600" />
+                  <EnvelopeIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
                   <div>
                     <div className="text-sm text-gray-500">Email</div>
-                    <a href={`mailto:${alumnus.email}`} className="font-medium text-ocean-700 hover:underline">
+                    <a href={`mailto:${alumnus.email}`} className="font-medium text-ocean-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1 rounded">
                       {alumnus.email}
                     </a>
                   </div>
@@ -392,10 +394,10 @@ const AlumniProfile = () => {
 
               {role !== 'student' && alumnus.phone && (
                 <div className="flex items-center">
-                  <PhoneIcon className="w-6 h-6 mr-4 text-ocean-600" />
+                  <PhoneIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
                   <div>
                     <div className="text-sm text-gray-500">Phone</div>
-                    <a href={`tel:${alumnus.phone}`} className="font-medium text-ocean-700 hover:underline">
+                    <a href={`tel:${alumnus.phone}`} className="font-medium text-ocean-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1 rounded">
                       {alumnus.phone}
                     </a>
                   </div>
@@ -408,8 +410,8 @@ const AlumniProfile = () => {
           {role === 'student' && <MentorContactPanel mentorId={alumnus.id} />}
 
           {/* Skills */}
-          <div className="glass-card rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Skills</h3>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-slate-900 mb-4">Skills</h3>
             <div className="flex flex-wrap gap-2">
               {Array.isArray(alumnus.skills) && alumnus.skills.length > 0 ? (
                 alumnus.skills.map((skill, index) => (
@@ -421,15 +423,15 @@ const AlumniProfile = () => {
                   </span>
                 ))
               ) : (
-                <p className="text-gray-500 text-sm">No skills listed.</p>
+                <p className="text-slate-500 text-sm">No skills listed.</p>
               )}
             </div>
           </div>
 
           {/* Social Links (hidden for students) */}
           {role !== 'student' && (
-            <div className="glass-card rounded-lg p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Social Links</h3>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-slate-900 mb-4">Social Links</h3>
               <div className="space-y-2">
                 {alumnus.socialLinks && Object.values(alumnus.socialLinks).some(link => link) ? (
                   Object.entries(alumnus.socialLinks).map(([platform, url]) => (
@@ -439,15 +441,15 @@ const AlumniProfile = () => {
                         href={url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm"
+                        className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1 rounded"
                       >
-                        <LinkIcon className="w-4 h-4 mr-2" />
+                        <LinkIcon className="w-4 h-4 mr-2" aria-hidden="true" />
                         {platform.charAt(0).toUpperCase() + platform.slice(1)}
                       </a>
                     )
                   ))
                 ) : (
-                  <p className="text-gray-500 text-sm">No social links provided.</p>
+                  <p className="text-slate-500 text-sm">No social links provided.</p>
                 )}
               </div>
             </div>
