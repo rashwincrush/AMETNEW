@@ -713,7 +713,7 @@ export const fetchGroups = async (options = {}) => {
   let publicQ = supabase
     .from('groups')
     .select(baseSelect)
-    .eq('visibility', 'public')
+    .eq('is_private', false)
     .eq('is_approved', true)
     .order(sortBy, { ascending: sortOrder === 'asc' })
     .limit(limit);
@@ -828,20 +828,22 @@ export const getMyGroupMembership = async (groupId) => {
 export const fetchGroupMembers = async (groupId, limit = 200, offset = 0) => {
   const { data, error } = await supabase
     .from('group_memberships')
-    .select('role, joined_at, user:profiles!group_memberships_user_id_fkey(id, full_name, avatar_url, email, headline)')
+    .select('role, created_at, user:profiles!group_memberships_user_id_fkey(id, full_name, avatar_url, email, headline)')
     .eq('group_id', groupId)
-    .order('joined_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
   return { data, error };
 };
 
 // Create a new group (backend triggers will set creator/admin membership)
 export const createGroup = async (groupData) => {
-  const { data, error } = await supabase
-    .from('groups')
-    .insert([groupData])
-    .select()
-    .single();
+  // Use the secure RPC function to create group and add admin in one step
+  const { data, error } = await supabase.rpc('create_group_and_add_admin', {
+    group_name: groupData.name,
+    group_description: groupData.description || '',
+    group_is_private: groupData.is_private || false,
+    group_tags: groupData.tags || [],
+  });
   return { data, error };
 };
 
@@ -993,7 +995,7 @@ export async function fetchMyGroupsSummary(limit = 3, userId) {
   try {
     const { data: ms1, error: mErr1 } = await supabase
       .from('group_memberships')
-      .select('group_id, joined_at:created_at, created_at')
+      .select('group_id, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(limit);
@@ -1003,9 +1005,9 @@ export async function fetchMyGroupsSummary(limit = 3, userId) {
     // Fallback to group_members table naming
     const { data: ms2, error: mErr2 } = await supabase
       .from('group_members')
-      .select('group_id, joined_at:created_at, created_at')
+      .select('group_id, joined_at, created_at')
       .eq('user_id', userId)
-      .order('created_at', { ascending: false })
+      .order('joined_at', { ascending: false })
       .limit(limit);
     if (mErr2) return { data: [], error: mErr2 };
     mships = ms2 || [];

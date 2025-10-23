@@ -1,16 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 
 const ApplicationTracking = () => {
-  const { user } = useAuth();
+  const { user, userRole } = useAuth();
+  const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('all');
 
   useEffect(() => {
+    // Route guard: only applicants (student/alumni)
+    if (user && !['student','alumni'].includes(userRole)) {
+      toast.error('Only applicants can view My Applications');
+      navigate('/jobs', { replace: true });
+      return;
+    }
+
     if (!user) {
       setIsLoading(false);
       return;
@@ -18,8 +26,8 @@ const ApplicationTracking = () => {
 
     const fetchApplications = async () => {
       try {
-        // Query that joins job_applications with jobs to get full details
-        // Note: source_type is derived client-side (same logic as v_jobs_public view)
+        // Query that joins job_applications with jobs to get full details.
+        // RLS will scope to the current user automatically.
         const { data, error } = await supabase
           .from('job_applications')
           .select(`
@@ -39,7 +47,6 @@ const ApplicationTracking = () => {
               external_url
             )
           `)
-          .eq('applicant_id', user.id)
           .order('created_at', { ascending: false });
 
         if (error) {

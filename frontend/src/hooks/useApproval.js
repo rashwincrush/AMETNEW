@@ -7,9 +7,15 @@ export function useApproval() {
 
   const state = useMemo(() => {
     const role = (getUserRole ? getUserRole() : profile?.role || '').toLowerCase();
-    const approvalStatus = (profile?.approval_status || (profile?.is_approved ? 'approved' : undefined)) || 'pending';
+    const approvalStatus =
+      profile?.alumni_verification_status ||
+      profile?.approval_status ||
+      (profile?.is_approved ? 'approved' : 'pending');
 
-    const isApproved = approvalStatus === 'approved';
+    const isApproved =
+      profile?.alumni_verification_status === 'approved' ||
+      profile?.approval_status === 'approved' ||
+      profile?.is_approved === true;
     const isMentor = role === 'mentor' || (hasPermission ? hasPermission('manage:mentor_profile') : false);
     const isMentee = role === 'mentee' || role === 'student' || role === 'alumni' || (hasPermission ? hasPermission('request:mentorship') : false);
     const isEmployer = role === 'employer' || (hasPermission ? hasPermission('post:jobs') : false);
@@ -28,7 +34,9 @@ export function useApproval() {
       isEmployer,
       // If granular statuses are missing, fall back to global approval to avoid false negatives
       isApprovedMentor: isMentor && ((mentorStatus ? mentorStatus === 'approved' : true) && isApproved),
-      isApprovedMentee: isMentee && ((menteeStatus ? menteeStatus === 'approved' : true) && isApproved),
+      isApprovedMentee:
+        isMentee &&
+        (role === 'student' ? isApproved : true),
       isApprovedEmployer: isEmployer && ((employerStatus ? employerStatus === 'approved' : true) && isApproved),
     };
   }, [user, profile, getUserRole]);

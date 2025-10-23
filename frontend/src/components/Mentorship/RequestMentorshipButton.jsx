@@ -4,7 +4,7 @@ import { useApproval } from '../../hooks/useApproval';
 import { handleSupabaseGuardError } from '../../utils/mapSupabaseErrorToToast';
 import toast from 'react-hot-toast';
 
-export default function RequestMentorshipButton({ mentorId, disabled = false }) {
+export default function RequestMentorshipButton({ mentorId, disabled = false, requested = false, onSuccess }) {
   const { loading, isApprovedMentee } = useApproval();
   const [busy, setBusy] = useState(false);
 
@@ -13,6 +13,7 @@ export default function RequestMentorshipButton({ mentorId, disabled = false }) 
       toast.error('Your profile is not approved. Kindly contact administrator.');
       return;
     }
+    if (requested) return; // already requested
     try {
       setBusy(true);
       const { data: userData } = await supabase.auth.getUser();
@@ -33,6 +34,11 @@ export default function RequestMentorshipButton({ mentorId, disabled = false }) 
       }
 
       toast.success('Request sent!');
+      // Emit global event so other screens (Mentorship.js) can refresh
+      window.dispatchEvent(new CustomEvent('mentorship:request:created', { detail: { mentorId, menteeId: uid } }));
+      if (typeof onSuccess === 'function') {
+        onSuccess({ mentorId, menteeId: uid });
+      }
     } catch (err) {
       handleSupabaseGuardError(err);
     } finally {
@@ -40,17 +46,23 @@ export default function RequestMentorshipButton({ mentorId, disabled = false }) 
     }
   };
 
-  const isDisabled = loading || busy || !isApprovedMentee || !!disabled;
+  const isDisabled = loading || busy || !isApprovedMentee || !!disabled || !!requested;
 
   return (
     <button
       onClick={onClick}
       disabled={isDisabled}
       aria-disabled={isDisabled}
-      title={!isApprovedMentee ? 'Your profile is not approved. Kindly contact administrator.' : (disabled ? 'This mentor isn’t accepting requests right now.' : 'Request mentorship')}
+      title={
+        !isApprovedMentee
+          ? 'Your profile is not approved. Kindly contact administrator.'
+          : requested
+            ? 'Request pending'
+            : (disabled ? 'This mentor isn’t accepting requests right now.' : 'Request mentorship')
+      }
       className={`flex-1 btn-ocean py-2 px-3 rounded text-sm ${isDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
     >
-      {busy ? 'Sending…' : 'Request Mentorship'}
+      {requested ? 'Request pending' : (busy ? 'Sending…' : 'Request Mentorship')}
     </button>
   );
 }

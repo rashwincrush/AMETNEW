@@ -369,8 +369,8 @@ const HomePage = () => {
               <ul className="space-y-2 text-gray-600">
                 <li><Link to="/help" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Help Center</Link></li>
                 <li><Link to="/contact" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Contact Us</Link></li>
-                <li><Link to="/privacy" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Privacy Policy</Link></li>
-                <li><Link to="/terms" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Terms of Service</Link></li>
+                <li><Link to="/privacy-policy" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Privacy Policy</Link></li>
+                <li><Link to="/terms-of-service" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Terms of Service</Link></li>
               </ul>
             </div>
           </div>

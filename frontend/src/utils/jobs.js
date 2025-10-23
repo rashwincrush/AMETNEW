@@ -29,6 +29,8 @@ export const hasOverviewData = (j) => {
     j?.job_type ||
     j?.experience_level ||
     j?.department ||
-    (j?.salary_min != null && j?.salary_max != null)
+    j?.salary_display_inr ||
+    (j?.salary_min != null) ||
+    (j?.salary_max != null)
   );
 };

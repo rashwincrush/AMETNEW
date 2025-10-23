@@ -13,6 +13,7 @@ import {
   PlusIcon,
   BellIcon,
   DocumentTextIcon,
+  CurrencyDollarIcon,
 } from '@heroicons/react/24/outline';
 import { CalendarIcon } from '@heroicons/react/24/outline';
 import { CircularProgress } from '@mui/material';
@@ -27,6 +28,8 @@ import { useNotification } from '../common/NotificationCenter';
 import { shareJob } from '../../utils/share';
 import BookmarkButton from './BookmarkButton';
 import { toggleBookmarkRPC } from '../../utils/bookmarks';
+import ApplyDialog from './ApplyDialog';
+import { hasApplied as hasAppliedHelper } from '../../utils/jobApplications';
 
 /* ---------- Helpers ---------- */
 const timeAgo = (date) => {
@@ -102,15 +105,30 @@ const filterOptions = {
 };
 
 /* ---------- Small subcomponents that need the bookmark state passed in ---------- */
+// Format a date in Asia/Kolkata as dd MMM yyyy
+const formatKolkata = (iso) => {
+  try {
+    return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }).format(new Date(iso));
+  } catch (_) { return new Date(iso).toLocaleDateString(); }
+};
 const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
-  const employerId = job?.posted_by || job?.user_id || job?.employer_id;
-  const isOwner = user?.id && employerId && user.id === employerId;
-  const isStudent = ['alumni', 'student'].includes(userRole);
-  if (!job) return null;
+  const employerId = job?.posted_by || job?.user_id || job?.created_by || job?.employer_id;
+  const isOwner = !!(user?.id && (job?.created_by === user.id || job?.posted_by === user.id));
+  const isApplicantRole = ['alumni', 'student'].includes(userRole);
 
   const quick = isQuickLink(job);
+
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [applied, setApplied] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    if (user?.id && job?.id) {
+      hasAppliedHelper(job.id).then(v => { if (mounted) setApplied(Boolean(v)); });
+    }
+    return () => { mounted = false; };
+  }, [user?.id, job?.id]);
   const href = coalesceAppUrl(job);
 
   const renderStatusBadge = () => {
@@ -123,32 +141,44 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
     return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800">Pending</span>);
   };
 
+  // Single source of truth for Apply/Upload visibility
+  const deadlinePassed = job.application_deadline && new Date(job.application_deadline) < new Date();
+  const hideApply = (
+    isOwner ||
+    !job.is_approved ||
+    !job.is_active ||
+    job.status !== 'active' ||
+    !!deadlinePassed
+  );
+  const canApply = !hideApply;
+
+  if (!job) return null;
   return (
-    <div className="glass-card rounded-lg p-6 hover:shadow-lg transition-shadow border border-transparent h-full flex flex-col">
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center">
+    <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow border border-gray-200 h-full flex flex-col">
+      <div className="flex items-start justify-between mb-4 p-6 pb-4">
+        <div className="flex items-center flex-1">
           <img
             src={job.companies?.logo_url || '/logo.png'}
             alt={job.companies?.name || 'Company'}
-            className="w-12 h-12 rounded-lg object-cover mr-4"
+            className="w-12 h-12 rounded-lg object-cover mr-4 flex-shrink-0"
           />
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-gray-900 line-clamp-1" title={job.title}>{job.title}</h3>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-semibold text-gray-900 line-clamp-2" title={job.title}>{job.title}</h3>
             </div>
-            <div className="flex items-center gap-2">
-              <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">
-                {job.companies?.name || job.company_name}
-              </Link>
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-ocean-100 text-ocean-800' : 'bg-green-100 text-green-800'}`}>
-                {quick ? 'Quick Link' : 'In-App'}
-              </span>
-              {renderStatusBadge()}
-            </div>
+          <div className="flex items-center gap-2 flex-wrap mt-1">
+            <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline text-sm truncate">
+              {job.companies?.name || job.company_name}
+            </Link>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs flex-shrink-0 ${quick ? 'bg-ocean-100 text-ocean-800' : 'bg-green-100 text-green-800'}`}>
+              {quick ? 'Quick Link' : 'In-App'}
+            </span>
+            {renderStatusBadge()}
+          </div>
           </div>
         </div>
-        <div className="flex items-center">
-          <button onClick={() => shareJob(job)} className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80" aria-label="Share job">
+        <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+          <button onClick={() => shareJob(job)} className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2" aria-label="Share job">
             <ShareIcon className="w-5 h-5 text-gray-500" />
           </button>
 
@@ -160,41 +190,58 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
         </div>
       </div>
 
-      <p className="text-gray-600 text-sm mb-4 line-clamp-3">{job.description || 'No description provided.'}</p>
+      <p className="text-gray-700 text-sm mb-4 px-6 line-clamp-4">{job.description || 'No description provided.'}</p>
 
-      <div className="grid grid-cols-2 gap-2 mb-2">
+      <div className="grid grid-cols-2 gap-3 mb-4 px-6 text-sm">
         {!!job.location && (
-          <div className="flex items-center text-sm text-gray-600">
-            <MapPinIcon className="w-4 h-4 mr-1" />
-            <span>{job.location}</span>
+          <div className="flex items-center text-gray-700">
+            <MapPinIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+            <span className="truncate">{job.location}</span>
           </div>
         )}
         {!!job.job_type && (
-          <div className="flex items-center text-sm text-gray-600">
-            <BriefcaseIcon className="w-4 h-4 mr-1" />
-            <span className="capitalize">{job.job_type}</span>
+          <div className="flex items-center text-gray-700">
+            <BriefcaseIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+            <span className="capitalize truncate">{job.job_type}</span>
           </div>
         )}
         {!!job.experience_level && (
-          <div className="flex items-center text-sm text-gray-600">
-            <ClockIcon className="w-4 h-4 mr-1" />
-            <span className="capitalize">{job.experience_level}</span>
+          <div className="flex items-center text-gray-700">
+            <ClockIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+            <span className="capitalize truncate">{job.experience_level}</span>
+          </div>
+        )}
+        {(job?.salary_display_inr || job?.salary_range || (job?.salary_min != null && job?.salary_max != null)) && (
+          <div className="flex items-center text-gray-700 col-span-2">
+            <CurrencyDollarIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+            <span>
+              {job?.salary_display_inr ||
+               job?.salary_range ||
+               (job?.salary_min != null && job?.salary_max != null
+                 ? `₹${Number(job.salary_min).toLocaleString('en-IN')} – ₹${Number(job.salary_max).toLocaleString('en-IN')}`
+                 : job?.salary_min != null
+                   ? `₹${Number(job.salary_min).toLocaleString('en-IN')}+`
+                   : `Up to ₹${Number(job?.salary_max).toLocaleString('en-IN')}`)
+              }
+            </span>
           </div>
         )}
         {job.application_deadline && (
-          <div className="flex items-center text-sm text-gray-600 col-span-2">
-            <CalendarIcon className="w-4 h-4 mr-1" />
-            <span>Deadline: {new Date(job.application_deadline).toLocaleDateString()}</span>
+          <div className="flex items-center text-gray-700 col-span-2">
+            <CalendarIcon className="w-4 h-4 mr-2 flex-shrink-0" />
+            <span>Deadline: {formatKolkata(job.application_deadline)}</span>
           </div>
         )}
       </div>
 
-      <div className="mt-auto flex justify-between items-center">
-        {(() => { const count = getApplicantsCount(job); return (count !== null && count > 0) ? (
-          <span className="text-sm text-gray-500">{count} applicant{count === 1 ? '' : 's'}</span>
-        ) : <span />; })()}
-        <div className="space-x-2">
-          {isStudent && employerId && !isOwner && (
+      <div className="mt-auto border-t border-gray-200 pt-4 px-6 pb-6">
+        <div className="flex justify-between items-center mb-3">
+          {(() => { const count = getApplicantsCount(job); return (count !== null && count > 0) ? (
+            <span className="text-sm text-gray-600">{count} applicant{count === 1 ? '' : 's'}</span>
+          ) : <span />; })()}
+        </div>
+        <div className="space-y-2">
+          {isApplicantRole && employerId && !isOwner && (
             <button
               onClick={async () => {
                 try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (error) {
@@ -203,21 +250,46 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
                 }
                 navigate(`/messages?peer=${employerId}&job=${job.id}`);
               }}
-              className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
+              className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
             >
               Ask Employer
             </button>
           )}
-          <Link to={`/jobs/${job.id}`} className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">View Details</Link>
-          <button
-            onClick={() => {
-              if (quick && href) window.open(href, '_blank', 'noopener,noreferrer');
-              else navigate(`/jobs/${job.id}`);
-            }}
-            className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
-          >
-            {quick ? 'Apply Externally' : (isOwner ? 'View Applications' : 'Apply Now')}
-          </button>
+          <Link to={`/jobs/${job.id}`} className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-300 text-gray-700 hover:border-ocean-600 hover:text-ocean-600 text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">View Details</Link>
+          {(userRole === 'employer' && (job?.created_by === user?.id || job?.posted_by === user?.id)) || (['admin', 'super_admin'].includes(userRole)) ? (
+            <Link to={`/jobs/${job.id}/applications`} className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">
+              Manage Applications
+            </Link>
+          ) : quick ? (
+            <button
+              onClick={() => { const url = href; if (url) window.open(url, '_blank', 'noopener'); }}
+              aria-label="Apply Externally"
+              className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+            >
+              Apply Externally
+            </button>
+          ) : applied ? (
+            <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Application Submitted</button>
+          ) : canApply ? (
+            <button
+              onClick={() => setApplyOpen(true)}
+              className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+            >
+              Apply
+            </button>
+          ) : (
+            <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications Closed</button>
+          )}
+          {!quick && (
+            <ApplyDialog
+              open={applyOpen}
+              onClose={() => setApplyOpen(false)}
+              jobId={job.id}
+              deadline={job.application_deadline}
+              onSuccess={() => setApplied(true)}
+            />
+          )}
+          
         </div>
       </div>
     </div>
@@ -229,21 +301,27 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id;
   const isOwner = user?.id && employerId && user.id === employerId;
-  const isStudent = ['alumni', 'student'].includes(userRole);
-  if (!job) return null;
 
   const quick = isQuickLink(job);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [applied, setApplied] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    if (user?.id && job?.id) {
+      hasAppliedHelper(job.id).then(v => { if (mounted) setApplied(Boolean(v)); });
+    }
+    return () => { mounted = false; };
+  }, [user?.id, job?.id]);
+
+  const deadlinePassed = job.application_deadline && new Date(job.application_deadline) < new Date();
 
   const renderStatusBadge = () => {
-    if (job.is_approved === true) {
-      return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-800">Approved</span>);
-    }
-    if (job.is_active === false) {
-      return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-800">Rejected</span>);
-    }
+    if (job.is_approved === true) return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-800">Approved</span>);
+    if (job.is_active === false) return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-800">Rejected</span>);
     return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800">Pending</span>);
   };
 
+  if (!job) return null;
   return (
     <div className="glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border border-transparent min-h-[140px]">
       <img src={job.companies?.logo_url || '/logo.png'} alt={job.companies?.name || 'Company'} className="w-16 h-16 rounded-lg object-cover" />
@@ -253,9 +331,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
             <Link to={`/jobs/${job.id}`} className="text-lg font-bold text-gray-900 hover:text-ocean-600 transition-colors duration-200 line-clamp-1" title={job.title}>
               {job.title}
             </Link>
-            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-ocean-100 text-ocean-800' : 'bg-green-100 text-green-800'}`}>
-              {quick ? 'Quick Link' : 'In-App'}
-            </span>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-ocean-100 text-ocean-800' : 'bg-green-100 text-green-800'}`}>{quick ? 'Quick Link' : 'In-App'}</span>
             {renderStatusBadge()}
           </div>
           <span />
@@ -268,7 +344,20 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
           {!!job.location && (<div className="flex items-center"><MapPinIcon className="w-4 h-4 mr-1" /><span>{job.location}</span></div>)}
           {!!job.job_type && (<div className="flex items-center"><BriefcaseIcon className="w-4 h-4 mr-1" /><span className="capitalize">{job.job_type}</span></div>)}
           {!!job.experience_level && (<div className="flex items-center"><ClockIcon className="w-4 h-4 mr-1" /><span className="capitalize">{job.experience_level}</span></div>)}
-          {job.application_deadline && (<div className="flex items-center"><CalendarIcon className="w-4 h-4 mr-1" /><span>Deadline: {new Date(job.application_deadline).toLocaleDateString()}</span></div>)}
+          {(job?.salary_display_inr || job?.salary_range || (job?.salary_min != null && job?.salary_max != null)) && (
+            <div className="flex items-center"><CurrencyDollarIcon className="w-4 h-4 mr-1" />
+              <span>
+                {job?.salary_display_inr || job?.salary_range || (
+                  job?.salary_min != null && job?.salary_max != null
+                    ? `₹${Number(job.salary_min).toLocaleString('en-IN')} – ₹${Number(job.salary_max).toLocaleString('en-IN')}`
+                    : job?.salary_min != null
+                      ? `₹${Number(job.salary_min).toLocaleString('en-IN')}+`
+                      : `Up to ₹${Number(job?.salary_max).toLocaleString('en-IN')}`
+                )}
+              </span>
+            </div>
+          )}
+          {job.application_deadline && (<div className="flex items-center"><CalendarIcon className="w-4 h-4 mr-1" /><span>Deadline: {formatKolkata(job.application_deadline)}</span></div>)}
         </div>
       </div>
       <div className="flex flex-col items-end justify-between self-stretch pt-2 sm:pt-0">
@@ -279,7 +368,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
           <BookmarkButton jobId={job.id} isBookmarked={isBookmarked} handleBookmark={handleBookmark} />
         </div>
         <div className="flex gap-2 mt-4">
-          {isStudent && employerId && !isOwner && (
+          {employerId && !isOwner && (
             <button
               className="btn-secondary-outline px-4 py-2 rounded-lg text-sm"
               onClick={async () => {
@@ -291,33 +380,42 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
             </button>
           )}
           <Link to={`/jobs/${job.id}`} className="btn-ocean-outline px-4 py-2 rounded-lg text-sm">View Details</Link>
-          <button
-            className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
-            onClick={() => {
-              if (quick) {
-                const url = coalesceAppUrl(job);
-                if (url) window.open(url, '_blank', 'noopener');
-              } else {
-                navigate(`/jobs/${job.id}`);
-              }
-            }}
-          >
-            {quick ? 'Apply Externally' : (isOwner ? 'View Applications' : 'Apply Now')}
-          </button>
+          {(isOwner || ['admin', 'super_admin'].includes(userRole)) ? (
+            <Link to={`/jobs/${job.id}/applications`} className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">Manage Applications</Link>
+          ) : quick ? (
+            <button
+              className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
+              onClick={() => { const url = coalesceAppUrl(job); if (url) window.open(url, '_blank', 'noopener'); }}
+              aria-label="Apply Externally"
+            >
+              Apply Externally
+            </button>
+          ) : (applied || deadlinePassed) ? (
+            <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">{deadlinePassed ? 'Applications Closed' : 'Application Submitted'}</button>
+          ) : (
+            <button
+              className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
+              onClick={() => setApplyOpen(true)}
+            >
+              Apply
+            </button>
+          )}
+          {!quick && (
+            <ApplyDialog open={applyOpen} onClose={() => setApplyOpen(false)} jobId={job.id} deadline={job.application_deadline} onSuccess={() => setApplied(true)} />
+          )}
         </div>
       </div>
     </div>
   );
 };
 
-/* ---------- Main Page ---------- */
 const JobListingsPage = () => {
   const { user, loading: authLoading, userRole } = useAuth();
   const { loading: apprLoading, isApprovedEmployer } = useApproval();
   const navigateJob = useNavigate();
   const goPostJob = () => {
     if (!isApprovedEmployer) {
-      toast.error('Your profile is not approved. Kindly contact administrator.');
+      toast.error('Your employer profile is not approved. Please contact the admin to get approved.');
       return;
     }
     navigateJob('/jobs/post');
@@ -340,6 +438,7 @@ const JobListingsPage = () => {
     department: searchParams.get('department') || 'all',
     salaryRange: searchParams.get('salaryRange') || 'all',
     postedWithin: searchParams.get('postedWithin') || 'all',
+    status: searchParams.get('status') || 'all',
   });
   const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1', 10));
   const [pageSize, setPageSize] = useState(12);
@@ -386,31 +485,152 @@ const JobListingsPage = () => {
 
     const [sortCol, sortDir] = (sortBy || 'created_at,desc').split(',');
     const isEmployer = userRole === 'employer';
+    const isAdmin = ['admin', 'super_admin'].includes(userRole);
 
     let data = null; let error = null; let serverFilteredByDepartment = false;
 
     if (isEmployer) {
-      ({ data, error } = await supabase.rpc('get_my_posted_jobs', {
-        p_search_query: searchQuery || null,
-        p_sort_by: sortCol || 'created_at',
-        p_sort_order: (sortDir || 'desc').toLowerCase(),
-        p_limit: pageSize,
-        p_offset: (currentPage - 1) * pageSize,
-      }));
+      if (approvalFilter && approvalFilter !== 'all') {
+        // Employer wants specific status: fetch from base table with ownership + approval predicates
+        let q = supabase
+          .from('jobs')
+          .select('*, companies(name, logo_url)', { count: 'exact' })
+          .or(`posted_by.eq.${user?.id},user_id.eq.${user?.id},created_by.eq.${user?.id}`);
+
+        if (approvalFilter === 'approved') q = q.eq('is_approved', true);
+        if (approvalFilter === 'pending') q = q.is('is_approved', null);
+        if (approvalFilter === 'rejected') q = q.eq('is_active', false);
+
+        if (filters.department && filters.department !== 'all') q = q.eq('department', filters.department);
+        if (filters.jobType && filters.jobType !== 'all') q = q.eq('job_type', filters.jobType);
+        if (filters.experience && filters.experience !== 'all') q = q.eq('experience_level', filters.experience);
+        if (filters.industry && filters.industry !== 'all') q = q.eq('industry', filters.industry);
+        if (filters.location && filters.location !== 'all' && String(filters.location).trim()) q = q.ilike('location', `%${String(filters.location).trim()}%`);
+
+        if (filters.salaryRange && filters.salaryRange !== 'all') {
+          const [minStr, maxStr] = String(filters.salaryRange).split('-');
+          const sMin = minStr ? parseInt(minStr, 10) : null;
+          const sMax = maxStr ? (maxStr === '' ? null : parseInt(maxStr, 10)) : null;
+          if (sMin !== null) q = q.gte('salary_max', sMin);
+          if (sMax !== null) q = q.lte('salary_min', sMax);
+        }
+
+        if (filters.postedWithin && filters.postedWithin !== 'all') {
+          const days = parseInt(filters.postedWithin, 10);
+          if (!Number.isNaN(days)) q = q.gte('created_at', new Date(Date.now() - days * 86400000).toISOString());
+        }
+
+        if (searchQuery && String(searchQuery).trim()) {
+          const s = String(searchQuery).trim();
+          q = q.or(`title.ilike.%${s}%,location.ilike.%${s}%`);
+        }
+
+        const ascending = (sortDir || 'desc').toLowerCase() === 'asc';
+        q = q.order(sortCol || 'created_at', { ascending });
+        q = q.range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
+
+        const resp = await q;
+        if (resp.error) {
+          error = resp.error;
+        } else {
+          data = { items: resp.data || [], total_count: resp.count || 0 };
+        }
+      } else {
+        ({ data, error } = await supabase.rpc('get_my_posted_jobs', {
+          p_search_query: searchQuery || null,
+          p_sort_by: sortCol || 'created_at',
+          p_sort_order: (sortDir || 'desc').toLowerCase(),
+          p_limit: pageSize,
+          p_offset: (currentPage - 1) * pageSize,
+        }));
+      }
+    } else if (isAdmin && approvalFilter && approvalFilter !== 'all') {
+      // Admin view with explicit approval filter: query base table to include non-approved/inactive rows
+      let q = supabase
+        .from('jobs')
+        .select('*, companies(name, logo_url)', { count: 'exact' });
+
+      // Approval filter predicates
+      if (approvalFilter === 'approved') q = q.eq('is_approved', true);
+      if (approvalFilter === 'pending') q = q.is('is_approved', null);
+      if (approvalFilter === 'rejected') q = q.eq('is_active', false);
+
+      // Other filters
+      if (filters.department && filters.department !== 'all') q = q.eq('department', filters.department);
+      if (filters.jobType && filters.jobType !== 'all') q = q.eq('job_type', filters.jobType);
+      if (filters.experience && filters.experience !== 'all') q = q.eq('experience_level', filters.experience);
+      if (filters.industry && filters.industry !== 'all') q = q.eq('industry', filters.industry);
+      if (filters.location && filters.location !== 'all' && String(filters.location).trim()) q = q.ilike('location', `%${String(filters.location).trim()}%`);
+
+      // Salary overlap
+      if (filters.salaryRange && filters.salaryRange !== 'all') {
+        const [minStr, maxStr] = String(filters.salaryRange).split('-');
+        const sMin = minStr ? parseInt(minStr, 10) : null;
+        const sMax = maxStr ? (maxStr === '' ? null : parseInt(maxStr, 10)) : null;
+        if (sMin !== null) q = q.gte('salary_max', sMin);
+        if (sMax !== null) q = q.lte('salary_min', sMax);
+      }
+
+      // Posted since X days
+      if (filters.postedWithin && filters.postedWithin !== 'all') {
+        const days = parseInt(filters.postedWithin, 10);
+        if (!Number.isNaN(days)) q = q.gte('created_at', new Date(Date.now() - days * 86400000).toISOString());
+      }
+
+      // Search query (title, description, company_name, location)
+      if (searchQuery && String(searchQuery).trim()) {
+        const s = String(searchQuery).trim();
+        // Supabase JS doesn't support OR across multiple ilike easily without raw SQL; approximate using text search-like filters
+        // We'll prioritize title/location and rely on client-side narrowing for others if necessary
+        q = q.or(`title.ilike.%${s}%,location.ilike.%${s}%`);
+      }
+
+      // Sort and paging
+      const ascending = (sortDir || 'desc').toLowerCase() === 'asc';
+      q = q.order(sortCol || 'created_at', { ascending });
+      q = q.range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
+
+      const resp = await q;
+      if (resp.error) {
+        error = resp.error;
+      } else {
+        data = { items: resp.data || [], total_count: resp.count || 0 };
+      }
     } else {
+      // Public/non-employer: prefer server-side v5 for accurate counts and paging
       const deptParam = (filters.department && filters.department !== 'all') ? filters.department : null;
-      ({ data, error } = await supabase.rpc('get_jobs_feed', {
+      const jobTypeParam = (filters.jobType && filters.jobType !== 'all') ? filters.jobType : null;
+      const expParam = (filters.experience && filters.experience !== 'all') ? filters.experience : null;
+      const locParam = (filters.location && filters.location !== 'all' && String(filters.location).trim()) ? String(filters.location).trim() : null;
+      const industryParam = (filters.industry && filters.industry !== 'all') ? filters.industry : null;
+      let salaryMin = null, salaryMax = null;
+      if (filters.salaryRange && filters.salaryRange !== 'all') {
+        const [minStr, maxStr] = String(filters.salaryRange).split('-');
+        salaryMin = minStr ? parseInt(minStr, 10) : null;
+        salaryMax = maxStr ? (maxStr === '' ? null : parseInt(maxStr, 10)) : null;
+      }
+      const postedSince = (filters.postedWithin && filters.postedWithin !== 'all') ? parseInt(filters.postedWithin, 10) : null;
+
+      ({ data, error } = await supabase.rpc('get_jobs_public_v5', {
         p_search_query: searchQuery || null,
         p_sort_by: sortCol || 'created_at',
         p_sort_order: (sortDir || 'desc').toLowerCase(),
         p_limit: pageSize,
         p_offset: (currentPage - 1) * pageSize,
         p_department: deptParam,
+        p_job_type: jobTypeParam,
+        p_experience_level: expParam,
+        p_location: locParam,
+        p_industry: industryParam,
+        p_salary_min: salaryMin,
+        p_salary_max: salaryMax,
+        p_posted_since_days: postedSince,
       }));
+      // Fallback ONLY if RPC errors; allow empty results to reflect strict filters (e.g., Pending/Rejected)
       if (error) {
-        console.warn('RPC get_jobs_feed failed, falling back to v_jobs_public view');
+        console.warn('RPC get_jobs_public_v5 failed, falling back to v_jobs_feed_inr view');
         const { data: viewData, error: viewError } = await supabase
-          .from('v_jobs_public')
+          .from('v_jobs_feed_inr')
           .select('*')
           .order(sortCol, { ascending: sortDir === 'asc' })
           .range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
@@ -421,6 +641,7 @@ const JobListingsPage = () => {
           error = null;
         }
       } else {
+        // Department is applied server-side when provided
         serverFilteredByDepartment = !!deptParam;
       }
     }
@@ -434,11 +655,12 @@ const JobListingsPage = () => {
       return;
     }
 
-    // Normalize rows
+    // Normalize rows (support RPC returning array or {items,total_count})
     let rows = [];
     let totalCount = 0;
     if (!isEmployer) {
-      rows = (data?.items ?? []).map(j => {
+      const rawItems = Array.isArray(data) ? data : (data?.items ?? []);
+      rows = rawItems.map(j => {
         // Prefer company_logo_url if present in row
         const company = {
           name: companyDisplay(j).name,
@@ -453,7 +675,7 @@ const JobListingsPage = () => {
           source_type: j?.source_type ?? computedSource,
         };
       });
-      totalCount = data?.total_count ?? 0;
+      totalCount = (Array.isArray(data) ? (data?.[0]?.total_count ?? rawItems.length) : (data?.total_count ?? 0));
     } else {
       rows = (data || []).map(j => {
         const company = {
@@ -477,12 +699,19 @@ const JobListingsPage = () => {
 
     // Client filters (until server supports all)
     const matchesFilters = (j) => {
-      // Guard: Students and general audience should only see approved & active
-      if (!isEmployer) {
+      // Apply approval filter for all users
+      if (approvalFilter === 'approved' && j.is_approved !== true) return false;
+      if (approvalFilter === 'pending' && j.is_approved !== null) return false;
+      if (approvalFilter === 'rejected' && j.is_active !== false) return false;
+      
+      // For non-employers, only show approved & active jobs
+      if (!isEmployer && approvalFilter === 'all') {
         const approved = j.is_approved === true;
         const active = j.is_active !== false;
         if (!(approved && active)) return false;
       }
+      
+      // Apply source filter
       if (sourceFilter !== 'all') {
         const st = getSourceType(j);
         if (sourceFilter === 'quick_link' && st !== 'quick_link') return false;
@@ -542,7 +771,7 @@ const JobListingsPage = () => {
 
     setJobs(uniqueRows);
     setLoading(false);
-  }, [searchQuery, sortBy, currentPage, user, userRole, pageSize, filters.department, filters.experience, filters.industry, filters.jobType, filters.location, filters.postedWithin, filters.salaryRange, sourceFilter]);
+  }, [searchQuery, sortBy, currentPage, user, userRole, pageSize, filters.department, filters.experience, filters.industry, filters.jobType, filters.location, filters.postedWithin, filters.salaryRange, sourceFilter, approvalFilter]);
 
   // Realtime
   const handleRealtimeJobChange = useCallback((payload) => {
@@ -603,8 +832,19 @@ const JobListingsPage = () => {
 
   // Debounce search input
   useEffect(() => {
-    const t = setTimeout(() => { setSearchQuery(searchTerm); setCurrentPage(1); }, 250);
+    const t = setTimeout(() => { setSearchQuery(searchTerm); setCurrentPage(1); }, 300);
     return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  // Clearing the search box should also clear industry and status filters (omit in URL and query builder)
+  useEffect(() => {
+    if (String(searchTerm).trim() === '') {
+      setFilters((prev) => {
+        if (prev.status === 'all' && prev.industry === 'all') return prev;
+        return { ...prev, status: 'all', industry: 'all' };
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm]);
 
   /* ---------- FIXED: Optimistic toggle that doesn’t rely on feed flags ---------- */
@@ -638,8 +878,27 @@ const JobListingsPage = () => {
     }
   };
 
-  const handleFilterChange = (filterType, value) => { setFilters(prev => ({ ...prev, [filterType]: value })); setCurrentPage(1); };
-  const handleSearch = () => { setSearchQuery(searchTerm); setCurrentPage(1); };
+  const handleFilterChange = (filterType, value) => {
+    const newFilters = { ...filters, [filterType]: value };
+    setFilters(newFilters);
+    setCurrentPage(1);
+    
+    // Update URL parameters
+    const newSearchParams = new URLSearchParams(searchParams);
+    
+    // Update the specific filter in URL
+    if (value === 'all') {
+      newSearchParams.delete(filterType);
+    } else {
+      newSearchParams.set(filterType, value);
+    }
+    
+    // Always reset to page 1 when filters change
+    newSearchParams.set('page', '1');
+    
+    // Update URL without causing a page reload
+    setSearchParams(newSearchParams);
+  };
   const paginate = (pageNumber) => { setCurrentPage(pageNumber); };
   const handleRefresh = async () => { setIsRefreshing(true); await fetchJobs(); setIsRefreshing(false); toast.success('Job listings have been refreshed!'); };
 
@@ -661,19 +920,34 @@ const JobListingsPage = () => {
           <p className="text-gray-600 mt-1">Showing {jobs.length} of {totalJobs} jobs</p>
         </div>
         <div className="flex items-center space-x-2 md:space-x-4 mt-4 md:mt-0 flex-wrap">
-          <Link to="/jobs/applications" className="btn-secondary-outline text-sm">
-            <DocumentTextIcon className="w-4 h-4 mr-2" />
-            My Applications
-          </Link>
+          {['alumni','student'].includes(userRole) && (
+            <Link to="/jobs/applications" className="btn-secondary-outline text-sm">
+              <DocumentTextIcon className="w-4 h-4 mr-2" />
+              My Applications
+            </Link>
+          )}
           <Link to="/jobs/alerts" className="btn-secondary-outline text-sm">
             <BellIcon className="w-4 h-4 mr-2" />
             My Job Alerts
           </Link>
           {canPostJob && (
-            <button onClick={goPostJob} disabled={apprLoading || !isApprovedEmployer} aria-disabled={apprLoading || !isApprovedEmployer} title={!isApprovedEmployer ? 'Your profile is not approved. Kindly contact administrator.' : 'Post a Job'} className={"btn-primary text-sm " + ((apprLoading || !isApprovedEmployer) ? 'opacity-60 cursor-not-allowed' : '')}>
-              <PlusIcon className="w-4 h-4 mr-2" />
-              Post a Job
-            </button>
+            <div className="relative group">
+              <button 
+                onClick={goPostJob} 
+                disabled={apprLoading || !isApprovedEmployer} 
+                aria-disabled={apprLoading || !isApprovedEmployer} 
+                className={"btn-primary text-sm inline-flex items-center " + ((apprLoading || !isApprovedEmployer) ? 'opacity-60 cursor-not-allowed' : '')}
+              >
+                <PlusIcon className="w-4 h-4 mr-2" />
+                Post a Job
+              </button>
+              {!isApprovedEmployer && (
+                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                  Your employer profile is not approved. Please contact the admin.
+                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -688,11 +962,9 @@ const JobListingsPage = () => {
               placeholder="Search by title, skill, or company..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
             />
           </div>
-          <button onClick={handleSearch} className="btn-ocean px-6 py-2 rounded-lg text-sm w-full md:w-auto">Search</button>
           <button onClick={toggleFilters} aria-label="Toggle filters" aria-expanded={filtersOpen} aria-controls="job-filters" className="btn-ocean-outline px-4 py-2 rounded-lg text-sm w-full md:w-auto flex items-center justify-center min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">
             <FunnelIcon className="w-4 h-4 mr-2" />
             {filtersOpen ? 'Hide Filters' : 'Filters'}

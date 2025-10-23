@@ -240,7 +240,7 @@ const JobPostingForm = () => {
                 <TextField required fullWidth multiline rows={4} label="Job Description" name="description" value={formData.description} onChange={handleChange} disabled={isSubmitting} />
               </Grid>
               <Grid item xs={12}>
-                <TextField required fullWidth multiline rows={3} label="Requirements" name="requirements" value={formData.requirements} onChange={handleChange} disabled={isSubmitting} />
+                <TextField required fullWidth multiline rows={3} label="Qualifications" name="requirements" value={formData.requirements} onChange={handleChange} disabled={isSubmitting} />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField fullWidth label="Salary Range (e.g., $80k - $120k)" name="salary_range" value={formData.salary_range} onChange={handleChange} disabled={isSubmitting} />

@@ -4,39 +4,54 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import LoadingSpinner from '../common/LoadingSpinner';
 import { toast } from 'react-hot-toast';
-import EmployerGuard from '../Auth/EmployerGuard';
 import { getLatestEdge, idempotentConnect } from '../../utils/connections';
 import { log } from '../../utils/log';
 import { isQuickLink } from '../../utils/jobs';
 
-const GuardReady = ({ onReady }) => { React.useEffect(() => { onReady && onReady(); }, [onReady]); return null; };
-
 const ManageJobApplications = () => {
-  const { jobId } = useParams();
+  const { jobId, id } = useParams();
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
   const [applications, setApplications] = useState([]);
+  const [savingIds, setSavingIds] = useState(new Set());
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [connMap, setConnMap] = useState(new Map()); // applicant_id -> status
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 10;
+
+  // Handle both parameter names (jobId and id)
+  const actualJobId = jobId || id;
 
   const fetchJobAndApplications = useCallback(async () => {
-    if (!user) return;
+    if (!user || !actualJobId) {
+      setError("Invalid or missing job ID.");
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
       // Session snapshot
       const { data: { session } } = await supabase.auth.getSession();
-      log.group('[APPS] session', { hasSession: !!session, userId: session?.user?.id, jobId });
+      log.group('[APPS] session', { hasSession: !!session, userId: session?.user?.id, jobId: actualJobId });
 
-      // Owner-scope fetch from base table
+      // Fetch job details (admin-aware: allow admins to see any job)
       const t0 = performance.now();
-      const jobResp = await supabase
+      let jobQuery = supabase
         .from('jobs')
         .select('id, title, posted_by, user_id, created_by, company_id')
-        .eq('id', jobId)
-        .single();
+        .eq('id', actualJobId);
+
+      // If admin, no additional filter needed; RLS will allow
+      // If not admin, add ownership filter to prevent unauthorized access
+      if (!isAdmin) {
+        jobQuery = jobQuery.or(`posted_by.eq.${user.id},user_id.eq.${user.id},created_by.eq.${user.id}`);
+      }
+
+      const jobResp = await jobQuery.single();
       const jobData = jobResp.data; const jobError = jobResp.error;
       log.group('[APPS] job fetch', {
         ms: +(performance.now() - t0).toFixed(1),
@@ -57,53 +72,42 @@ const ManageJobApplications = () => {
       const ownerIds = [jobData.posted_by, jobData.user_id, jobData.created_by].filter(Boolean);
       const isOwner = ownerIds.includes(user.id) || isAdmin;
 
-      // Prefer owner-scoped RPC; if missing, fallback to base table
-      let apps = [];
-      try {
+      if (isOwner) {
+        // Use owner-scoped RPC with paging and total_count
+        const offset = (currentPage - 1) * pageSize;
         const t1 = performance.now();
-        const { data: rpcData, error: rpcError } = await supabase
-          .rpc('get_job_applications_for_owner', { p_job_id: jobId, p_limit: 100, p_offset: 0 });
-        log.group('[APPS] list via RPC', {
+        const { data: rpcRows, error: rpcErr2 } = await supabase.rpc('get_applications_for_job', {
+          p_job_id: actualJobId,
+          p_limit: pageSize,
+          p_offset: offset,
+        });
+        log.group('[APPS] list via get_applications_for_job', {
           ms: +(performance.now() - t1).toFixed(1),
-          error: rpcError ? { code: rpcError.code, message: rpcError.message, details: rpcError.details } : null,
-          rows: Array.isArray(rpcData) ? rpcData.length : 0
+          error: rpcErr2 ? { code: rpcErr2.code, message: rpcErr2.message, details: rpcErr2.details } : null,
+          rows: Array.isArray(rpcRows) ? rpcRows.length : 0
         });
-        if (rpcError) throw rpcError;
-        apps = Array.isArray(rpcData) ? rpcData : [];
-      } catch (rpcErr) {
-        // Fallback to base table with join if RPC not available
-        const t2 = performance.now();
-        const { data: tblData, error: applicationsError } = await supabase
-          .from('job_applications')
-          .select('id, applicant_id, status, created_at, submitted_at, resume_url, cover_letter, applicant:profiles!job_applications_applicant_id_fkey(id, first_name, last_name, avatar_url, email)')
-          .eq('job_id', jobId)
-          .order('created_at', { ascending: false });
-        log.group('[APPS] list via base table', {
-          ms: +(performance.now() - t2).toFixed(1),
-          error: applicationsError ? { code: applicationsError.code, message: applicationsError.message, details: applicationsError.details } : null,
-          rows: Array.isArray(tblData) ? tblData.length : 0
-        });
-        if (applicationsError) throw applicationsError;
-        apps = Array.isArray(tblData) ? tblData : [];
-      }
-
-      setApplications(apps);
-      // Load connection status for each applicant
-      if (user?.id && Array.isArray(apps)) {
-        const entries = await Promise.all(
-          apps.map(async (app) => {
-            const otherId = app.applicant?.id;
-            if (!otherId) return [null, null];
-            try {
-              const edge = await getLatestEdge(user.id, otherId);
-              return [otherId, edge?.status || null];
-            } catch (e) {
-              return [otherId, null];
-            }
-          })
-        );
-        const map = new Map(entries.filter(([k]) => !!k));
-        setConnMap(map);
+        if (rpcErr2) throw rpcErr2;
+        const rows = Array.isArray(rpcRows) ? rpcRows : [];
+        rows.sort((a, b) => new Date(b.created_at || b.submitted_at || 0) - new Date(a.created_at || a.submitted_at || 0));
+        setApplications(rows);
+        setTotalCount(rows[0]?.total_count ?? 0);
+        // Load connection status for each applicant
+        if (user?.id && Array.isArray(rows)) {
+          const entries = await Promise.all(
+            rows.map(async (app) => {
+              const otherId = app.applicant?.id;
+              if (!otherId) return [null, null];
+              try {
+                const edge = await getLatestEdge(user.id, otherId);
+                return [otherId, edge?.status || null];
+              } catch (e) {
+                return [otherId, null];
+              }
+            })
+          );
+          const map = new Map(entries.filter(([k]) => !!k));
+          setConnMap(map);
+        }
       }
     } catch (err) {
       setError(err.message);
@@ -111,20 +115,19 @@ const ManageJobApplications = () => {
     } finally {
       setLoading(false);
     }
-  }, [jobId, user, isAdmin]);
+  }, [actualJobId, user, isAdmin, currentPage]);
 
-  // Fetch only after guard passes
-  const [guardReady, setGuardReady] = useState(false);
   useEffect(() => {
-    if (guardReady) fetchJobAndApplications();
-  }, [guardReady, fetchJobAndApplications]);
+    fetchJobAndApplications();
+  }, [fetchJobAndApplications]);
 
   const handleStatusChange = async (applicationId, newStatus) => {
     try {
-      const { error } = await supabase
-        .from('job_applications')
-        .update({ status: newStatus })
-        .eq('id', applicationId);
+      setSavingIds(prev => new Set(prev).add(applicationId));
+      const { error } = await supabase.rpc('set_application_status', {
+        p_application_id: applicationId,
+        p_status: newStatus,
+      });
 
       if (error) throw error;
 
@@ -133,8 +136,18 @@ const ManageJobApplications = () => {
       );
       toast.success('Application status updated successfully!');
     } catch (err) {
-      toast.error('Failed to update status.');
+      const msg = (err?.code === '42501' || err?.code === 'P0001' || err?.status === 403 || /RLS|permission|not allowed/i.test(err?.message || ''))
+        ? 'Only the job owner can manage applications.'
+        : 'Failed to update status.';
+      toast.error(msg);
       console.error('Error updating status:', err);
+    }
+    finally {
+      setSavingIds(prev => {
+        const next = new Set(prev);
+        next.delete(applicationId);
+        return next;
+      });
     }
   };
 
@@ -157,18 +170,25 @@ const ManageJobApplications = () => {
   };
 
   return (
-    <EmployerGuard jobId={jobId} strict>
-    {() => (
     <div className="container mx-auto px-4 py-8">
-      <GuardReady onReady={() => setGuardReady(true)} />
       {loading && (
         <div className="py-10"><LoadingSpinner message="Loading applications..." /></div>
       )}
+      {(!loading && !actualJobId) && (
+        <div className="text-center py-10 bg-red-50 rounded-lg border border-red-200">
+          <div className="text-red-600 font-medium">Invalid or missing job ID</div>
+          <p className="text-red-500 text-sm mt-1">Please check the URL and try again.</p>
+        </div>
+      )}
       {(!loading && error) && (
-        <div className="text-center py-10 text-red-500">{error}</div>
+        <div className="text-center py-10 bg-red-50 rounded-lg border border-red-200">
+          <div className="text-red-600 font-medium">Access Denied</div>
+          <p className="text-red-500 text-sm mt-1">{error}</p>
+          <p className="text-gray-500 text-xs mt-2">You need to be the job poster or an administrator to view applications.</p>
+        </div>
       )}
       <div className="flex items-center mb-6">
-        <button 
+        <button
           onClick={() => navigate(-1)}
           className="p-1 hover:bg-gray-100 rounded-full transition-colors mr-4"
           aria-label="Go back"
@@ -195,7 +215,7 @@ const ManageJobApplications = () => {
         const ownerIds = [job?.posted_by, job?.user_id, job?.created_by].filter(Boolean);
         console.debug('[MANAGE DEBUG] auth.user.id =', user?.id);
         console.debug('[MANAGE DEBUG] job ownerIds =', ownerIds);
-        const isOwner = user?.id && ownerIds.includes(user.id);
+        const isOwner = ownerIds.includes(user.id) || isAdmin;
         if (!isOwner && !isAdmin) {
           return (
             <div className="mb-6 p-4 rounded-md bg-yellow-50 text-yellow-800 border border-yellow-100">
@@ -203,9 +223,23 @@ const ManageJobApplications = () => {
             </div>
           );
         }
+        const totalPages = Math.ceil(totalCount / pageSize);
         return (
           applications.length === 0 ? (
-            <p>No applications have been submitted for this job yet.</p>
+            <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Applications Yet</h3>
+              <p className="text-gray-600 mb-4">No one has applied to this job posting yet.</p>
+              <div className="text-sm text-gray-500 space-y-1">
+                <p>• Share this job on social media to attract more applicants</p>
+                <p>• Consider reviewing your job requirements and salary</p>
+                <p>• Check back later for new applications</p>
+              </div>
+            </div>
           ) : (
             <div className="bg-white shadow-md rounded-lg overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -239,22 +273,27 @@ const ManageJobApplications = () => {
                         <a href={app.resume_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Resume</a>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <select 
-                          value={app.status} 
-                          onChange={(e) => handleStatusChange(app.id, e.target.value)} 
-                          className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                        <select
+                          value={app.status}
+                          onChange={(e) => handleStatusChange(app.id, e.target.value)}
+                          disabled={savingIds.has(app.id)}
+                          aria-label={`Update status for ${app.applicant?.first_name || 'applicant'}`}
+                          className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md disabled:opacity-60"
                         >
-                          <option value="submitted">Submitted</option>
-                          <option value="reviewed">Reviewed</option>
-                          <option value="interviewing">Interviewing</option>
-                          <option value="offered">Offered</option>
+                          <option value="applied">Applied</option>
+                          <option value="under_review">Under Review</option>
+                          <option value="shortlisted">Shortlisted</option>
                           <option value="rejected">Rejected</option>
+                          <option value="hired">Hired</option>
                         </select>
+                        {savingIds.has(app.id) && (
+                          <div className="text-xs text-gray-400 mt-1" aria-live="polite">Saving…</div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 space-x-2">
                         <Link to={`/profile/${app.applicant?.id}`} className="text-ocean-600 hover:underline">View Profile</Link>
                         {canMessage(app.applicant?.id) ? (
-                          <button onClick={() => navigate(`/messages?peer=${app.applicant?.id}&job=${jobId}`)} className="text-blue-600 hover:underline">Message</button>
+                          <button onClick={() => navigate(`/messages?peer=${app.applicant?.id}&job=${actualJobId}`)} className="text-blue-600 hover:underline">Message</button>
                         ) : (
                           <button onClick={() => handleRequestConnection(app.applicant?.id)} className="text-green-600 hover:underline">Request Connection</button>
                         )}
@@ -267,9 +306,30 @@ const ManageJobApplications = () => {
           )
         );
       })()}
+      
+      {/* Pagination */}
+      {totalCount > pageSize && (
+        <nav aria-label="Pagination" className="flex items-center justify-center gap-4 mt-8">
+          <button
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="inline-flex items-center min-h-[44px] min-w-[44px] px-4 py-2 rounded-lg border-2 border-ocean-300 text-ocean-700 hover:bg-ocean-50 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors duration-200"
+          >
+            Previous
+          </button>
+          <span className="min-h-[44px] px-4 py-2 rounded-lg bg-ocean-600 text-white font-medium flex items-center">
+            Page {currentPage} of {Math.ceil(totalCount / pageSize)}
+          </span>
+          <button
+            onClick={() => setCurrentPage(p => Math.min(Math.ceil(totalCount / pageSize), p + 1))}
+            disabled={currentPage >= Math.ceil(totalCount / pageSize)}
+            className="inline-flex items-center min-h-[44px] min-w-[44px] px-4 py-2 rounded-lg border-2 border-ocean-300 text-ocean-700 hover:bg-ocean-50 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors duration-200"
+          >
+            Next
+          </button>
+        </nav>
+      )}
     </div>
-    )}
-    </EmployerGuard>
   );
 };
 

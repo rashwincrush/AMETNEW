@@ -280,7 +280,17 @@ const EditJob = () => {
                     <Grid item xs={12}>
                       <TextField fullWidth multiline rows={3} label="Requirements" name="requirements"
                         value={formData.requirements || ''} onChange={handleChange}
-                        disabled={isSubmitting} helperText="Separate items with commas (optional)" />
+                        disabled={isSubmitting} helperText="Use bullet points (•) or newlines to separate requirements"
+                        sx={{
+                          '& .MuiInputBase-input': {
+                            lineHeight: 1.5,
+                            fontSize: '1rem',
+                          },
+                          '& textarea': {
+                            whiteSpace: 'pre-wrap',
+                            wordWrap: 'break-word',
+                          }
+                        }} />
                     </Grid>
 
                     <Grid item xs={12} sm={6}>

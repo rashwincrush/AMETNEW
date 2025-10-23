@@ -1,6 +1,7 @@
 /**
  * @fileoverview Helper to build a job payload that matches the public.jobs schema.
  */
+import { parseINR } from './money';
 
 /**
  * Converts a CSV string to a clean array of strings.
@@ -44,6 +45,9 @@ const toISO = (dateStr) => {
  * @returns {object} A plain object ready for supabase.insert().
  */
 export function buildJobPayload(form, companyId, mode) {
+  // Sanitize numeric salary inputs (strings with commas/symbols to integers)
+  const sanitizedMin = parseINR(form.salary_min);
+  const sanitizedMax = parseINR(form.salary_max);
   // For Quick Links, set exactly one of the three link fields.
   // For In-App forms, leave all three null.
   const linkFields =
@@ -63,22 +67,36 @@ export function buildJobPayload(form, companyId, mode) {
     experience_level: form.experience_level || null,
     department: form.department?.trim() || null,
     industry: form.industry?.trim() || null,
-    salary_min: toIntOrNull(form.salary_min),
-    salary_max: toIntOrNull(form.salary_max),
-    
+    salary_min: sanitizedMin,
+    salary_max: sanitizedMax,
+
+    // Create salary_range string for display
+    salary_range: (() => {
+      const min = sanitizedMin;
+      const max = sanitizedMax;
+      if (min && max) {
+        return `${min.toLocaleString('en-IN')} - ${max.toLocaleString('en-IN')}`;
+      } else if (min) {
+        return `${min.toLocaleString('en-IN')}+`;
+      } else if (max) {
+        return `Up to ${max.toLocaleString('en-IN')}`;
+      }
+      return null;
+    })(),
+
     // Map long-text fields to the correct columns
     description: form.summary?.trim() || null,
     requirements: form.responsibilities?.trim() || form.qualifications?.trim() || null,
-    
+
     // Map skills to the `skills` array column
     skills,
-    
+
     // Use the correct column names for contact and deadline
     contact_email: form.contact_email?.trim() || null,
     deadline: toISO(form.deadline),
-    
+
     status: 'active', // Default status
-    
+
     // Ensure only one link field is set for quick-links
     ...linkFields,
   };

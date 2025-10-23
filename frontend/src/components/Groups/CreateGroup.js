@@ -1,62 +1,78 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase, createGroup, uploadGroupAvatar } from '../../utils/supabase';
+import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const CreateGroup = () => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
-  const [isAdminOnlyPosts, setIsAdminOnlyPosts] = useState(false);
   const [tagsInput, setTagsInput] = useState('');
   const [avatarFile, setAvatarFile] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
   const { user } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError('Group name is required.');
+      toast.error('Group name is required.');
       return;
     }
 
     setLoading(true);
-    setError(null);
-
-    const groupData = {
-      name,
-      description,
-      is_private: isPrivate,
-      is_admin_only_posts: isAdminOnlyPosts,
-      tags: tagsInput
-        .split(',')
-        .map(t => t.trim())
-        .filter(Boolean),
-    };
+    const toastId = toast.loading('Creating your group...');
 
     try {
-      const { data, error: createError } = await createGroup(groupData);
+      // Use the secure RPC function to create group and add admin in one step
+      const { data, error: createError } = await supabase.rpc('create_group_and_add_admin', {
+        group_name: name.trim(),
+        group_description: description.trim(),
+        group_is_private: isPrivate,
+        group_tags: tagsInput
+          .split(',')
+          .map(t => t.trim())
+          .filter(Boolean),
+      });
+
       if (createError) {
-        // Duplicate name unique index
+        // Handle duplicate name error gracefully
         if (createError.code === '23505') {
-          setError('Name already in use. Please choose a different name.');
+          toast.error('Name already in use. Please choose a different name.', { id: toastId });
           return;
         }
         throw createError;
       }
 
-      // Optional avatar upload
-      if (avatarFile) {
-        await uploadGroupAvatar(avatarFile, data.id);
+      // Optional avatar upload after group creation
+      if (avatarFile && data) {
+        try {
+          const fileExt = avatarFile.name.split('.').pop();
+          const filePath = `${data}/avatar.${fileExt}`;
+          const { error: uploadError } = await supabase.storage
+            .from('group_avatars')
+            .upload(filePath, avatarFile, {
+              cacheControl: '3600',
+              upsert: true,
+              contentType: avatarFile.type || 'image/png',
+            });
+
+          if (uploadError) {
+            console.warn('Avatar upload failed:', uploadError);
+            // Don't fail the whole operation for avatar upload failure
+          }
+        } catch (uploadErr) {
+          console.warn('Avatar upload error:', uploadErr);
+        }
       }
 
-      navigate(`/groups/${data.id}`);
+      toast.success('Group created successfully!', { id: toastId });
+      navigate(`/groups/${data}`);
     } catch (err) {
-      setError(err.message);
       console.error("Error creating group:", err);
+      toast.error(`Failed to create group: ${err.message}`, { id: toastId });
     } finally {
       setLoading(false);
     }
@@ -140,26 +156,6 @@ const CreateGroup = () => {
                 </label>
               </div>
 
-              <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg border">
-                <div>
-                  <h3 className="font-medium text-gray-800">Admin-only Posts</h3>
-                  <p className="text-sm text-gray-500">When enabled, only group admins can create posts.</p>
-                </div>
-                <label htmlFor="isAdminOnlyPosts" className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    id="isAdminOnlyPosts"
-                    checked={isAdminOnlyPosts}
-                    onChange={(e) => setIsAdminOnlyPosts(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                  <span className="ml-3 text-sm font-medium text-gray-900">
-                    {isAdminOnlyPosts ? 'Enabled' : 'Disabled'}
-                  </span>
-                </label>
-              </div>
-
               <div>
                 <label htmlFor="avatar" className="block text-sm font-medium text-gray-700 mb-1">
                   Group Avatar (optional)
@@ -173,8 +169,6 @@ const CreateGroup = () => {
                 />
                 <p className="text-xs text-gray-500 mt-1">PNG or JPG up to 5 MB.</p>
               </div>
-
-              {error && <p className="text-red-600 text-sm text-center bg-red-50 p-3 rounded-lg">Error: {error}</p>}
 
               <div className="pt-4">
                 <button

@@ -373,7 +373,7 @@ const PostJob = () => {
               <TextField fullWidth multiline rows={3} name="summary" label="Summary (Short, 1-2 sentences)" value={formData.summary} onChange={handleChange} />
             </Grid>
             <Grid item xs={12}>
-              <TextField fullWidth multiline rows={5} name="responsibilities" label="Responsibilities / Requirements" value={formData.responsibilities} onChange={handleChange} placeholder="- Responsibility 1\n- Responsibility 2" />
+              <TextField fullWidth multiline rows={5} name="responsibilities" label="Qualifications" value={formData.responsibilities} onChange={handleChange} placeholder="- Qualification 1\n- Qualification 2" />
             </Grid>
             <Grid item xs={12}>
               <TextField fullWidth name="nice_to_have_skills" label="Nice-to-have Skills (comma-separated)" value={formData.nice_to_have_skills} onChange={handleChange} placeholder="e.g., AutoCAD, Project Management" />
@@ -458,7 +458,31 @@ const PostJob = () => {
 
   if (!apprLoading && !isApprovedEmployer) {
     return (
-      <div className="p-4 rounded-md bg-red-50 text-red-700 border border-red-200">Your profile is not approved. Kindly contact administrator.</div>
+      <div className="p-6 rounded-lg bg-gradient-to-br from-red-50 to-orange-50 text-red-700 border border-red-200">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+            <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold">Profile Approval Required</h3>
+            <p className="text-red-600">Your employer profile needs to be approved before you can post jobs.</p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          <p className="text-sm">To get approved:</p>
+          <ul className="text-sm space-y-1 ml-4">
+            <li>• Complete your profile with company details</li>
+            <li>• Contact our administrators for approval</li>
+            <li>• Check your email for approval status updates</li>
+          </ul>
+          <div className="pt-2">
+            <p className="text-sm font-medium">Need help? Contact us at:</p>
+            <a href="mailto:admin@amet.edu" className="text-blue-600 hover:underline text-sm">admin@amet.edu</a>
+          </div>
+        </div>
+      </div>
     );
   }
 

@@ -192,12 +192,12 @@ const UserManagement = () => {
                         (filters.role === 'employer' && user.is_employer) ||
                         (filters.role === 'admin' && user.is_admin);
 
-      const statusMatch = filters.alumni_verification_status === 'all' || user.approval_status === filters.alumni_verification_status;
+      const statusMatch = filters.alumni_verification_status === 'all' || user.alumni_verification_status === filters.alumni_verification_status;
 
       let tabMatch = true;
       if (selectedTab === 'pending') {
-        // Only include users whose PROFILE approval is pending (source of truth: approval_status)
-        tabMatch = (user.approval_status === 'pending');
+        // Only include users whose PROFILE approval is pending (source of truth: alumni_verification_status)
+        tabMatch = (user.alumni_verification_status === 'pending');
       } else if (selectedTab === 'mentors') {
         // Delegated to MentorsTab component; this filter is not used when rendering MentorsTab
         tabMatch = false;
@@ -226,6 +226,21 @@ const UserManagement = () => {
     }
   };
 
+  const getStatusLabel = (status) => {
+    switch (status) {
+      case 'approved':
+        return 'Approved';
+      case 'pending':
+        return 'Pending';
+      case 'rejected':
+        return 'Rejected';
+      case 'deleted':
+        return 'Deleted';
+      default:
+        return status || 'N/A';
+    }
+  };
+ 
   // Role mapping utility functions
   const ROLE_MAPPINGS = {
     'alumni': 'Alumni',
@@ -285,13 +300,12 @@ const UserManagement = () => {
         setIsRejectModalOpen(true);
         break;
       case 'approve':
-        if (user.approval_status === 'approved') return;
+        if (user.alumni_verification_status === 'approved') return;
         try {
           const { error } = await adminSetProfileApproval(userId, 'approved');
           if (error) throw error;
           setUsers(currentUsers => currentUsers.map(u => u.id === userId ? { 
             ...u, 
-            approval_status: 'approved',
             alumni_verification_status: 'approved',
             rejection_reason: null 
           } : u));
@@ -464,7 +478,6 @@ const UserManagement = () => {
       // Update local UI immediately
       setUsers(prev => prev.map(u => u.id === userId ? {
         ...u,
-        approval_status: 'rejected',
         alumni_verification_status: 'rejected',
         rejection_reason: rejectionComment || null
       } : u));
@@ -692,11 +705,11 @@ const UserManagement = () => {
                     <td className="py-4 px-4">
                       {user.is_deleted ? (
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge('deleted')}`}>
-                          Deleted
+                          {getStatusLabel('deleted')}
                         </span>
                       ) : (
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(user.approval_status)}`}>
-                          {user.approval_status || 'N/A'}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(user.alumni_verification_status)}`}>
+                          {getStatusLabel(user.alumni_verification_status)}
                         </span>
                       )}
                     </td>
@@ -730,18 +743,18 @@ const UserManagement = () => {
                         {hasPermission('manage:users') && (
                           <>
                             <button 
-                              title={user.approval_status === 'approved' ? 'Already approved' : 'Approve User'}
-                              disabled={user.approval_status === 'approved'}
+                              title={user.alumni_verification_status === 'approved' ? 'Already approved' : 'Approve User'}
+                              disabled={user.alumni_verification_status === 'approved'}
                               onClick={() => handleUserAction('approve', user.id)}
-                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${user.approval_status === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
+                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${user.alumni_verification_status === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
                             >
                               <CheckCircleIcon className="w-4 h-4" />
                             </button>
                             <button 
-                              title={user.approval_status === 'rejected' ? 'Already rejected' : 'Reject User'}
-                              disabled={user.approval_status === 'rejected'}
+                              title={user.alumni_verification_status === 'rejected' ? 'Already rejected' : 'Reject User'}
+                              disabled={user.alumni_verification_status === 'rejected'}
                               onClick={() => handleUserAction('reject', user.id)}
-                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${user.approval_status === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
+                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${user.alumni_verification_status === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
                             >
                               <XCircleIcon className="w-4 h-4" />
                             </button>

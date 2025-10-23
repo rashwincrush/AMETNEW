@@ -61,6 +61,7 @@ const Mentorship = () => {
   // State for data from Supabase
   const [mentors, setMentors] = useState([]);
   const [mentorshipRequests, setMentorshipRequests] = useState([]);
+  const [requestedMentorIds, setRequestedMentorIds] = useState(new Set());
   const queryClient = useQueryClient();
   const [mentorFilter, setMentorFilter] = useState('pending');
   const [myMentees, setMyMentees] = useState([]);
@@ -329,6 +330,37 @@ const Mentorship = () => {
     }
   }, [activeTab, isApprovedMentee, user?.id]);
 
+  // Also load initially so the mentor grid can reflect existing pending requests
+  useEffect(() => {
+    if (isApprovedMentee && user?.id) {
+      loadMenteeRequests();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isApprovedMentee, user?.id]);
+
+  // Keep a quick lookup of mentors already requested (pending or accepted)
+  useEffect(() => {
+    const ids = new Set((mentorshipRequests || [])
+      .filter(r => r && (r.status === 'pending' || r.status === 'accepted'))
+      .map(r => r.mentor_id));
+    setRequestedMentorIds(ids);
+  }, [mentorshipRequests]);
+
+  // Listen for requests created from other pages (e.g., mentor profile)
+  useEffect(() => {
+    const onCreated = (e) => {
+      const mid = e?.detail?.mentorId;
+      if (mid) {
+        setRequestedMentorIds(prev => new Set([...(prev || new Set()), mid]));
+      }
+      // Reflect immediately in this screen
+      setActiveTab('my-requests');
+      loadMenteeRequests();
+    };
+    window.addEventListener('mentorship:request:created', onCreated);
+    return () => window.removeEventListener('mentorship:request:created', onCreated);
+  }, []);
+
   const expertiseOptions = [
     { value: 'all', label: 'All Expertise Areas' },
     { value: 'marine-engineering', label: 'Marine Engineering' },
@@ -348,7 +380,7 @@ const Mentorship = () => {
       }
 
     const role = getUserRole ? getUserRole() : undefined;
-    const isApproved = !!(profile?.is_approved || profile?.approval_status === 'approved');
+    const isApproved = profile?.alumni_verification_status === 'approved';
     if (role && role.toLowerCase() === 'student' && !isApproved) {
       toast.error('Your profile is not approved. Kindly contact administrator.');
       return;
@@ -595,7 +627,16 @@ const Mentorship = () => {
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {filteredMentors.map((mentor) => (
-                      <MentorCard key={mentor.id} mentor={mentor} />
+                      <MentorCard
+                        key={mentor.id}
+                        mentor={mentor}
+                        requested={requestedMentorIds.has(mentor.user_id)}
+                        onRequestSuccess={() => {
+                          setRequestedMentorIds(prev => new Set([...(prev || new Set()), mentor.user_id]));
+                          setActiveTab('my-requests');
+                          loadMenteeRequests();
+                        }}
+                      />
                     ))}
                   </div>
                 </div>
@@ -732,7 +773,7 @@ const Mentorship = () => {
 };
 
 // Mentor Card Component
-const MentorCard = ({ mentor }) => {
+const MentorCard = ({ mentor, requested = false, onRequestSuccess }) => {
   const isAvailable = mentor.is_available_for_mentorship === true;
   return (
     <div className="glass-card rounded-lg p-6 card-hover">
@@ -840,7 +881,12 @@ const MentorCard = ({ mentor }) => {
           View Profile
         </Link>
         <ApprovedGuard require="approved-mentee" showBlockedMessage={false}>
-          <RequestMentorshipButton mentorId={mentor.user_id} disabled={!mentor.is_available_for_mentorship} />
+          <RequestMentorshipButton
+            mentorId={mentor.user_id}
+            disabled={!mentor.is_available_for_mentorship}
+            requested={requested}
+            onSuccess={onRequestSuccess}
+          />
         </ApprovedGuard>
       </div>
     </div>

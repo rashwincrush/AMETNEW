@@ -25,6 +25,23 @@ export default function JobCard({ job }) {
   const [isBookmarked, setIsBookmarked] = useState(Boolean(job?.is_bookmarked));
   const bookmarkedJobs = useMemo(() => user?.bookmarked_jobs || [], [user]);
 
+  // Prefer salary_display_inr; fallback to legacy or numeric fields
+  const salaryText = useMemo(() => {
+    if (job?.salary_display_inr) return job.salary_display_inr;
+    const min = job?.salary_min;
+    const max = job?.salary_max;
+    if (min && max) {
+      return `₹${Number(min).toLocaleString('en-IN')} - ₹${Number(max).toLocaleString('en-IN')}`;
+    }
+    if (min != null) return `₹${Number(min).toLocaleString('en-IN')}+`;
+    if (max != null) return `Up to ₹${Number(max).toLocaleString('en-IN')}`;
+    if (job?.salary_range) {
+      const sr = String(job.salary_range).trim();
+      return sr.replace(/^USD\s*/i, '₹ ');
+    }
+    return null;
+  }, [job]);
+
   const toggleBookmark = async () => {
     if (!user?.id) {
       toast.error('Please login to bookmark jobs.');
@@ -46,7 +63,7 @@ export default function JobCard({ job }) {
   };
 
   return (
-    <div className="rounded-2xl border bg-white shadow-sm p-4 hover:shadow-md transition-shadow">
+    <div className="rounded-2xl border border-gray-200 bg-white shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-1 p-6 h-full flex flex-col">
       {/* Header row with top-right actions */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
@@ -59,12 +76,12 @@ export default function JobCard({ job }) {
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-gray-900">{job.title}</h3>
+              <h3 className="font-bold text-gray-900 text-lg hover:text-blue-600 transition-colors cursor-pointer">{job.title}</h3>
               <span className={isQuick ? 'text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200' : 'text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200'}>
                 {isQuick ? 'Quick Link' : 'In-App'}
               </span>
             </div>
-            {companyName && <div className="text-ocean-600 text-sm">{companyName}</div>}
+            {companyName && <div className="text-blue-600 text-sm font-medium mt-1">{companyName}</div>}
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -102,6 +119,11 @@ export default function JobCard({ job }) {
             <span className="capitalize">{job.experience_level}</span>
           </div>
         )}
+        {salaryText && (
+          <div className="flex items-center text-sm text-gray-600">
+            <span>{salaryText}</span>
+          </div>
+        )}
         {job.application_deadline && (
           <div className="flex items-center text-sm text-gray-600 col-span-2">
             <CalendarIcon className="w-4 h-4 mr-1" />
@@ -115,14 +137,14 @@ export default function JobCard({ job }) {
         {(() => { const c = getApplicantsCount(job); return (c !== null && c > 0) ? (<span className="text-sm text-gray-500">{c} applicant{c === 1 ? '' : 's'}</span>) : <span />; })()}
         
         <div className="flex gap-2">
-          <Link className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50" to={`/jobs/${job.id}`}>View Details</Link>
-          
+          <Link className="px-4 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-50 transition-colors" to={`/jobs/${job.id}`}>View Details</Link>
+
           {isQuick ? (
             <a
               href={externalUrl}
               target="_blank"
               rel="noopener"
-              className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700 flex items-center gap-1"
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 flex items-center gap-1 transition-colors"
             >
               <span>Apply Externally</span>
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -131,16 +153,16 @@ export default function JobCard({ job }) {
             </a>
           ) : (
             <button
-              className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700"
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 transition-colors font-medium"
               onClick={() => navigate(`/jobs/${job.id}`)}
             >
               {isOwner ? 'View Applications' : 'Apply Now'}
             </button>
           )}
 
-          {isStudent && employerId && !isOwner && (
+          {employerId && !isOwner && (
             <button
-              className="px-3 py-2 rounded-lg text-sm bg-blue-50 text-blue-600 hover:bg-blue-100"
+              className="px-3 py-2 rounded-lg text-sm bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 transition-colors"
               onClick={async () => {
                 try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (e) { console.error('Failed to request connection:', e); }
                 navigate(`/messages?peer=${employerId}&job=${job.id}`);

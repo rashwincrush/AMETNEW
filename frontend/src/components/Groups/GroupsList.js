@@ -29,7 +29,7 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
       ? 'approved'
       : 'pending';
   const isApproved = group.is_approved === true || group.approval_status === 'approved';
-  const isPrivate = (group.visibility || '').toLowerCase() === 'private';
+  const isPrivate = group.is_private === true;
   const isSiteAdmin = !!canManageAllGroups;
   const showManage = (isGroupAdmin || isSiteAdmin) && !group.is_archived;
   const showJoin = !group.is_archived && !isMember && isApproved && !isPrivate;

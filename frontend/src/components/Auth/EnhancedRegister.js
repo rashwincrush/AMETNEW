@@ -6,9 +6,8 @@ import { supabase, signInWithGoogle, signInWithLinkedIn } from '../../utils/supa
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { ROLES, isRole } from '../../constants/roles';
-import DegreeComboBox, { FALLBACK_CODES as DEGREE_FALLBACK_CODES } from '../forms/DegreeComboBox';
-import DepartmentInput, { isValidDepartment } from '../forms/DepartmentInput';
 import { validatePassword } from '../../utils/passwordPolicy';
+// Removed DegreeComboBox and DepartmentInput imports - using simple <select> dropdowns backed by Supabase views
 
 const EnhancedRegister = () => {
   const navigate = useNavigate();
@@ -17,9 +16,12 @@ const EnhancedRegister = () => {
   const REDIRECT_AFTER_REGISTER = '/';            // change to '/home' if you want
   const [showCompletionBanner, setShowCompletionBanner] = useState(false);
   
-  // Strict degree enforcement: capture allowed codes from DegreeComboBox
-  const [allowedDegreeCodes, setAllowedDegreeCodes] = useState(null);
-  const degreeInputRef = useRef(null);
+    // Dropdown data fetched from Supabase
+    const [degreeGroups, setDegreeGroups] = useState([]); // from v_degree_department_groups
+    const [degrees, setDegrees] = useState([]);           // flat degree list [{code, label}]
+    const [departmentsByDegree, setDepartmentsByDegree] = useState({}); // { [code]: [{id,name,slug}] }
+    const [loadingCatalogs, setLoadingCatalogs] = useState(true);
+    const degreeInputRef = useRef(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
     firstName: '',
@@ -31,8 +33,8 @@ const EnhancedRegister = () => {
     primaryRole: '', // alumni, student, employer
     graduationYear: '',
     expectedGraduationYear: '',
-    degree: '',
-    department: '',
+    degreeCode: '',       // <-- canonical degree code (e.g., "B.E.", "B.Tech")
+    departmentId: '',     // <-- UUID from departments.id
     studentId: '',
     companyName: '',
     jobTitle: '',
@@ -57,11 +59,22 @@ const EnhancedRegister = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false); // Retained for general loading if needed elsewhere
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState({});
+  const [errors, setErrors] = useState({
+    emailTouched: false  // Track if email field has been blurred
+  });
   const [error, setError] = useState(''); // For general form errors or success messages
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [roles, setRoles] = useState([]);
   const STORAGE_KEY = 'onboarding_registration_v1';
+
+  // Set roles for dropdown
+  useEffect(() => {
+    setRoles([
+      { name: 'alumni', description: 'Alumni' },
+      { name: 'student', description: 'Student' },
+      { name: 'employer', description: 'Employer' },
+    ]);
+  }, []);
 
   // Degree program options (consolidated exact set provided)
   // Use canonical code/label pairs from hooks instead of free-text list
@@ -80,12 +93,38 @@ const EnhancedRegister = () => {
   ];
 
   useEffect(() => {
-    // Set the roles to the fixed list as per requirements.
-    setRoles([
-      { name: 'alumni', description: 'Alumni' },
-      { name: 'employer', description: 'Employer' },
-      { name: 'student', description: 'Student' },
-    ]);
+    // Load degree → departments grouping for dropdowns
+    (async () => {
+      try {
+        const { data: groups, error } = await supabase
+          .from('v_degree_department_groups')
+          .select('*')
+          .order('degree_label', { ascending: true });
+        if (error) throw error;
+
+        setDegreeGroups(groups || []);
+        const flatDegrees = (groups || []).map(g => ({
+          code: g.degree_code,
+          label: g.degree_label || g.degree_code
+        }));
+        setDegrees(flatDegrees);
+
+        const map = {};
+        (groups || []).forEach(g => {
+          map[g.degree_code] = (g.departments || []).map(d => ({
+            id: d.id,
+            name: d.name,
+            slug: d.slug
+          }));
+        });
+        setDepartmentsByDegree(map);
+      } catch (e) {
+        console.error('Failed to load degree/department catalogs:', e.message || e);
+        toast.error('Could not load degree/department lists. Please retry.');
+      } finally {
+        setLoadingCatalogs(false);
+      }
+    })();
   }, []);
 
   // Restore persisted onboarding state from localStorage
@@ -121,8 +160,8 @@ const EnhancedRegister = () => {
   useEffect(() => {
     const isDirty = () => {
       // Consider the form dirty if any input has a value or any array has length
-      const { firstName, lastName, email, password, phone, primaryRole, graduationYear, expectedGraduationYear, degree, department, studentId, companyName, jobTitle, linkedinProfile, githubProfile, websiteUrl, bio } = formData;
-      return [firstName, lastName, email, password, phone, primaryRole, graduationYear, expectedGraduationYear, degree, department, studentId, companyName, jobTitle, linkedinProfile, githubProfile, websiteUrl, bio].some(v => (Array.isArray(v) ? v.length > 0 : (v && String(v).trim() !== '')));
+      const { firstName, lastName, email, password, phone, primaryRole, graduationYear, expectedGraduationYear, degreeCode, departmentId, studentId, companyName, jobTitle, linkedinProfile, githubProfile, websiteUrl, bio } = formData;
+      return [firstName, lastName, email, password, phone, primaryRole, graduationYear, expectedGraduationYear, degreeCode, departmentId, studentId, companyName, jobTitle, linkedinProfile, githubProfile, websiteUrl, bio].some(v => (Array.isArray(v) ? v.length > 0 : (v && String(v).trim() !== '')));
     };
     const beforeUnload = (e) => {
       if (!showSuccessModal && !showCompletionBanner && isDirty()) {
@@ -156,6 +195,44 @@ const EnhancedRegister = () => {
     }
   }, [formData.primaryRole]);
 
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    
+    if (name === 'email') {
+      const email = value.toLowerCase().trim();
+      setErrors(prev => ({ ...prev, emailTouched: true }));
+      
+      if (!email) {
+        setErrors(prev => ({
+          ...prev,
+          [name]: 'Email is required.'
+        }));
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setErrors(prev => ({
+          ...prev,
+          [name]: 'Please enter a valid email address (e.g., example@domain.com)'
+        }));
+      } else if (/\.co$/.test(email)) {
+        setErrors(prev => ({
+          ...prev,
+          [name]: '".co" domains are not accepted - did you mean ".com"?'
+        }));
+      } else if (email !== value) {
+        setErrors(prev => ({
+          ...prev,
+          [name]: 'Email will be saved in lowercase format'
+        }));
+      } else if (errors[name]) {
+        // Clear any existing error if the input is now valid
+        setErrors(prev => {
+          const newErrors = { ...prev };
+          delete newErrors[name];
+          return newErrors;
+        });
+      }
+    }
+  };
+
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     
@@ -175,24 +252,41 @@ const EnhancedRegister = () => {
         setErrors(prev => ({ ...prev, [name]: '' }));
       }
     } else if (name === 'email') {
-      // Convert email to lowercase
+      // Convert email to lowercase for consistency
       processedValue = value.toLowerCase();
       
-      // Check if uppercase letters were used and show warning
-      if (value !== value.toLowerCase()) {
+      // Only show case warning if the user has finished typing (on blur)
+      if (value !== value.toLowerCase() && errors.emailTouched) {
         setErrors(prev => ({
           ...prev,
           [name]: 'Email will be saved in lowercase format'
         }));
-      }
-      
-      // Check and warn about .co domain
-      if (/\.co$/i.test(processedValue)) {
-        processedValue = processedValue.replace(/\.co$/i, '');
-        setErrors(prev => ({
-          ...prev,
-          [name]: '".co" domains are not accepted - did you mean ".com"?'
-        }));
+      } else if (errors.emailTouched) {
+        // Only validate format if the field has been touched (on blur)
+        const email = processedValue.trim();
+        if (!email) {
+          setErrors(prev => ({
+            ...prev,
+            [name]: 'Email is required.'
+          }));
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          setErrors(prev => ({
+            ...prev,
+            [name]: 'Please enter a valid email address (e.g., example@domain.com)'
+          }));
+        } else if (/\.co$/.test(email)) {
+          setErrors(prev => ({
+            ...prev,
+            [name]: '".co" domains are not accepted - did you mean ".com"?'
+          }));
+        } else if (errors[name]) {
+          // Clear any existing error if the input is now valid
+          setErrors(prev => {
+            const newErrors = { ...prev };
+            delete newErrors[name];
+            return newErrors;
+          });
+        }
       }
     } else if (name === 'primaryRole') {
       // When primary role changes, we may need to reset mentorship role
@@ -202,6 +296,14 @@ const EnhancedRegister = () => {
         delete newErrors.mentorshipRole;
         return newErrors;
       });
+    } else if (name === 'degreeCode') {
+      // When the degree changes, clear departmentId so user must re-pick
+      setFormData(prev => ({ ...prev, degreeCode: processedValue, departmentId: '' }));
+      if (errors.degreeCode) setErrors(prev => ({ ...prev, degreeCode: '' }));
+      if (errors.departmentId) setErrors(prev => ({ ...prev, departmentId: '' }));
+      return;
+    } else if (name === 'departmentId') {
+      if (errors.departmentId) setErrors(prev => ({ ...prev, departmentId: '' }));
     } else if (name === 'phone') {
       // Allow only numbers and starting + symbol
       // First, strip all non-digit and non-plus characters
@@ -343,6 +445,8 @@ const EnhancedRegister = () => {
         newErrors.email = 'Email address is invalid.';
       } else if (/\.co$/i.test(formData.email)) {
         newErrors.email = '".co" domains are not accepted. Please use a ".com" or other valid domain.';
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+        newErrors.email = 'Please enter a valid email address with a proper domain (e.g., example@domain.com)';
       } else if (formData.email !== formData.email.toLowerCase()) {
         // This is a safety check - the handleChange should already convert to lowercase
         newErrors.email = 'Email must be in lowercase format.';
@@ -383,15 +487,11 @@ const EnhancedRegister = () => {
         } else if (yr < 1950 || yr > current) {
           newErrors.graduationYear = `Graduation year must be between 1950 and ${current}.`;
         }
-        if (!formData.degree) {
-          newErrors.degree = 'Please select your degree program.';
-        } else if (Array.isArray(allowedDegreeCodes) && allowedDegreeCodes.length && !allowedDegreeCodes.includes(String(formData.degree).toUpperCase())) {
-          newErrors.degree = 'Please pick a valid degree from the list.';
+        if (!formData.degreeCode) {
+          newErrors.degreeCode = 'Please select your degree.';
         }
-        if (!formData.department) {
-          newErrors.department = 'Department is required.';
-        } else if (!isValidDepartment(formData.department)) {
-          newErrors.department = 'Department contains invalid characters (2–60 chars; letters, numbers, spaces, & / ( ) - .)';
+        if (!formData.departmentId) {
+          newErrors.departmentId = 'Please select your department.';
         }
         if (!formData.companyName?.trim()) {
           newErrors.companyName = 'Current company is required.';
@@ -407,10 +507,11 @@ const EnhancedRegister = () => {
         if (!formData.expectedGraduationYear || isNaN(Number(formData.expectedGraduationYear))) {
           newErrors.expectedGraduationYear = 'Expected graduation year is required.';
         }
-        if (!formData.degree) {
-          newErrors.degree = 'Please select your degree program.';
-        } else if (Array.isArray(allowedDegreeCodes) && allowedDegreeCodes.length && !allowedDegreeCodes.includes(String(formData.degree).toUpperCase())) {
-          newErrors.degree = 'Please pick a valid degree from the list.';
+        if (!formData.degreeCode) {
+          newErrors.degreeCode = 'Please select your degree.';
+        }
+        if (!formData.departmentId) {
+          newErrors.departmentId = 'Please select your department.';
         }
       }
       // Optional fields validation: only validate URL patterns if provided
@@ -471,28 +572,10 @@ const EnhancedRegister = () => {
     // Determine selected role up front
     const selectedRole = isRole(formData.primaryRole) ? formData.primaryRole : 'alumni';
 
-    // Strict submit-time guard for degree ONLY for alumni or student
-    if (selectedRole === 'alumni' || selectedRole === 'student') {
-      const ALLOWED_DEGREE_CODES = (Array.isArray(allowedDegreeCodes) && allowedDegreeCodes.length)
-        ? allowedDegreeCodes
-        : DEGREE_FALLBACK_CODES;
-      const chosenDegree = (formData.degree || '').trim().toUpperCase();
-      if (!ALLOWED_DEGREE_CODES.includes(chosenDegree)) {
-        const listText = 'BE, BTECH, BSC, ME, MCA, MSC, MTECH, MBA, BBA, BCA, PHD';
-        toast.error(`Please pick a valid degree. Allowed: ${listText}.`);
-        degreeInputRef.current?.focus?.();
-        return;
-      }
-    }
-
     if (process.env.NODE_ENV === 'development') {
       // eslint-disable-next-line no-console
       if (selectedRole === 'alumni' || selectedRole === 'student') {
-        const ALLOWED_DEGREE_CODES = (Array.isArray(allowedDegreeCodes) && allowedDegreeCodes.length)
-          ? allowedDegreeCodes
-          : DEGREE_FALLBACK_CODES;
-        const chosenDegree = (formData.degree || '').trim().toUpperCase();
-        console.debug('[Register] Degree validation', { allowedCount: ALLOWED_DEGREE_CODES.length, chosen: chosenDegree });
+        console.debug('[Register] Submitting with degreeCode:', formData.degreeCode, 'departmentId:', formData.departmentId);
       }
     }
 
@@ -510,8 +593,8 @@ const EnhancedRegister = () => {
         last_name: formData.lastName.trim(),
         phone: formData.phone.trim(),
         graduation_year: (selectedRole === 'alumni') ? Number(formData.graduationYear) : null,
-        degree_program: (selectedRole === 'alumni' || selectedRole === 'student') ? ((formData.degree || '').trim().toUpperCase() || null) : null,
-        department: (selectedRole === 'alumni') ? (formData.department || null) : null,
+        degree_code: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.degreeCode || null) : null,
+        department_id: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.departmentId || null) : null,
         company_name: formData.companyName?.trim() || null,
         current_job_title: formData.jobTitle?.trim() || null,
         location: formData.currentLocation?.trim() || null,
@@ -560,8 +643,8 @@ const EnhancedRegister = () => {
           company_name: formData.companyName?.trim() || null,
           current_job_title: formData.jobTitle?.trim() || null,
           role: selectedRole,
-          degree_program: (selectedRole === 'alumni' || selectedRole === 'student') ? ((formData.degree || '').trim().toUpperCase() || null) : null,
-          department: (selectedRole === 'alumni') ? (formData.department?.trim() || null) : null,
+          degree_code: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.degreeCode || null) : null,
+          department_id: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.departmentId || null) : null,
           graduation_year: (selectedRole === 'alumni') ? (Number(formData.graduationYear) || null) : null,
           updated_at: new Date().toISOString(),
         };
@@ -673,7 +756,18 @@ const EnhancedRegister = () => {
       </div>
       <div>
         <label htmlFor="email" className={commonLabelClass}>Email Address *</label>
-        <input id="email" name="email" type="email" autoComplete="email" required value={formData.email} onChange={handleChange} placeholder="suresh.kumar@example.com" className={commonInputClass(errors.email)} />
+        <input 
+          id="email" 
+          name="email" 
+          type="email" 
+          autoComplete="email" 
+          required 
+          value={formData.email} 
+          onChange={handleChange} 
+          onBlur={handleBlur}
+          placeholder="suresh.kumar@example.com" 
+          className={commonInputClass(errors.email)} 
+        />
         {errors.email && <p className={commonErrorClass}>{errors.email}</p>}
         <p className="text-xs text-gray-500 mt-1">Email will be stored in lowercase. '.co' domains are not allowed.</p>
       </div>
@@ -772,25 +866,42 @@ const EnhancedRegister = () => {
               {errors.graduationYear && <p className={commonErrorClass}>{errors.graduationYear}</p>}
             </div>
             <div>
-              <DegreeComboBox
-                label="Degree Program"
+              <label className={commonLabelClass}>Degree Program *</label>
+              <select
+                name="degreeCode"
+                value={formData.degreeCode}
+                onChange={handleChange}
                 required
-                value={formData.degree || ''}
-                onChange={(code) => setFormData(prev => ({ ...prev, degree: code || '' }))}
-                placeholder="Select your program"
-                onCodesLoaded={(codes) => setAllowedDegreeCodes(codes)}
                 ref={degreeInputRef}
-              />
-              {errors.degree && <p className={commonErrorClass}>{errors.degree}</p>}
+                disabled={loadingCatalogs}
+                className={`${commonInputClass(errors.degreeCode)} bg-white`}
+              >
+                <option value="" disabled>{loadingCatalogs ? 'Loading degrees…' : 'Select degree...'}</option>
+                {degrees.map(d => (
+                  <option key={d.code} value={d.code}>{d.label}</option>
+                ))}
+              </select>
+              {errors.degreeCode && <p className={commonErrorClass}>{errors.degreeCode}</p>}
             </div>
           </div>
           <div>
-            <DepartmentInput
-              value={formData.department}
-              onChange={(v) => setFormData(prev => ({ ...prev, department: v }))}
+            <label className={commonLabelClass}>Department *</label>
+            <select
+              name="departmentId"
+              value={formData.departmentId}
+              onChange={handleChange}
               required
-            />
-            {errors.department && <p className={commonErrorClass}>{errors.department}</p>}
+              disabled={!formData.degreeCode || loadingCatalogs}
+              className={`${commonInputClass(errors.departmentId)} bg-white`}
+            >
+              <option value="" disabled>
+                {!formData.degreeCode ? 'Select degree first...' : (loadingCatalogs ? 'Loading departments…' : 'Select department...')}
+              </option>
+              {(departmentsByDegree[formData.degreeCode] || []).map(dep => (
+                <option key={dep.id} value={dep.id}>{dep.name}</option>
+              ))}
+            </select>
+            {errors.departmentId && <p className={commonErrorClass}>{errors.departmentId}</p>}
           </div>
           {/* Employment details for alumni */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-2">
@@ -827,23 +938,41 @@ const EnhancedRegister = () => {
             </div>
           </div>
           <div>
-            <DegreeComboBox
-              label="Degree Program"
+            <label className={commonLabelClass}>Degree Program *</label>
+            <select
+              name="degreeCode"
+              value={formData.degreeCode}
+              onChange={handleChange}
               required
-              value={formData.degree || ''}
-              onChange={(code) => setFormData(prev => ({ ...prev, degree: code || '' }))}
-              placeholder="Select your program"
-              onCodesLoaded={(codes) => setAllowedDegreeCodes(codes)}
               ref={degreeInputRef}
-            />
-            {errors.degree && <p className={commonErrorClass}>{errors.degree}</p>}
+              disabled={loadingCatalogs}
+              className={`${commonInputClass(errors.degreeCode)} bg-white`}
+            >
+              <option value="" disabled>{loadingCatalogs ? 'Loading degrees…' : 'Select degree...'}</option>
+              {degrees.map(d => (
+                <option key={d.code} value={d.code}>{d.label}</option>
+              ))}
+            </select>
+            {errors.degreeCode && <p className={commonErrorClass}>{errors.degreeCode}</p>}
           </div>
           <div>
-            <DepartmentInput
-              value={formData.department}
-              onChange={(v) => setFormData(prev => ({ ...prev, department: v }))}
+            <label className={commonLabelClass}>Department *</label>
+            <select
+              name="departmentId"
+              value={formData.departmentId}
+              onChange={handleChange}
               required
-            />
+              disabled={!formData.degreeCode || loadingCatalogs}
+              className={`${commonInputClass(errors.departmentId)} bg-white`}
+            >
+              <option value="" disabled>
+                {!formData.degreeCode ? 'Select degree first...' : (loadingCatalogs ? 'Loading departments…' : 'Select department...')}
+              </option>
+              {(departmentsByDegree[formData.degreeCode] || []).map(dep => (
+                <option key={dep.id} value={dep.id}>{dep.name}</option>
+              ))}
+            </select>
+            {errors.departmentId && <p className={commonErrorClass}>{errors.departmentId}</p>}
           </div>
         </>
       )}
@@ -942,7 +1071,7 @@ const EnhancedRegister = () => {
     <div className="min-h-screen bg-gradient-to-br from-gray-100 to-blue-50 flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-2xl">
         <div className="mb-4">
-          <a href="/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-sm font-medium text-ocean-600 hover:text-ocean-800">
+          <a href="/" target="_self" rel="noopener noreferrer" className="inline-flex items-center text-sm font-medium text-ocean-600 hover:text-ocean-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">
             <ArrowLeftIcon className="h-4 w-4 mr-2" />
             Back to Home
           </a>
@@ -950,7 +1079,7 @@ const EnhancedRegister = () => {
       </div>
       <div className="max-w-2xl w-full space-y-8">
         <div className="text-center">
-          <a href="/" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center space-x-3 mb-6" aria-label="Open AMET home page in a new tab">
+          <a href="/" target="_self" rel="noopener noreferrer" className="flex items-center justify-center space-x-3 mb-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2" aria-label="Open AMET home page">
             <Logo className="h-12 w-auto" />
             <span className="text-2xl font-bold text-gray-900">AMET Alumni</span>
           </a>
@@ -962,6 +1091,20 @@ const EnhancedRegister = () => {
         </div>
 
         {renderStepIndicator()}
+
+        {currentStep === 2 && (
+          <div className="-mt-6 mb-2">
+            <button
+              type="button"
+              onClick={() => { handlePrevious(); setTimeout(() => { const el = document.querySelector('form input, form select, form textarea'); if (el && typeof el.focus === 'function') el.focus(); }, 50); }}
+              aria-label="Back to Step 1"
+              className="inline-flex items-center text-sm font-medium text-ocean-600 hover:text-ocean-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+            >
+              <ArrowLeftIcon className="h-4 w-4 mr-2" />
+              Back
+            </button>
+          </div>
+        )}
 
         <form onSubmit={currentStep === 2 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }} onKeyDown={handleFormKeyDown}>
           <div className="bg-white rounded-xl shadow-2xl p-6 md:p-10 space-y-8">

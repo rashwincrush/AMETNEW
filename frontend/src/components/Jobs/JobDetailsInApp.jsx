@@ -1,17 +1,35 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { hasOverviewData } from '../../utils/jobs';
 import { getApplicantsCount } from '../../utils/applicants';
-import JobApplicationForm from './JobApplicationForm';
 import { requestConnectionForJob } from '../../utils/connections';
 import toast from 'react-hot-toast'; // Assuming you have react-hot-toast installed
+import ApplyDialog from './ApplyDialog';
+import { hasApplied as hasAppliedHelper } from '../../utils/jobApplications';
 
 export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner, isAdmin }) {
-  const { user } = useAuth();
+  const { user, userRole } = useAuth();
   const navigate = useNavigate();
   const canEdit = isOwner || isAdmin;
   const employerId = job?.posted_by || job?.user_id || job?.created_by;
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [applied, setApplied] = useState(false);
+  const deadlinePassed = job?.application_deadline && new Date(job.application_deadline) < new Date();
+  const formatKolkata = (iso) => {
+    try {
+      return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }).format(new Date(iso));
+    } catch (_) { return new Date(iso).toLocaleDateString(); }
+  };
+  const isClosed = deadlinePassed || (job?.status && job.status !== 'active');
+
+  useEffect(() => {
+    let mounted = true;
+    if (user?.id && job?.id) {
+      hasAppliedHelper(job.id).then(v => { if (mounted) setApplied(Boolean(v)); });
+    }
+    return () => { mounted = false; };
+  }, [user?.id, job?.id]);
 
   if (!job) return null;
 
@@ -29,6 +47,18 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
 
   return (
     <div className="max-w-6xl mx-auto px-4 pb-12">
+      {/* Back Button */}
+      <button
+        onClick={() => navigate(-1)}
+        className="inline-flex items-center gap-2 mb-4 px-3 py-2 rounded-lg text-ocean-600 hover:bg-ocean-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors"
+        aria-label="Go back to previous page"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        </svg>
+        <span className="text-sm font-medium">Back</span>
+      </button>
+
       {/* Header */}
       <div className="bg-white rounded-2xl shadow-sm border p-6 mb-6">
         <div className="flex items-start gap-4">
@@ -58,27 +88,36 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
                 Edit Job
               </Link>
             )}
-            {isOwner || isAdmin ? (
-              <Link to={`/jobs/${job.id}/manage`} className="px-3 py-2 rounded-lg bg-ocean-600 text-white hover:bg-ocean-700 text-sm">
+            {(userRole === 'employer' && (job?.created_by === user?.id || job?.posted_by === user?.id)) || (['admin', 'super_admin'].includes(userRole)) ? (
+              <Link to={`/jobs/${job.id}/applications`} className="px-3 py-2 rounded-lg bg-ocean-600 text-white hover:bg-ocean-700 text-sm">
                 Manage Applications
               </Link>
             ) : (
-              user?.id && employerId && user.id !== employerId ? (
-                <button
-                  onClick={async () => {
-                    try {
-                      await requestConnectionForJob(job.id, employerId, user?.id);
-                    } catch (error) {
-                      console.error('Failed to request connection:', error);
-                      toast.error('Connection request failed. Please try again.');
-                    }
-                    navigate(`/messages?peer=${employerId}&job=${job.id}`);
-                  }}
-                  className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50"
-                >
-                  Connect with Employer
-                </button>
-              ) : null
+              <>
+                {user?.id && employerId && user.id !== employerId && (
+                  <button
+                    onClick={async () => {
+                      try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (error) {
+                        console.error('Failed to request connection:', error);
+                        toast.error('Connection request failed. Please try again.');
+                      }
+                      navigate(`/messages?peer=${employerId}&job=${job.id}`);
+                    }}
+                    className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50"
+                  >
+                    Connect with Employer
+                  </button>
+                )}
+                {job?.external_application_url ? (
+                  <a href={job.external_application_url} target="_blank" rel="noopener" aria-label="Apply Externally" className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700">Apply Externally</a>
+                ) : applied ? (
+                  <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Application Submitted</button>
+                ) : isClosed ? (
+                  <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Applications Closed</button>
+                ) : (
+                  <button onClick={() => setApplyOpen(true)} className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700">Apply</button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -86,7 +125,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
         {/* Minimal meta: Deadline only if present */}
         {job?.application_deadline && (
           <div className="mt-4 text-xs text-gray-500">
-            Deadline: {new Date(job.application_deadline).toLocaleDateString()}
+            Deadline: {formatKolkata(job.application_deadline)}
           </div>
         )}
       </div>
@@ -96,23 +135,59 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
         <div className="lg:col-span-2 space-y-6">
           {/* Summary/Description */}
           {(job.description || job.summary) && (
-            <div className="bg-white rounded-2xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-2">Job Description</h2>
-              <p className="text-gray-700 whitespace-pre-wrap">
+            <div className="bg-white rounded-2xl shadow-sm border p-6 job-content">
+              <h2 className="text-lg font-semibold mb-4">Job Description</h2>
+              <p className="text-gray-700 whitespace-pre-wrap leading-relaxed text-left">
                 {job.description || job.summary}
               </p>
             </div>
           )}
 
+          <style>{`
+            .job-content {
+              text-align: left !important;
+            }
+            .job-content p,
+            .job-content ul,
+            .job-content ol,
+            .job-content li {
+              text-align: left !important;
+              margin: 0;
+            }
+            .job-content ul,
+            .job-content ol {
+              list-style-position: inside;
+              padding-left: 0;
+            }
+            .job-content li {
+              font-size: 1rem;
+              line-height: 1.5;
+              margin-bottom: 0.5rem;
+            }
+            .job-content h1,
+            .job-content h2,
+            .job-content h3,
+            .job-content h4,
+            .job-content h5,
+            .job-content h6 {
+              font-size: 1rem;
+              font-weight: 600;
+              margin: 0;
+            }
+            /* Requirements bullets styling */
+            .job-requirements ul,
+            .job-requirements ol { list-style: disc; margin-left: 1.25rem; padding-left: 1.25rem; text-align: left; }
+            .job-requirements li { margin: 0.25rem 0; }
+          `}</style>
+
           {/* Responsibilities */}
           {responsibilities.length > 0 && (
-            <div className="bg-white rounded-2xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-2">Responsibilities</h2>
-              <ul className="space-y-2">
+            <div className="bg-white rounded-2xl shadow-sm border p-6 job-content job-requirements">
+              <h2 className="text-lg font-semibold mb-4">Responsibilities</h2>
+              <ul className="list-disc list-inside space-y-2 text-left">
                 {responsibilities.map((responsibility, index) => (
-                  <li key={index} className="flex items-start">
-                    <span className="text-red-500 mr-3 mt-1 text-lg font-bold">•</span>
-                    <span className="text-gray-700">{responsibility}</span>
+                  <li key={index} className="text-gray-700 text-base leading-relaxed">
+                    {responsibility}
                   </li>
                 ))}
               </ul>
@@ -121,13 +196,12 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
 
           {/* Qualifications */}
           {requirements.length > 0 && (
-            <div className="bg-white rounded-2xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-2">Qualifications</h2>
-              <ul className="space-y-2">
+            <div className="bg-white rounded-2xl shadow-sm border p-6 job-content job-requirements">
+              <h2 className="text-lg font-semibold mb-4">Qualification</h2>
+              <ul className="list-disc list-inside space-y-2 text-left">
                 {requirements.map((requirement, index) => (
-                  <li key={index} className="flex items-start">
-                    <span className="text-red-500 mr-3 mt-1 text-lg font-bold">•</span>
-                    <span className="text-gray-700">{requirement}</span>
+                  <li key={index} className="text-gray-700 text-base leading-relaxed">
+                    {requirement}
                   </li>
                 ))}
               </ul>
@@ -173,11 +247,9 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
             </div>
           )}
 
-          {/* Application form for non-owners */}
-          {user?.id && user.id !== job.posted_by && (
-            <div className="bg-white rounded-2xl shadow-sm border p-6">
-              <JobApplicationForm jobId={job.id} />
-            </div>
+          {/* Apply Dialog */}
+          {!isOwner && !job?.external_application_url && (
+            <ApplyDialog open={applyOpen} onClose={() => setApplyOpen(false)} jobId={job.id} deadline={job.application_deadline} onSuccess={() => setApplied(true)} />
           )}
         </div>
 
@@ -192,10 +264,19 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
               {job?.job_type && <li><span className="text-gray-500">Job Type:</span> {job.job_type}</li>}
               {job?.experience_level && <li><span className="text-gray-500">Experience Level:</span> {job.experience_level}</li>}
               {job?.work_mode && <li><span className="text-gray-500">Work Mode:</span> {job.work_mode}</li>}
-              {(job?.salary_min != null && job?.salary_max != null) && (
-                <li><span className="text-gray-500">Salary:</span> {job.currency || 'USD'} {job.salary_min} – {job.salary_max}</li>
+              {(job?.salary_display_inr || job?.salary_range || job?.salary_min != null || job?.salary_max != null) && (
+                <li>
+                  <span className="text-gray-500">Salary:</span>{' '}
+                  {job?.salary_display_inr || job?.salary_range || (
+                    job?.salary_min != null && job?.salary_max != null
+                      ? `₹${Number(job.salary_min).toLocaleString('en-IN')} - ₹${Number(job.salary_max).toLocaleString('en-IN')}`
+                      : job?.salary_min != null
+                        ? `₹${Number(job.salary_min).toLocaleString('en-IN')}+`
+                        : `Up to ₹${Number(job?.salary_max).toLocaleString('en-IN')}`
+                  )}
+                </li>
               )}
-              {job?.application_deadline && <li><span className="text-gray-500">Deadline:</span> {new Date(job.application_deadline).toLocaleDateString()}</li>}
+              {job?.application_deadline && <li><span className="text-gray-500">Deadline:</span> {formatKolkata(job.application_deadline)}</li>}
               {(() => { const c = getApplicantsCount(job); return c !== null ? (<li><span className="text-gray-500">Applicants:</span> {c}</li>) : null; })()}
             </ul>
           </aside>

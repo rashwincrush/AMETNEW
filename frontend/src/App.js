@@ -91,14 +91,15 @@ import MenteeRegistrationForm from './components/Mentorship/MenteeRegistrationFo
 import JobApplicationStatus from './components/Jobs/JobApplicationStatus';
 import ManageJobApplications from './components/Jobs/ManageJobApplications';
 import MentorshipStatus from './components/Mentorship/MentorshipStatus';
-import MentorshipChat from './components/Mentorship/MentorshipChat';
-import ApprovedGuard from './components/guards/ApprovedGuard';
-import AdminMentorApprovals from './components/Mentorship/AdminMentorApprovals';
+import ApprovedGuard from './components/guards/ApprovedGuard.jsx';
+import AdminMentorApprovals from './components/Mentorship/AdminMentorApprovals.js';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
-import RequireCompleteProfile from './components/Auth/RequireCompleteProfile';
-import MyMentorship from './components/Mentorship/MyMentorship';
+import AboutPage from './pages/AboutPage';
 import Security from './pages/Profile/Security';
+import RequireCompleteProfile from './components/Auth/RequireCompleteProfile.jsx';
+import MyMentorship from './components/Mentorship/MyMentorship.js';
+import MentorshipChat from './components/Mentorship/MentorshipChat.js';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -221,6 +222,7 @@ function AppContent() {
             <Route path="/jobs/edit/:id" element={<ProtectedRoute requiredPermission="post:jobs"><EditJob /></ProtectedRoute>} />
 
             <Route path="/jobs/:jobId/manage" element={<ProtectedRoute requiredPermission="view:job_applications"><ManageJobApplications /></ProtectedRoute>} />
+            <Route path="/jobs/:id/applications" element={<ProtectedRoute requiredPermission="view:job_applications"><ManageJobApplications /></ProtectedRoute>} />
             <Route path="/my-applications" element={<ProtectedRoute><JobApplicationStatus /></ProtectedRoute>} />
             <Route path="/profile/:userId" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:alumni_directory"><UserProfilePage /></ProtectedRoute></RequireCompleteProfile>} />
             <Route
@@ -296,7 +298,7 @@ function AppContent() {
       <Route path="/events" element={<HomePage />} />
       <Route path="/jobs" element={<HomePage />} />
       <Route path="/mentorship" element={<HomePage />} />
-      <Route path="/about" element={<HomePage />} />
+      <Route path="/about" element={<AboutPage />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );

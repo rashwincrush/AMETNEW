@@ -72,14 +72,16 @@ const JobDetail = () => {
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
           {job.location && <Chip label={job.location} size="small" />}
           {job.type && <Chip label={job.type} size="small" color="info" />}
-          {job.salary_range && <Chip label={job.salary_range} size="small" color="success" />}
+          {(job.salary_display_inr || job.salary_range) && (
+            <Chip label={job.salary_display_inr || job.salary_range} size="small" color="success" />
+          )}
         </Box>
         <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>Posted on {new Date(job.created_at).toLocaleDateString()}</Typography>
         <Divider sx={{ mb: 2 }} />
         <Typography sx={{ mb: 2 }}>{job.description}</Typography>
         {job.requirements && (
           <Box sx={{ mb: 2 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>Requirements:</Typography>
+            <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>Qualification:</Typography>
             <Typography variant="body2">{job.requirements}</Typography>
           </Box>
         )}
