@@ -26,9 +26,22 @@ const CreateGroup = () => {
     const toastId = toast.loading('Creating your group...');
 
     try {
+      // Pre-check: ensure group name is available to avoid RPC 409 conflicts
+      const nameToCheck = name.trim();
+      const { data: existing, error: checkError } = await supabase
+        .from('groups')
+        .select('id')
+        .ilike('name', nameToCheck)
+        .limit(1);
+      if (!checkError && Array.isArray(existing) && existing.length > 0) {
+        toast.error('Name already in use. Please choose a different name.', { id: toastId });
+        setLoading(false);
+        return;
+      }
+
       // Use the secure RPC function to create group and add admin in one step
       const { data, error: createError } = await supabase.rpc('create_group_and_add_admin', {
-        group_name: name.trim(),
+        group_name: nameToCheck,
         group_description: description.trim(),
         group_is_private: isPrivate,
         group_tags: tagsInput
@@ -39,7 +52,9 @@ const CreateGroup = () => {
 
       if (createError) {
         // Handle duplicate name error gracefully
-        if (createError.code === '23505') {
+        const code = String(createError.code || createError.status || '');
+        const msg = String(createError.message || '');
+        if (code === '23505' || code === '409' || /duplicate key|already exists|unique/i.test(msg)) {
           toast.error('Name already in use. Please choose a different name.', { id: toastId });
           return;
         }
@@ -49,19 +64,46 @@ const CreateGroup = () => {
       // Optional avatar upload after group creation
       if (avatarFile && data) {
         try {
-          const fileExt = avatarFile.name.split('.').pop();
-          const filePath = `${data}/avatar.${fileExt}`;
+          // Validate image type and size (max 2MB)
+          const ACCEPT = ['image/jpeg', 'image/png'];
+          if (!ACCEPT.includes(avatarFile.type)) {
+            toast.error('Only JPG or PNG images are allowed.', { id: toastId });
+            setLoading(false);
+            return;
+          }
+          const MAX = 2 * 1024 * 1024; // 2MB
+          if (avatarFile.size > MAX) {
+            toast.error('Image must be 2 MB or smaller.', { id: toastId });
+            setLoading(false);
+            return;
+          }
+          const filePath = `${data}/avatar.jpg`;
           const { error: uploadError } = await supabase.storage
             .from('group_avatars')
             .upload(filePath, avatarFile, {
               cacheControl: '3600',
               upsert: true,
-              contentType: avatarFile.type || 'image/png',
+              contentType: avatarFile.type || 'image/jpeg',
             });
 
           if (uploadError) {
             console.warn('Avatar upload failed:', uploadError);
             // Don't fail the whole operation for avatar upload failure
+          } else {
+            // Persist to existing field: group_avatar_url (minimal change)
+            const { data: pub } = supabase.storage
+              .from('group_avatars')
+              .getPublicUrl(filePath);
+            const { error: updErr } = await supabase
+              .from('groups')
+              .update({
+                group_avatar_url: pub?.publicUrl || null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', data);
+            if (updErr) {
+              console.warn('Failed to persist group avatar URL:', updErr);
+            }
           }
         } catch (uploadErr) {
           console.warn('Avatar upload error:', uploadErr);

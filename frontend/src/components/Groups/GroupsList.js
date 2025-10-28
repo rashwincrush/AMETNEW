@@ -20,6 +20,7 @@ const GroupCardSkeleton = () => (
 
 // Group card component
 const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, canManageAllGroups }) => {
+  const [imgSrc, setImgSrc] = useState('');
   const isCreator = group.created_by === currentUserId;
   const formattedDate = new Date(group.created_at).toLocaleDateString();
   const showModeration = isCreator || canManageAllGroups;
@@ -35,22 +36,40 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
   const showJoin = !group.is_archived && !isMember && isApproved && !isPrivate;
   const showLeave = !group.is_archived && isMember && !(isGroupAdmin || isSiteAdmin);
   
+  // Build avatar image src: prefer stored public URL; otherwise fetch a signed URL
+  useEffect(() => {
+    const build = async () => {
+      if (group?.group_avatar_url) {
+        const cb = group.updated_at ? `?t=${new Date(group.updated_at).getTime()}` : '';
+        setImgSrc(`${group.group_avatar_url}${cb}`);
+        return;
+      }
+      try {
+        const key = `${group.id}/avatar.jpg`;
+        const { data, error } = await supabase.storage
+          .from('group_avatars')
+          .createSignedUrl(key, 60);
+        if (!error && data?.signedUrl) {
+          setImgSrc(data.signedUrl);
+        } else {
+          setImgSrc('');
+        }
+      } catch {
+        setImgSrc('');
+      }
+    };
+    build();
+  }, [group?.group_avatar_url, group?.updated_at, group?.id]);
+
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-md overflow-hidden transform transition-transform hover:-translate-y-1 hover:shadow-xl">
       <Link to={`/groups/${group.id}`}>
         <div className="w-full h-40 bg-gray-100 flex items-center justify-center overflow-hidden">
-          {group.group_avatar_url ? (
-            <img 
-              src={group.group_avatar_url} 
-              alt={group.name} 
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center text-gray-400">
-              <Users size={32} />
-              <span className="mt-2 text-sm">Group Image</span>
-            </div>
-          )}
+          <img
+            src={imgSrc || '/images/avatar-placeholder.svg'}
+            alt={group.name}
+            className="w-full h-full object-cover"
+          />
         </div>
       </Link>
       <div className="p-4">

@@ -23,7 +23,13 @@ export default function DirectoryPage() {
   // Sort & Filters
   const [sortBy, setSortBy] = useState('full_name,asc');
   const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState({ graduation_year: '', department: '' });
+  const [filters, setFilters] = useState({
+    graduation_year: '',
+    department: '',
+    degree_program: '',
+    current_job_title: '',
+    location: ''
+  });
   // Guard to avoid effect loop when rels arrive
   const [relsLoaded, setRelsLoaded] = useState(false);
 
@@ -68,11 +74,18 @@ export default function DirectoryPage() {
 
   const { items, total, loading: dirLoading, error: dirError, dataset } = useDirectory({
     query: debouncedSearch,
-    filters: { graduation_year: filters.graduation_year, department: filters.department },
+    filters: {
+      graduation_year: filters.graduation_year,
+      department: filters.department,
+      degree_program: filters.degree_program,
+      current_job_title: filters.current_job_title,
+      location: filters.location,
+    },
     sort: sortKey,
     page: currentPage,
     pageSize: itemsPerPage,
-    source
+    source,
+    adminFallback: true
   });
 
   // Use hook loading directly
@@ -466,6 +479,42 @@ export default function DirectoryPage() {
                       className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white py-2.5 px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
                     />
                   </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-slate-700">Degree</label>
+                    <input
+                      type="text"
+                      value={filters.degree_program}
+                      onChange={(e) => setFilters(f => ({ ...f, degree_program: e.target.value }))}
+                      placeholder="e.g., B.E. Marine"
+                      aria-label="Filter by degree"
+                      className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white py-2.5 px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-slate-700">Designation</label>
+                    <input
+                      type="text"
+                      value={filters.current_job_title}
+                      onChange={(e) => setFilters(f => ({ ...f, current_job_title: e.target.value }))}
+                      placeholder="e.g., Chief Engineer"
+                      aria-label="Filter by designation"
+                      className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white py-2.5 px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-slate-700">Location</label>
+                    <input
+                      type="text"
+                      value={filters.location}
+                      onChange={(e) => setFilters(f => ({ ...f, location: e.target.value }))}
+                      placeholder="e.g., Chennai"
+                      aria-label="Filter by location"
+                      className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white py-2.5 px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
+                    />
+                  </div>
                 </div>
               </div>
               
@@ -474,7 +523,7 @@ export default function DirectoryPage() {
                 <div className="flex items-center justify-between gap-4">
                   <button
                     type="button"
-                    onClick={() => { setFilters({ graduation_year: '', department: '' }); }}
+                    onClick={() => { setFilters({ graduation_year: '', department: '', degree_program: '', current_job_title: '', location: '' }); }}
                     className="inline-flex items-center justify-center min-h-[44px] px-6 rounded-lg bg-slate-100 text-slate-800 font-medium hover:bg-slate-200 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                   >
                     Clear All

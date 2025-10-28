@@ -167,7 +167,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
               <h3 className="font-semibold text-gray-900 line-clamp-2" title={job.title}>{job.title}</h3>
             </div>
           <div className="flex items-center gap-2 flex-wrap mt-1">
-            <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline text-sm truncate">
+            <Link to={`/companies/${job.company_id}`} className="text-ocean-600 font-medium hover:underline text-sm truncate">
               {job.companies?.name || job.company_name}
             </Link>
             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs flex-shrink-0 ${quick ? 'bg-ocean-100 text-ocean-800' : 'bg-green-100 text-green-800'}`}>
@@ -337,7 +337,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
           <span />
         </div>
         <div className="flex items-center gap-1 mb-2">
-          <Link to={`/company/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">{job.companies?.name || job.company_name}</Link>
+          <Link to={`/companies/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">{job.companies?.name || job.company_name}</Link>
         </div>
         <p className="text-gray-600 text-sm mt-2 mb-3 line-clamp-2">{job.description ? `${job.description.slice(0, 160)}...` : 'No description provided.'}</p>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
@@ -497,7 +497,9 @@ const JobListingsPage = () => {
           .select('*, companies(name, logo_url)', { count: 'exact' })
           .or(`posted_by.eq.${user?.id},user_id.eq.${user?.id},created_by.eq.${user?.id}`);
 
-        if (approvalFilter === 'approved') q = q.eq('is_approved', true);
+        if (approvalFilter === 'approved') {
+          q = q.eq('is_approved', true).eq('is_active', true);
+        }
         if (approvalFilter === 'pending') q = q.is('is_approved', null);
         if (approvalFilter === 'rejected') q = q.eq('is_active', false);
 
@@ -545,56 +547,80 @@ const JobListingsPage = () => {
         }));
       }
     } else if (isAdmin && approvalFilter && approvalFilter !== 'all') {
-      // Admin view with explicit approval filter: query base table to include non-approved/inactive rows
-      let q = supabase
-        .from('jobs')
-        .select('*, companies(name, logo_url)', { count: 'exact' });
+      // Admin view with explicit approval filter
+      if (approvalFilter === 'approved') {
+        // Use public RPC for approved+active jobs to avoid RLS blocking and ensure consistent results
+        const deptParam = (filters.department && filters.department !== 'all') ? filters.department : null;
+        const jobTypeParam = (filters.jobType && filters.jobType !== 'all') ? filters.jobType : null;
+        const expParam = (filters.experience && filters.experience !== 'all') ? filters.experience : null;
+        const locParam = (filters.location && filters.location !== 'all' && String(filters.location).trim()) ? String(filters.location).trim() : null;
+        const industryParam = (filters.industry && filters.industry !== 'all') ? filters.industry : null;
+        let salaryMin = null, salaryMax = null;
+        if (filters.salaryRange && filters.salaryRange !== 'all') {
+          const [minStr, maxStr] = String(filters.salaryRange).split('-');
+          salaryMin = minStr ? parseInt(minStr, 10) : null;
+          salaryMax = maxStr ? (maxStr === '' ? null : parseInt(maxStr, 10)) : null;
+        }
+        const postedSince = (filters.postedWithin && filters.postedWithin !== 'all') ? parseInt(filters.postedWithin, 10) : null;
 
-      // Approval filter predicates
-      if (approvalFilter === 'approved') q = q.eq('is_approved', true);
-      if (approvalFilter === 'pending') q = q.is('is_approved', null);
-      if (approvalFilter === 'rejected') q = q.eq('is_active', false);
-
-      // Other filters
-      if (filters.department && filters.department !== 'all') q = q.eq('department', filters.department);
-      if (filters.jobType && filters.jobType !== 'all') q = q.eq('job_type', filters.jobType);
-      if (filters.experience && filters.experience !== 'all') q = q.eq('experience_level', filters.experience);
-      if (filters.industry && filters.industry !== 'all') q = q.eq('industry', filters.industry);
-      if (filters.location && filters.location !== 'all' && String(filters.location).trim()) q = q.ilike('location', `%${String(filters.location).trim()}%`);
-
-      // Salary overlap
-      if (filters.salaryRange && filters.salaryRange !== 'all') {
-        const [minStr, maxStr] = String(filters.salaryRange).split('-');
-        const sMin = minStr ? parseInt(minStr, 10) : null;
-        const sMax = maxStr ? (maxStr === '' ? null : parseInt(maxStr, 10)) : null;
-        if (sMin !== null) q = q.gte('salary_max', sMin);
-        if (sMax !== null) q = q.lte('salary_min', sMax);
-      }
-
-      // Posted since X days
-      if (filters.postedWithin && filters.postedWithin !== 'all') {
-        const days = parseInt(filters.postedWithin, 10);
-        if (!Number.isNaN(days)) q = q.gte('created_at', new Date(Date.now() - days * 86400000).toISOString());
-      }
-
-      // Search query (title, description, company_name, location)
-      if (searchQuery && String(searchQuery).trim()) {
-        const s = String(searchQuery).trim();
-        // Supabase JS doesn't support OR across multiple ilike easily without raw SQL; approximate using text search-like filters
-        // We'll prioritize title/location and rely on client-side narrowing for others if necessary
-        q = q.or(`title.ilike.%${s}%,location.ilike.%${s}%`);
-      }
-
-      // Sort and paging
-      const ascending = (sortDir || 'desc').toLowerCase() === 'asc';
-      q = q.order(sortCol || 'created_at', { ascending });
-      q = q.range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
-
-      const resp = await q;
-      if (resp.error) {
-        error = resp.error;
+        ({ data, error } = await supabase.rpc('get_jobs_public_v5', {
+          p_search_query: searchQuery || null,
+          p_sort_by: sortCol || 'created_at',
+          p_sort_order: (sortDir || 'desc').toLowerCase(),
+          p_limit: pageSize,
+          p_offset: (currentPage - 1) * pageSize,
+          p_department: deptParam,
+          p_job_type: jobTypeParam,
+          p_experience_level: expParam,
+          p_location: locParam,
+          p_industry: industryParam,
+          p_salary_min: salaryMin,
+          p_salary_max: salaryMax,
+          p_posted_since_days: postedSince,
+        }));
       } else {
-        data = { items: resp.data || [], total_count: resp.count || 0 };
+        // Pending/Rejected require base table access
+        let q = supabase
+          .from('jobs')
+          .select('*, companies(name, logo_url)', { count: 'exact' });
+
+        if (approvalFilter === 'pending') q = q.is('is_approved', null);
+        if (approvalFilter === 'rejected') q = q.eq('is_active', false);
+
+        if (filters.department && filters.department !== 'all') q = q.eq('department', filters.department);
+        if (filters.jobType && filters.jobType !== 'all') q = q.eq('job_type', filters.jobType);
+        if (filters.experience && filters.experience !== 'all') q = q.eq('experience_level', filters.experience);
+        if (filters.industry && filters.industry !== 'all') q = q.eq('industry', filters.industry);
+        if (filters.location && filters.location !== 'all' && String(filters.location).trim()) q = q.ilike('location', `%${String(filters.location).trim()}%`);
+
+        if (filters.salaryRange && filters.salaryRange !== 'all') {
+          const [minStr, maxStr] = String(filters.salaryRange).split('-');
+          const sMin = minStr ? parseInt(minStr, 10) : null;
+          const sMax = maxStr ? (maxStr === '' ? null : parseInt(maxStr, 10)) : null;
+          if (sMin !== null) q = q.gte('salary_max', sMin);
+          if (sMax !== null) q = q.lte('salary_min', sMax);
+        }
+
+        if (filters.postedWithin && filters.postedWithin !== 'all') {
+          const days = parseInt(filters.postedWithin, 10);
+          if (!Number.isNaN(days)) q = q.gte('created_at', new Date(Date.now() - days * 86400000).toISOString());
+        }
+
+        if (searchQuery && String(searchQuery).trim()) {
+          const s = String(searchQuery).trim();
+          q = q.or(`title.ilike.%${s}%,location.ilike.%${s}%`);
+        }
+
+        const ascending = (sortDir || 'desc').toLowerCase() === 'asc';
+        q = q.order(sortCol || 'created_at', { ascending });
+        q = q.range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
+
+        const resp = await q;
+        if (resp.error) {
+          error = resp.error;
+        } else {
+          data = { items: resp.data || [], total_count: resp.count || 0 };
+        }
       }
     } else {
       // Public/non-employer: prefer server-side v5 for accurate counts and paging
@@ -709,6 +735,10 @@ const JobListingsPage = () => {
         const approved = j.is_approved === true;
         const active = j.is_active !== false;
         if (!(approved && active)) return false;
+      }
+      // Hide expired jobs (deadline passed) for alumni/students (non-employer, non-admin)
+      if (!isEmployer && !(['admin', 'super_admin'].includes(userRole))) {
+        if (j.application_deadline && new Date(j.application_deadline) < new Date()) return false;
       }
       
       // Apply source filter

@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../utils/supabase';
 
-export default function useDirectory({ query = '', filters = {}, sort = 'name_asc', page = 1, pageSize = 24, source = 'rpc' }) {
+export default function useDirectory({ query = '', filters = {}, sort = 'name_asc', page = 1, pageSize = 24, source = 'rpc', adminFallback = false }) {
   const [all, setAll] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -34,9 +34,36 @@ export default function useDirectory({ query = '', filters = {}, sort = 'name_as
             throw res.error || new Error('Bad RPC payload');
           }
           data = res.data;
+          // Admin fallback if RPC blocked or empty
+          if (adminFallback && (!data || data.length === 0)) {
+            const pub = await supabase.from('alumni_directory_public').select('*');
+            if (!pub.error) {
+              const rows = Array.isArray(pub.data) ? pub.data : [];
+              data = rows.map(r => ({
+                ...r,
+                location: [r.location_city, r.location_country].filter(Boolean).join(', ')
+              }));
+            }
+          }
         }
       } catch (e) {
         err = e;
+        // On error, attempt admin fallback to public view if enabled and source is rpc
+        if (source === 'rpc' && adminFallback) {
+          try {
+            const pub = await supabase.from('alumni_directory_public').select('*');
+            if (!pub.error) {
+              const rows = Array.isArray(pub.data) ? pub.data : [];
+              data = rows.map(r => ({
+                ...r,
+                location: [r.location_city, r.location_country].filter(Boolean).join(', ')
+              }));
+              err = null; // suppress error since fallback succeeded
+            }
+          } catch (fallbackErr) {
+            // keep original error
+          }
+        }
       }
 
       if (ignore) return;
@@ -49,7 +76,7 @@ export default function useDirectory({ query = '', filters = {}, sort = 'name_as
       setLoading(false);
     })();
     return () => { ignore = true; };
-  }, [source]);
+  }, [source, adminFallback]);
 
   // client search / filter / sort / paginate
   const filtered = useMemo(() => {
@@ -65,9 +92,15 @@ export default function useDirectory({ query = '', filters = {}, sort = 'name_as
         p.degree_program,
         p.department
       ].some(v => (v || '').toLowerCase().includes(q));
+
       const byYear = !filters.graduation_year || p.graduation_year === Number(filters.graduation_year);
-      const byDept = !filters.department || p.department === filters.department;
-      return passesText && byYear && byDept;
+      const byDept = !filters.department || (p.department || '').toLowerCase().includes(String(filters.department).toLowerCase());
+      const byDegree = !filters.degree_program || (p.degree_program || '').toLowerCase().includes(String(filters.degree_program).toLowerCase());
+      const byDesignation = !filters.current_job_title || (p.current_job_title || '').toLowerCase().includes(String(filters.current_job_title).toLowerCase());
+      const byLocation = !filters.location || [p.location, p.location_city, p.location_country]
+        .some(v => (v || '').toLowerCase().includes(String(filters.location).toLowerCase()));
+
+      return passesText && byYear && byDept && byDegree && byDesignation && byLocation;
     });
   }, [all, query, filters]);
 

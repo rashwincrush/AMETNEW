@@ -2,11 +2,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   MagnifyingGlassIcon,
-  FunnelIcon,
   Squares2X2Icon,
   ListBulletIcon,
-  ExclamationTriangleIcon,
-  XMarkIcon
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
@@ -16,8 +14,11 @@ import { logActivity } from '../../utils/activityLogger';
 
 // Filters for public_profiles_view
 const FILTERABLE_COLUMNS = [
-  { name: 'graduation_year', label: 'Graduation Year', type: 'number', placeholder: 'e.g., 2015' },
+  { name: 'graduation_year', label: 'Batch Year', type: 'number', placeholder: 'e.g., 2015' },
   { name: 'department', label: 'Department', type: 'text', placeholder: 'e.g., Marine Engineering' },
+  { name: 'degree_program', label: 'Degree', type: 'text', placeholder: 'e.g., B.E. Marine' },
+  { name: 'current_job_title', label: 'Designation', type: 'text', placeholder: 'e.g., Chief Engineer' },
+  { name: 'location', label: 'Location', type: 'text', placeholder: 'e.g., Chennai' },
 ];
 
 const AlumniDirectory = () => {
@@ -33,7 +34,7 @@ const AlumniDirectory = () => {
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [totalAlumni, setTotalAlumni] = useState(0);
   const [filters, setFilters] = useState({});
-  const [showFilters, setShowFilters] = useState(false);
+  // Inline minimal filters (no drawer)
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'full_name,asc');
   const [approvedMentorIds, setApprovedMentorIds] = useState(new Set());
   const isDebouncing = searchTerm !== debouncedSearch;
@@ -74,7 +75,7 @@ const AlumniDirectory = () => {
 
       if (debouncedSearch) {
         const q = debouncedSearch.replace(/%/g, '');
-        const cols = ['full_name','location','degree_program','department'];
+        const cols = ['full_name','location','degree_program','department','current_job_title'];
         const ors = cols.map((c) => `${c}.ilike.%${q}%`).join(',');
         if (ors) query = query.or(ors);
       }
@@ -136,12 +137,14 @@ const AlumniDirectory = () => {
     run();
   }, [fetchAlumniData]);
 
-  // Restore from URL on first mount (search, sort, filters)
+  // Restore from URL on first mount (search, sort, filters, page)
   useEffect(() => {
     const initialQ = searchParams.get('q');
     const initialSort = searchParams.get('sort');
     if (initialQ !== null && initialQ !== searchTerm) setSearchTerm(initialQ);
     if (initialSort && initialSort !== sortBy) setSortBy(initialSort);
+    const initialPage = parseInt(searchParams.get('page') || '1', 10);
+    if (!Number.isNaN(initialPage) && initialPage > 0) setCurrentPage(initialPage);
     // Restore filters from URL
     const restored = {};
     FILTERABLE_COLUMNS.forEach(({ name }) => {
@@ -165,6 +168,26 @@ const AlumniDirectory = () => {
     if (sortBy) params.set('sort', sortBy); else params.delete('sort');
     setSearchParams(params, { replace: true });
   }, [searchTerm, sortBy]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters]);
+
+  // Sync filters and page to URL
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams);
+    FILTERABLE_COLUMNS.forEach(({ name }) => {
+      const v = filters[name];
+      if (v !== undefined && v !== null && String(v).trim() !== '') {
+        params.set(name, String(v));
+      } else {
+        params.delete(name);
+      }
+    });
+    params.set('page', String(currentPage));
+    setSearchParams(params, { replace: true });
+  }, [filters, currentPage]);
   
   // Realtime refresh when profiles change; subscribe only after initial load (idempotent)
   useEffect(() => {
@@ -234,33 +257,6 @@ const AlumniDirectory = () => {
     setFilters(prev => ({ ...prev, [name]: filterValue }));
   };
 
-  const handleApplyFilters = () => {
-    setCurrentPage(1);
-    setRefreshTrigger(prev => prev + 1); // Trigger a fetch with new filters
-    // Write filters to URL
-    const params = new URLSearchParams(searchParams);
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value !== undefined && value !== '' && value !== null) {
-        params.set(key, String(value));
-      } else {
-        params.delete(key);
-      }
-    });
-    setSearchParams(params, { replace: true });
-    setShowFilters(false);
-  };
-
-  const handleClearSingleFilter = (filterName) => {
-    const { [filterName]: cleared, ...rest } = filters;
-    setFilters(rest);
-    setCurrentPage(1);
-    setRefreshTrigger(prev => prev + 1);
-    // Remove from URL
-    const params = new URLSearchParams(searchParams);
-    params.delete(filterName);
-    setSearchParams(params, { replace: true });
-  };
-
   const handleClearAllFilters = () => {
     setFilters({});
     setCurrentPage(1);
@@ -269,37 +265,6 @@ const AlumniDirectory = () => {
     const params = new URLSearchParams(searchParams);
     FILTERABLE_COLUMNS.forEach(({ name }) => params.delete(name));
     setSearchParams(params, { replace: true });
-  };
-
-  const renderFilterInput = (filter) => {
-    switch (filter.type) {
-      case 'number':
-      case 'text':
-        return (
-          <input
-            type={filter.type}
-            name={filter.name}
-            value={filters[filter.name] || ''}
-            onChange={handleFilterChange}
-            placeholder={filter.placeholder}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
-          />
-        );
-      case 'boolean':
-        return (
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              name={filter.name}
-              checked={!!filters[filter.name]}
-              onChange={handleFilterChange}
-              className="h-4 w-4 text-ocean-600 border-gray-300 rounded focus-visible:ring-2 focus-visible:ring-ocean-500"
-            />
-          </div>
-        );
-      default:
-        return null;
-    }
   };
 
   if (!isAuthenticated) {
@@ -333,10 +298,52 @@ const AlumniDirectory = () => {
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">Searching…</span>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowFilters(true)} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50">
-              <FunnelIcon className="h-5 w-5 text-gray-500" />
-              <span>Filters</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="number"
+              name="graduation_year"
+              value={filters.graduation_year || ''}
+              onChange={handleFilterChange}
+              placeholder="Batch Year"
+              className="w-28 px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50"
+            />
+            <input
+              type="text"
+              name="department"
+              value={filters.department || ''}
+              onChange={handleFilterChange}
+              placeholder="Department"
+              className="w-48 px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50"
+            />
+            <input
+              type="text"
+              name="degree_program"
+              value={filters.degree_program || ''}
+              onChange={handleFilterChange}
+              placeholder="Degree"
+              className="w-48 px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50"
+            />
+            <input
+              type="text"
+              name="current_job_title"
+              value={filters.current_job_title || ''}
+              onChange={handleFilterChange}
+              placeholder="Designation"
+              className="w-48 px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50"
+            />
+            <input
+              type="text"
+              name="location"
+              value={filters.location || ''}
+              onChange={handleFilterChange}
+              placeholder="Location"
+              className="w-48 px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50"
+            />
+            <button
+              onClick={handleClearAllFilters}
+              className="px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50"
+            >
+              Clear
             </button>
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50">
               <option value="full_name,asc">Name (A-Z)</option>
@@ -353,24 +360,6 @@ const AlumniDirectory = () => {
               </button>
             </div>
           </div>
-        </div>
-
-        <div className="mb-6 flex flex-wrap items-center gap-2">
-          {Object.entries(filters).map(([key, value]) => {
-            if (!value) return null;
-            const filterConfig = FILTERABLE_COLUMNS.find(f => f.name === key);
-            return (
-              <span key={key} className="flex items-center gap-1.5 pl-2.5 pr-1 py-1 bg-indigo-100 text-indigo-800 rounded-full text-sm font-medium">
-                {filterConfig?.label || key}: <span className="font-semibold">{String(value)}</span>
-                <button onClick={() => handleClearSingleFilter(key)} className="p-0.5 bg-indigo-200 rounded-full hover:bg-indigo-300">
-                  <XMarkIcon className="h-3 w-3" />
-                </button>
-              </span>
-            );
-          })}
-          {Object.keys(filters).length > 0 && (
-            <button onClick={handleClearAllFilters} className="text-sm inline-flex items-center justify-center text-ocean-600 underline-offset-2 hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">Clear all</button>
-          )}
         </div>
 
         <section>
@@ -443,32 +432,8 @@ const AlumniDirectory = () => {
                   </nav>
               )}
             </>
-          </section>
-        </div>
-        
-        {showFilters && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 z-40" onClick={() => setShowFilters(false)}></div>
-        )}
-        <div className={`fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-xl z-50 transform transition-transform ${showFilters ? 'translate-x-0' : 'translate-x-full'}`}>
-          <div className="p-6 h-full flex flex-col">
-                  <h2 className="text-2xl font-bold text-gray-900">Filters</h2>
-                  <button onClick={() => setShowFilters(false)} className="p-2 rounded-full hover:bg-gray-100">
-                      <XMarkIcon className="h-6 w-6 text-gray-600" />
-                  </button>
-              </div>
-              <div className="flex-grow overflow-y-auto pr-2 space-y-6">
-                  {FILTERABLE_COLUMNS.map(filter => (
-                      <div key={filter.name}>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">{filter.label}</label>
-                          {renderFilterInput(filter)}
-                      </div>
-                  ))}
-              </div>
-              <div className="pt-6 border-t mt-auto flex justify-between">
-                  <button onClick={handleClearAllFilters} className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gray-100 text-gray-800 hover:bg-gray-200 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">Clear All</button>
-                  <button onClick={handleApplyFilters} className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">Apply Filters</button>
-              </div>
-          </div>
+          )}
+        </section>
       </div>
     </main>
   );

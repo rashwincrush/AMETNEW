@@ -63,6 +63,7 @@ const GroupDetail = () => {
   const [error, setError] = useState(null);
   const [newPostContent, setNewPostContent] = useState('');
   const [activeTab, setActiveTab] = useState('posts');
+  const [avatarSrc, setAvatarSrc] = useState('');
   
   // New state variables for enhanced features
   const [postImage, setPostImage] = useState(null);
@@ -136,6 +137,34 @@ const GroupDetail = () => {
   useEffect(() => {
     loadGroupData();
   }, [loadGroupData]);
+
+  // Compute avatar src: prefer stored public URL; otherwise fetch a signed URL
+  useEffect(() => {
+    const buildSrc = async () => {
+      if (!id) return;
+      // If we have a stored public URL, use it with cache-busting
+      if (group?.group_avatar_url) {
+        const cb = group.updated_at ? `?t=${new Date(group.updated_at).getTime()}` : '';
+        setAvatarSrc(`${group.group_avatar_url}${cb}`);
+        return;
+      }
+      // Otherwise, try a short-lived signed URL (private bucket scenario)
+      try {
+        const key = `${id}/avatar.jpg`;
+        const { data, error } = await supabase.storage
+          .from('group_avatars')
+          .createSignedUrl(key, 60);
+        if (!error && data?.signedUrl) {
+          setAvatarSrc(data.signedUrl);
+        } else {
+          setAvatarSrc('');
+        }
+      } catch {
+        setAvatarSrc('');
+      }
+    };
+    buildSrc();
+  }, [id, group?.group_avatar_url, group?.updated_at]);
 
   // Load members when Members tab is active (admins only)
   useEffect(() => {
@@ -381,45 +410,55 @@ const GroupDetail = () => {
       fileInputRef.current.value = '';
     }
   };
-  
-  // Handle group avatar upload (PNG/JPG only, 5MB, upsert true)
+
+  // Handle group avatar upload (PNG/JPG only, 2MB, upsert true)
   const handleAvatarChange = async (e) => {
     if (!user) {
       alert('You must be logged in to change the group avatar.');
       return;
     }
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      if (!file) return;
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
 
-      const ACCEPT = ['image/png','image/jpeg'];
-      const MAX = 5 * 1024 * 1024;
-      if (!ACCEPT.includes(file.type)) {
-        alert('Only PNG or JPG images are allowed.');
+    const ACCEPT = ['image/png', 'image/jpeg'];
+    const MAX = 2 * 1024 * 1024; // 2MB
+    if (!ACCEPT.includes(file.type)) {
+      alert('Only PNG or JPG images are allowed.');
+      return;
+    }
+    if (file.size > MAX) {
+      alert('Image must be 2 MB or smaller.');
+      return;
+    }
+
+    setUploadingAvatar(true);
+    try {
+      const path = `${id}/avatar.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from('group_avatars')
+        .upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg', cacheControl: '3600' });
+      if (uploadError) throw uploadError;
+
+      // Persist URL on the group row
+      const { data: pub } = supabase.storage.from('group_avatars').getPublicUrl(path);
+      const publicUrl = pub?.publicUrl || '';
+      const { error: updErr } = await supabase
+        .from('groups')
+        .update({ group_avatar_url: publicUrl, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (updErr) {
+        console.error('Failed to persist avatar URL to groups:', updErr);
+        setError('Avatar uploaded but could not be saved to the group (permissions).');
         return;
       }
-      if (file.size > MAX) {
-        alert('Image must be 5 MB or smaller.');
-        return;
-      }
 
-      setUploadingAvatar(true);
-      try {
-        const ext = file.type === 'image/png' ? 'png' : 'jpg';
-        const path = `${id}/avatar.${ext}`;
-        const { error } = await supabase.storage
-          .from('group_avatars')
-          .upload(path, file, { upsert: true, contentType: file.type, cacheControl: '3600' });
-        if (error) throw error;
-        const { data } = supabase.storage.from('group_avatars').getPublicUrl(path);
-        const busted = `${data.publicUrl}?v=${Date.now()}`;
-        setGroup(prev => ({ ...prev, group_avatar_url: busted }));
-      } catch (err) {
-        console.error('Error uploading avatar:', err);
-        setError('Failed to upload group avatar.');
-      } finally {
-        setUploadingAvatar(false);
-      }
+      const busted = publicUrl ? `${publicUrl}?t=${Date.now()}` : '';
+      setGroup(prev => ({ ...prev, group_avatar_url: busted }));
+    } catch (err) {
+      console.error('Error uploading avatar:', err);
+      setError('Failed to upload group avatar.');
+    } finally {
+      setUploadingAvatar(false);
     }
   };
   
@@ -603,15 +642,11 @@ const GroupDetail = () => {
               {/* Group Avatar with upload option for admins */}
               <div className="relative mr-6 mb-4 md:mb-0">
                 <div className="w-24 h-24 rounded-lg overflow-hidden bg-gray-200 flex items-center justify-center">
-                  {group.group_avatar_url ? (
-                    <img 
-                      src={group.group_avatar_url} 
-                      alt={group.name} 
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <Users size={40} className="text-gray-400" />
-                  )}
+                  <img
+                    src={avatarSrc || '/images/avatar-placeholder.svg'}
+                    alt={group.name}
+                    className="w-full h-full object-cover"
+                  />
                 </div>
                 
                 {/* Avatar upload button (admin only) */}

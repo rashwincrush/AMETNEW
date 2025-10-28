@@ -88,14 +88,14 @@ const ManageJobApplications = () => {
         });
         if (rpcErr2) throw rpcErr2;
         const rows = Array.isArray(rpcRows) ? rpcRows : [];
-        rows.sort((a, b) => new Date(b.created_at || b.submitted_at || 0) - new Date(a.created_at || a.submitted_at || 0));
+        rows.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
         setApplications(rows);
         setTotalCount(rows[0]?.total_count ?? 0);
         // Load connection status for each applicant
         if (user?.id && Array.isArray(rows)) {
           const entries = await Promise.all(
             rows.map(async (app) => {
-              const otherId = app.applicant?.id;
+              const otherId = app.applicant_id;
               if (!otherId) return [null, null];
               try {
                 const edge = await getLatestEdge(user.id, otherId);
@@ -256,28 +256,29 @@ const ManageJobApplications = () => {
                   {applications.map(app => (
                     <tr key={app.id}>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <Link to={`/profile/${app.applicant?.id}`} className="flex items-center">
-                          <div className="flex-shrink-0 h-10 w-10">
-                            <img className="h-10 w-10 rounded-full object-cover" src={app.applicant?.avatar_url || '/default-avatar.png'} alt="" />
-                          </div>
-                          <div className="ml-4">
-                            <div className="text-sm font-medium text-gray-900">{[app.applicant?.first_name, app.applicant?.last_name].filter(Boolean).join(' ')}</div>
-                            {canMessage(app.applicant?.id) && (
-                              <div className="text-sm text-gray-500">{app.applicant?.email}</div>
-                            )}
-                          </div>
-                        </Link>
+                        <div className="flex flex-col">
+                          <Link to={`/profile/${app.applicant_id}`} className="text-sm font-medium text-gray-900 hover:underline">
+                            {app.applicant_name || 'Applicant'}
+                          </Link>
+                          {app.applicant_email && (
+                            <a href={`mailto:${app.applicant_email}`} className="text-sm text-gray-500 hover:underline">{app.applicant_email}</a>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(app.created_at || app.submitted_at).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(app.created_at).toLocaleDateString()}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <a href={app.resume_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Resume</a>
+                        {app.resume_url ? (
+                          <a href={app.resume_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Resume</a>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <select
                           value={app.status}
                           onChange={(e) => handleStatusChange(app.id, e.target.value)}
                           disabled={savingIds.has(app.id)}
-                          aria-label={`Update status for ${app.applicant?.first_name || 'applicant'}`}
+                          aria-label={`Update status for ${app.applicant_name || 'applicant'}`}
                           className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md disabled:opacity-60"
                         >
                           <option value="applied">Applied</option>
@@ -291,11 +292,11 @@ const ManageJobApplications = () => {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 space-x-2">
-                        <Link to={`/profile/${app.applicant?.id}`} className="text-ocean-600 hover:underline">View Profile</Link>
-                        {canMessage(app.applicant?.id) ? (
-                          <button onClick={() => navigate(`/messages?peer=${app.applicant?.id}&job=${actualJobId}`)} className="text-blue-600 hover:underline">Message</button>
+                        <Link to={`/profile/${app.applicant_id}`} className="text-ocean-600 hover:underline">View Profile</Link>
+                        {canMessage(app.applicant_id) ? (
+                          <button onClick={() => navigate(`/messages?peer=${app.applicant_id}&job=${actualJobId}`)} className="text-blue-600 hover:underline">Message</button>
                         ) : (
-                          <button onClick={() => handleRequestConnection(app.applicant?.id)} className="text-green-600 hover:underline">Request Connection</button>
+                          <button onClick={() => handleRequestConnection(app.applicant_id)} className="text-green-600 hover:underline">Request Connection</button>
                         )}
                       </td>
                     </tr>

@@ -100,6 +100,8 @@ import Security from './pages/Profile/Security';
 import RequireCompleteProfile from './components/Auth/RequireCompleteProfile.jsx';
 import MyMentorship from './components/Mentorship/MyMentorship.js';
 import MentorshipChat from './components/Mentorship/MentorshipChat.js';
+import HelpCenter from './pages/HelpCenter';
+import ContactUs from './pages/ContactUs';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -185,6 +187,8 @@ function AppContent() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/terms-of-service" element={<TermsOfService />} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/help" element={<HelpCenter />} />
+            <Route path="/contact" element={<ContactUs />} />
             <Route path="/complete-profile" element={<ProfileCompletion />} />
             <Route path="/dashboard" element={
               <RequireCompleteProfile>
@@ -291,13 +295,18 @@ function AppContent() {
       <Route path="/register" element={<EnhancedRegister />} />
       <Route path="/terms-of-service" element={<TermsOfService />} />
       <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+      <Route path="/help" element={<HelpCenter />} />
+      <Route path="/contact" element={<ContactUs />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/update-password" element={<UpdatePassword />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/directory" element={<Navigate to="/login" />} />
-      <Route path="/events" element={<HomePage />} />
-      <Route path="/jobs" element={<HomePage />} />
-      <Route path="/mentorship" element={<HomePage />} />
+      <Route path="/events" element={<Navigate to="/login" replace />} />
+      <Route path="/events/*" element={<Navigate to="/login" replace />} />
+      <Route path="/jobs" element={<Navigate to="/login" replace />} />
+      <Route path="/jobs/*" element={<Navigate to="/login" replace />} />
+      <Route path="/mentorship" element={<Navigate to="/login" replace />} />
+      <Route path="/mentorship/*" element={<Navigate to="/login" replace />} />
       <Route path="/about" element={<AboutPage />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
