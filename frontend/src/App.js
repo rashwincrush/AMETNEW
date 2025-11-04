@@ -144,13 +144,18 @@ function AppContent() {
   }, []);
 
 
+  const lastPathRef = React.useRef(null);
   const getDashboardComponent = () => {
     // Force Production Dashboard for all roles
-    console.log('DEBUG DASHBOARD SELECTION: forcing Production (AlumniDashboard) for all roles', {
-      role: getUserRole(),
-      hasProfile: !!profile,
-      path: window.location.pathname
-    });
+    const nextPath = window.location.pathname;
+    if (lastPathRef.current !== nextPath) {
+      console.debug('DEBUG DASHBOARD SELECTION:', {
+        role: getUserRole(),
+        hasProfile: !!profile,
+        path: nextPath
+      });
+      lastPathRef.current = nextPath;
+    }
     return <AlumniDashboard user={profile || user} />;
   };
 

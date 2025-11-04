@@ -55,6 +55,10 @@ const ContentApproval = () => {
   const [statusFilter, setStatusFilter] = useState('pending'); // pending | approved | rejected | all
   const [viewMode, setViewMode] = useState('list');
 
+  // RPC one-liners: pending counts and feed
+  const [pendingCounts, setPendingCounts] = useState(null);
+  const [feed, setFeed] = useState([]);
+
   const fetchPendingContent = useCallback(async () => {
     // Reset all states
     setJobsLoading(true);
@@ -205,6 +209,31 @@ const ContentApproval = () => {
       setOtherContentLoading(false);
     }
   }, [statusFilter]);
+
+  // Fetch pending counts via RPC once
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const { data: counts, error: cErr } = await supabase.rpc('admin_pending_counts');
+      if (!mounted) return;
+      if (!cErr) {
+        setPendingCounts(counts || null);
+        // Mark as used to avoid unused var lint during build
+        if (counts) console.debug('admin_pending_counts', counts);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // Fetch feed via RPC (can be refreshed)
+  const fetchFeed = useCallback(async () => {
+    const { data: feedData, error: fErr } = await supabase.rpc('admin_pending_feed');
+    if (!fErr && Array.isArray(feedData)) {
+      setFeed(feedData);
+    }
+  }, []);
+
+  useEffect(() => { fetchFeed(); }, [fetchFeed]);
   
   // Update combined state after all fetches complete
   useEffect(() => {
@@ -237,6 +266,29 @@ const ContentApproval = () => {
   useEffect(() => {
     fetchPendingContent();
   }, [fetchPendingContent]);
+
+  // Realtime: refresh only when relevant review-state changes
+  useEffect(() => {
+    const refreshDashboard = () => {
+      fetchPendingContent();
+      fetchFeed();
+    };
+    const reviewChannel = supabase
+      .channel('review-stream')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'jobs', filter: 'is_approved=is.null' }, () => refreshDashboard())
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'jobs', filter: 'is_approved=eq.false' }, () => refreshDashboard())
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'events', filter: 'approval_status=in.(pending)' }, () => refreshDashboard())
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'groups', filter: 'is_approved=eq.false' }, () => refreshDashboard())
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'content_approvals', filter: 'status=in.(pending)' }, () => refreshDashboard())
+      .subscribe();
+
+    return () => { try { supabase.removeChannel(reviewChannel); } catch (_) {} };
+  }, [fetchPendingContent, fetchFeed]);
   
   
   
