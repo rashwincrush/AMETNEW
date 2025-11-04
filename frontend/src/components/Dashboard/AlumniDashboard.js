@@ -209,7 +209,7 @@ const AlumniDashboard = () => {
           try {
             // Use explicit promise that will be properly caught if it fails
             const { count, error } = await supabase
-              .from('profiles')
+              .from('public_profiles_view')
               .select('id', { count: 'exact', head: true });
             
             if (error) throw error;

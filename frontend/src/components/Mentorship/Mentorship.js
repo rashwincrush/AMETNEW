@@ -231,24 +231,15 @@ const Mentorship = () => {
       
       console.log('Fetching approved mentors from Supabase...');
       
-      // Only list approved mentors; hydrate identity from alumni_directory_public
+      // Use RLS-safe public view for mentors directory
       let q = supabase
-        .from('mentors')
-        .select(`
-          id, user_id, status, expertise, created_at,
-          applicant:profiles!mentors_user_id_fkey(
-            id, full_name, avatar_url, location, is_available_for_mentorship, approval_status
-          )
-        `)
-        .eq('status', 'approved')
+        .from('v_mentors_public')
+        .select('id,user_id,status,expertise,created_at,full_name,avatar_url,location,is_available_for_mentorship,approval_status')
         .order('created_at', { ascending: false });
 
-      // Only show mentors whose profile is approved
-      q = q.eq('applicant.approval_status', 'approved');
-
-      // When the checkbox is ON, filter on the related table's column server-side
+      // Server-side availability filter from the view when toggled
       if (showOnlyAccepting) {
-        q = q.eq('applicant.is_available_for_mentorship', true);
+        q = q.eq('is_available_for_mentorship', true);
       }
 
       const { data: mentorsRows, error: mentorsError } = await q;
@@ -261,27 +252,17 @@ const Mentorship = () => {
       
       console.log('Fetched mentors:', mentorsRows);
 
-      // Hydrate public identity
-      const userIds = (mentorsRows || []).map(m => m.user_id).filter(Boolean);
-      let identityMap = new Map();
-      if (userIds.length > 0) {
-        const { data: pubRows } = await supabase
-          .from('alumni_directory_public')
-          .select('id, full_name, avatar_url, current_job_title, company_name, location_city, location_country')
-          .in('id', userIds);
-        (pubRows || []).forEach(r => identityMap.set(r.id, r));
-      }
-
-      // Availability now read from joined applicant in mentorsRows; no separate profiles query.
-
       // Transform data to match rendering needs
       const transformedMentors = (mentorsRows || []).map(mentor => {
-        const ident = identityMap.get(mentor.user_id) || {};
-        const title = ident.current_job_title || 'Maritime Professional';
-        const company = ident.company_name || 'AMET';
-        const location = [ident.location_city, ident.location_country].filter(Boolean).join(', ') || 'Unknown';
-        // Use applicant.is_available_for_mentorship directly as single source of truth
-        const isAvailable = !!mentor.applicant?.is_available_for_mentorship;
+        const ident = {
+          full_name: mentor.full_name,
+          avatar_url: mentor.avatar_url,
+        };
+        const title = 'Maritime Professional';
+        const company = 'AMET';
+        const location = mentor.location || 'Unknown';
+        // Use view field as single source of truth
+        const isAvailable = !!mentor.is_available_for_mentorship;
         return {
           id: mentor.id,
           user_id: mentor.user_id,
@@ -296,7 +277,7 @@ const Mentorship = () => {
           responseTime: '48 hours',
           // Single source of truth for availability
           is_available_for_mentorship: isAvailable,
-          applicant: mentor.applicant, // Keep for access in MentorCard
+          applicant: undefined,
           compatibilityScore: 85,
           ratings: '5.0',
           totalMentees: mentor.max_mentees || 0,
