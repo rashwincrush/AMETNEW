@@ -274,28 +274,48 @@ const EditEvent = () => {
       
       // Handle image upload if a new image was selected
       if (formData.image && formData.image instanceof File) {
-        const fileExt = formData.image.name.split('.').pop();
-        const fileName = `${id}-${Date.now()}.${fileExt}`;
-        const filePath = `event-images/${fileName}`;
-        
-        const { error: uploadError } = await supabase.storage
+        const BUCKET = 'event-images';
+        const ext = (formData.image.name.split('.').pop() || 'avif').toLowerCase();
+        const objectPath = `${id}-${Date.now()}.${ext}`;
+
+        // Fetch existing image path for cleanup later
+        const { data: existing } = await supabase
           .from('events')
-          .upload(filePath, formData.image);
-        
+          .select('featured_image_path')
+          .eq('id', id)
+          .single();
+        const oldPath = existing?.featured_image_path || null;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from(BUCKET)
+          .upload(objectPath, formData.image, {
+            upsert: true,
+            contentType: formData.image.type || `image/${ext}`,
+            cacheControl: '31536000',
+          });
+
         if (uploadError) throw uploadError;
-        
-        // Get the public URL for the uploaded image
-        const { data: { publicUrl } } = supabase.storage
-          .from('events')
-          .getPublicUrl(filePath);
-        
-        // Update the event with the new image URL
+
+        const { data: pub } = supabase.storage
+          .from(BUCKET)
+          .getPublicUrl(objectPath);
+        const publicUrl = pub?.publicUrl || '';
+
         const { error: imageUpdateError } = await supabase
           .from('events')
-          .update({ featured_image_url: publicUrl })
+          .update({ featured_image_url: publicUrl, featured_image_path: objectPath })
           .eq('id', id);
-        
-        if (imageUpdateError) throw imageUpdateError;
+
+        if (imageUpdateError) {
+          // rollback new upload to avoid orphan
+          await supabase.storage.from(BUCKET).remove([objectPath]);
+          throw imageUpdateError;
+        }
+
+        // Best-effort cleanup of the old image
+        if (oldPath && oldPath !== objectPath) {
+          await supabase.storage.from(BUCKET).remove([oldPath]);
+        }
       }
       
       toast.success('Event updated successfully!');

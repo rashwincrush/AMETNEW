@@ -15,6 +15,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { toast } from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
+import { saveEventImage } from '../../shared/utils/saveEventImage';
 import { useAuth } from '../../contexts/AuthContext';
 
 const CreateEvent = () => {
@@ -204,35 +205,7 @@ const CreateEvent = () => {
       }
       console.log('Form validation passed');
       setIsSubmitting(true);
-      console.log('Starting image processing');
-      let imageUrl = null;
-      if (formData.image) {
-        console.log('Image found, processing upload...');
-        const fileExt = formData.image.name.split('.').pop();
-        const fileName = `${user.id}_${Date.now()}.${fileExt}`;
-        // Corrected filePath to be just the fileName, as Supabase storage policies might be set at the bucket level
-        // and prepending 'event-images/' here might conflict if the bucket policy already implies this path.
-        // The .from('event-images') already specifies the bucket.
-        const filePath = `${fileName}`;
-        console.log('Uploading image to Supabase storage bucket: event-images, filePath:', filePath);
-        const { error: uploadError } = await supabase.storage
-          .from('event-images') // Corrected bucket name
-          .upload(filePath, formData.image);
-        if (uploadError) {
-          console.error('Image upload error:', uploadError);
-          throw new Error(`Image upload failed: ${uploadError.message}`);
-        }
-        console.log('Image uploaded successfully, getting URL');
-        const { data: urlData } = supabase.storage
-          .from('event-images') // Corrected bucket name
-          .getPublicUrl(filePath);
-        if (!urlData || !urlData.publicUrl) { // Check for publicUrl specifically
-          console.error('Failed to get URL data or publicUrl is missing', urlData);
-          throw new Error('Could not get public URL for the image.');
-        }
-        console.log('Got image URL:', urlData.publicUrl);
-        imageUrl = urlData.publicUrl;
-      }
+      console.log('Starting submission');
 
       console.log('Image processing complete');
       console.log('Creating event data object');
@@ -252,7 +225,7 @@ const CreateEvent = () => {
         max_attendees: !isNaN(parseInt(formData.maxAttendees, 10)) ? parseInt(formData.maxAttendees, 10) : null,
         cost: formData.priceType === 'free' ? '0' : (!isNaN(parseFloat(formData.price)) ? formData.price.toString() : '0'),
         tags: formData.tags.split(',').map(tag => tag.trim()).filter(t => t),
-        featured_image_url: imageUrl, // Changed from image_url to featured_image_url to match DB schema
+        featured_image_url: null,
         agenda: JSON.stringify(formData.agenda.filter(item => item.time && item.activity)),
         is_published: true,
         user_id: user.id,
@@ -260,27 +233,20 @@ const CreateEvent = () => {
       };
       
       console.log('Submitting event data to Supabase:', eventData);
-      const { data: insertedData, error: insertError } = await supabase
+      const { data: row, error: insertError } = await supabase
         .from('events')
         .insert([eventData])
-        .select();
-      console.log('Response from insert:', { data: insertedData, error: insertError });
-      
-      // Debug: Immediately query for events to see what's in the DB
-      const { data: allEvents } = await supabase
-        .from('events')
-        .select('*');
-      console.log('All events in database after insertion:', allEvents);
+        .select('id, featured_image_path')
+        .single();
+      console.log('Response from insert:', { data: row, error: insertError });
 
-      // Debug: Specifically check our newly created event
-      if (insertedData && insertedData.length > 0) {
-        const newEventId = insertedData[0].id;
-        const { data: verifyEvent } = await supabase
-          .from('events')
-          .select('*')
-          .eq('id', newEventId)
-          .single();
-        console.log('Verification of newly created event:', verifyEvent);
+      if (row?.id && formData.image) {
+        await saveEventImage({
+          supabase,
+          eventId: row.id,
+          file: formData.image,
+          oldPath: row.featured_image_path,
+        });
       }
 
       if (insertError) {
@@ -288,7 +254,7 @@ const CreateEvent = () => {
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
 
-      if (!insertedData || insertedData.length === 0) {
+      if (!row) {
         console.error('Event created but no data returned. Check RLS policies.');
         throw new Error('Event was not created successfully. You may not have permission to view it.');
       }
