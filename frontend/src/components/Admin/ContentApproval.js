@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import logger from '../../utils/logger';
 import toast from 'react-hot-toast';
 import ContentDetailsModal from './ContentDetailsModal';
 import { useAuth } from '../../contexts/AuthContext';
@@ -218,8 +219,8 @@ const ContentApproval = () => {
       if (!mounted) return;
       if (!cErr) {
         setPendingCounts(counts || null);
-        // Mark as used to avoid unused var lint during build
-        if (counts) console.debug('admin_pending_counts', counts);
+        // Mark as used to avoid unused var lint during build (dev-only)
+        if (counts) logger.info('admin_pending_counts');
       }
     })();
     return () => { mounted = false; };

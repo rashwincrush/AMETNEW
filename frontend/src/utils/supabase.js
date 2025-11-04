@@ -1,14 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import logger from './logger';
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
 const supabaseKey = process.env.REACT_APP_SUPABASE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error('Missing Supabase environment variables:', {
-    url: !!supabaseUrl,
-    key: !!supabaseKey
-  });
+  logger.error('Missing Supabase environment variables');
   throw new Error('Missing Supabase environment variables');
 }
 
@@ -35,13 +33,8 @@ export const supabase = (() => {
   return client;
 })();
 
-// Log current configuration to help with debugging
-console.log('Supabase client initialized with:', {
-  url: supabaseUrl ? `${supabaseUrl.substring(0, 15)}...` : 'undefined',  // Only log partial URL for security
-  key: supabaseKey ? 'defined' : 'undefined',
-  autoRefreshToken: true,
-  persistSession: true,
-});
+// Minimal dev note (no secrets); redacted/no-op in prod
+logger.info('Supabase client initialized');
 
 // --- REALTIME CONTEXT AND PROVIDER ---
 
@@ -69,7 +62,7 @@ const _channelRegistry = (() => {
  */
 export function getOrCreateChannel(name) {
   if (!_channelRegistry[name]) {
-    console.log(`Creating new channel: ${name}`);
+    logger.info(`Creating new channel: ${name}`);
     _channelRegistry[name] = {
       channel: supabase.channel(name),
       // Whether the SUBSCRIBED status callback has fired
@@ -95,13 +88,13 @@ export function ensureChannelSubscribed(name) {
   const channel = getOrCreateChannel(name);
   const entry = _channelRegistry[name];
   if (!entry.hasSubscribeCall) {
-    console.log(`Subscribing to ${name}`);
+    logger.info(`Subscribing to ${name}`);
     // Mark before calling subscribe to prevent re-entry
     entry.hasSubscribeCall = true;
     try {
       channel.subscribe((status) => {
         if (status === 'SUBSCRIBED') {
-          console.log('Realtime is ready');
+          logger.info('Realtime is ready');
           entry.subscribed = true;
         }
       });
@@ -109,7 +102,7 @@ export function ensureChannelSubscribed(name) {
       // Ignore duplicate subscribe attempts on the same channel instance
       const msg = String(e?.message || e || '');
       if (!msg.toLowerCase().includes('subscribe') || !msg.toLowerCase().includes('only be called a single time')) {
-        console.error(`Failed subscribing to channel ${name}:`, e);
+        logger.error(`Failed subscribing to channel ${name}: ${String(e?.message || e)}`);
       }
     }
   }
@@ -155,7 +148,7 @@ export const RealtimeProvider = ({ children }) => {
         
         // Only actually clean up if no components are using this channel
         if (_channelRegistry[channelName].refCount <= 0) {
-          console.log(`No more refs to ${channelName}, cleaning up`);
+          logger.info(`No more refs to ${channelName}, cleaning up`);
           // We intentionally don't remove the subscription here
           // to prevent issues with React Strict Mode
         }
@@ -174,12 +167,12 @@ export const setupRealtimeSubscription = (channelName, options = {}) => {
   const { allowFallback = false } = options;
   try {
     const channel = ensureChannelSubscribed(channelName);
-    console.log(`Realtime subscription setup for channel: ${channelName}`);
+    logger.info(`Realtime subscription setup for channel: ${channelName}`);
     return channel;
   } catch (error) {
-    console.error(`Failed to setup realtime subscription for ${channelName}:`, error);
+    logger.error(`Failed to setup realtime subscription for ${channelName}: ${String(error?.message || error)}`);
     if (allowFallback) {
-      console.warn(`Falling back to non-realtime mode for ${channelName}.`);
+      logger.warn(`Falling back to non-realtime mode for ${channelName}.`);
       return null;
     }
     throw error;
@@ -203,7 +196,7 @@ export function checkRealtimeConnection() {
     try {
       // If channel registry has system-status and it's subscribed, resolve immediately
       if (_channelRegistry['system-status']?.subscribed) {
-        console.log('Realtime connection already confirmed ready');
+        logger.info('Realtime connection already confirmed ready');
         resolve();
         return;
       }
@@ -213,7 +206,7 @@ export function checkRealtimeConnection() {
       
       // Set a reasonable timeout
       const timeout = setTimeout(() => {
-        console.warn('Realtime connection check timed out after 5 seconds');
+        logger.warn('Realtime connection check timed out after 5 seconds');
         // Resolve anyway to prevent blocking UI
         resolve();
       }, 5000);
@@ -223,12 +216,12 @@ export function checkRealtimeConnection() {
         if (_channelRegistry['system-status']?.subscribed) {
           clearInterval(checkInterval);
           clearTimeout(timeout);
-          console.log('Realtime connection confirmed ready');
+          logger.info('Realtime connection confirmed ready');
           resolve();
         }
       }, 100);
     } catch (error) {
-      console.error('Error checking realtime connection:', error);
+      logger.error(`Error checking realtime connection: ${String(error?.message || error)}`);
       reject(error);
     }
   });
@@ -237,13 +230,7 @@ export function checkRealtimeConnection() {
 // NOTE: The legacy onJobsChange and its related singleton channel manager have been removed.
 // Realtime subscriptions for jobs are now handled by the useJobsRealtime hook to prevent subscription errors.
 
-// Helper for conditional logging
-const isDev = process.env.NODE_ENV === 'development';
-const logger = {
-  log: (...args) => isDev && console.log(...args),
-  error: (...args) => console.error(...args),
-  warn: (...args) => isDev && console.warn(...args)
-};
+// Remove legacy dev logger in favor of centralized logger
 
 /**
  * Maps OAuth provider data to a standardized profile format
@@ -285,10 +272,8 @@ export const mapOAuthToProfileData = (provider, userData) => {
     if (userMetadata.linkedInUrl) mappedData.linkedin_url = userMetadata.linkedInUrl;
   }
   
-  // Log the mapping for debugging
-  if (isDev) {
-    logger.log(`OAuth profile data mapped from ${provider}:`, mappedData);
-  }
+  // Dev-only informational log (redacted, no-op in prod)
+  logger.info(`OAuth profile data mapped from ${provider}`);
   
   return mappedData;
 };

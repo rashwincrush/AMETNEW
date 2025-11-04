@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RealtimeProvider } from './utils/supabase';
 import { Toaster } from 'react-hot-toast';
 import './App.css';
+import logger from './utils/logger';
 
 // Context
 import { useAuth, AuthProvider } from './contexts/AuthContext';
@@ -123,19 +124,14 @@ function AppContent() {
   // and the user is still on the login page, we programmatically redirect them.
   useEffect(() => {
     if (user && location.pathname === '/login') {
-      console.log('User authenticated, redirecting from login to dashboard...');
+      logger.info('User authenticated, redirect to dashboard');
       navigate('/dashboard', { replace: true });
     }
   }, [user, location.pathname, navigate]);
 
   // Simple logging of app state
   useEffect(() => {
-    console.log('App state:', { 
-      loading, 
-      hasUser: !!user, 
-      hasProfile: !!profile,
-      userRole: getUserRole()
-    });
+    logger.info('App state changed');
   }, [loading, user, profile, getUserRole]);
 
   // Onboarding retired: no gating redirects here
@@ -149,11 +145,7 @@ function AppContent() {
     // Force Production Dashboard for all roles
     const nextPath = window.location.pathname;
     if (lastPathRef.current !== nextPath) {
-      console.debug('DEBUG DASHBOARD SELECTION:', {
-        role: getUserRole(),
-        hasProfile: !!profile,
-        path: nextPath
-      });
+      logger.info('DEBUG DASHBOARD SELECTION');
       lastPathRef.current = nextPath;
     }
     return <AlumniDashboard user={profile || user} />;
