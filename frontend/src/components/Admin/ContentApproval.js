@@ -288,7 +288,7 @@ const ContentApproval = () => {
         { event: '*', schema: 'public', table: 'content_approvals', filter: 'status=in.(pending)' }, () => refreshDashboard())
       .subscribe();
 
-    return () => { try { supabase.removeChannel(reviewChannel); } catch (_) {} };
+    return () => { try { supabase.removeChannel(reviewChannel); } catch (e) { logger.warn('removeChannel failed'); } };
   }, [fetchPendingContent, fetchFeed]);
   
   

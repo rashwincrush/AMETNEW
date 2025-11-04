@@ -19,6 +19,15 @@
     "react"
   ],
   "rules": {
-    "no-unused-vars": "warn"
-  }
+    "no-unused-vars": "warn",
+    "no-console": "warn"
+  },
+  "overrides": [
+    {
+      "files": ["src/utils/logger.js"],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
 }

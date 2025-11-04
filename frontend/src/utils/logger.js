@@ -2,10 +2,10 @@
 // In production, all methods are no-ops to ensure zero console output
 
 const PATTERNS = [
-  /(sb_(publishable|secret)_[A-Za-z0-9_\-]+)/gi, // Supabase keys
-  /(Bearer\s+[A-Za-z0-9\-_\.]+)/gi,            // Authorization headers
+  /(sb_(publishable|secret)_[A-Za-z0-9_-]+)/gi, // Supabase keys
+  /(Bearer\s+[A-Za-z0-9-_.]+)/gi,              // Authorization headers
   /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi, // UUIDs
-  /[\w.+-]+@[\w.-]+\.[A-Za-z]+/g,              // Emails
+  /[\w.+-]+@[\w.-]+\.[A-Za-z]+/g,            // Emails
 ];
 
 const redact = (x) => {

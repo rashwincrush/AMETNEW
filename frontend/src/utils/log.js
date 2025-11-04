@@ -1,17 +1,11 @@
-// Lightweight logging helper with collapsible groups
+import logger from './logger';
+
 export const log = {
-  ok: (...a) => console.debug('[OK]', ...a),
-  info: (...a) => console.debug('[INFO]', ...a),
-  warn: (...a) => console.warn('[WARN]', ...a),
-  err: (...a) => console.error('[ERR]', ...a),
-  group(label, obj) {
-    try {
-      console.groupCollapsed(label);
-      // Show shallow object snapshot to avoid massive logs
-      console.debug(obj);
-      console.groupEnd();
-    } catch (_) {
-      console.debug(label, obj);
-    }
+  ok: (...a) => logger.info('[OK]', ...a),
+  info: (...a) => logger.info('[INFO]', ...a),
+  warn: (...a) => logger.warn('[WARN]', ...a),
+  err: (...a) => logger.error('[ERR]', ...a),
+  group(label) {
+    logger.info(String(label));
   }
 };
