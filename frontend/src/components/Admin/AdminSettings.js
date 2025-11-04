@@ -17,6 +17,7 @@ import {
   ChatBubbleLeftRightIcon
 } from '@heroicons/react/24/outline';
 import PermissionGate from '../PermissionGate';
+import SecurityCheck from './SecurityCheck';
 
 // Reports component that includes CSV Export functionality and Feedback Report
 const Reports = () => {
@@ -274,6 +275,13 @@ const AdminSettings = () => {
       name: 'System Administration',
       icon: <WrenchScrewdriverIcon className="w-5 h-5" />,
       component: <SystemAdministration />,
+      permission: 'manage_settings',
+      superAdminOnly: false,
+    },
+    {
+      name: 'Security Check',
+      icon: <ShieldCheckIcon className="w-5 h-5" />,
+      component: <SecurityCheck />,
       permission: 'manage_settings',
       superAdminOnly: false,
     },
