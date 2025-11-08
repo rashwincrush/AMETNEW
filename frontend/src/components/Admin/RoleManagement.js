@@ -3,6 +3,7 @@ import ReactModal from 'react-modal';
 import { useAuth } from '../../contexts/AuthContext';
 import PermissionGate from '../PermissionGate';
 import toast from 'react-hot-toast';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 import { ROLE_OPTIONS, isRole } from '../../utils/roles';
 import { 
   UsersIcon,
@@ -136,7 +137,7 @@ const RoleManagement = () => {
       setSelectedUser(null);
     } catch (error) {
       console.error('Error updating role:', error);
-      toast.error(`Failed to update role: ${error.message}`);
+      toast.error(`Failed to update role: ${getFriendlyErrorMessage(error, 'Unable to update role.')}`);
     }
   };
 

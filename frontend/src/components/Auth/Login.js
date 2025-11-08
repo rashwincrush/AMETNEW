@@ -3,6 +3,7 @@ import { Link, Navigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
 import Logo from '../common/Logo';
 import { signInWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 import { useAuth } from '../../contexts/AuthContext';
 
 const Login = () => {
@@ -39,7 +40,7 @@ const Login = () => {
       }
       
       if (error) {
-        setError(error.message);
+        setError(getFriendlyErrorMessage(error, 'Sign-in failed. Please try again.'));
         return;
       }
 
@@ -70,7 +71,7 @@ const Login = () => {
     try {
       const { error } = await signInWithGoogle();
       if (error) {
-        setError(error.message);
+        setError(getFriendlyErrorMessage(error, 'Failed to sign in with Google. Please try again.'));
         setIsLoading(false);
         return;
       }
@@ -89,7 +90,7 @@ const Login = () => {
     try {
       const { error } = await signInWithLinkedIn();
       if (error) {
-        setError(error.message);
+        setError(getFriendlyErrorMessage(error, 'Failed to sign in with LinkedIn. Please try again.'));
         setIsLoading(false);
         return;
       }
@@ -118,7 +119,7 @@ const Login = () => {
   }
   
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         {/* Back to Home Link */}
         <div>
@@ -131,7 +132,7 @@ const Login = () => {
         {/* Header */}
         <div className="text-center">
           <Link to="/">
-            <Logo className="mx-auto h-16 w-auto" />
+            <Logo className="mx-auto h-14 sm:h-16 w-auto" />
           </Link>
           <h2 className="mt-6 text-3xl font-bold tracking-tight text-gray-900">
             Welcome Back
@@ -143,7 +144,7 @@ const Login = () => {
 
         {/* Form */}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="bg-white rounded-lg shadow-md p-8 space-y-6">
+          <div className="bg-white rounded-lg shadow-md p-6 sm:p-8 space-y-6">
             {/* Error Message */}
             {error && (
               <div id="login-error" role="alert" className="p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -278,7 +279,7 @@ const Login = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={handleGoogleLogin}
@@ -305,15 +306,6 @@ const Login = () => {
                 </svg>
                 <span className="ml-2">LinkedIn</span>
               </button>
-            </div>
-
-            {/* Demo Users Info - Remove in production */}
-            <div className="mt-6 p-4 bg-ocean-50 rounded-lg">
-              <h3 className="text-sm font-medium text-gray-700 mb-2">For Testing:</h3>
-              <div className="text-xs text-gray-600 space-y-1">
-                <p>You can also create a new account or sign in with Google/LinkedIn</p>
-                <p className="mt-2 italic">All features are connected to your Supabase database</p>
-              </div>
             </div>
           </div>
 

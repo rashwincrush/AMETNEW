@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { validatePassword } from '../../utils/passwordPolicy';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 
 const UpdatePassword = () => {
   const [password, setPassword] = useState('');
@@ -44,7 +45,7 @@ const UpdatePassword = () => {
     const { error } = await supabase.auth.updateUser({ password });
 
     if (error) {
-      setError(error.message);
+      setError(getFriendlyErrorMessage(error, 'Failed to update password.'));
     } else {
       setMessage('Your password has been updated successfully. You will be signed out for security.');
 

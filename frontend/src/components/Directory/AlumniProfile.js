@@ -16,6 +16,7 @@ import { TextPill } from '../shared/Chips';
 import { useConnectionRel } from '../../hooks/useConnectionRel';
 import { useAuth } from '../../contexts/AuthContext';
 import MentorContactPanel from '../Mentorship/MentorContactPanel';
+import Avatar from '../common/Avatar';
 
 const AchievementCard = ({ achievement }) => (
   <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-300">
@@ -78,6 +79,26 @@ const AlumniProfile = () => {
             .single();
           data = res.data;
           supabaseError = res.error;
+          if (supabaseError || !data) {
+            const code = supabaseError?.code || '';
+            const msg = supabaseError?.message || '';
+            const isNoRow = code === 'PGRST116' || /no row/i.test(msg);
+            if (isNoRow) {
+              const pub = await supabase
+                .from('alumni_directory_public')
+                .select('*')
+                .eq('id', id)
+                .maybeSingle();
+              if (!pub.error && pub.data) {
+                data = pub.data;
+                supabaseError = null;
+                // Treat as student-safe view for transformation below
+                // by overriding role locally
+                // eslint-disable-next-line no-var
+                var _usePublicTransform = true;
+              }
+            }
+          }
         }
 
         if (supabaseError) {
@@ -98,7 +119,7 @@ const AlumniProfile = () => {
         console.log('Fetched alumni from Supabase:', data);
 
         const transformedAlumnus = (() => {
-          if (role === 'student') {
+          if (role === 'student' || typeof _usePublicTransform !== 'undefined') {
             const city = data.location_city || '';
             const country = data.location_country || '';
             return {
@@ -245,12 +266,8 @@ const AlumniProfile = () => {
       {/* Centered Header */}
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col items-center text-center">
         {/* Profile Picture */}
-        <div className="relative mb-4">
-          <img
-            src={alumnus.avatar}
-            alt={`${alumnus.name}'s profile picture`}
-            className="h-24 w-24 rounded-full object-cover ring-1 ring-slate-200 bg-slate-100"
-          />
+        <div className="relative mb-4 h-24 w-24 overflow-hidden rounded-full ring-1 ring-slate-200 bg-slate-100 flex items-center justify-center">
+          <Avatar src={alumnus.avatar} alt={`${alumnus.name}'s profile picture`} size={96} />
         </div>
         {/* Basic Info */}
         <div className="flex-1 mb-2">

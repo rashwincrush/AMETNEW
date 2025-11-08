@@ -7,7 +7,8 @@ export async function hasApplied(jobId) {
     const { count, error } = await supabase
       .from('job_applications')
       .select('id', { count: 'exact', head: true })
-      .eq('job_id', jobId);
+      .eq('job_id', jobId)
+      .eq('applicant_id', user.id);
     if (error) return false;
     return (typeof count === 'number') ? count > 0 : false;
   } catch (_) {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import { toFriendlyToast } from '../../utils/errors';
 import { Cog6ToothIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 
 /**
@@ -44,7 +45,7 @@ const AppSettings = () => {
       setSettings(settingsObj);
     } catch (err) {
       console.error('Error fetching settings:', err);
-      toast.error(`Could not load settings: ${err.message}`);
+      toFriendlyToast(toast, err, 'Could not load settings. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -77,7 +78,7 @@ const AppSettings = () => {
       toast.success('Setting updated successfully');
     } catch (err) {
       console.error('Error updating setting:', err);
-      toast.error(`Could not update setting: ${err.message}`);
+      toFriendlyToast(toast, err, 'Could not update setting. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -126,7 +127,7 @@ const AppSettings = () => {
       fetchSettings();
     } catch (err) {
       console.error('Error creating settings:', err);
-      toast.error(`Could not create settings: ${err.message}`);
+      toFriendlyToast(toast, err, 'Could not create settings. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -159,7 +160,7 @@ const AppSettings = () => {
       fetchSettings();
     } catch (err) {
       console.error('Error checking table:', err);
-      toast.error(`Database error: ${err.message}`);
+      toFriendlyToast(toast, err, 'Database error. Please try again.');
     } finally {
       setSaving(false);
     }

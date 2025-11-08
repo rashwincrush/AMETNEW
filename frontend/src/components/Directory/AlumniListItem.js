@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { MapPinIcon, BriefcaseIcon, StarIcon, ChevronRightIcon, AcademicCapIcon } from '@heroicons/react/24/solid';
+import Avatar from '../common/Avatar';
 
 const AlumniListItem = ({ alumnus }) => {
   const getInitials = (name) => {
@@ -27,28 +28,9 @@ const AlumniListItem = ({ alumnus }) => {
         <div className="p-4 sm:p-5 flex items-center justify-between">
           <div className="flex items-center space-x-4 flex-1 min-w-0">
             {/* Avatar */}
-            {avatarUrl ? (
-              <div className="relative">
-                <img
-                  className="h-14 w-14 rounded-full object-cover ring-2 ring-indigo-100 group-hover:ring-indigo-200 transition-all"
-                  src={avatarUrl}
-                  alt={`${fullName || 'User'}'s avatar`}
-                  onError={(e) => {
-                    e.target.onerror = null;
-                    e.target.style.display = 'none';
-                    const fallback = e.target.nextSibling;
-                    if (fallback) fallback.style.display = 'flex';
-                  }}
-                />
-                <div className="hidden h-14 w-14 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-lg font-bold items-center justify-center ring-2 ring-indigo-100">
-                  {initials}
-                </div>
-              </div>
-            ) : (
-              <div className="h-14 w-14 rounded-full bg-gradient.to-br from-blue-500 to-indigo-600 text-white text-lg font-bold flex items-center justify-center ring-2 ring-indigo-100">
-                {initials}
-              </div>
-            )}
+            <div className="relative">
+              <Avatar src={avatarUrl} alt={fullName || 'User'} size={56} />
+            </div>
             
             {/* Main info */}
             <div className="flex-1 min-w-0">

@@ -28,6 +28,7 @@ import { useNotification } from '../common/NotificationCenter';
 import { shareJob } from '../../utils/share';
 import BookmarkButton from './BookmarkButton';
 import { toggleBookmarkRPC } from '../../utils/bookmarks';
+import ImageWithFallback from '../common/ImageWithFallback';
 import ApplyDialog from './ApplyDialog';
 import { hasApplied as hasAppliedHelper } from '../../utils/jobApplications';
 
@@ -142,7 +143,8 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   };
 
   // Single source of truth for Apply/Upload visibility
-  const deadlinePassed = job.application_deadline && new Date(job.application_deadline) < new Date();
+  const coalescedDeadline = job?.deadline || job?.application_deadline || null;
+  const deadlinePassed = coalescedDeadline && new Date(coalescedDeadline) < new Date();
   const hideApply = (
     isOwner ||
     !job.is_approved ||
@@ -157,11 +159,15 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
     <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow border border-gray-200 h-full flex flex-col">
       <div className="flex items-start justify-between mb-4 p-6 pb-4">
         <div className="flex items-center flex-1">
-          <img
-            src={job.companies?.logo_url || '/logo.png'}
-            alt={job.companies?.name || 'Company'}
-            className="w-12 h-12 rounded-lg object-cover mr-4 flex-shrink-0"
-          />
+          <div className="w-12 h-12 rounded-lg mr-4 flex-shrink-0 overflow-hidden bg-gray-100">
+            <ImageWithFallback
+              src={job.companies?.logo_url}
+              alt={job.companies?.name || 'Company'}
+              className="w-12 h-12"
+              placeholderSrc="/default-avatar.svg"
+              emptyMessage="Employer logo to be uploaded"
+            />
+          </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold text-gray-900 line-clamp-2" title={job.title}>{job.title}</h3>
@@ -226,10 +232,10 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
             </span>
           </div>
         )}
-        {job.application_deadline && (
+        {coalescedDeadline && (
           <div className="flex items-center text-gray-700 col-span-2">
             <CalendarIcon className="w-4 h-4 mr-2 flex-shrink-0" />
-            <span>Deadline: {formatKolkata(job.application_deadline)}</span>
+            <span>Deadline: {formatKolkata(coalescedDeadline)}</span>
           </div>
         )}
       </div>
@@ -285,7 +291,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
               open={applyOpen}
               onClose={() => setApplyOpen(false)}
               jobId={job.id}
-              deadline={job.application_deadline}
+              deadline={coalescedDeadline}
               onSuccess={() => setApplied(true)}
             />
           )}
@@ -313,7 +319,8 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
     return () => { mounted = false; };
   }, [user?.id, job?.id]);
 
-  const deadlinePassed = job.application_deadline && new Date(job.application_deadline) < new Date();
+  const coalescedDeadline = job?.deadline || job?.application_deadline || null;
+  const deadlinePassed = coalescedDeadline && new Date(coalescedDeadline) < new Date();
 
   const renderStatusBadge = () => {
     if (job.is_approved === true) return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-800">Approved</span>);
@@ -324,7 +331,15 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
   if (!job) return null;
   return (
     <div className="glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border border-transparent min-h-[140px]">
-      <img src={job.companies?.logo_url || '/logo.png'} alt={job.companies?.name || 'Company'} className="w-16 h-16 rounded-lg object-cover" />
+      <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100">
+        <ImageWithFallback
+          src={job.companies?.logo_url}
+          alt={job.companies?.name || 'Company'}
+          className="w-16 h-16"
+          placeholderSrc="/default-avatar.svg"
+          emptyMessage="Employer logo to be uploaded"
+        />
+      </div>
       <div className="flex-1">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -357,7 +372,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
               </span>
             </div>
           )}
-          {job.application_deadline && (<div className="flex items-center"><CalendarIcon className="w-4 h-4 mr-1" /><span>Deadline: {formatKolkata(job.application_deadline)}</span></div>)}
+          {coalescedDeadline && (<div className="flex items-center"><CalendarIcon className="w-4 h-4 mr-1" /><span>Deadline: {formatKolkata(coalescedDeadline)}</span></div>)}
         </div>
       </div>
       <div className="flex flex-col items-end justify-between self-stretch pt-2 sm:pt-0">
@@ -401,7 +416,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
             </button>
           )}
           {!quick && (
-            <ApplyDialog open={applyOpen} onClose={() => setApplyOpen(false)} jobId={job.id} deadline={job.application_deadline} onSuccess={() => setApplied(true)} />
+            <ApplyDialog open={applyOpen} onClose={() => setApplyOpen(false)} jobId={job.id} deadline={coalescedDeadline} onSuccess={() => setApplied(true)} />
           )}
         </div>
       </div>
@@ -414,7 +429,8 @@ const JobListingsPage = () => {
   const { loading: apprLoading, isApprovedEmployer } = useApproval();
   const navigateJob = useNavigate();
   const goPostJob = () => {
-    if (!isApprovedEmployer) {
+    const isAdminLocal = ['admin', 'super_admin'].includes(userRole);
+    if (!isApprovedEmployer && !isAdminLocal) {
       toast.error('Your employer profile is not approved. Please contact the admin to get approved.');
       return;
     }
@@ -951,7 +967,7 @@ const JobListingsPage = () => {
         </div>
         <div className="flex items-center space-x-2 md:space-x-4 mt-4 md:mt-0 flex-wrap">
           {['alumni','student'].includes(userRole) && (
-            <Link to="/jobs/applications" className="btn-secondary-outline text-sm">
+            <Link to="/my-applications" className="btn-secondary-outline text-sm">
               <DocumentTextIcon className="w-4 h-4 mr-2" />
               My Applications
             </Link>

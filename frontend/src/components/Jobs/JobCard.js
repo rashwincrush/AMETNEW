@@ -10,6 +10,7 @@ import { ShareIcon, BookmarkIcon, MapPinIcon, BriefcaseIcon, ClockIcon } from '@
 import { toggleBookmarkRPC } from '../../utils/bookmarks';
 import { CalendarIcon } from '@heroicons/react/24/outline';
 import { shareJob } from '../../utils/share';
+import ImageWithFallback from '../common/ImageWithFallback';
 
 export default function JobCard({ job }) {
   const navigate = useNavigate();
@@ -68,11 +69,13 @@ export default function JobCard({ job }) {
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center">
-          {companyLogo ? (
-            <img src={companyLogo} alt={companyName || 'Company'} className="w-full h-full object-cover" />
-          ) : (
-            <span className="text-[10px] text-gray-400">Logo</span>
-          )}
+            <ImageWithFallback
+              src={companyLogo}
+              alt={companyName || 'Company'}
+              className="w-10 h-10"
+              placeholderSrc="/default-avatar.svg"
+              emptyMessage="Employer logo to be uploaded"
+            />
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">

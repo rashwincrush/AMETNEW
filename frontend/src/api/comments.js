@@ -1,0 +1,37 @@
+// src/api/comments.js
+import { supabase } from '../utils/supabase'
+
+export async function fetchComments(postId) {
+  const { data, error } = await supabase
+    .from('group_comments')
+    .select('id, post_id, author_id, content, created_at, edited_at, is_edited, profiles:author_id(id, full_name, avatar_url)')
+    .eq('post_id', postId)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data
+}
+
+export async function addComment(postId, content) {
+  const trimmed = (content || '').trim()
+  if (!trimmed) throw new Error('Comment cannot be empty')
+  const { data, error } = await supabase
+    .from('group_comments')
+    .insert({ post_id: postId, content: trimmed })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function editComment(commentId, content) {
+  const trimmed = (content || '').trim()
+  if (!trimmed) throw new Error('Comment cannot be empty')
+  const { data, error } = await supabase
+    .from('group_comments')
+    .update({ content: trimmed })
+    .eq('id', commentId)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}

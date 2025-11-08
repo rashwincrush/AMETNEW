@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
+import { toFriendlyToast, getFriendlyErrorMessage } from '../../utils/errors';
 
 const MentorSettings = () => {
   const navigate = useNavigate();
@@ -100,7 +101,7 @@ const MentorSettings = () => {
       }
       toast.success('Default meeting link saved');
     } catch (e) {
-      toast.error(e.message || 'Failed to save link');
+      toFriendlyToast(toast, e, 'Failed to save link');
     } finally {
       setLinkSaving(false);
     }
@@ -148,7 +149,7 @@ const MentorSettings = () => {
       }
       toast.success('Default link applied to upcoming sessions');
     } catch (e) {
-      toast.error(e.message || 'Failed to apply link');
+      toFriendlyToast(toast, e, 'Failed to apply link');
     } finally {
       setBulkUpdating(false);
     }
@@ -182,7 +183,7 @@ const MentorSettings = () => {
       }
       toast.success('Link sent to accepted mentees');
     } catch (e) {
-      toast.error(e.message || 'Failed to send link');
+      toFriendlyToast(toast, e, 'Failed to send link');
     }
   };
 
@@ -212,7 +213,7 @@ const MentorSettings = () => {
       navigate('/mentorship/dashboard');
     } catch (err) {
       console.error('Failed to create mentorship program:', err);
-      toast.error(err.message || 'Failed to create mentorship program', { id: toastId });
+      toast.error(getFriendlyErrorMessage(err, 'Failed to create mentorship program'), { id: toastId });
     } finally {
       setSubmitting(false);
     }

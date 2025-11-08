@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import EmployerGuard from '../Auth/EmployerGuard';
 import LoadingScreen from '../common/LoadingScreen';
+import ImageWithFallback from '../common/ImageWithFallback';
 
 const CompanyProfile = () => {
   const { id } = useParams();
@@ -78,12 +79,15 @@ const CompanyProfile = () => {
       {/* Company Header */}
       <div className="glass-card rounded-lg p-6">
         <div className="flex flex-col sm:flex-row items-start gap-6">
-          <img 
-            src={company.logo_url || '/default-company-logo.svg'}
-            alt={`${company.name} logo`}
-            className="w-24 h-24 rounded-lg object-contain border bg-white shadow-md"
-            onError={(e) => { e.target.onerror = null; e.target.src = '/default-company-logo.svg'; }}
-          />
+          <div className="w-24 h-24 rounded-lg overflow-hidden border bg-white shadow-md">
+            <ImageWithFallback
+              src={company.logo_url}
+              alt={`${company.name} logo`}
+              className="w-24 h-24"
+              placeholderSrc="/default-avatar.svg"
+              emptyMessage="Employer logo to be uploaded"
+            />
+          </div>
           <div className="flex-1">
             <div className="flex items-center gap-3 justify-between">
               <div className="flex items-center gap-3">

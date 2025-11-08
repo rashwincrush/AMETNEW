@@ -3,6 +3,7 @@ import { supabase } from '../../utils/supabase';
 import { Box, Typography, Paper, Button, Chip, Grid, CircularProgress, TextField, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Alert, IconButton, Tooltip } from '@mui/material';
 import { Edit as EditIcon, Delete as DeleteIcon, CheckCircle as ApproveIcon, ShieldCheck as VerifyIcon, Cancel as RejectIcon } from '@mui/icons-material';
 import { toast } from 'react-hot-toast';
+import { toFriendlyToast } from '../../utils/errors';
 
 const JobAdminPanel = () => {
   const [jobs, setJobs] = useState([]);
@@ -21,7 +22,7 @@ const JobAdminPanel = () => {
       if (error) throw error;
       setJobs(data || []);
     } catch (err) {
-      toast.error('Failed to load jobs.');
+      toFriendlyToast(toast, err, 'Failed to load jobs. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -44,7 +45,7 @@ const JobAdminPanel = () => {
       .select();
 
     if (error) {
-      toast.error(`Failed to update job: ${error.message}`);
+      toFriendlyToast(toast, error, 'Failed to update job. Please try again.');
     } else {
       toast.success('Job status updated successfully!');
       fetchJobs();
@@ -56,7 +57,7 @@ const JobAdminPanel = () => {
     if (!window.confirm('Are you sure you want to delete this job permanently?')) return;
     const { error } = await supabase.from('jobs').delete().eq('id', jobId);
     if (error) {
-      toast.error(`Failed to delete job: ${error.message}`);
+      toFriendlyToast(toast, error, 'Failed to delete job. Please try again.');
     } else {
       toast.success('Job deleted successfully!');
       fetchJobs();
@@ -75,7 +76,7 @@ const JobAdminPanel = () => {
       .eq('id', selectedJob.id);
 
     if (error) {
-      toast.error(`Failed to update job: ${error.message}`);
+      toFriendlyToast(toast, error, 'Failed to update job. Please try again.');
     } else {
       toast.success('Job updated successfully!');
       setEditDialogOpen(false);

@@ -5,6 +5,7 @@ import { format, parseISO, isPast, isFuture } from 'date-fns';
 import { formatInTimeZone, utcToZonedTime } from 'date-fns-tz';
 import { ArrowLeft, Edit, Trash2, Calendar, Clock, MapPin, Tag, Users, CheckCircle, BarChart2 } from 'lucide-react';
 import SocialShareButtons from '../common/SocialShareButtons';
+import ImageWithFallback from '../common/ImageWithFallback';
 
 const EventDetail = () => {
   const { id } = useParams();
@@ -202,7 +203,15 @@ const EventDetail = () => {
         </Link>
 
         <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-          {event.featured_image_url && <img src={event.featured_image_url} alt={event.title} className="w-full h-48 md:h-64 object-cover" />}
+          <div className="w-full h-48 md:h-64">
+            <ImageWithFallback
+              src={event.featured_image_url}
+              alt={event.title}
+              className="w-full h-full"
+              placeholderSrc="/default-avatar.svg"
+              emptyMessage="Event image to be uploaded"
+            />
+          </div>
           <div className="p-6">
             <div className="flex flex-col sm:flex-row justify-between items-start mb-2">
               <div>
@@ -395,7 +404,15 @@ const EventDetail = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 max-h-96 overflow-auto">
                       {attendees.map(attendee => (
                         <Link to={`/profile/${attendee.profiles.id}`} key={attendee.id} className="flex items-center gap-3 p-2 rounded hover:bg-gray-50">
-                          <img src={attendee.profiles.avatar_url || `https://api.dicebear.com/6.x/initials/svg?seed=${attendee.profiles.full_name}` } alt={attendee.profiles.full_name} className="w-12 h-12 rounded-full object-cover"/>
+                          <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-100">
+                            <ImageWithFallback
+                              src={attendee.profiles.avatar_url}
+                              alt={attendee.profiles.full_name}
+                              className="w-12 h-12"
+                              placeholderSrc="/default-avatar.svg"
+                              emptyMessage="Profile image to be uploaded"
+                            />
+                          </div>
                           <div>
                             <p className="font-semibold text-sm text-gray-800">{attendee.profiles.full_name}</p>
                             <p className="text-xs text-gray-500">{attendee.profiles.role || attendee.profiles.current_position}</p>

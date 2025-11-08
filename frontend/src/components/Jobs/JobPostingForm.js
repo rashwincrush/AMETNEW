@@ -6,6 +6,7 @@ import { Box, TextField, Button, Typography, Paper, Grid, CircularProgress, Menu
 import { toast } from 'react-hot-toast';
 import LinkIcon from '@mui/icons-material/Link';
 import DescriptionIcon from '@mui/icons-material/Description';
+import { toFriendlyToast } from '../../utils/errors';
 
 const JobPostingForm = () => {
   const { user, profile, userRole } = useAuth();
@@ -135,6 +136,7 @@ const JobPostingForm = () => {
         ...formData,
         deadline,
         user_id: user.id,
+        created_by: user.id,
         is_approved: false, // Jobs are not auto-approved
         is_verified: false, // Jobs are not auto-verified
         is_active: true, // Job is active upon creation
@@ -146,7 +148,7 @@ const JobPostingForm = () => {
       navigate('/jobs');
     } catch (err) {
       setError('Failed to post job. Please check your input and try again.');
-      toast.error(`Error: ${err.message}`);
+      toFriendlyToast(toast, err, 'Failed to post job. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

@@ -28,7 +28,10 @@ const PostJobWithLink = () => {
           {
             title,
             application_url: jobUrl,
-            description: `This is an external job posting. Apply at the provided link.`
+            description: `This is an external job posting. Apply at the provided link.`,
+            is_active: true,
+            is_approved: false,
+            created_by: user?.id || null
           }
         ])
         .select();

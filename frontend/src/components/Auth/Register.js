@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 import { signUpWithEmail, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 
 const Register = () => {
   const navigate = useNavigate();
@@ -66,7 +67,7 @@ const Register = () => {
       );
 
       if (error) {
-        setError(error.message);
+        setError(getFriendlyErrorMessage(error, 'Registration failed. Please try again.'));
         return;
       }
 
@@ -92,7 +93,7 @@ const Register = () => {
     try {
       const { error } = await signInWithGoogle();
       if (error) {
-        setError(error.message);
+        setError(getFriendlyErrorMessage(error, 'Google signup failed. Please try again.'));
       }
     } catch (err) {
       setError('Failed to sign up with Google');
@@ -105,7 +106,7 @@ const Register = () => {
     try {
       const { error } = await signInWithLinkedIn();
       if (error) {
-        setError(error.message);
+        setError(getFriendlyErrorMessage(error, 'LinkedIn signup failed. Please try again.'));
       }
     } catch (err) {
       setError('Failed to sign up with LinkedIn');

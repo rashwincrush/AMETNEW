@@ -3,6 +3,7 @@ import { Tab } from '@headlessui/react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
+import { toFriendlyToast } from '../../utils/errors';
 import { Link } from 'react-router-dom';
 import ContentApproval from './ContentApproval';
 import UserManagement from './UserManagement';
@@ -84,7 +85,7 @@ const SystemAdministration = () => {
       setAdminUsers(data || []);
     } catch (err) {
       console.error('Error fetching admin users:', err);
-      toast.error(`Could not load admin users: ${err.message}`);
+      toFriendlyToast(toast, err, 'Could not load admin users. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -106,7 +107,7 @@ const SystemAdministration = () => {
       fetchAdminUsers(); // Refresh the list
     } catch (err) {
       console.error('Error updating user role:', err);
-      toast.error(`Failed to update role: ${err.message}`);
+      toFriendlyToast(toast, err, 'Failed to update role. Please try again.');
     } finally {
       setShowConfirmation(false);
       setSelectedUserForRoleChange(null);

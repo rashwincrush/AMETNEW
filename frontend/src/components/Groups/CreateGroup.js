@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { can } from '../../utils/permissions';
 
 const CreateGroup = () => {
   const [name, setName] = useState('');
@@ -12,8 +13,15 @@ const CreateGroup = () => {
   const [tagsInput, setTagsInput] = useState('');
   const [avatarFile, setAvatarFile] = useState(null);
   const [loading, setLoading] = useState(false);
-  const { user } = useAuth();
+  const { user, userRole } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user && !can('groups:create', userRole)) {
+      toast.error('You are not allowed to create a group.');
+      navigate('/groups');
+    }
+  }, [user, userRole, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -114,7 +122,14 @@ const CreateGroup = () => {
       navigate(`/groups/${data}`);
     } catch (err) {
       console.error("Error creating group:", err);
-      toast.error(`Failed to create group: ${err.message}`, { id: toastId });
+      const msg = String(err?.message || '');
+      if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+        toast.error('Group created but is not visible yet. It may be pending review.', { id: toastId });
+      } else if (/permission denied|42501/i.test(msg)) {
+        toast.error("You don't have permission to create a group.", { id: toastId });
+      } else {
+        toast.error('Unable to create group. Please try again.', { id: toastId });
+      }
     } finally {
       setLoading(false);
     }

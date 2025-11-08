@@ -4,6 +4,7 @@ import Logo from '../common/Logo';
 import OtpInput from './OtpInput';
 import { useAuth } from '../../contexts/AuthContext';
 import { signInWithEmailOtp, sendMagicLink, verifyEmailOtp } from '../../utils/supabase';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 
 const LoginOtp = () => {
   const { user, loading: authLoading } = useAuth();
@@ -21,7 +22,7 @@ const LoginOtp = () => {
     setError(''); setStatus(''); setLoading(true);
     try {
       const { error } = await signInWithEmailOtp(email, { shouldCreateUser: true });
-      if (error) setError(error.message);
+      if (error) setError(getFriendlyErrorMessage(error, 'Failed to send OTP.'));
       else setStatus('OTP sent. Check your inbox.');
     } catch (e) {
       setError('Failed to send OTP.');
@@ -35,7 +36,7 @@ const LoginOtp = () => {
     setError(''); setStatus(''); setLoading(true);
     try {
       const { error } = await sendMagicLink(email, { shouldCreateUser: true });
-      if (error) setError(error.message);
+      if (error) setError(getFriendlyErrorMessage(error, 'Failed to send magic link.'));
       else setStatus('Magic link sent. Check your inbox.');
     } catch (e) {
       setError('Failed to send magic link.');
@@ -49,7 +50,7 @@ const LoginOtp = () => {
     setError(''); setStatus(''); setLoading(true);
     try {
       const { data, error } = await verifyEmailOtp(email, code.replace(/\s/g, ''));
-      if (error) setError(error.message);
+      if (error) setError(getFriendlyErrorMessage(error, 'Failed to verify code.'));
       else if (data?.session) {
         window.location.href = '/profile';
         return;

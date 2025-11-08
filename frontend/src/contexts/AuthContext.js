@@ -11,6 +11,29 @@ const logger = {
   warn: (...args) => isDev && console.warn(...args)
 };
 
+// Whitelist of user-editable profile fields to avoid admin-only columns
+const SAFE_PROFILE_FIELDS = [
+  'id',
+  'email',
+  'first_name',
+  'last_name',
+  'phone',
+  'graduation_year',
+  'expected_graduation_year',
+  'degree_program',
+  'department',
+  'company_name',
+  'current_job_title',
+  'location',
+  'avatar_url',
+];
+
+const pickSafeProfileFields = (src) => {
+  const out = {};
+  for (const k of SAFE_PROFILE_FIELDS) if (k in src) out[k] = src[k];
+  return out;
+};
+
 const AuthContext = createContext({});
 
 export const useAuth = () => {
@@ -149,7 +172,6 @@ export const AuthProvider = ({ children }) => {
             const seed = {
               id: u.id,
               email: u.email,
-              role: isRole(md.role) ? md.role : 'alumni',
               first_name: md.first_name || null,
               last_name: md.last_name || null,
               phone: md.phone || null,
@@ -163,9 +185,10 @@ export const AuthProvider = ({ children }) => {
               avatar_url: md.avatar_url || md.avatar || null,
             };
             const sanitized = Object.fromEntries(Object.entries(seed).filter(([, v]) => v !== undefined));
+            const safePayload = pickSafeProfileFields(sanitized);
             let { data: created, error: createErr } = await supabase
               .from('profiles')
-              .upsert(sanitized)
+              .upsert(safePayload)
               .select()
               .maybeSingle();
             if (createErr) {
@@ -173,12 +196,13 @@ export const AuthProvider = ({ children }) => {
               logger.warn('Failed to create profile from auth metadata:', msg);
               // Retry without FK-prone fields
               try {
-                const minimal = { ...sanitized };
+                const minimal = { ...safePayload };
                 delete minimal.degree_program;
                 delete minimal.department;
+                const minimalSafe = pickSafeProfileFields(minimal);
                 ({ data: created } = await supabase
                   .from('profiles')
-                  .upsert(minimal)
+                  .upsert(minimalSafe)
                   .select()
                   .maybeSingle());
                 if (created) {
@@ -214,7 +238,6 @@ export const AuthProvider = ({ children }) => {
           const seed = {
             id: u.id,
             email: u.email,
-            role: isRole(md.role) ? md.role : 'alumni',
             first_name: md.first_name || null,
             last_name: md.last_name || null,
             location: md.location || null,
@@ -222,9 +245,10 @@ export const AuthProvider = ({ children }) => {
             created_at: new Date().toISOString(),
           };
           const sanitized = Object.fromEntries(Object.entries(seed).filter(([, v]) => v !== undefined));
+          const safePayload = pickSafeProfileFields(sanitized);
           const { data: created } = await supabase
             .from('profiles')
-            .upsert(sanitized)
+            .upsert(safePayload)
             .select()
             .maybeSingle();
           if (created) {
@@ -550,12 +574,16 @@ export const AuthProvider = ({ children }) => {
     // If profile doesn't exist, default to 'alumni'
     if (!profile) return 'alumni';
 
-    // Prefer explicit role if valid
+    // Prefer explicit DB role if valid
     if (profile.role && isRole(profile.role)) return profile.role;
+
+    // Fallback: use auth metadata role until Edge Function updates DB role
+    const metaRole = user?.user_metadata?.role;
+    if (metaRole && isRole(metaRole)) return metaRole;
 
     // Default aligned with enum
     return 'alumni';
-  }, [profile]);
+  }, [profile, user]);
   const userRole = getUserRole();
   const isAdmin = userRole === 'admin' || userRole === 'super_admin';
 
@@ -574,8 +602,25 @@ export const AuthProvider = ({ children }) => {
 
   const hasAnyPermission = useCallback((permissions) => {
     const userPermissions = PERMISSIONS[userRole] || [];
-    return userPermissions.includes('access:all') || permissions.some(p => userPermissions.includes(p));
+    return userPermissions.includes('access:all') || permissions.some((p) => userPermissions.includes(p));
   }, [userRole]);
+
+  // Backfill profiles.email from auth if missing (safe, user-editable column)
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!user?.id) return;
+        if (!profile) return;
+        if (profile.email) return;
+        if (!user.email) return;
+        await supabase.from('profiles').update({ email: user.email.toLowerCase() }).eq('id', user.id);
+        // refresh local profile cache silently
+        await fetchUserProfile(user.id).catch(() => undefined);
+      } catch (_) {
+        // ignore
+      }
+    })();
+  }, [user?.id, user?.email, profile?.email]);
 
   const hasAllPermissions = useCallback((permissions) => {
     const userPermissions = PERMISSIONS[userRole] || [];

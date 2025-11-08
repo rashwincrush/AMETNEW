@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 
 export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess }) {
   const { user } = useAuth();
@@ -10,7 +11,7 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
   const [submitting, setSubmitting] = useState(false);
   const dialogRef = useRef(null);
   const prevFocusRef = useRef(null);
-  const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+  const MAX_SIZE = 5 * 1024 * 1024; // 5 MB (standardized with ProfileResume)
 
   const formatKolkata = (iso) => {
     try {
@@ -82,7 +83,7 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
       return;
     }
     if (file.size > MAX_SIZE) {
-      toast.error('File too large (max 10 MB).');
+      toast.error('File too large (max 5 MB).');
       return;
     }
     const allowedExt = ['pdf','doc','docx'];
@@ -101,19 +102,16 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
       const { error: uploadErr } = await supabase.storage.from('resumes').upload(path, file, { upsert: false });
       if (uploadErr) throw uploadErr;
 
-      // Create a short-lived signed URL for confirmation display
-      let signedUrl = null;
-      try {
-        const { data: signed } = await supabase.storage.from('resumes').createSignedUrl(path, 60 * 60);
-        signedUrl = signed?.signedUrl || null;
-      } catch (_) { void 0; }
+      // Get a public URL for persistent storage in job_applications.resume_url
+      const { data: pub } = await supabase.storage.from('resumes').getPublicUrl(path);
+      const publicUrl = pub?.publicUrl || null;
 
-      // Insert application with minimal columns (trust RLS)
+      // Insert application with minimal columns (trust RLS), using public URL
       const base = { job_id: jobId };
       let insertPayload = base;
 
       // Try with resume_url if column exists; on failure due to column absence, retry without
-      let res = await supabase.from('job_applications').insert({ ...insertPayload, resume_url: path }).select('id').single();
+      let res = await supabase.from('job_applications').insert({ ...insertPayload, resume_url: publicUrl || path }).select('id').single();
       if (res.error && /column\s+"?resume_url"?/i.test(res.error.message || '')) {
         res = await supabase.from('job_applications').insert(base).select('id').single();
       }
@@ -124,11 +122,11 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
         throw new Error(msg);
       }
 
-      if (onSuccess) onSuccess({ signedUrl, path });
+      if (onSuccess) onSuccess({ publicUrl: publicUrl || null, path });
       toast.success('Application submitted!', { id: toastId });
       onClose();
     } catch (err) {
-      toast.error(err.message || 'Failed to submit application.', { id: toastId });
+      toast.error(getFriendlyErrorMessage(err, 'Failed to submit application.'), { id: toastId });
     } finally {
       setSubmitting(false);
     }
@@ -154,7 +152,7 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
               onChange={(e) => {
                 const f = e.target.files?.[0] || null;
                 if (!f) { setFile(null); return; }
-                if (f.size > MAX_SIZE) { toast.error('File too large (max 10 MB).'); e.target.value=''; setFile(null); return; }
+                if (f.size > MAX_SIZE) { toast.error('File too large (max 5 MB).'); e.target.value=''; setFile(null); return; }
                 const ext = (f.name.split('.').pop() || '').toLowerCase();
                 if (!['pdf','doc','docx'].includes(ext)) { toast.error('Unsupported file type.'); e.target.value=''; setFile(null); return; }
                 setFile(f);

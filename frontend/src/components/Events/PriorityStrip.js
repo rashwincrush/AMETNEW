@@ -4,13 +4,13 @@ import {
   Box,
   Card,
   CardActionArea,
-  CardMedia,
   CardContent,
   Chip,
   IconButton,
   Skeleton,
   Typography
 } from '@mui/material';
+import ImageWithFallback from '../common/ImageWithFallback';
 import { ChevronLeft, ChevronRight } from '@mui/icons-material';
 import { parseISO, format } from 'date-fns';
 
@@ -58,11 +58,17 @@ export default function PriorityStrip({ events = [], loading = false }) {
           }}
         >
           {events.slice(0, 8).map(ev => (
-            <Card key={ev.id} sx={{ minWidth: 260, borderRadius: 2, flex: '0 0 auto' }}>
+            <Card key={ev.id} sx={{ minWidth: { xs: 200, sm: 240, md: 260 }, borderRadius: 2, flex: '0 0 auto' }}>
               <CardActionArea component={Link} to={`/events/${ev.id}`}>
-                {ev.featured_image_url && (
-                  <CardMedia component="img" height={140} image={ev.featured_image_url} alt={ev.title} />
-                )}
+                <Box sx={{ height: { xs: 120, sm: 140 } }}>
+                  <ImageWithFallback
+                    src={ev.featured_image_url}
+                    alt={ev.title}
+                    className="w-full h-full"
+                    placeholderSrc="/default-avatar.svg"
+                    emptyMessage="Event image to be uploaded"
+                  />
+                </Box>
                 <CardContent>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                     <Chip label="Priority" size="small" color="warning" />

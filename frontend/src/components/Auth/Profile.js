@@ -18,8 +18,9 @@ import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { loadProfileSocialLinks, saveProfileSocialLinks } from '../../services/socialLinks.js';
 import { validateLinkedIn, validateGitHub, validateX, validateWebsite, findDuplicateProvider } from '../../services/socialLinks.validation';
-import DegreeComboBox, { FALLBACK_CODES as DEGREE_FALLBACK_CODES } from '../forms/DegreeComboBox';
-import DepartmentInput, { isValidDepartment } from '../forms/DepartmentInput';
+import DegreeSelect from '../academics/DegreeSelect';
+import DepartmentSelect from '../academics/DepartmentSelect';
+import { useAcademicsCatalog } from '../../hooks/useAcademicsCatalog';
 
 // Normalize phone to E.164 or null to satisfy DB constraint chk_phone_e164
 const normalizePhone = (raw) => {
@@ -55,9 +56,8 @@ const Profile = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const initialFormRef = useRef(null);
-  // Strict degree enforcement
-  const [allowedDegreeCodes, setAllowedDegreeCodes] = useState(null);
-  const degreeInputRef = useRef(null);
+  // DB-driven academics catalog
+  const { isValidDegree, isValidDepartmentFor, loading: catalogLoading, degrees, getDepartments } = useAcademicsCatalog();
   const [skillInput, setSkillInput] = useState('');
   const [formData, setFormData] = useState({
     first_name: '',
@@ -70,8 +70,8 @@ const Profile = () => {
     company: '',
     position: '',
     experience: '',
-    degree: '',
-    department: '',
+    degree_code: '',
+    department_id: '',
     batch: '',
     student_id: '',
     date_of_birth: '',
@@ -282,8 +282,8 @@ const Profile = () => {
             company: cleanedProfile.company_name || initialCompany, // Map to company_name from backend
             position: cleanedProfile.current_job_title || '', // Map to current_job_title from backend
             experience: cleanedProfile.experience || '',
-            degree: cleanedProfile.degree_program || '', // Map to degree_program from backend
-            department: cleanedProfile.department || '',
+            degree_code: cleanedProfile.degree_code || '',
+            department_id: cleanedProfile.department_id || '',
             graduation_year: cleanedProfile.graduation_year || '',
             student_id: cleanedProfile.student_id || '',
             date_of_birth: cleanedProfile.date_of_birth || '',
@@ -477,6 +477,10 @@ const Profile = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
+    if (!isEmployer && catalogLoading) {
+      toast.error('Degree data is still loading. Please wait and try again.');
+      return;
+    }
     // Block save if social link validation errors exist
     const socialErrors = Object.keys(validationErrors || {}).filter(k => k.startsWith('socialLinks.'));
     if (socialErrors.length > 0) {
@@ -532,27 +536,18 @@ const Profile = () => {
         }
       }
 
-      // Strict degree: only allow canonical codes in degree_programs
-      const codes = Array.isArray(allowedDegreeCodes) && allowedDegreeCodes.length
-        ? allowedDegreeCodes
-        : ['BBA','BCA','BE','BSC','BTECH','MBA','MCA','ME','MSC','MTECH','PHD'];
-      const degreeRaw = (formData.degree || '').trim().toUpperCase();
-      const degreeCode = degreeRaw === '' ? null : (codes.includes(degreeRaw) ? degreeRaw : { error: true });
-      if (degreeCode && typeof degreeCode === 'object' && degreeCode.error) {
-        const listText = 'BE, BTECH, BSC, ME, MCA, MSC, MTECH, MBA, BBA, BCA, PHD';
-        toast.error(`Please pick a valid degree. Allowed: ${listText}.`);
-        degreeInputRef.current?.focus?.();
-        setIsSubmitting(false);
-        return;
-      }
+      // Degree and Department validation via DB catalogs
+      const degreeCode = isEmployer ? null : (formData.degree_code ? String(formData.degree_code) : null);
 
       // Required field checks
       const missing = [];
       if (!formData.location || !String(formData.location).trim()) missing.push('Location');
       if (!formData.company || !String(formData.company).trim()) missing.push('Company');
       if (!formData.position || !String(formData.position).trim()) missing.push('Position');
-      if (degreeCode === null) missing.push('Degree');
-      if (!isValidDepartment(formData.department)) missing.push('Department');
+      if (!isEmployer) {
+        if (!isValidDegree(formData.degree_code)) missing.push('Degree');
+        if (!isValidDepartmentFor(formData.degree_code, formData.department_id)) missing.push('Department');
+      }
       if (missing.length) {
         toast.error(`Please fill: ${missing.join(', ')}`);
         setIsSubmitting(false);
@@ -561,9 +556,9 @@ const Profile = () => {
 
       // Debug logging for QA
       if (process.env.NODE_ENV === 'development') {
-        console.debug('[Profile] Degree validation', {
-          allowedCount: codes.length,
-          chosen: degreeCode,
+        console.debug('[Profile] Degree/Dept validation', {
+          degree: degreeCode,
+          department_id: formData.department_id,
         });
       }
 
@@ -588,8 +583,8 @@ const Profile = () => {
         company_name: formData.company, // Map to backend field
         headline: formData.headline,
         experience: formData.experience,
-        degree_program: degreeCode, // strict code or null
-        department: formData.department,
+        degree_code: degreeCode,
+        department_id: isEmployer ? null : (formData.department_id || null),
         graduation_year: formData.graduation_year,
         student_id: formData.student_id,
         date_of_birth: formData.date_of_birth,
@@ -619,9 +614,12 @@ const Profile = () => {
       }
     });
 
-    // Ensure degree_program is NULL when Degree field is empty (avoids CHECK constraint violations)
-    if (profileUpdates.degree_program === '' || profileUpdates.degree_program === undefined) {
-      profileUpdates.degree_program = null;
+    // Ensure degree_code/department_id NULL when fields are empty
+    if (profileUpdates.degree_code === '' || profileUpdates.degree_code === undefined) {
+      profileUpdates.degree_code = null;
+    }
+    if (profileUpdates.department_id === '' || profileUpdates.department_id === undefined) {
+      profileUpdates.department_id = null;
     }
     
     // Convert graduation_year to integer if it exists and is not null
@@ -716,8 +714,8 @@ const Profile = () => {
             company: updatedProfile.company_name || formData.company,
             headline: updatedProfile.headline || formData.headline,
             experience: updatedProfile.experience || formData.experience,
-            degree: updatedProfile.degree_program || formData.degree,
-            department: updatedProfile.department || formData.department,
+            degree_code: updatedProfile.degree_code || formData.degree_code,
+            department_id: updatedProfile.department_id || formData.department_id,
             batch: updatedProfile.batch || formData.batch,
             student_id: updatedProfile.student_id || formData.student_id,
             date_of_birth: updatedProfile.date_of_birth || formData.date_of_birth,
@@ -923,9 +921,8 @@ const Profile = () => {
       throw new Error('No file provided for avatar upload.');
     }
 
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${user.id}_${new Date().getTime()}.${fileExt}`;
-    const filePath = `avatars/${fileName}`;
+    const fileExt = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const filePath = `avatars/${user.id}/${Date.now()}.${fileExt}`;
 
     console.log(`Uploading to: ${filePath}`);
 
@@ -1127,24 +1124,26 @@ const Profile = () => {
                 placeholder="Enter your graduation year (e.g. 2020)"
               />
             </div>
-            <div className="space-y-2">
-              <DegreeComboBox
-                label="Degree"
-                value={formData.degree || ''}
-                onChange={(code) => setFormData(prev => ({ ...prev, degree: code || '' }))}
-                placeholder="Select your degree"
-                onCodesLoaded={(codes) => setAllowedDegreeCodes(codes)}
-                ref={degreeInputRef}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <DepartmentInput
-                value={formData.department || ''}
-                onChange={(v) => setFormData(prev => ({ ...prev, department: v }))}
-                required
-              />
-            </div>
+            {!isEmployer && (
+              <>
+                <div className="space-y-2">
+                  <DegreeSelect
+                    value={formData.degree_code || ''}
+                    onChange={(v) => setFormData(prev => ({ ...prev, degree_code: v, department_id: '' }))}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <DepartmentSelect
+                    degreeCode={formData.degree_code || ''}
+                    value={formData.department_id || ''}
+                    onChange={(v) => setFormData(prev => ({ ...prev, department_id: v }))}
+                    required
+                    disabled={!formData.degree_code}
+                  />
+                </div>
+              </>
+            )}
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700">Student ID <span className="text-xs text-gray-500">(optional)</span></label>
               <input
@@ -1338,7 +1337,7 @@ const Profile = () => {
           </div>
 
           {/* Save Button */}
-          <div className="flex justify-end space-x-4">
+          <div className="flex flex-col sm:flex-row justify-end gap-4">
             <button
               type="button"
               onClick={() => {
@@ -1348,14 +1347,14 @@ const Profile = () => {
                   setIsEditing(false);
                 }
               }}
-              className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
+              className="w-full sm:w-auto px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="btn-ocean px-6 py-2 rounded-lg disabled:opacity-70 flex items-center"
+              className="w-full sm:w-auto btn-ocean px-6 py-2 rounded-lg disabled:opacity-70 flex items-center justify-center"
             >
               {isSubmitting ? (
                 <>
@@ -1380,7 +1379,7 @@ const Profile = () => {
           )}
 
           {/* Professional Information */}
-          {(hasValue(formData.position) || hasValue(formData.company) || hasValue(formData.degree) || hasValue(formData.experience)) && (
+          {(hasValue(formData.position) || hasValue(formData.company) || hasValue(formData.degree_code) || hasValue(formData.department_id) || hasValue(formData.experience)) && (
             <div className="glass-card rounded-lg p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Professional Information</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1396,13 +1395,17 @@ const Profile = () => {
                       </div>
                     </div>
                   )}
-                  {hasValue(formData.degree) && (
+                  {(hasValue(formData.degree_code) || hasValue(formData.department_id)) && (
                     <div className="flex items-start">
                       <AcademicCapIcon className="w-5 h-5 text-ocean-500 mr-3 mt-1 flex-shrink-0" />
                       <div>
-                        <p className="font-medium text-gray-900">{formData.degree}</p>
-                        {hasValue(formData.department) && (
-                          <p className="text-sm text-gray-600">{formData.department}</p>
+                        <p className="font-medium text-gray-900">
+                          {degrees.find(d => d.degree_code === formData.degree_code)?.degree_label || formData.degree_code}
+                        </p>
+                        {hasValue(formData.department_id) && (
+                          <p className="text-sm text-gray-600">
+                            {getDepartments(formData.degree_code).find(dep => dep.id === formData.department_id)?.name || ''}
+                          </p>
                         )}
                         {hasValue(formData.batch) && (
                           <p className="text-sm text-gray-600">{`Batch of ${formData.batch}`}</p>

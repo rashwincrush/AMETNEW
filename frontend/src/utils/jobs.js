@@ -19,7 +19,7 @@ export const isInternal = (j) => getSourceType(j) === 'in_app';
 
 export const companyDisplay = (j) => ({
   name: (j && (j.company_name || j.companies?.name)) || '',
-  logo_url: (j && (j.company_logo_url || j.companies?.logo_url)) || ''
+  logo_url: (j && (j.companies?.logo_url || j.company_logo_url)) || ''
 });
 
 // Overview guard: render overview only when we have meaningful data

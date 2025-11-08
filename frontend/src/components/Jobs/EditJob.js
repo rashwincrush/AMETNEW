@@ -4,6 +4,7 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import EmployerGuard from '../Auth/EmployerGuard';
 import toast from 'react-hot-toast';
+import { toFriendlyToast, getFriendlyErrorMessage } from '../../utils/errors';
 import {
   Box, TextField, Button, Typography, Paper, Grid,
   CircularProgress, MenuItem, Alert, Switch, FormControlLabel
@@ -111,7 +112,7 @@ const EditJob = () => {
       setFormData(data);
     } catch (e) {
       console.error('Error fetching job:', e);
-      setError(e?.message || 'Failed to load job data.');
+      setError(getFriendlyErrorMessage(e, 'Failed to load job data.'));
       setFormData(null);
     } finally {
       setLoading(false);
@@ -207,7 +208,7 @@ const EditJob = () => {
       navigate(`/jobs/${id}`);
     } catch (err) {
       console.error('Error updating job:', err);
-      toast.error(`Update failed: ${err.message}`);
+      toFriendlyToast(toast, err, 'Update failed. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

@@ -18,6 +18,7 @@ import { formatInIST } from '../../utils/timezone';
 import { logActivity } from '../../utils/activityLogger';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
+import { toFriendlyToast } from '../../utils/errors';
 
 const Events = () => {
   const { user, isAdmin } = useAuth();
@@ -148,7 +149,7 @@ const Events = () => {
         }
       } catch (error) {
         console.error('Error fetching data:', error);
-        toast.error(`Failed to fetch events: ${error.message}`);
+        toFriendlyToast(toast, error, 'Failed to fetch events. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -224,7 +225,7 @@ const Events = () => {
       }
     } catch (error) {
       console.error('Error updating RSVP:', error);
-      toast.error(`Failed to update RSVP: ${error.message}`);
+      toFriendlyToast(toast, error, 'Failed to update RSVP. Please try again.');
     }
   };
 

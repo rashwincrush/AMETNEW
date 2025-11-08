@@ -44,7 +44,14 @@ const CreateGroup = () => {
 
     } catch (error) {
       console.error('Error creating group:', error);
-      toast.error(`Failed to create group: ${error.message}`, { id: toastId });
+      const msg = String(error?.message || '');
+      if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+        toast.error('Group created but is not visible yet. It may be pending review.', { id: toastId });
+      } else if (/permission denied|42501/i.test(msg)) {
+        toast.error("You don't have permission to create a group.", { id: toastId });
+      } else {
+        toast.error('Unable to create group. Please try again.', { id: toastId });
+      }
     } finally {
       setLoading(false);
     }

@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import { coalesceAppUrl, isQuickLink } from '../../utils/jobs';
 import { requestConnectionForJob } from '../../utils/connections';
+import ImageWithFallback from '../common/ImageWithFallback';
 
 export default function JobDetailsQuickLink({ job, companyName, companyLogo, isOwner, isAdmin }) {
   const { user } = useAuth();
@@ -23,11 +24,13 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
         <div className="flex items-start gap-4">
           {/* Logo */}
           <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden">
-            {companyLogo ? (
-              <img src={companyLogo} alt={companyName || 'Company'} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-sm text-gray-400">Logo</span>
-            )}
+            <ImageWithFallback
+              src={companyLogo}
+              alt={companyName || 'Company'}
+              className="w-14 h-14"
+              placeholderSrc="/default-avatar.svg"
+              emptyMessage="Employer logo to be uploaded"
+            />
           </div>
 
           {/* Title & Meta */}

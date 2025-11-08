@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../utils/supabase';
 
 const RoleSelection = () => {
   const [selectedRole, setSelectedRole] = useState(null);
@@ -60,6 +61,13 @@ const RoleSelection = () => {
       if (!resp.ok) {
         const msg = await resp.text().catch(() => 'Failed to set role.');
         throw new Error(msg || 'Failed to set role.');
+      }
+
+      // Refresh JWT so RLS policies see the updated role immediately
+      try {
+        await supabase.auth.refreshSession();
+      } catch (_) {
+        // ignore refresh errors; profile fetch below will still proceed
       }
 
       // Mark confirmation to avoid re-prompting on refresh

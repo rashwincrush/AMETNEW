@@ -1,33 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import ActionRow from './ActionRow';
-
-const failedAvatarCache = new Set();
-
-function Avatar({ url, name }) {
-  const [failed, setFailed] = useState(() => (url ? failedAvatarCache.has(url) : true));
-  const initial = useMemo(() => (name ? name.charAt(0).toUpperCase() : '?'), [name]);
-  if (!url || failed) {
-    return (
-      <div className="h-14 w-14 rounded-full bg-ocean-100 flex items-center justify-center">
-        <span className="text-ocean-600 font-semibold">{initial}</span>
-      </div>
-    );
-  }
-  return (
-    <img
-      src={url}
-      alt={name || 'avatar'}
-      className="h-14 w-14 rounded-full object-cover"
-      loading="lazy"
-      decoding="async"
-      referrerPolicy="no-referrer"
-      width={56}
-      height={56}
-      onError={() => { if (url) failedAvatarCache.add(url); setFailed(true); }}
-    />
-  );
-}
+import Avatar from '../common/Avatar';
 
 export default function DirectoryCard({ meId, profile, onChanged, compact = false }) {
   const {
@@ -54,7 +28,7 @@ export default function DirectoryCard({ meId, profile, onChanged, compact = fals
     <div className={cardCls}>
       <div className="flex items-start gap-3">
         <div className={compact ? 'mt-0.5' : ''}>
-          <Avatar url={avatar_url} name={full_name} />
+          <Avatar src={avatar_url} alt={full_name} size={56} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">

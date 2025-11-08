@@ -1,5 +1,6 @@
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import Avatar from '../common/Avatar';
 import {
   MapPinIcon,
   AcademicCapIcon,
@@ -54,14 +55,8 @@ export default function ProfileCard({
       <div className="grid grid-cols-2 gap-4 h-full">
         {/* Left Side: Avatar and Details */}
         <div className="flex flex-col items-center">
-          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full ring-2 ring-slate-200 bg-slate-100 mb-2">
-            {avatar_url ? (
-              <img src={avatar_url} alt={full_name || 'Profile'} className="h-full w-full object-cover" />
-            ) : (
-              <div className="grid h-full w-full place-items-center text-slate-500 text-lg font-semibold">
-                {(full_name?.[0] || 'A').toUpperCase()}
-              </div>
-            )}
+          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full ring-2 ring-slate-200 bg-slate-100 mb-2 flex items-center justify-center">
+            <Avatar src={avatar_url} alt={full_name || 'Profile'} size={64} />
           </div>
 
           <div className="text-center">

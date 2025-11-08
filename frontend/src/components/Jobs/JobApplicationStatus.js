@@ -20,14 +20,13 @@ const JobApplicationStatus = () => {
           .from('job_applications')
           .select(`
             id,
-            submitted_at,
+            created_at,
             status,
             resume_url,
-            job:jobs!inner (id, title, company_name, source_type)
+            jobs:job_id!inner (id, title, company_name, source_type)
           `)
           .eq('applicant_id', user.id)
-          .eq('job.source_type', 'in_app')
-          .order('submitted_at', { ascending: false });
+          .order('created_at', { ascending: false });
 
         if (error) throw error;
 
@@ -63,11 +62,11 @@ const JobApplicationStatus = () => {
               <li key={app.id} className="p-4 hover:bg-gray-50">
                 <div className="flex items-center justify-between">
                   <div>
-                    <Link to={`/jobs/${app.job.id}`} className="block">
-                      <p className="text-lg font-semibold text-blue-600">{app.job.title}</p>
+                    <Link to={`/jobs/${app.jobs?.id || app.job_id}`} className="block">
+                      <p className="text-lg font-semibold text-blue-600">{app.jobs?.title || 'Job'}</p>
                     </Link>
-                    <p className="text-sm text-gray-600">{app.job.company_name}</p>
-                    <p className="text-xs text-gray-500 mt-1">Applied on: {new Date(app.submitted_at).toLocaleDateString()}</p>
+                    <p className="text-sm text-gray-600">{app.jobs?.company_name || ''}</p>
+                    <p className="text-xs text-gray-500 mt-1">Applied on: {new Date(app.created_at).toLocaleDateString()}</p>
                     {app.resume_url && (
                       <a href={app.resume_url} target="_blank" rel="noopener noreferrer" className="text-xs text-ocean-600 hover:underline">
                         View Resume

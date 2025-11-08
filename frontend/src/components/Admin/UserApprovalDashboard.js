@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import { adminSetProfileApproval } from '../../api/admin';
 import { 
   CheckIcon, 
   XMarkIcon
@@ -23,8 +24,10 @@ const UserApprovalDashboard = () => {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('registration_status', 'pending_approval')
-        .eq('primary_role', 'employer');
+        .eq('role', 'employer')
+        .eq('approval_status', 'pending')
+        .eq('is_deleted', false)
+        .order('created_at', { ascending: false });
       
       if (error) throw error;
       
@@ -56,11 +59,7 @@ const UserApprovalDashboard = () => {
   const handleApprovalAction = async (userId, newStatus) => {
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ registration_status: newStatus })
-        .eq('id', userId);
-
+      const { error } = await adminSetProfileApproval(userId, newStatus === 'approved' ? 'approved' : 'rejected');
       if (error) throw error;
 
       setUsers(prevUsers => prevUsers.filter(user => user.id !== userId));

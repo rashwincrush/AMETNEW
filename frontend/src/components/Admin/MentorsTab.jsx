@@ -212,9 +212,7 @@ const MentorsTab = () => {
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3">
-                    {row.status === 'approved' ? 'Mentor' : 'Mentor Pending'}
-                  </td>
+                  <td className="px-4 py-3">Mentor</td>
                   <td className="px-4 py-3">
                     <MentorStatusChip status={row.status} />
                   </td>

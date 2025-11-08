@@ -94,6 +94,7 @@ import ManageJobApplications from './components/Jobs/ManageJobApplications';
 import MentorshipStatus from './components/Mentorship/MentorshipStatus';
 import ApprovedGuard from './components/guards/ApprovedGuard.jsx';
 import AdminMentorApprovals from './components/Mentorship/AdminMentorApprovals.js';
+import DataVerificationDashboard from './components/Admin/DataVerificationDashboard.jsx';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import AboutPage from './pages/AboutPage';
@@ -276,6 +277,7 @@ function AppContent() {
             <Route path="/admin/csv" element={<ProtectedRoute requiredPermission="access:all"><CSVImportExport /></ProtectedRoute>} />
             <Route path="/admin/events/:id/feedback" element={<ProtectedRoute requiredPermission="access:all"><EventFeedbackReport /></ProtectedRoute>} />
             <Route path="/admin/mentor-approvals" element={<ProtectedRoute requiredPermission="access:all"><AdminMentorApprovals /></ProtectedRoute>} />
+            <Route path="/admin/verify" element={<ProtectedRoute requiredPermission="access:all"><DataVerificationDashboard /></ProtectedRoute>} />
             <Route path="/admin/feedback" element={<ProtectedRoute requiredPermission="view:feedback_reports"><FeedbackReport /></ProtectedRoute>} />
             <Route path="/rejection" element={<RejectionPage />} />
             <Route path="/access-denied" element={<AccessDenied />} />

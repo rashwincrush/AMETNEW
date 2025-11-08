@@ -70,11 +70,22 @@ const UserDetailsModal = ({ user, isOpen, onClose }) => {
                       </div>
                       <div className="flex items-center">
                         <ShieldCheckIcon className="h-5 w-5 text-gray-400 mr-3" />
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${user.alumni_verification_status === 'verified' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                          {user.alumni_verification_status}
-                        </span>
+                        {(() => {
+                          const status = user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending');
+                          const cls = status === 'approved'
+                            ? 'bg-green-100 text-green-800'
+                            : status === 'rejected'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-yellow-100 text-yellow-800';
+                          const label = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending';
+                          return (
+                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${cls}`}>
+                              {label}
+                            </span>
+                          );
+                        })()}
                       </div>
-                       <div className="flex items-center">
+                      <div className="flex items-center">
                         <ClockIcon className="h-5 w-5 text-gray-400 mr-3" />
                         <span className="text-sm text-gray-700">Last seen: {user.last_seen ? new Date(user.last_seen).toLocaleString() : 'N/A'}</span>
                       </div>

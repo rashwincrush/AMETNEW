@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { hasOverviewData } from '../../utils/jobs';
+import { hasOverviewData, coalesceAppUrl } from '../../utils/jobs';
 import { getApplicantsCount } from '../../utils/applicants';
 import { requestConnectionForJob } from '../../utils/connections';
 import toast from 'react-hot-toast'; // Assuming you have react-hot-toast installed
 import ApplyDialog from './ApplyDialog';
 import { hasApplied as hasAppliedHelper } from '../../utils/jobApplications';
+import ImageWithFallback from '../common/ImageWithFallback';
 
 export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner, isAdmin }) {
   const { user, userRole } = useAuth();
@@ -15,7 +16,8 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
   const employerId = job?.posted_by || job?.user_id || job?.created_by;
   const [applyOpen, setApplyOpen] = useState(false);
   const [applied, setApplied] = useState(false);
-  const deadlinePassed = job?.application_deadline && new Date(job.application_deadline) < new Date();
+  const coalescedDeadline = job?.deadline || job?.application_deadline || null;
+  const deadlinePassed = coalescedDeadline && new Date(coalescedDeadline) < new Date();
   const formatKolkata = (iso) => {
     try {
       return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }).format(new Date(iso));
@@ -63,11 +65,13 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
       <div className="bg-white rounded-2xl shadow-sm border p-6 mb-6">
         <div className="flex items-start gap-4">
           <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden">
-            {companyLogo ? (
-              <img src={companyLogo} alt={companyName || 'Company'} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-sm text-gray-400">Logo</span>
-            )}
+            <ImageWithFallback
+              src={companyLogo}
+              alt={companyName || 'Company'}
+              className="w-14 h-14"
+              placeholderSrc="/default-avatar.svg"
+              emptyMessage="Employer logo to be uploaded"
+            />
           </div>
 
           <div className="flex-1">
@@ -108,24 +112,25 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
                     Connect with Employer
                   </button>
                 )}
-                {job?.external_application_url ? (
-                  <a href={job.external_application_url} target="_blank" rel="noopener" aria-label="Apply Externally" className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700">Apply Externally</a>
-                ) : applied ? (
+                {(() => { const externalUrl = coalesceAppUrl(job); return externalUrl ? (
+                  <a href={externalUrl} target="_blank" rel="noopener" aria-label="Apply Externally" className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700">Apply Externally</a>
+                ) : null; })()}
+                {(!coalesceAppUrl(job)) && (applied ? (
                   <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Application Submitted</button>
                 ) : isClosed ? (
                   <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Applications Closed</button>
                 ) : (
                   <button onClick={() => setApplyOpen(true)} className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700">Apply</button>
-                )}
+                ))}
               </>
             )}
           </div>
         </div>
 
         {/* Minimal meta: Deadline only if present */}
-        {job?.application_deadline && (
+        {coalescedDeadline && (
           <div className="mt-4 text-xs text-gray-500">
-            Deadline: {formatKolkata(job.application_deadline)}
+            Deadline: {formatKolkata(coalescedDeadline)}
           </div>
         )}
       </div>
@@ -248,8 +253,8 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
           )}
 
           {/* Apply Dialog */}
-          {!isOwner && !job?.external_application_url && (
-            <ApplyDialog open={applyOpen} onClose={() => setApplyOpen(false)} jobId={job.id} deadline={job.application_deadline} onSuccess={() => setApplied(true)} />
+          {!isOwner && !coalesceAppUrl(job) && (
+            <ApplyDialog open={applyOpen} onClose={() => setApplyOpen(false)} jobId={job.id} deadline={coalescedDeadline} onSuccess={() => setApplied(true)} />
           )}
         </div>
 
@@ -276,7 +281,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
                   )}
                 </li>
               )}
-              {job?.application_deadline && <li><span className="text-gray-500">Deadline:</span> {formatKolkata(job.application_deadline)}</li>}
+              {coalescedDeadline && <li><span className="text-gray-500">Deadline:</span> {formatKolkata(coalescedDeadline)}</li>}
               {(() => { const c = getApplicantsCount(job); return c !== null ? (<li><span className="text-gray-500">Applicants:</span> {c}</li>) : null; })()}
             </ul>
           </aside>

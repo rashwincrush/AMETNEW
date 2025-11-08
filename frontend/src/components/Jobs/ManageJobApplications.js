@@ -8,6 +8,39 @@ import { getLatestEdge, idempotentConnect } from '../../utils/connections';
 import { log } from '../../utils/log';
 import { isQuickLink } from '../../utils/jobs';
 
+const STATUS_MAP = {
+  'Submitted': 'submitted',
+  'Under review': 'reviewed',
+  'Shortlisted': 'interviewing',
+  'Offered': 'offered',
+  'Rejected': 'rejected',
+};
+
+const CANONICAL_DB_VALUES = new Set(Object.values(STATUS_MAP));
+
+const DB_TO_LABEL = {
+  'submitted': 'Submitted',
+  'reviewed': 'Under review',
+  'interviewing': 'Shortlisted',
+  'offered': 'Offered',
+  'rejected': 'Rejected',
+  'applied': 'Submitted',
+  'under_review': 'Under review',
+  'shortlisted': 'Shortlisted',
+  'hired': 'Offered',
+};
+
+const CANONICAL_LABELS = Object.keys(STATUS_MAP);
+
+function getLabelForStatus(status) {
+  return DB_TO_LABEL[status] || (status ? String(status) : 'Submitted');
+}
+
+function mapLabelToDb(label) {
+  const dbValue = STATUS_MAP[label] ?? label?.toLowerCase()?.trim();
+  return dbValue;
+}
+
 const ManageJobApplications = () => {
   const { jobId, id } = useParams();
   const navigate = useNavigate();
@@ -76,7 +109,7 @@ const ManageJobApplications = () => {
         // Use owner-scoped RPC with paging and total_count
         const offset = (currentPage - 1) * pageSize;
         const t1 = performance.now();
-        const { data: rpcRows, error: rpcErr2 } = await supabase.rpc('get_applications_for_job', {
+        const { data: rpcRows, error: rpcErr2 } = await supabase.rpc('get_applications_for_job_v2', {
           p_job_id: actualJobId,
           p_limit: pageSize,
           p_offset: offset,
@@ -87,14 +120,49 @@ const ManageJobApplications = () => {
           rows: Array.isArray(rpcRows) ? rpcRows.length : 0
         });
         if (rpcErr2) throw rpcErr2;
-        const rows = Array.isArray(rpcRows) ? rpcRows : [];
-        rows.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-        setApplications(rows);
-        setTotalCount(rows[0]?.total_count ?? 0);
+        const baseRows = Array.isArray(rpcRows) ? rpcRows : [];
+        baseRows.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+        // Enrich rows: signed URL fallback and applicant display name
+        const enriched = await Promise.all(baseRows.map(async (row) => {
+          const out = { ...row };
+          try {
+            // Resume signed URL fallback if value looks like a storage path
+            const href = row.resume_url || '';
+            if (href && !/^https?:\/\//i.test(href)) {
+              const { data: signed, error: signErr } = await supabase
+                .storage
+                .from('resumes')
+                .createSignedUrl(href, 60 * 60);
+              if (!signErr && signed?.signedUrl) {
+                out._resume_signed_url = signed.signedUrl;
+              }
+            }
+          } catch (_) { /* ignore */ }
+
+          try {
+            // Applicant display name fallback if RPC did not return applicant_name
+            if (!out.applicant_name && out.applicant_id) {
+              const { data: prof } = await supabase
+                .from('profiles')
+                .select('full_name, name, first_name, last_name, email')
+                .eq('id', out.applicant_id)
+                .maybeSingle();
+              if (prof) {
+                out._applicant_display = (prof.full_name || prof.name || [prof.first_name, prof.last_name].filter(Boolean).join(' ') || (prof.email ? prof.email.split('@')[0] : '') || 'Applicant');
+                out._applicant_email = prof.email || out.applicant_email || null;
+              }
+            }
+          } catch (_) { /* ignore */ }
+          return out;
+        }));
+
+        setApplications(enriched);
+        setTotalCount(baseRows[0]?.total_count ?? 0);
         // Load connection status for each applicant
-        if (user?.id && Array.isArray(rows)) {
+        if (user?.id && Array.isArray(baseRows)) {
           const entries = await Promise.all(
-            rows.map(async (app) => {
+            baseRows.map(async (app) => {
               const otherId = app.applicant_id;
               if (!otherId) return [null, null];
               try {
@@ -124,6 +192,10 @@ const ManageJobApplications = () => {
   const handleStatusChange = async (applicationId, newStatus) => {
     try {
       setSavingIds(prev => new Set(prev).add(applicationId));
+      if (!CANONICAL_DB_VALUES.has(newStatus)) {
+        console.error('Invalid status for DB:', newStatus);
+        throw new Error('Invalid status');
+      }
       const { error } = await supabase.rpc('set_application_status', {
         p_application_id: applicationId,
         p_status: newStatus,
@@ -241,69 +313,165 @@ const ManageJobApplications = () => {
               </div>
             </div>
           ) : (
-            <div className="bg-white shadow-md rounded-lg overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Applicant</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Applied On</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Resume</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {applications.map(app => (
-                    <tr key={app.id}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex flex-col">
-                          <Link to={`/profile/${app.applicant_id}`} className="text-sm font-medium text-gray-900 hover:underline">
-                            {app.applicant_name || 'Applicant'}
-                          </Link>
-                          {app.applicant_email && (
-                            <a href={`mailto:${app.applicant_email}`} className="text-sm text-gray-500 hover:underline">{app.applicant_email}</a>
+            <>
+              {/* Mobile list (sm and below) */}
+              <div className="md:hidden space-y-3">
+                {applications.map(app => (
+                  <div key={app.id} className="bg-white shadow rounded-lg p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <Link to={`/profile/${app.applicant_id}`} className="block font-medium text-gray-900 truncate hover:underline">
+                          {app._applicant_display || app.applicant_name || 'Applicant'}
+                        </Link>
+                        {(app._applicant_email || app.applicant_email) && (
+                          <a href={`mailto:${app._applicant_email || app.applicant_email}`} className="text-sm text-gray-500 hover:underline break-all">{app._applicant_email || app.applicant_email}</a>
+                        )}
+                        <div className="mt-1 text-xs text-gray-500">Applied on {new Date(app.created_at).toLocaleDateString()}</div>
+                        <div className="mt-2 text-sm">
+                          {app.resume_url ? (
+                            <>
+                              <a href={app._resume_signed_url || app.resume_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Resume</a>
+                              <div className="mt-1 text-xs text-gray-500 space-x-2">
+                                {app.resume_from_profile ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Profile</span> : <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-green-100 text-green-700">New Upload</span>}
+                                {app.matches_primary ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-ocean-100 text-ocean-700">Primary</span> : null}
+                                {app.resume_uploaded_at ? <span>Uploaded: {new Date(app.resume_uploaded_at).toLocaleDateString()}</span> : null}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-gray-400">No resume</span>
                           )}
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(app.created_at).toLocaleDateString()}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {app.resume_url ? (
-                          <a href={app.resume_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Resume</a>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Status</label>
+                        {(() => {
+                          const currentLabel = getLabelForStatus(app.status);
+                          const currentDb = CANONICAL_DB_VALUES.has(app.status)
+                            ? app.status
+                            : mapLabelToDb(currentLabel);
+                          const isNonCanonical = !CANONICAL_DB_VALUES.has(app.status);
+                          return (
                         <select
-                          value={app.status}
+                          value={currentDb}
                           onChange={(e) => handleStatusChange(app.id, e.target.value)}
                           disabled={savingIds.has(app.id)}
                           aria-label={`Update status for ${app.applicant_name || 'applicant'}`}
-                          className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md disabled:opacity-60"
+                          className="block w-full pl-3 pr-10 py-2 text-sm border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 rounded-md disabled:opacity-60"
                         >
-                          <option value="applied">Applied</option>
-                          <option value="under_review">Under Review</option>
-                          <option value="shortlisted">Shortlisted</option>
+                          {isNonCanonical && (
+                            <option value={app.status} disabled>{currentLabel} (legacy)</option>
+                          )}
+                          <option value="submitted">Submitted</option>
+                          <option value="reviewed">Under review</option>
+                          <option value="interviewing">Shortlisted</option>
+                          <option value="offered">Offered</option>
                           <option value="rejected">Rejected</option>
-                          <option value="hired">Hired</option>
                         </select>
+                          );
+                        })()}
                         {savingIds.has(app.id) && (
                           <div className="text-xs text-gray-400 mt-1" aria-live="polite">Saving…</div>
                         )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 space-x-2">
-                        <Link to={`/profile/${app.applicant_id}`} className="text-ocean-600 hover:underline">View Profile</Link>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Link to={`/profile/${app.applicant_id}`} className="text-ocean-600 hover:underline text-sm">View Profile</Link>
                         {canMessage(app.applicant_id) ? (
-                          <button onClick={() => navigate(`/messages?peer=${app.applicant_id}&job=${actualJobId}`)} className="text-blue-600 hover:underline">Message</button>
+                          <button onClick={() => navigate(`/messages?peer=${app.applicant_id}&job=${actualJobId}`)} className="text-blue-600 hover:underline text-sm">Message</button>
                         ) : (
-                          <button onClick={() => handleRequestConnection(app.applicant_id)} className="text-green-600 hover:underline">Request Connection</button>
+                          <button onClick={() => handleRequestConnection(app.applicant_id)} className="text-green-600 hover:underline text-sm">Request Connection</button>
                         )}
-                      </td>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop table (md and up) */}
+              <div className="hidden md:block bg-white shadow-md rounded-lg overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Applicant</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Applied On</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Resume</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {applications.map(app => (
+                      <tr key={app.id}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex flex-col">
+                            <Link to={`/profile/${app.applicant_id}`} className="text-sm font-medium text-gray-900 hover:underline">
+                              {app._applicant_display || app.applicant_name || 'Applicant'}
+                            </Link>
+                            {(app._applicant_email || app.applicant_email) && (
+                              <a href={`mailto:${app._applicant_email || app.applicant_email}`} className="text-sm text-gray-500 hover:underline">{app._applicant_email || app.applicant_email}</a>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(app.created_at).toLocaleDateString()}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          {app.resume_url ? (
+                            <div>
+                              <a href={app._resume_signed_url || app.resume_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Resume</a>
+                              <div className="mt-1 text-xs text-gray-500 space-x-2">
+                                {app.resume_from_profile ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Profile</span> : <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-green-100 text-green-700">New Upload</span>}
+                                {app.matches_primary ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-ocean-100 text-ocean-700">Primary</span> : null}
+                                {app.resume_uploaded_at ? <span>Uploaded: {new Date(app.resume_uploaded_at).toLocaleDateString()}</span> : null}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {(() => {
+                            const currentLabel = getLabelForStatus(app.status);
+                            const currentDb = CANONICAL_DB_VALUES.has(app.status)
+                              ? app.status
+                              : mapLabelToDb(currentLabel);
+                            const isNonCanonical = !CANONICAL_DB_VALUES.has(app.status);
+                            return (
+                          <select
+                            value={currentDb}
+                            onChange={(e) => handleStatusChange(app.id, e.target.value)}
+                            disabled={savingIds.has(app.id)}
+                            aria-label={`Update status for ${app.applicant_name || 'applicant'}`}
+                            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md disabled:opacity-60"
+                          >
+                            {isNonCanonical && (
+                              <option value={app.status} disabled>{currentLabel} (legacy)</option>
+                            )}
+                            <option value="submitted">Submitted</option>
+                            <option value="reviewed">Under review</option>
+                            <option value="interviewing">Shortlisted</option>
+                            <option value="offered">Offered</option>
+                            <option value="rejected">Rejected</option>
+                          </select>
+                            );
+                          })()}
+                          {savingIds.has(app.id) && (
+                            <div className="text-xs text-gray-400 mt-1" aria-live="polite">Saving…</div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 space-x-2">
+                          <Link to={`/profile/${app.applicant_id}`} className="text-ocean-600 hover:underline">View Profile</Link>
+                          {canMessage(app.applicant_id) ? (
+                            <button onClick={() => navigate(`/messages?peer=${app.applicant_id}&job=${actualJobId}`)} className="text-blue-600 hover:underline">Message</button>
+                          ) : (
+                            <button onClick={() => handleRequestConnection(app.applicant_id)} className="text-green-600 hover:underline">Request Connection</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )
         );
       })()}

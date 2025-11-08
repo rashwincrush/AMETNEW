@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import { toFriendlyToast } from '../../utils/errors';
 
 const ResumeUploadForm = () => {
   const navigate = useNavigate();
@@ -69,7 +70,7 @@ const ResumeUploadForm = () => {
           });
         }
       } catch (error) {
-        toast.error(`Error loading your profile: ${error.message}`);
+        toFriendlyToast(toast, error, 'Could not load your profile. Please try again.');
       } finally {
         setIsLoading(false);
       }
@@ -212,7 +213,7 @@ const ResumeUploadForm = () => {
           console.log('Resume uploaded successfully');
         } catch (uploadError) {
           console.error('Resume upload failed:', uploadError);
-          toast.error(`Resume upload failed: ${uploadError.message}`);
+          toFriendlyToast(toast, uploadError, 'Resume upload failed. Please try again.');
           setIsSubmitting(false);
           toast.dismiss('profile-upload');
           return;
@@ -227,7 +228,7 @@ const ResumeUploadForm = () => {
           console.log('Cover letter uploaded successfully');
         } catch (uploadError) {
           console.error('Cover letter upload failed:', uploadError);
-          toast.error(`Cover letter upload failed: ${uploadError.message}`);
+          toFriendlyToast(toast, uploadError, 'Cover letter upload failed. Please try again.');
           setIsSubmitting(false);
           toast.dismiss('profile-upload');
           return;
@@ -289,7 +290,7 @@ const ResumeUploadForm = () => {
       
       if (error) {
         console.error('Error saving resume profile:', error);
-        throw new Error(`Database error: ${error.message}`);
+        throw error;
       }
       
       console.log('Resume profile saved successfully:', data);
@@ -301,7 +302,7 @@ const ResumeUploadForm = () => {
     } catch (error) {
       console.error('Error saving resume profile:', error);
       toast.dismiss('profile-upload');
-      toast.error(`Error saving profile: ${error.message}`);
+      toFriendlyToast(toast, error, 'Could not save your profile. Please try again.');
     } finally {
       setIsSubmitting(false);
     }

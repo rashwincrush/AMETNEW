@@ -27,6 +27,7 @@ import { formatInIST, mergeAndConvertToUTC, convertToUTCFromIST, displayIST } fr
 import { format } from 'date-fns';
 import { useAuth } from '../../contexts/AuthContext';
 import LoadingSpinner from '../common/LoadingSpinner';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 
 const EditEventForm = () => {
   const { id } = useParams();
@@ -97,7 +98,7 @@ const EditEventForm = () => {
         });
       } catch (err) {
         console.error('Error fetching event:', err);
-        setError(err.message || 'Failed to load event');
+        setError(getFriendlyErrorMessage(err, 'Failed to load event'));
       } finally {
         setLoading(false);
       }
@@ -165,7 +166,7 @@ const EditEventForm = () => {
       setTimeout(() => navigate(`/events/${id}`), 1500);
     } catch (err) {
       console.error('Error updating event:', err);
-      setError(err.message || 'Failed to update event');
+      setError(getFriendlyErrorMessage(err, 'Failed to update event'));
     } finally {
       setSaving(false);
     }

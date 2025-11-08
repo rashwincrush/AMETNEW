@@ -327,7 +327,7 @@ const EventCalendar = ({ events }) => {
             startAccessor="start"
             endAccessor="end"
             style={{ 
-              height: '600px',
+              height: 'clamp(420px, 80vh, 720px)',
             }}
             date={date}
             view={view}

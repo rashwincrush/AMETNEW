@@ -24,6 +24,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { parseISO } from 'date-fns';
 import { mergeAndConvertToUTC } from '../../utils/timezone';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 
 const CreateEventForm = () => {
   const navigate = useNavigate();
@@ -135,7 +136,7 @@ const CreateEventForm = () => {
       setTimeout(() => navigate(`/events/${data?.id || ''}`), 1500);
     } catch (err) {
       console.error('Error creating event:', err);
-      setError(err.message || 'Failed to create event');
+      setError(getFriendlyErrorMessage(err, 'Unable to create event. Please try again.'));
     } finally {
       setLoading(false);
     }

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import { toFriendlyToast } from '../../utils/errors';
 import {
   ShieldCheckIcon,
   KeyIcon,
@@ -37,7 +38,7 @@ const ManageSuperAdmins = ({ isSuperAdmin }) => {
       setAdminUsers(data || []);
     } catch (err) {
       console.error('Error fetching admin users:', err);
-      toast.error(`Could not load admin users: ${err.message}`);
+      toFriendlyToast(toast, err, 'Could not load admin users. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -58,7 +59,7 @@ const ManageSuperAdmins = ({ isSuperAdmin }) => {
       fetchAdminUsers();
     } catch (err) {
       console.error('Error updating user role:', err);
-      toast.error(`Failed to update user role: ${err.message}`);
+      toFriendlyToast(toast, err, 'Failed to update user role. Please try again.');
     } finally {
       setLoading(false);
       setShowConfirmation(false);
@@ -92,7 +93,7 @@ const ManageSuperAdmins = ({ isSuperAdmin }) => {
       setShowConfirmation(true);
     } catch (err) {
       console.error('Error finding user:', err);
-      toast.error(`Search failed: ${err.message}`);
+      toFriendlyToast(toast, err, 'Search failed. Please try again.');
     } finally {
       setLoading(false);
     }

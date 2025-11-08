@@ -6,6 +6,7 @@ import {
   fetchGroupPosts, 
   joinGroup, 
   leaveGroup, 
+  requestGroupMembership,
   createGroupPost,
   deleteGroupPost,
   removeGroupMember,
@@ -16,8 +17,7 @@ import {
   reportGroupPost,
   setMemberRole,
   deleteGroup,
-  fetchGroupMembers,
-  fetchPostComments
+  fetchGroupMembers
 } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
@@ -34,7 +34,9 @@ import {
   Shield
 } from 'lucide-react';
 import ShareButtons from '../common/ShareButtons';
+import ImageWithFallback from '../common/ImageWithFallback';
 import { format } from 'date-fns';
+import CommentsThread from './CommentsThread';
 
 // Local helper to avoid importing from ignored lib/membership in Vercel builds
 async function getMyMembership(supabaseClient, groupId) {
@@ -127,7 +129,12 @@ const GroupDetail = () => {
         setHasMore((postsData || []).length === 10);
       }
     } catch (err) {
-      setError(err.message);
+      const msg = String(err?.message || '');
+      if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+        setError('This group is currently not available. It may be pending review or archived.');
+      } else {
+        setError('Failed to load this group. Please try again.');
+      }
       console.error("Error loading group data:", err);
     } finally {
       setLoading(false);
@@ -153,7 +160,7 @@ const GroupDetail = () => {
         const key = `${id}/avatar.jpg`;
         const { data, error } = await supabase.storage
           .from('group_avatars')
-          .createSignedUrl(key, 60);
+          .createSignedUrl(key, 3600);
         if (!error && data?.signedUrl) {
           setAvatarSrc(data.signedUrl);
         } else {
@@ -208,9 +215,26 @@ const GroupDetail = () => {
         }
       }
       
+      // Private group: submit a membership request for non-admins
+      if (!isMember && isPrivate && !isAdmin) {
+        const { error } = await requestGroupMembership(id);
+        if (error) {
+          if (String(error.code) === '23505' || error.status === 409) {
+            setError("Your request is already pending or you're already a member.");
+          } else if (String(error.code) === '42501') {
+            setError("You don't have permission to request this group.");
+          } else {
+            setError(error.message);
+          }
+        } else {
+          setError('Join request sent to group admins.');
+        }
+        return;
+      }
+
       if (!isMember && !showJoin) return; // no-op if join not allowed
       if (isMember && !showLeave) return;  // no-op if leave not allowed
-      
+
       const action = isMember ? leaveGroup : joinGroup;
       
       // For joining: only pass group ID (backend handles current user)
@@ -220,15 +244,16 @@ const GroupDetail = () => {
         : await joinGroup(id);
       
       if (error) {
-        // Handle specific error cases
-        if (error.code === "23505" || error.status === 409) {
-          // Duplicate key error - user is already a member
+        const code = String(error.code || '');
+        const msg = String(error.message || '');
+        if (code === "23505" || error.status === 409) {
           setError("You're already a member of this group");
-        } else if (error.code === "42501") {
-          // Permission error
+        } else if (code === "42501" || /permission denied/i.test(msg)) {
           setError("You don't have permission to join this group");
+        } else if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+          setError('This group is currently not available. It may be pending review or archived.');
         } else {
-          setError(error.message);
+          setError('Unable to complete this action right now. Please try again.');
         }
       } else {
         // Toggle membership status and refresh data
@@ -237,7 +262,12 @@ const GroupDetail = () => {
       }
     } catch (err) {
       console.error("Error handling membership change:", err);
-      setError("An unexpected error occurred. Please try again.");
+      const msg = String(err?.message || '');
+      if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+        setError('This action is not available right now. The group may be pending review or archived.');
+      } else {
+        setError("An unexpected error occurred. Please try again.");
+      }
     }
   };
 
@@ -642,10 +672,12 @@ const GroupDetail = () => {
               {/* Group Avatar with upload option for admins */}
               <div className="relative mr-6 mb-4 md:mb-0">
                 <div className="w-24 h-24 rounded-lg overflow-hidden bg-gray-200 flex items-center justify-center">
-                  <img
-                    src={avatarSrc || '/images/avatar-placeholder.svg'}
+                  <ImageWithFallback
+                    src={avatarSrc}
                     alt={group.name}
-                    className="w-full h-full object-cover"
+                    className="w-24 h-24"
+                    placeholderSrc="/default-avatar.svg"
+                    emptyMessage="Group image to be uploaded"
                   />
                 </div>
                 
@@ -713,6 +745,7 @@ const GroupDetail = () => {
                 const showManage = isAdmin && !group.is_archived;
                 const showJoin = !group.is_archived && !isMember && isApproved && !isPrivate;
                 const showLeave = !group.is_archived && isMember && !isAdmin;
+                const showRequest = !group.is_archived && !isMember && isPrivate && !isAdmin;
                 return (
                   <>
                     {showJoin && (
@@ -727,6 +760,13 @@ const GroupDetail = () => {
                         onClick={handleMembership}
                         className="px-6 py-2 rounded-lg font-semibold text-white transition-all bg-red-500 hover:bg-red-600">
                         Leave Group
+                      </button>
+                    )}
+                    {showRequest && (
+                      <button 
+                        onClick={handleMembership}
+                        className="px-6 py-2 rounded-lg font-semibold text-white transition-all bg-gray-800 hover:bg-gray-900">
+                        Request to join
                       </button>
                     )}
                     {showManage && (
@@ -753,9 +793,11 @@ const GroupDetail = () => {
               
             </div>
           </div>
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <ShareButtons url={window.location.href} title={group.name} />
-          </div>
+          {(!group.is_private && group.is_approved && !group.is_archived) && (
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <ShareButtons url={window.location.href} title={group.name} />
+            </div>
+          )}
         </div>
 
         {/* Tabs */}
@@ -921,77 +963,9 @@ const GroupDetail = () => {
                         </div>
                       )}
 
-                      {/* Comments toggle and list */}
+                      {/* Comments thread */}
                       <div className="mt-2">
-                        <button
-                          className="text-sm text-blue-600 hover:underline"
-                          onClick={async () => {
-                            setComments(prev => ({
-                              ...prev,
-                              [post.id]: { ...(prev[post.id] || {}), open: !prev[post.id]?.open }
-                            }));
-                            const entry = comments[post.id];
-                            if (!entry || (!entry.items && !entry.loading)) {
-                              setComments(prev => ({ ...prev, [post.id]: { ...(prev[post.id] || {}), loading: true } }));
-                              const { data } = await fetchPostComments(post.id);
-                              setComments(prev => ({ ...prev, [post.id]: { open: true, loading: false, items: data || [], input: '' } }));
-                            }
-                          }}
-                        >
-                          {comments[post.id]?.open ? 'Hide comments' : 'Comments'}
-                        </button>
-                        {comments[post.id]?.open && (
-                          <div className="mt-2 space-y-2">
-                            {(comments[post.id]?.items || []).map(c => (
-                              <div key={c.id} className="border-t pt-2">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center">
-                                    <img src={c.author?.avatar_url || '/default-avatar.png'} alt={c.author?.full_name} className="w-6 h-6 rounded-full mr-2" />
-                                    <span className="text-sm font-medium">{c.author?.full_name || 'Amet User'}</span>
-                                    <span className="text-xs text-gray-500 ml-2">{format(new Date(c.created_at), 'PPpp')}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    {(isAdmin || c.user_id === user.id) && (
-                                      <button onClick={() => openEditModal(c)} aria-label="Edit comment" className="text-gray-500 hover:text-gray-700"><Edit size={14} /></button>
-                                    )}
-                                    {(isAdmin || c.user_id === user.id) && (
-                                      <button onClick={() => showConfirm('deletePost', c.id)} aria-label="Delete comment" className="text-red-500 hover:text-red-700"><Trash2 size={14} /></button>
-                                    )}
-                                  </div>
-                                </div>
-                                <p className="text-sm mt-1">{c.content}</p>
-                              </div>
-                            ))}
-                            {isMember && (!group.is_admin_only_posts || isAdmin) && (
-                              <div className="flex items-center gap-2 mt-2">
-                                <input
-                                  type="text"
-                                  value={comments[post.id]?.input || ''}
-                                  onChange={(e) => setComments(prev => ({ ...prev, [post.id]: { ...(prev[post.id] || {}), input: e.target.value } }))}
-                                  className="flex-1 border rounded px-2 py-1 text-sm"
-                                  placeholder="Write a comment..."
-                                  maxLength={500}
-                                />
-                                <button
-                                  className="text-sm px-3 py-1 bg-blue-600 text-white rounded"
-                                  onClick={async () => {
-                                    const text = (comments[post.id]?.input || '').trim();
-                                    if (!text) return;
-                                    const { data, error } = await createGroupPost({ group_id: id, user_id: user.id, content: text, parent_post_id: post.id });
-                                    if (!error && data) {
-                                      setComments(prev => ({
-                                        ...prev,
-                                        [post.id]: { open: true, loading: false, input: '', items: [...(prev[post.id]?.items || []), data] }
-                                      }));
-                                    }
-                                  }}
-                                >
-                                  Send
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
+                        <CommentsThread postId={post.id} group={group} isMember={isMember} />
                       </div>
                     </div>
                   )) : <p>No posts yet. Be the first!</p>}

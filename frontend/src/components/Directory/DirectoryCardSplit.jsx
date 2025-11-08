@@ -4,6 +4,7 @@ import { CheckBadgeIcon, ChevronRightIcon, AcademicCapIcon, BuildingOffice2Icon,
 import ConnectionCTA from '../shared/ConnectionCTA';
 import { DegreeChip, DeptChip, CompanyChip, PositionChip } from '../shared/Chips';
 import { useAuth } from '../../contexts/AuthContext';
+import Avatar from '../common/Avatar';
 // Using v_profiles_directory_card which already formats academic/professional labels
 
 export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', onChanged }) {
@@ -70,24 +71,14 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
         {/* Top section: Avatar and Name */}
         <div className="flex items-center mb-3">
           {/* Avatar */}
-          <div className="h-16 w-16 flex-shrink-0 rounded-full overflow-hidden ring-1 ring-slate-200 shadow-sm mr-3">
-            {profile.avatar_url ? (
-              <img 
-                src={profile.avatar_url} 
-                alt={`${profile.full_name || 'Profile'}'s avatar`} 
-                className="h-full w-full object-cover" 
-              />
-            ) : (
-              <div className="grid h-full w-full place-items-center bg-blue-600 text-white font-semibold text-lg">
-                {getInitial()}
-              </div>
-            )}
+          <div className="h-16 w-16 flex-shrink-0 rounded-full overflow-hidden ring-1 ring-slate-200 shadow-sm mr-3 flex items-center justify-center">
+            <Avatar src={profile.avatar_url} alt={profile.full_name || 'Profile'} size={64} />
           </div>
           
           {/* Name and batch */}
           <div>
             <div className="flex items-center gap-1.5">
-              <h3 className="text-base font-semibold text-slate-900 truncate max-w-[180px]" title={displayName}>
+              <h3 className="text-base font-semibold text-slate-900 truncate max-w-[160px] sm:max-w-[200px] lg:max-w-[240px]" title={displayName}>
                 {displayName}
               </h3>
               {profile.is_verified && 
@@ -142,7 +133,7 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
         </div>
         
         {/* Bottom section: Buttons */}
-        <div className="flex items-center gap-2 mt-2 pt-3 border-t border-slate-100">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mt-2 pt-3 border-t border-slate-100">
           {/* Connection CTA */}
           <div className="flex-1">
             <ConnectionCTA
@@ -160,7 +151,7 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
           <button
             type="button"
             onClick={viewProfile}
-            className="shrink-0 inline-flex items-center justify-center gap-1 min-h-[40px] rounded-lg px-3 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-ocean-500"
+            className="shrink-0 inline-flex items-center justify-center gap-1 min-h-[40px] rounded-lg px-3 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-ocean-500 w-full sm:w-auto"
             aria-label="View full profile"
           >
             <span>View Profile</span>

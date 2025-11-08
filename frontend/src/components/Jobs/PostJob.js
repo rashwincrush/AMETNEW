@@ -35,7 +35,7 @@ import {
 const steps = ['Core Info', 'Job Content', 'Details & Contact'];
 
 const PostJob = () => {
-  const { user, profile, userRole } = useAuth();
+  const { user, profile, userRole, isAdmin } = useAuth();
   const { loading: apprLoading, isApprovedEmployer } = useApproval();
 
   const navigate = useNavigate();
@@ -136,7 +136,7 @@ const PostJob = () => {
 
   const handleQuickLinkSubmit = async (e) => {
     e.preventDefault();
-    if (!isApprovedEmployer) { toast.error('Your profile is not approved. Kindly contact administrator.'); return; }
+    if (!isApprovedEmployer && !isAdmin) { toast.error('Your profile is not approved. Kindly contact administrator.'); return; }
 
     const newErrors = {};
     if (!formData.title.trim()) newErrors.title = 'Job Title is required.';
@@ -177,7 +177,7 @@ const PostJob = () => {
       }
 
       const payload = buildJobPayload(formData, companyId, 'quick');
-      const insertPayload = { ...payload, is_approved: false, is_active: true };
+      const insertPayload = { ...payload, is_approved: false, is_active: true, created_by: session.user.id };
       const { error: jobError } = await supabase.from('jobs').insert(insertPayload).select('id').single();
       if (jobError) throw jobError;
 
@@ -194,7 +194,7 @@ const PostJob = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!isApprovedEmployer) { toast.error('Your profile is not approved. Kindly contact administrator.'); return; }
+    if (!isApprovedEmployer && !isAdmin) { toast.error('Your profile is not approved. Kindly contact administrator.'); return; }
 
     if (!validateStep()) {
       toast.error('Please fix the errors on the current step.');
@@ -307,7 +307,7 @@ const PostJob = () => {
       }
 
       const payload = buildJobPayload(formData, companyId, 'form');
-      const insertPayload = { ...payload, is_approved: false, is_active: true };
+      const insertPayload = { ...payload, is_approved: false, is_active: true, created_by: session.user.id };
       console.log("Submitting In-App job with payload:", insertPayload);
       const { data: newJob, error: jobError } = await supabase.from('jobs').insert(insertPayload).select('id').single();
         

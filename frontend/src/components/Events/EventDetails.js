@@ -21,6 +21,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { formatInIST } from '../../utils/timezone';
 import { toast } from 'react-hot-toast';
 import { requestConnectionForEvent } from '../../utils/connections';
+import { getFriendlyErrorMessage } from '../../utils/errors';
+import ImageWithFallback from '../common/ImageWithFallback';
+import Avatar from '../common/Avatar';
 
 const EventDetails = () => {
   const { id } = useParams();
@@ -60,7 +63,7 @@ const EventDetails = () => {
         }
       } catch (err) {
         console.error('Error fetching event details:', err);
-        setError(err.message);
+        setError(getFriendlyErrorMessage(err, 'Could not load this event.'));
         toast.error('Could not load event details.');
       } finally {
         setLoading(false);
@@ -182,11 +185,15 @@ const EventDetails = () => {
       <div className="glass-card rounded-lg overflow-hidden">
         {/* Cover Image */}
         <div className="relative">
-          <img 
-            src={event.image} 
-            alt={event.title}
-            className="w-full h-64 md:h-80 object-cover"
-          />
+          <div className="w-full h-64 md:h-80">
+            <ImageWithFallback
+              src={event.image}
+              alt={event.title}
+              className="w-full h-full"
+              placeholderSrc="/default-avatar.svg"
+              emptyMessage="Event image to be uploaded"
+            />
+          </div>
           <div className="absolute inset-0 bg-black bg-opacity-30"></div>
           <div className="absolute top-4 left-4 space-y-2">
             <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusBadge()}`}>
@@ -435,14 +442,17 @@ const EventDetails = () => {
           <div className="glass-card rounded-lg p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Event Gallery</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {Array.isArray(event.gallery) && event.gallery.map((image, index) => (
-                <img 
-                  key={index}
-                  src={image} 
-                  alt={`Event gallery ${index + 1}`}
-                  className="w-full h-32 object-cover rounded-lg"
-                />
-              ))}
+                  {Array.isArray(event.gallery) && event.gallery.map((image, index) => (
+                    <div key={index} className="w-full h-32 rounded-lg overflow-hidden">
+                      <ImageWithFallback
+                        src={image}
+                        alt={`Event gallery ${index + 1}`}
+                        className="w-full h-full"
+                        placeholderSrc="/default-avatar.svg"
+                        emptyMessage="Event image to be uploaded"
+                      />
+                    </div>
+                  ))}
             </div>
           </div>
         </div>
@@ -458,17 +468,9 @@ const EventDetails = () => {
                 if (Array.isArray(event.organizers) && event.organizers.length > 0) {
                   return event.organizers.map((organizer, index) => (
                     <div key={index} className="flex items-start space-x-3">
-                      {organizer.avatar ? (
-                        <img 
-                          src={organizer.avatar} 
-                          alt={organizer.name || 'Organizer'}
-                          className="w-12 h-12 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium">
-                          {(organizer.name || '?').charAt(0).toUpperCase()}
-                        </div>
-                      )}
+                      <div className="w-12 h-12 rounded-full overflow-hidden">
+                        <Avatar src={organizer.avatar} alt={organizer.name || 'Organizer'} size={48} />
+                      </div>
                       <div className="flex-1">
                         <h4 className="font-medium text-gray-900">{organizer.name || 'Event Organizer'}</h4>
                         <p className="text-sm text-gray-600">{organizer.role || 'Organizer'}</p>
@@ -548,11 +550,9 @@ const EventDetails = () => {
               <div className="space-y-3 max-h-64 overflow-y-auto">
                 {attendees.map((attendee) => (
                   <div key={attendee.id} className="flex items-center space-x-3">
-                    <img 
-                      src={attendee.avatar} 
-                      alt={attendee.name}
-                      className="w-8 h-8 rounded-full object-cover"
-                    />
+                    <div className="w-8 h-8 rounded-full overflow-hidden">
+                      <Avatar src={attendee.avatar} alt={attendee.name} size={32} />
+                    </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">
                         {attendee.name}

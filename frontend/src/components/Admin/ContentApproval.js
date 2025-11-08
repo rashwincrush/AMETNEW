@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import logger from '../../utils/logger';
 import toast from 'react-hot-toast';
+import { getFriendlyErrorMessage, toFriendlyToast } from '../../utils/errors';
 import ContentDetailsModal from './ContentDetailsModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
@@ -90,7 +91,7 @@ const ContentApproval = () => {
       const { data: jobs, error: fetchJobsError } = await jq.order('created_at', { ascending: false });
       
       if (fetchJobsError) {
-        setJobsError(fetchJobsError.message);
+        setJobsError(getFriendlyErrorMessage(fetchJobsError, 'Unable to load jobs'));
         console.error('Error fetching jobs:', fetchJobsError);
       } else {
         const normalizedJobs = (jobs || []).map(item => ({ 
@@ -102,7 +103,7 @@ const ContentApproval = () => {
         setPendingJobs(normalizedJobs);
       }
     } catch (err) {
-      setJobsError(err.message);
+      setJobsError(getFriendlyErrorMessage(err, 'Unable to load jobs'));
       console.error('Error in jobs fetch:', err);
     } finally {
       setJobsLoading(false);
@@ -125,7 +126,7 @@ const ContentApproval = () => {
       const { data: events, error: fetchEventsError } = await eq.order('created_at', { ascending: false });
       
       if (fetchEventsError) {
-        setEventsError(fetchEventsError.message);
+        setEventsError(getFriendlyErrorMessage(fetchEventsError, 'Unable to load events'));
         console.error('Error fetching events:', fetchEventsError);
       } else {
         const normalizedEvents = (events || []).map(item => ({ 
@@ -137,7 +138,7 @@ const ContentApproval = () => {
         setPendingEvents(normalizedEvents);
       }
     } catch (err) {
-      setEventsError(err.message);
+      setEventsError(getFriendlyErrorMessage(err, 'Unable to load events'));
       console.error('Error in events fetch:', err);
     } finally {
       setEventsLoading(false);
@@ -160,7 +161,7 @@ const ContentApproval = () => {
       const { data: groups, error: fetchGroupsError } = await gq.order('created_at', { ascending: false });
       
       if (fetchGroupsError) {
-        setGroupsError(fetchGroupsError.message);
+        setGroupsError(getFriendlyErrorMessage(fetchGroupsError, 'Unable to load groups'));
         console.error('Error fetching groups:', fetchGroupsError);
       } else {
         const normalizedGroups = (groups || []).map(item => ({ 
@@ -172,7 +173,7 @@ const ContentApproval = () => {
         setPendingGroups(normalizedGroups);
       }
     } catch (err) {
-      setGroupsError(err.message);
+      setGroupsError(getFriendlyErrorMessage(err, 'Unable to load groups'));
       console.error('Error in groups fetch:', err);
     } finally {
       setGroupsLoading(false);
@@ -193,7 +194,7 @@ const ContentApproval = () => {
       const { data: otherContent, error: fetchOtherContentError } = await oc.order('created_at', { ascending: false });
       
       if (fetchOtherContentError) {
-        setOtherContentError(fetchOtherContentError.message);
+        setOtherContentError(getFriendlyErrorMessage(fetchOtherContentError, 'Unable to load content'));
         console.error('Error fetching other content:', fetchOtherContentError);
       } else {
         const normalizedOther = (otherContent || []).map(item => ({ 
@@ -204,7 +205,7 @@ const ContentApproval = () => {
         setPendingOtherContent(normalizedOther);
       }
     } catch (err) {
-      setOtherContentError(err.message);
+      setOtherContentError(getFriendlyErrorMessage(err, 'Unable to load content'));
       console.error('Error in other content fetch:', err);
     } finally {
       setOtherContentLoading(false);
@@ -358,7 +359,7 @@ const ContentApproval = () => {
       setPendingContent(current => current.filter(p => p.id !== id));
     } catch (err) {
       console.error(`Error approving ${content_type}:`, err);
-      toast.error(`Failed to approve ${content_type}: ${err.message}`);
+      toFriendlyToast(toast, err, `Failed to approve ${content_type}. Please try again.`);
     }
   };
   
@@ -436,7 +437,7 @@ const ContentApproval = () => {
       setPendingContent(current => current.filter(p => p.id !== id));
     } catch (err) {
       console.error(`Error rejecting ${content_type}:`, err);
-      toast.error(`Failed to reject ${content_type}: ${err.message}`);
+      toFriendlyToast(toast, err, `Failed to reject ${content_type}. Please try again.`);
     }
   };
   
@@ -469,6 +470,20 @@ const ContentApproval = () => {
 
   const filteredContent = pendingContent.filter(item => filter === 'all' || item.content_type === filter);
 
+  // Compute effective moderation status per item across schemas
+  const getModerationStatus = (item) => {
+    if (!item) return 'pending';
+    const ct = String(item.content_type || '').toLowerCase();
+    if (ct === 'event') {
+      return item.approval_status || 'pending';
+    }
+    if (ct === 'job' || ct === 'group') {
+      return item.is_rejected ? 'rejected' : (item.is_approved ? 'approved' : 'pending');
+    }
+    // default types (post, comment, profile, image, etc.)
+    return item.status || 'pending';
+  };
+
   const renderGridItem = (item) => (
     <div key={item.id} className="bg-white rounded-lg shadow-md border border-gray-200 flex flex-col p-4 hover:shadow-lg transition-shadow duration-200">
       <div className="flex-grow">
@@ -477,7 +492,7 @@ const ContentApproval = () => {
             {item.type}
           </span>
           <span className="text-xs">
-            {item.content_type === 'event' ? (item.approval_status || 'pending') : (item.is_rejected ? 'rejected' : (item.is_approved ? 'approved' : 'pending'))}
+            {getModerationStatus(item)}
           </span>
           <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleDateString()}</span>
         </div>
@@ -501,7 +516,8 @@ const ContentApproval = () => {
         <button 
           title="Approve" 
           onClick={() => handleApprove(item)} 
-          className="text-green-600 hover:text-green-800 p-2 rounded-full hover:bg-green-100"
+          disabled={getModerationStatus(item) === 'approved'}
+          className={`p-2 rounded-full hover:bg-green-100 ${getModerationStatus(item) === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-green-600 hover:text-green-800'}`}
           aria-label={`Approve ${item.type} ${item.title || item.job_title || ''}`}
         >
           <CheckCircleIcon className="h-6 w-6" />
@@ -509,7 +525,8 @@ const ContentApproval = () => {
         <button 
           title="Reject" 
           onClick={() => handleReject(item)} 
-          className="text-red-600 hover:text-red-800 p-2 rounded-full hover:bg-red-100"
+          disabled={getModerationStatus(item) === 'rejected'}
+          className={`p-2 rounded-full hover:bg-red-100 ${getModerationStatus(item) === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}`}
           aria-label={`Reject ${item.type} ${item.title || item.job_title || ''}`}
         >
           <XCircleIcon className="h-6 w-6" />
@@ -537,6 +554,8 @@ const ContentApproval = () => {
               <span>by {item.creator?.first_name || 'Unknown'}</span>
               <span className="mx-2">•</span>
               <span>{new Date(item.created_at).toLocaleDateString()}</span>
+              <span className="mx-2">•</span>
+              <span className="text-xs">{getModerationStatus(item)}</span>
             </p>
           </div>
         </div>
@@ -552,7 +571,8 @@ const ContentApproval = () => {
           <button 
             title="Approve" 
             onClick={() => handleApprove(item)} 
-            className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg text-green-600 hover:text-green-800 hover:bg-green-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+            disabled={getModerationStatus(item) === 'approved'}
+            className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 ${getModerationStatus(item) === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-green-600 hover:text-green-800 hover:bg-green-100'}`}
             aria-label={`Approve ${item.type} ${item.title || item.job_title || ''}`}
           >
             <CheckCircleIcon className="h-6 w-6" />
@@ -560,7 +580,8 @@ const ContentApproval = () => {
           <button 
             title="Reject" 
             onClick={() => handleReject(item)} 
-            className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg text-red-600 hover:text-red-800 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+            disabled={getModerationStatus(item) === 'rejected'}
+            className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 ${getModerationStatus(item) === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800 hover:bg-red-100'}`}
             aria-label={`Reject ${item.type} ${item.title || item.job_title || ''}`}
           >
             <XCircleIcon className="h-6 w-6" />

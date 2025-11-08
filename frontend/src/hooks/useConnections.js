@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../utils/supabase';
 import toast from 'react-hot-toast';
+import { toFriendlyToast } from '../utils/errors';
 
 export const AllowedStatuses = new Set(['pending','accepted','connected','declined','rejected']);
 
@@ -189,7 +190,7 @@ export function useConnectionsPanel(currentUserId) {
       const map = new Map(byProfile);
       if (prev) map.set(targetProfileId, prev); else map.delete(targetProfileId);
       setByProfile(map);
-      toast.error(error.message || 'Could not send request');
+      toFriendlyToast(toast, error, 'Could not send request');
       return;
     }
 
@@ -208,7 +209,7 @@ export function useConnectionsPanel(currentUserId) {
       .select()
       .single();
 
-    if (error) return toast.error(error.message || 'Accept failed');
+    if (error) return toFriendlyToast(toast, error, 'Accept failed');
     setByProfile(new Map(byProfile).set(targetProfileId, data));
     toast.success('Connection accepted');
   }, [byProfile, currentUserId]);
@@ -224,7 +225,7 @@ export function useConnectionsPanel(currentUserId) {
       .select()
       .single();
 
-    if (error) return toast.error(error.message || 'Decline failed');
+    if (error) return toFriendlyToast(toast, error, 'Decline failed');
     setByProfile(new Map(byProfile).set(targetProfileId, data));
     toast('Request declined');
   }, [byProfile, currentUserId]);
@@ -238,7 +239,7 @@ export function useConnectionsPanel(currentUserId) {
       .delete()
       .eq('id', row.id);
 
-    if (error) return toast.error(error.message || 'Cancel failed');
+    if (error) return toFriendlyToast(toast, error, 'Cancel failed');
 
     const map = new Map(byProfile);
     map.delete(targetProfileId);
@@ -259,7 +260,7 @@ export function useConnectionsPanel(currentUserId) {
         .from('connections')
         .delete()
         .eq('id', row.id);
-      if (error) return toast.error(error.message || 'Remove failed');
+      if (error) return toFriendlyToast(toast, error, 'Remove failed');
     }
 
     const map = new Map(byProfile);

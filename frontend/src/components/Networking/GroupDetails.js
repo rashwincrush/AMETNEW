@@ -125,7 +125,12 @@ const GroupDetails = () => {
         }
 
       } catch (err) {
-        setError(err.message);
+        const msg = String(err?.message || '');
+        if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+          setError('This group is currently not available. It may be pending review or archived.');
+        } else {
+          setError('Failed to load this group. Please try again.');
+        }
       } finally {
         setLoading(false);
       }
@@ -173,15 +178,16 @@ const GroupDetails = () => {
       setCurrentUserRole('member');
       toast.success('Successfully joined the group!', { id: toastId });
     } catch (err) {
-      // Handle common RLS/duplicate cases gracefully
-      const msg = err?.message || 'Unknown error';
-      if (msg.includes('duplicate') || msg.includes('unique')) {
+      const msg = String(err?.message || '');
+      if (/duplicate|unique/i.test(msg)) {
         setIsMember(true);
         toast.success('You are already a member.', { id: toastId });
-      } else if (err?.status === 403) {
+      } else if (err?.status === 403 || /permission denied|42501/i.test(msg)) {
         toast.error('You do not have permission to join this group.', { id: toastId });
+      } else if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+        toast.error('This group is currently not available. It may be pending review or archived.', { id: toastId });
       } else {
-        toast.error(`Failed to join group: ${msg}`, { id: toastId });
+        toast.error('Unable to join this group right now. Please try again.', { id: toastId });
       }
     }
   };
@@ -235,7 +241,14 @@ const GroupDetails = () => {
       setNewPostContent('');
       toast.success('Post created successfully!', { id: toastId });
     } catch (err) {
-      toast.error(`Error creating post: ${err.message}`, { id: toastId });
+      const msg = String(err?.message || '');
+      if (err?.status === 403 || /permission denied|42501/i.test(msg)) {
+        toast.error('You do not have permission to post in this group.', { id: toastId });
+      } else if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+        toast.error('Posts are unavailable right now.', { id: toastId });
+      } else {
+        toast.error('Could not create post. Please try again.', { id: toastId });
+      }
     } finally {
       setIsPosting(false);
     }
@@ -259,7 +272,12 @@ const GroupDetails = () => {
       setCurrentUserRole(null);
       toast.success('You have left the group.', { id: toastId });
     } catch (err) {
-      toast.error(`Failed to leave group: ${err.message}`, { id: toastId });
+      const msg = String(err?.message || '');
+      if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+        toast.error('Unable to process your request right now. Please try again later.', { id: toastId });
+      } else {
+        toast.error('Failed to leave the group. Please try again.', { id: toastId });
+      }
     }
   };
 

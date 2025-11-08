@@ -851,6 +851,24 @@ export const leaveGroup = async (groupId, userId) => {
   return { data, error };
 };
 
+// Request to join a private group (creates a pending membership request)
+export const requestGroupMembership = async (groupId) => {
+  const { data, error } = await supabase
+    .from('group_memberships')
+    .insert([{ group_id: groupId, status: 'pending' }])
+    .select();
+  return { data, error };
+};
+
+export const addGroupMember = async (groupId, userId, role = 'member') => {
+  const { data, error } = await supabase
+    .from('group_members')
+    .insert([{ group_id: groupId, user_id: userId, role }])
+    .select()
+    .single();
+  return { data, error };
+};
+
 // Fetch posts from a specific group
 export const fetchGroupPosts = async (groupId, options = {}) => {
   const { cursor = null, limit = 10 } = options;

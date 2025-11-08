@@ -118,19 +118,8 @@ const HomePage = () => {
               </Link>
             </div>
 
-            {/* Search and Auth */}
+            {/* Auth (search removed) */}
             <div className="flex items-center space-x-4">
-              <div className="hidden md:flex items-center">
-                <div className="relative">
-                  <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Search alumni, events..."
-                    className="pl-10 pr-4 py-2 border-2 border-ocean-200 rounded-lg min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:border-ocean-500 placeholder:text-gray-500"
-                  />
-                </div>
-              </div>
-              
               <Link
                 to="/login"
                 className="text-gray-600 hover:text-ocean-600 font-medium min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded px-2"
@@ -190,16 +179,7 @@ const HomePage = () => {
                   <p className="text-gray-600 text-sm leading-relaxed">{feature.description}</p>
                 </div>
                 
-                {feature.button && (
-                  <div className="mt-6">
-                    <Link
-                      to="/jobs"
-                      className="bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 transition-colors inline-block"
-                    >
-                      View Jobs
-                    </Link>
-                  </div>
-                )}
+                {/* Removed View Jobs button */}
               </div>
             );
           })}
@@ -244,16 +224,7 @@ const HomePage = () => {
           ))}
         </div>
 
-        {/* View All Jobs Button */}
-        <div className="text-center">
-          <Link
-            to="/jobs"
-            className="bg-gradient-to-b from-ocean-500 to-ocean-600 text-white px-8 py-3 rounded-lg font-medium min-h-[44px] hover:from-ocean-600 hover:to-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 transition-colors inline-flex items-center"
-          >
-            View All Jobs
-            <ArrowRightIcon className="w-5 h-5 ml-2" />
-          </Link>
-        </div>
+        {/* View All Jobs button removed */}
       </div>
 
       {/* Upcoming Events Section */}

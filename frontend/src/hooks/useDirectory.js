@@ -81,24 +81,31 @@ export default function useDirectory({ query = '', filters = {}, sort = 'name_as
   // client search / filter / sort / paginate
   const filtered = useMemo(() => {
     const q = (query || '').trim().toLowerCase();
-    return all.filter(p => {
-      const passesText = !q || [
-        p.full_name,
-        p.location,
-        p.location_city,
-        p.location_country,
-        p.company_name,
-        p.current_job_title,
-        p.degree_program,
-        p.department
-      ].some(v => (v || '').toLowerCase().includes(q));
+    const qDept = String(filters.department || '').toLowerCase();
+    const qDegree = String(filters.degree_program || '').toLowerCase();
+    const qTitle = String(filters.current_job_title || '').toLowerCase();
+    const qLoc = String(filters.location || '').toLowerCase();
+    const qYear = filters.graduation_year ? Number(filters.graduation_year) : null;
 
-      const byYear = !filters.graduation_year || p.graduation_year === Number(filters.graduation_year);
-      const byDept = !filters.department || (p.department || '').toLowerCase().includes(String(filters.department).toLowerCase());
-      const byDegree = !filters.degree_program || (p.degree_program || '').toLowerCase().includes(String(filters.degree_program).toLowerCase());
-      const byDesignation = !filters.current_job_title || (p.current_job_title || '').toLowerCase().includes(String(filters.current_job_title).toLowerCase());
-      const byLocation = !filters.location || [p.location, p.location_city, p.location_country]
-        .some(v => (v || '').toLowerCase().includes(String(filters.location).toLowerCase()));
+    return all.filter(p => {
+      const first = (p.first_name || '').trim();
+      const last = (p.last_name || '').trim();
+      const combinedName = `${first} ${last}`.trim();
+      const name = (p.full_name || p.name || combinedName || (p.email ? String(p.email).split('@')[0] : '')).toLowerCase();
+
+      const degree = (p.degree_program || p.degree || '').toLowerCase();
+      const department = (p.department || p.degree_department || '').toLowerCase();
+      const title = (p.current_job_title || p.current_title || p.job_title || '').toLowerCase();
+      const company = (p.company_name || p.current_company || p.company || '').toLowerCase();
+      const location = [p.location, p.location_city, p.location_country].filter(Boolean).join(' ').toLowerCase();
+
+      const passesText = !q || [name, degree, department, title, company, location].some(v => v.includes(q));
+
+      const byYear = qYear == null || (Number(p.graduation_year || p.batch_year || null) === qYear);
+      const byDept = !qDept || department.includes(qDept);
+      const byDegree = !qDegree || degree.includes(qDegree);
+      const byDesignation = !qTitle || title.includes(qTitle);
+      const byLocation = !qLoc || location.includes(qLoc);
 
       return passesText && byYear && byDept && byDegree && byDesignation && byLocation;
     });
@@ -106,10 +113,18 @@ export default function useDirectory({ query = '', filters = {}, sort = 'name_as
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
-    if (sort === 'name_asc') arr.sort((a,b)=> (a.full_name||'').localeCompare(b.full_name||''));
-    if (sort === 'name_desc') arr.sort((a,b)=> (b.full_name||'').localeCompare(a.full_name||''));
-    if (sort === 'year_desc') arr.sort((a,b)=> (b.graduation_year||0) - (a.graduation_year||0));
-    if (sort === 'year_asc') arr.sort((a,b)=> (a.graduation_year||0) - (b.graduation_year||0));
+    const nameOf = (p) => {
+      const first = (p.first_name || '').trim();
+      const last = (p.last_name || '').trim();
+      const combined = `${first} ${last}`.trim();
+      const fallback = (p.email ? String(p.email).split('@')[0] : '')
+      return (p.full_name || p.name || combined || fallback) || '';
+    };
+    const yearOf = (p) => Number(p.graduation_year || p.batch_year || 0);
+    if (sort === 'name_asc') arr.sort((a,b)=> nameOf(a).localeCompare(nameOf(b)));
+    if (sort === 'name_desc') arr.sort((a,b)=> nameOf(b).localeCompare(nameOf(a)));
+    if (sort === 'year_desc') arr.sort((a,b)=> yearOf(b) - yearOf(a));
+    if (sort === 'year_asc') arr.sort((a,b)=> yearOf(a) - yearOf(b));
     return arr;
   }, [filtered, sort]);
 

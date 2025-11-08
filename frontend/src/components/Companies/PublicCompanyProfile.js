@@ -141,7 +141,7 @@ const PublicCompanyProfile = () => {
         {/* Cover and Logo Section */}
         <Box 
           sx={{ 
-            height: 200, 
+            height: { xs: 140, sm: 180, md: 200 },
             bgcolor: 'primary.main', 
             position: 'relative',
             display: 'flex',
@@ -153,12 +153,12 @@ const PublicCompanyProfile = () => {
             src={company.logo_url}
             alt={company.name}
             sx={{
-              width: 120,
-              height: 120,
+              width: { xs: 72, sm: 100, md: 120 },
+              height: { xs: 72, sm: 100, md: 120 },
               border: '4px solid white',
               position: 'absolute',
-              bottom: -40,
-              left: 40,
+              bottom: { xs: -30, sm: -36, md: -40 },
+              left: { xs: 16, sm: 24, md: 40 },
               bgcolor: 'white'
             }}
           >
@@ -180,7 +180,7 @@ const PublicCompanyProfile = () => {
           )}
         </Box>
         
-        <Box sx={{ p: 4, pt: 6 }}>
+        <Box sx={{ p: { xs: 2, sm: 3, md: 4 }, pt: { xs: 6, sm: 8 } }}>
           <Grid container spacing={4}>
             <Grid item xs={12} md={8}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>

@@ -30,6 +30,7 @@ import {
   Avatar
 } from '@mui/material';
 import LoadingSpinner from '../common/LoadingSpinner';
+import ImageWithFallback from '../common/ImageWithFallback';
 import { 
   Event as EventIcon, 
   LocationOn as LocationIcon, 
@@ -521,14 +522,15 @@ const EventsList = ({ isAdmin = false }) => {
                         },
                       }}
                     >
-                      {event.featured_image_url && (
-                        <CardMedia
-                          component="img"
-                          height="140"
-                          image={event.featured_image_url}
+                      <div style={{ height: 140 }}>
+                        <ImageWithFallback
+                          src={event.featured_image_url}
                           alt={event.title}
+                          className="w-full h-full"
+                          placeholderSrc="/default-avatar.svg"
+                          emptyMessage="Event image to be uploaded"
                         />
-                      )}
+                      </div>
                       <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                         <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Chip label={event.event_type || 'General'} size="small" sx={{ bgcolor: 'secondary.light', color: 'white' }} />

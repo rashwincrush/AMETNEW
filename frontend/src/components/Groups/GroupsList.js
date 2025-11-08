@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase, fetchGroups, joinGroup, leaveGroup } from '../../utils/supabase';
+import { supabase, fetchGroups, joinGroup, leaveGroup, requestGroupMembership } from '../../utils/supabase';
 import { fetchMembershipMap } from '../../utils/memberships';
 import { useAuth } from '../../contexts/AuthContext';
 import { can } from '../../utils/permissions';
 import { Users, Search, Tag, Calendar, Filter } from 'lucide-react';
+import ImageWithFallback from '../common/ImageWithFallback';
 
 // Skeleton loader component for a better loading experience
 const GroupCardSkeleton = () => (
@@ -35,6 +36,7 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
   const showManage = (isGroupAdmin || isSiteAdmin) && !group.is_archived;
   const showJoin = !group.is_archived && !isMember && isApproved && !isPrivate;
   const showLeave = !group.is_archived && isMember && !(isGroupAdmin || isSiteAdmin);
+  const showRequest = !group.is_archived && !isMember && isPrivate;
   
   // Build avatar image src: prefer stored public URL; otherwise fetch a signed URL
   useEffect(() => {
@@ -48,7 +50,7 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
         const key = `${group.id}/avatar.jpg`;
         const { data, error } = await supabase.storage
           .from('group_avatars')
-          .createSignedUrl(key, 60);
+          .createSignedUrl(key, 3600);
         if (!error && data?.signedUrl) {
           setImgSrc(data.signedUrl);
         } else {
@@ -65,10 +67,12 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
     <div className="bg-white border border-gray-200 rounded-lg shadow-md overflow-hidden transform transition-transform hover:-translate-y-1 hover:shadow-xl">
       <Link to={`/groups/${group.id}`}>
         <div className="w-full h-40 bg-gray-100 flex items-center justify-center overflow-hidden">
-          <img
-            src={imgSrc || '/images/avatar-placeholder.svg'}
+          <ImageWithFallback
+            src={imgSrc}
             alt={group.name}
-            className="w-full h-full object-cover"
+            className="w-full h-full"
+            placeholderSrc="/default-avatar.svg"
+            emptyMessage="Group image to be uploaded"
           />
         </div>
       </Link>
@@ -148,13 +152,12 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
               Leave
             </button>
           )}
-          {!showJoin && !showLeave && isPrivate && !isSiteAdmin && !isCreator && (
+          {!showJoin && !showLeave && showRequest && !isSiteAdmin && !isCreator && (
             <button
-              disabled
-              title="Ask a group admin to add you."
-              className="text-xs px-3 py-1.5 rounded-md bg-gray-100 text-gray-500 cursor-not-allowed"
+              onClick={() => onJoinLeave(group.id, false, true)}
+              className="text-xs px-3 py-1.5 rounded-md bg-gray-800 text-white hover:bg-gray-900"
             >
-              Private
+              Request to join
             </button>
           )}
         </div>
@@ -246,7 +249,12 @@ const GroupsList = () => {
           }
         }
       } catch (err) {
-        setError(err.message);
+        const msg = String(err?.message || '');
+        if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+          setError('Some groups may be hidden right now due to policy changes. Please try again later.');
+        } else {
+          setError('Failed to load groups. Please try again.');
+        }
         console.error("Error fetching groups:", err);
       } finally {
         setLoading(false);
@@ -263,10 +271,27 @@ const GroupsList = () => {
       return;
     }
     
-    // Block joining private groups unless user is admin
+    // For private groups: submit a membership request when not an admin
     if (!isMember && isPrivate && !canManageAllGroups) {
-      setError("This is a private group. You need an invitation to join.");
-      setTimeout(() => setError(null), 3000); // Clear error after 3 seconds
+      try {
+        const { error } = await requestGroupMembership(groupId);
+        if (error) {
+          if (String(error.code) === '23505' || error.status === 409) {
+            setError('Your request is already pending or you are already a member.');
+          } else if (String(error.code) === '42501') {
+            setError("You don't have permission to request this group.");
+          } else {
+            setError(error.message);
+          }
+        } else {
+          setError('Join request sent to group admins.');
+        }
+      } catch (e) {
+        console.error('Request to join failed', e);
+        setError('Failed to send join request.');
+      } finally {
+        setTimeout(() => setError(null), 3000);
+      }
       return;
     }
     
@@ -294,17 +319,21 @@ const GroupsList = () => {
         setUserMemberships(prev => prev.filter(id => id !== groupId));
         console.log(`User left group ${groupId}`);
       } else {
-        // Join group - supabase backend will handle current user assignment
+        // Join public approved group - backend handles current user assignment
         const { error } = await joinGroup(groupId);
         
         // Handle potential errors
         if (error) {
-          if (error.code === "23505") { // Duplicate membership
+          const code = String(error.code || '');
+          const msg = String(error.message || '');
+          if (code === "23505") {
             setError("You're already a member of this group.");
-          } else if (error.code === "42501") { // Permission denied
+          } else if (code === "42501" || /permission denied/i.test(msg)) {
             setError("You don't have permission to join this group.");
+          } else if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+            setError('This group is currently not available. It may be pending review or archived.');
           } else {
-            setError(error.message);
+            setError('Unable to join this group right now. Please try again.');
           }
           return;
         }
@@ -314,7 +343,12 @@ const GroupsList = () => {
       }
     } catch (err) {
       console.error("Error joining/leaving group:", err);
-      setError("An error occurred while trying to join/leave the group.");
+      const msg = String(err?.message || '');
+      if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+        setError('This action is not available right now. The group may be pending review or archived.');
+      } else {
+        setError("An error occurred while trying to join/leave the group.");
+      }
       setTimeout(() => setError(null), 3000);
     }
   };

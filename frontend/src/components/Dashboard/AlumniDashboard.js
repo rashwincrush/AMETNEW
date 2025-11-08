@@ -604,7 +604,7 @@ const AlumniDashboard = () => {
                       Browse All Jobs
                     </Link>
                     <Link 
-                      to="/jobs/applications" 
+                      to="/my-applications" 
                       className="text-ocean-600 hover:text-ocean-800 text-center block text-sm"
                     >
                       View My Applications
@@ -629,7 +629,7 @@ const AlumniDashboard = () => {
           <p className="text-sm font-medium text-gray-900">Create Event</p>
         </Link>
 
-        <Link to="/jobs/applications" className="glass-card rounded-lg p-4 text-center card-hover">
+        <Link to="/my-applications" className="glass-card rounded-lg p-4 text-center card-hover">
           <ClipboardDocumentCheckIcon className="w-8 h-8 text-orange-500 mx-auto mb-2" />
           <p className="text-sm font-medium text-gray-900">My Applications</p>
         </Link>

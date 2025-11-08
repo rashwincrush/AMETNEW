@@ -21,9 +21,11 @@ import {
   ShieldCheckIcon,
   UserPlusIcon,
   DocumentArrowDownIcon,
-  DocumentArrowUpIcon
+  DocumentArrowUpIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 import UserDetailsModal from './UserDetailsModal';
 import EditUserModal from './EditUserModal';
 import RejectUserModal from './RejectUserModal';
@@ -33,8 +35,13 @@ const UserManagement = () => {
   const { hasPermission, user: currentUser, getUserRole } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [selectedTab, setSelectedTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const searchInputRef = useRef(null);
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
 
   const [filters, setFilters] = useState({
     role: 'all',
@@ -51,7 +58,7 @@ const UserManagement = () => {
       const { data, error } = await supabase.rpc('admin_soft_delete_user', { target: userId });
       if (error) {
         console.error('Soft delete failed:', error);
-        toast.error(`Delete failed: ${error.message}`);
+        toast.error(`Delete failed: ${getFriendlyErrorMessage(error, 'Unable to delete user.')}`);
         return { success: false, error };
       }
       
@@ -60,7 +67,7 @@ const UserManagement = () => {
       return { success: true };
     } catch (err) {
       console.error('Error in soft delete:', err);
-      toast.error(`Delete failed: ${err.message}`);
+      toast.error(`Delete failed: ${getFriendlyErrorMessage(err, 'Unable to delete user.')}`);
       return { success: false, error: err };
     } finally {
       setDeletingId(null);
@@ -87,7 +94,7 @@ const UserManagement = () => {
       });
       if (error) {
         console.error('Auth delete failed:', error);
-        toast.error(`Auth delete failed: ${error.message || error}`);
+        toast.error(`Auth delete failed: ${getFriendlyErrorMessage(error, 'Unable to delete auth user.')}`);
         return { success: false, error };
       }
       if (!data?.ok) {
@@ -99,7 +106,7 @@ const UserManagement = () => {
       return { success: true };
     } catch (err) {
       console.error('Error invoking admin-delete-user:', err);
-      toast.error(`Auth delete failed: ${err.message}`);
+      toast.error(`Auth delete failed: ${getFriendlyErrorMessage(err, 'Unable to delete auth user.')}`);
       return { success: false, error: err };
     } finally {
       setDeletingId(null);
@@ -117,7 +124,7 @@ const UserManagement = () => {
       const { data, error } = await supabase.rpc('admin_purge_user_data', { target: userId });
       if (error) {
         console.error('Purge failed:', error);
-        toast.error(`Purge failed: ${error.message}`);
+        toast.error(`Purge failed: ${getFriendlyErrorMessage(error, 'Unable to purge user data.')}`);
         return { success: false, error };
       }
       
@@ -126,7 +133,7 @@ const UserManagement = () => {
       return { success: true };
     } catch (err) {
       console.error('Error in purge:', err);
-      toast.error(`Purge failed: ${err.message}`);
+      toast.error(`Purge failed: ${getFriendlyErrorMessage(err, 'Unable to purge user data.')}`);
       return { success: false, error: err };
     } finally {
       setDeletingId(null);
@@ -143,15 +150,74 @@ const UserManagement = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
 
+  // Debounce search input to reduce network churn and UI jank
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchQuery), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
   useEffect(() => {
     fetchUsers();
-  }, []);
+  }, [debouncedQuery, page]);
+
+  // Reset to page 1 when filters, tab, or search change
+  useEffect(() => {
+    setPage(1);
+  }, [selectedTab, filters, debouncedQuery]);
 
   const fetchUsers = async () => {
     setLoading(true);
     try {
+      // If search text entered, fetch a narrowed set server-side to ensure fresh results include recent users
+      const base = supabase.from('profiles').select('*');
+      const q = debouncedQuery && debouncedQuery.trim();
+      let profilesQuery = q
+        ? base.or(`email.ilike.%${q}%,full_name.ilike.%${q}%`)
+        : base;
+
+      // Apply server-side filters to align with selected tab and dropdown filters
+      // Selected tab filters
+      if (selectedTab === 'employers') {
+        profilesQuery = profilesQuery.or('role.eq.employer,is_employer.eq.true');
+      } else if (selectedTab === 'deleted') {
+        profilesQuery = profilesQuery.eq('is_deleted', true);
+      } else if (selectedTab === 'pending') {
+        profilesQuery = profilesQuery.or('approval_status.eq.pending,alumni_verification_status.eq.pending');
+      } else if (selectedTab === 'rejected') {
+        profilesQuery = profilesQuery.or('approval_status.eq.rejected,alumni_verification_status.eq.rejected');
+      }
+
+      // Role dropdown filter
+      if (filters.role && filters.role !== 'all') {
+        if (filters.role === 'admin') {
+          profilesQuery = profilesQuery.or('role.eq.admin,role.eq.super_admin');
+        } else if (filters.role === 'mentor') {
+          profilesQuery = profilesQuery.or('role.eq.mentor,is_mentor.eq.true');
+        } else if (filters.role === 'employer') {
+          profilesQuery = profilesQuery.or('role.eq.employer,is_employer.eq.true');
+        } else if (filters.role === 'alumni') {
+          profilesQuery = profilesQuery.eq('role', 'alumni');
+        }
+      }
+
+      // Status dropdown filter
+      if (filters.alumni_verification_status && filters.alumni_verification_status !== 'all') {
+        if (filters.alumni_verification_status === 'deleted') {
+          profilesQuery = profilesQuery.eq('is_deleted', true);
+        } else {
+          const s = filters.alumni_verification_status;
+          profilesQuery = profilesQuery.or(`approval_status.eq.${s},alumni_verification_status.eq.${s}`);
+        }
+      }
+
+      // Apply a stable ordering and pagination
+      const from = (page - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      profilesQuery = profilesQuery
+        .order('updated_at', { ascending: false })
+        .range(from, to);
       const [profilesRes, rpcRes] = await Promise.all([
-        supabase.from('profiles').select('*'),
+        profilesQuery,
         // Prefer the new function exposed in migrations: public.get_admin_users()
         supabase.rpc('get_admin_users')
       ]);
@@ -178,6 +244,7 @@ const UserManagement = () => {
       setUsers([]);
     } finally {
       setLoading(false);
+      if (initialLoading) setInitialLoading(false);
     }
   };
 
@@ -187,22 +254,31 @@ const UserManagement = () => {
         (user.full_name && user.full_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (user.email && user.email.toLowerCase().includes(searchQuery.toLowerCase()));
 
-      const roleMatch = filters.role === 'all' || 
-                        (filters.role === 'mentor' && user.is_mentor) ||
-                        (filters.role === 'employer' && user.is_employer) ||
-                        (filters.role === 'admin' && user.is_admin);
+      const roleMatch =
+        filters.role === 'all' ||
+        (filters.role === 'alumni' && user.role === 'alumni') ||
+        (filters.role === 'mentor' && (user.role === 'mentor' || user.is_mentor)) ||
+        (filters.role === 'employer' && (user.role === 'employer' || user.is_employer)) ||
+        (filters.role === 'admin' && (user.role === 'admin' || user.role === 'super_admin' || user.is_admin));
 
-      const statusMatch = filters.alumni_verification_status === 'all' || user.alumni_verification_status === filters.alumni_verification_status;
+      const effectiveApproval = user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending');
+      const statusMatch =
+        filters.alumni_verification_status === 'all' ? true :
+        (filters.alumni_verification_status === 'deleted'
+          ? user.is_deleted === true
+          : String(effectiveApproval) === filters.alumni_verification_status);
 
       let tabMatch = true;
       if (selectedTab === 'pending') {
         // Only include users whose PROFILE approval is pending (source of truth: alumni_verification_status)
-        tabMatch = (user.alumni_verification_status === 'pending');
+        tabMatch = (effectiveApproval === 'pending');
+      } else if (selectedTab === 'rejected') {
+        tabMatch = (effectiveApproval === 'rejected');
       } else if (selectedTab === 'mentors') {
         // Delegated to MentorsTab component; this filter is not used when rendering MentorsTab
         tabMatch = false;
       } else if (selectedTab === 'employers') {
-        tabMatch = user.is_employer;
+        tabMatch = (user.role === 'employer' || user.is_employer);
       } else if (selectedTab === 'deleted') {
         tabMatch = user.is_deleted === true;
       }
@@ -276,6 +352,7 @@ const UserManagement = () => {
   const tabs = [
     { name: 'All Users', id: 'all' },
     { name: 'Pending Approval', id: 'pending' },
+    { name: 'Rejected', id: 'rejected' },
     { name: 'Mentors', id: 'mentors' },
     { name: 'Employers', id: 'employers' },
     { name: 'Deleted Users', id: 'deleted' },
@@ -307,6 +384,7 @@ const UserManagement = () => {
           setUsers(currentUsers => currentUsers.map(u => u.id === userId ? { 
             ...u, 
             alumni_verification_status: 'approved',
+            approval_status: 'approved',
             rejection_reason: null 
           } : u));
           toast.success(`${user.full_name || user.email} has been approved.`);
@@ -333,7 +411,7 @@ const UserManagement = () => {
             setUsers(prev => prev.map(u => u.id === userId ? {...u, is_deleted: true} : u));
           } catch (err) {
             console.error('Error soft-deleting user:', err);
-            toast.error(`Failed to delete user: ${err.message}`);
+            toast.error(`Failed to delete user: ${getFriendlyErrorMessage(err, 'Unable to delete user.')}`);
           }
         }
         break;
@@ -351,7 +429,7 @@ const UserManagement = () => {
             setUsers(prev => prev.map(u => u.id === userId ? {...u, is_data_purged: true} : u));
           } catch (err) {
             console.error('Error purging user data:', err);
-            toast.error(`Failed to purge user data: ${err.message}`);
+            toast.error(`Failed to purge user data: ${getFriendlyErrorMessage(err, 'Unable to purge user data.')}`);
           }
         }
         break;
@@ -365,7 +443,7 @@ const UserManagement = () => {
           await deleteAuthUser(userId);
         } catch (err) {
           console.error('Error deleting auth user:', err);
-          toast.error(`Failed to delete auth user: ${err.message}`);
+          toast.error(`Failed to delete auth user: ${getFriendlyErrorMessage(err, 'Unable to delete auth user.')}`);
         }
         break;
       default: {
@@ -418,42 +496,56 @@ const UserManagement = () => {
 
     } catch (error) {
       console.error('Error updating user role:', error);
-      toast.error(`Failed to update user role: ${error.message}`);
+      toast.error(`Failed to update user role: ${getFriendlyErrorMessage(error, 'Unable to update user role.')}`);
     }
   };
 
   const handleBulkAction = async (action) => {
-    if (action !== 'delete') {
-      console.log(`Bulk Action: ${action}, Selected Users:`, selectedUsers);
-      return toast.success(`Bulk action ${action} will be implemented soon!`);
-    }
-    
     if (!selectedUsers.length) return;
-    
-    if (!window.confirm(`Soft delete ${selectedUsers.length} user(s)? They can be restored later.`)) return;
-    
-    // Check if trying to delete self
-    if (selectedUsers.includes(currentUser?.id)) {
-      toast.error('You cannot delete your own account.');
+
+    if (action === 'approve' || action === 'reject') {
+      const newStatus = action === 'approve' ? 'approved' : 'rejected';
+      setLoading(true);
+      const results = await Promise.allSettled(
+        selectedUsers.map(id => adminSetProfileApproval(id, newStatus))
+      );
+      const ok = results.filter(r => r.status === 'fulfilled' && !r.value?.error).length;
+      const failed = results.length - ok;
+      if (ok) {
+        setUsers(prev => prev.map(u => selectedUsers.includes(u.id) ? {
+          ...u,
+          approval_status: newStatus,
+          alumni_verification_status: newStatus,
+          rejection_reason: newStatus === 'approved' ? null : u.rejection_reason
+        } : u));
+      }
+      setSelectedUsers([]);
+      setLoading(false);
+      if (ok) toast.success(`${newStatus === 'approved' ? 'Approved' : 'Rejected'} ${ok} user(s).`);
+      if (failed) toast.error(`Failed to ${newStatus} ${failed} user(s).`);
       return;
     }
-    
-    setLoading(true);
-    // Use our enhanced softDeleteUser function for each deletion
-    const results = await Promise.allSettled(
-      selectedUsers.map(id => softDeleteUser(id))
-    );
 
-    const ok = results.filter(r => r.status === 'fulfilled' && r.value?.success).length;
-    const failed = results.length - ok;
-    
-    // Update users to show deleted status instead of removing them
-    setUsers(prev => prev.map(u => selectedUsers.includes(u.id) ? {...u, is_deleted: true} : u));
-    setSelectedUsers([]);
-    setLoading(false);
-    
-    if (ok) toast.success(`Soft-deleted ${ok} user(s).`);
-    if (failed) toast.error(`Failed to delete ${failed} user(s).`);
+    if (action === 'delete') {
+      if (!window.confirm(`Soft delete ${selectedUsers.length} user(s)? They can be restored later.`)) return;
+      // Check if trying to delete self
+      if (selectedUsers.includes(currentUser?.id)) {
+        toast.error('You cannot delete your own account.');
+        return;
+      }
+      setLoading(true);
+      const results = await Promise.allSettled(
+        selectedUsers.map(id => softDeleteUser(id))
+      );
+      const ok = results.filter(r => r.status === 'fulfilled' && r.value?.success).length;
+      const failed = results.length - ok;
+      setUsers(prev => prev.map(u => selectedUsers.includes(u.id) ? {...u, is_deleted: true} : u));
+      setSelectedUsers([]);
+      setLoading(false);
+      if (ok) toast.success(`Soft-deleted ${ok} user(s).`);
+      if (failed) toast.error(`Failed to delete ${failed} user(s).`);
+      return;
+    }
   };
 
   const handleSelectUser = (userId) => {
@@ -479,6 +571,7 @@ const UserManagement = () => {
       setUsers(prev => prev.map(u => u.id === userId ? {
         ...u,
         alumni_verification_status: 'rejected',
+        approval_status: 'rejected',
         rejection_reason: rejectionComment || null
       } : u));
 
@@ -507,7 +600,7 @@ const UserManagement = () => {
     }
   };
 
-  if (loading) {
+  if (initialLoading) {
     return <div className="p-8">Loading user data...</div>;
   }
 
@@ -568,7 +661,22 @@ const UserManagement = () => {
                   placeholder="Search by name or email..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  ref={searchInputRef}
                 />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setDebouncedQuery('');
+                      if (searchInputRef.current) searchInputRef.current.focus();
+                    }}
+                    aria-label="Clear search"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                  >
+                    <XMarkIcon className="h-5 w-5" />
+                  </button>
+                )}
               </div>
             </div>
             <div>
@@ -581,7 +689,6 @@ const UserManagement = () => {
               >
                 <option value="all">All Roles</option>
                 <option value="alumni">Alumni</option>
-                <option value="mentor">Mentor</option>
                 <option value="employer">Employer</option>
                 <option value="admin">Admin</option>
               </select>
@@ -703,15 +810,9 @@ const UserManagement = () => {
                       </span>
                     </td>
                     <td className="py-4 px-4">
-                      {user.is_deleted ? (
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge('deleted')}`}>
-                          {getStatusLabel('deleted')}
-                        </span>
-                      ) : (
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(user.alumni_verification_status)}`}>
-                          {getStatusLabel(user.alumni_verification_status)}
-                        </span>
-                      )}
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(user.is_deleted ? 'deleted' : (user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')))}`}>
+                        {getStatusLabel(user.is_deleted ? 'deleted' : (user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')))}
+                      </span>
                     </td>
                     <td className="py-4 px-4">
                       <div className="flex items-center text-sm text-gray-600">
@@ -743,18 +844,18 @@ const UserManagement = () => {
                         {hasPermission('manage:users') && (
                           <>
                             <button 
-                              title={user.alumni_verification_status === 'approved' ? 'Already approved' : 'Approve User'}
-                              disabled={user.alumni_verification_status === 'approved'}
+                              title={(user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')) === 'approved' ? 'Already approved' : 'Approve User'}
+                              disabled={(user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')) === 'approved'}
                               onClick={() => handleUserAction('approve', user.id)}
-                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${user.alumni_verification_status === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
+                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${(user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')) === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
                             >
                               <CheckCircleIcon className="w-4 h-4" />
                             </button>
                             <button 
-                              title={user.alumni_verification_status === 'rejected' ? 'Already rejected' : 'Reject User'}
-                              disabled={user.alumni_verification_status === 'rejected'}
+                              title={(user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')) === 'rejected' ? 'Already rejected' : 'Reject User'}
+                              disabled={(user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')) === 'rejected'}
                               onClick={() => handleUserAction('reject', user.id)}
-                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${user.alumni_verification_status === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
+                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${(user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')) === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
                             >
                               <XCircleIcon className="w-4 h-4" />
                             </button>
@@ -821,14 +922,21 @@ const UserManagement = () => {
           {selectedTab !== 'mentors' && (
             <div className="flex items-center justify-between mt-6">
               <p className="text-sm text-gray-600">
-                Showing <span className="font-medium">{filteredUsers.length}</span> of{' '}
-                <span className="font-medium">{users.length}</span> users
+                Page <span className="font-medium">{page}</span> • Showing <span className="font-medium">{filteredUsers.length}</span>
               </p>
               <div className="flex space-x-2">
-                <button className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">
+                <button 
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                >
                   Previous
                 </button>
-                <button className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">
+                <button 
+                  onClick={() => setPage(p => p + 1)}
+                  disabled={users.length < PAGE_SIZE}
+                  className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                >
                   Next
                 </button>
               </div>

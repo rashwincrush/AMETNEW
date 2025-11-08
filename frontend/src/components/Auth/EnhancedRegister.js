@@ -1,13 +1,17 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import Logo from '../common/Logo';
 import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, CheckIcon, ArrowLeftIcon, XMarkIcon } from '@heroicons/react/24/outline'; 
 import { supabase, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 import { ROLES, isRole } from '../../constants/roles';
 import { validatePassword } from '../../utils/passwordPolicy';
 // Removed DegreeComboBox and DepartmentInput imports - using simple <select> dropdowns backed by Supabase views
+import DegreeSelect from '../academics/DegreeSelect';
+import DepartmentSelect from '../academics/DepartmentSelect';
+import { useAcademicsCatalog } from '../../hooks/useAcademicsCatalog';
 
 const EnhancedRegister = () => {
   const navigate = useNavigate();
@@ -16,12 +20,8 @@ const EnhancedRegister = () => {
   const REDIRECT_AFTER_REGISTER = '/';            // change to '/home' if you want
   const [showCompletionBanner, setShowCompletionBanner] = useState(false);
   
-    // Dropdown data fetched from Supabase
-    const [degreeGroups, setDegreeGroups] = useState([]); // from v_degree_department_groups
-    const [degrees, setDegrees] = useState([]);           // flat degree list [{code, label}]
-    const [departmentsByDegree, setDepartmentsByDegree] = useState({}); // { [code]: [{id,name,slug}] }
-    const [loadingCatalogs, setLoadingCatalogs] = useState(true);
-    const degreeInputRef = useRef(null);
+  // Shared academics catalog (degrees + grouped departments)
+  const { isValidDegree, isValidDepartmentFor, loading: catalogLoading } = useAcademicsCatalog();
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
     firstName: '',
@@ -33,8 +33,8 @@ const EnhancedRegister = () => {
     primaryRole: '', // alumni, student, employer
     graduationYear: '',
     expectedGraduationYear: '',
-    degreeCode: '',       // <-- canonical degree code (e.g., "B.E.", "B.Tech")
-    departmentId: '',     // <-- UUID from departments.id
+    degree_code: '',      // canonical degree code
+    department_id: '',    // UUID from departments.id
     studentId: '',
     companyName: '',
     jobTitle: '',
@@ -67,6 +67,47 @@ const EnhancedRegister = () => {
   const [roles, setRoles] = useState([]);
   const STORAGE_KEY = 'onboarding_registration_v1';
 
+  const SAFE_PROFILE_FIELDS = [
+    'id',
+    'email',
+    'first_name',
+    'last_name',
+    'phone',
+    'degree_code',
+    'department_id',
+    'graduation_year',
+    'location',
+    'company_name',
+    'current_job_title',
+    'show_in_directory',
+    'avatar_url',
+  ];
+
+  const pickSafeProfileFields = (src) => {
+    const out = {};
+    for (const k of SAFE_PROFILE_FIELDS) if (k in src && src[k] !== undefined) out[k] = src[k];
+    return out;
+  };
+
+  const normalizeHttpsUrl = (raw) => {
+    if (!raw) return null;
+    let v = String(raw).trim();
+    if (!v) return null;
+    if (/^http:\/\//i.test(v)) v = v.replace(/^http:\/\//i, 'https://');
+    if (!/^https?:\/\//i.test(v)) v = `https://${v}`;
+    return v;
+  };
+
+  const isValidHttpsUrl = (v) => {
+    if (!v) return true;
+    try {
+      const u = new URL(v);
+      return u.protocol === 'https:' && !!u.hostname;
+    } catch {
+      return false;
+    }
+  };
+
   // Set roles for dropdown
   useEffect(() => {
     setRoles([
@@ -92,40 +133,7 @@ const EnhancedRegister = () => {
     'Sustainability in Maritime', 'Maritime Policy & Regulation', 'Personal Development', 'International Maritime Markets',
   ];
 
-  useEffect(() => {
-    // Load degree → departments grouping for dropdowns
-    (async () => {
-      try {
-        const { data: groups, error } = await supabase
-          .from('v_degree_department_groups')
-          .select('*')
-          .order('degree_label', { ascending: true });
-        if (error) throw error;
-
-        setDegreeGroups(groups || []);
-        const flatDegrees = (groups || []).map(g => ({
-          code: g.degree_code,
-          label: g.degree_label || g.degree_code
-        }));
-        setDegrees(flatDegrees);
-
-        const map = {};
-        (groups || []).forEach(g => {
-          map[g.degree_code] = (g.departments || []).map(d => ({
-            id: d.id,
-            name: d.name,
-            slug: d.slug
-          }));
-        });
-        setDepartmentsByDegree(map);
-      } catch (e) {
-        console.error('Failed to load degree/department catalogs:', e.message || e);
-        toast.error('Could not load degree/department lists. Please retry.');
-      } finally {
-        setLoadingCatalogs(false);
-      }
-    })();
-  }, []);
+  // Degree/Department catalogs are provided by useAcademicsCatalog via the reusable selects
 
   // Restore persisted onboarding state from localStorage
   useEffect(() => {
@@ -296,14 +304,14 @@ const EnhancedRegister = () => {
         delete newErrors.mentorshipRole;
         return newErrors;
       });
-    } else if (name === 'degreeCode') {
-      // When the degree changes, clear departmentId so user must re-pick
-      setFormData(prev => ({ ...prev, degreeCode: processedValue, departmentId: '' }));
-      if (errors.degreeCode) setErrors(prev => ({ ...prev, degreeCode: '' }));
-      if (errors.departmentId) setErrors(prev => ({ ...prev, departmentId: '' }));
+    } else if (name === 'degree_code') {
+      // When the degree changes, clear department_id so user must re-pick
+      setFormData(prev => ({ ...prev, degree_code: processedValue, department_id: '' }));
+      if (errors.degree_code) setErrors(prev => ({ ...prev, degree_code: '' }));
+      if (errors.department_id) setErrors(prev => ({ ...prev, department_id: '' }));
       return;
-    } else if (name === 'departmentId') {
-      if (errors.departmentId) setErrors(prev => ({ ...prev, departmentId: '' }));
+    } else if (name === 'department_id') {
+      if (errors.department_id) setErrors(prev => ({ ...prev, department_id: '' }));
     } else if (name === 'phone') {
       // Allow only numbers and starting + symbol
       // First, strip all non-digit and non-plus characters
@@ -487,11 +495,11 @@ const EnhancedRegister = () => {
         } else if (yr < 1950 || yr > current) {
           newErrors.graduationYear = `Graduation year must be between 1950 and ${current}.`;
         }
-        if (!formData.degreeCode) {
-          newErrors.degreeCode = 'Please select your degree.';
+        if (!formData.degree_code) {
+          newErrors.degree_code = 'Please select your degree.';
         }
-        if (!formData.departmentId) {
-          newErrors.departmentId = 'Please select your department.';
+        if (!formData.department_id) {
+          newErrors.department_id = 'Please select your department.';
         }
         if (!formData.companyName?.trim()) {
           newErrors.companyName = 'Current company is required.';
@@ -507,11 +515,11 @@ const EnhancedRegister = () => {
         if (!formData.expectedGraduationYear || isNaN(Number(formData.expectedGraduationYear))) {
           newErrors.expectedGraduationYear = 'Expected graduation year is required.';
         }
-        if (!formData.degreeCode) {
-          newErrors.degreeCode = 'Please select your degree.';
+        if (!formData.degree_code) {
+          newErrors.degree_code = 'Please select your degree.';
         }
-        if (!formData.departmentId) {
-          newErrors.departmentId = 'Please select your department.';
+        if (!formData.department_id) {
+          newErrors.department_id = 'Please select your department.';
         }
       }
       // Optional fields validation: only validate URL patterns if provided
@@ -527,11 +535,11 @@ const EnhancedRegister = () => {
       ) {
         newErrors.githubProfile = 'GitHub URL must start with https://github.com/<username>';
       }
-      if (
-        formData.websiteUrl &&
-        !/^https:\/\/[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:\/.+)?$/i.test(formData.websiteUrl)
-      ) {
-        newErrors.websiteUrl = 'Website must be a valid https URL (e.g., https://example.com)';
+      if (formData.websiteUrl) {
+        const normalized = normalizeHttpsUrl(formData.websiteUrl);
+        if (!isValidHttpsUrl(normalized)) {
+          newErrors.websiteUrl = 'Please enter a valid website (https).';
+        }
       }
 
       if (!formData.agreeToTerms) newErrors.agreeToTerms = 'You must agree to the Terms of Service and Privacy Policy';
@@ -575,7 +583,7 @@ const EnhancedRegister = () => {
     if (process.env.NODE_ENV === 'development') {
       // eslint-disable-next-line no-console
       if (selectedRole === 'alumni' || selectedRole === 'student') {
-        console.debug('[Register] Submitting with degreeCode:', formData.degreeCode, 'departmentId:', formData.departmentId);
+        console.debug('[Register] Submitting with degree_code:', formData.degree_code, 'department_id:', formData.department_id);
       }
     }
 
@@ -587,14 +595,34 @@ const EnhancedRegister = () => {
       // eslint-disable-next-line no-console
       console.log('[Register] Submitting signup request...');
 
+      // DB-driven validation for non-employer roles
+      const isEmployer = selectedRole === 'employer';
+      if (!isEmployer && catalogLoading) {
+        toast.error('Degree data is still loading. Please wait and try again.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (!isEmployer) {
+        if (!isValidDegree(formData.degree_code)) {
+          toast.error('Select a valid Degree');
+          setIsSubmitting(false);
+          return;
+        }
+        if (!isValidDepartmentFor(formData.degree_code, formData.department_id)) {
+          toast.error('Select a valid Department');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       // Stage-2 payload mapped to profile columns (avatar omitted intentionally)
       const stage2 = {
         first_name: formData.firstName.trim(),
         last_name: formData.lastName.trim(),
         phone: formData.phone.trim(),
         graduation_year: (selectedRole === 'alumni') ? Number(formData.graduationYear) : null,
-        degree_code: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.degreeCode || null) : null,
-        department_id: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.departmentId || null) : null,
+        degree_code: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.degree_code || null) : null,
+        department_id: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.department_id || null) : null,
         company_name: formData.companyName?.trim() || null,
         current_job_title: formData.jobTitle?.trim() || null,
         location: formData.currentLocation?.trim() || null,
@@ -634,26 +662,29 @@ const EnhancedRegister = () => {
       }
 
       // Session present immediately → single write to public.profiles
-      const profilePayload = {
-          id: hydratedUser.id,
-          email: hydratedUser.email?.toLowerCase() || formData.email.trim().toLowerCase(),
-          first_name: formData.firstName.trim() || null,
-          last_name: formData.lastName.trim() || null,
-          location: formData.currentLocation?.trim() || null,
-          company_name: formData.companyName?.trim() || null,
-          current_job_title: formData.jobTitle?.trim() || null,
-          role: selectedRole,
-          degree_code: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.degreeCode || null) : null,
-          department_id: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.departmentId || null) : null,
-          graduation_year: (selectedRole === 'alumni') ? (Number(formData.graduationYear) || null) : null,
-          updated_at: new Date().toISOString(),
-        };
+      const profilePayloadRaw = {
+        id: hydratedUser.id,
+        email: hydratedUser.email?.toLowerCase() || formData.email.trim().toLowerCase(),
+        first_name: formData.firstName.trim() || null,
+        last_name: formData.lastName.trim() || null,
+        location: formData.currentLocation?.trim() || null,
+        company_name: formData.companyName?.trim() || null,
+        current_job_title: formData.jobTitle?.trim() || null,
+        degree_code: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.degreeCode || null) : null,
+        department_id: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.departmentId || null) : null,
+        graduation_year: (selectedRole === 'alumni') ? (Number(formData.graduationYear) || null) : null,
+        show_in_directory: undefined,
+        avatar_url: undefined,
+      };
+      const profilePayload = pickSafeProfileFields(profilePayloadRaw);
 
       // eslint-disable-next-line no-console
       console.log('[Register] Upserting profile with Stage-2 payload:', profilePayload);
       const { error: upsertErr } = await supabase
         .from('profiles')
-        .upsert(profilePayload, { onConflict: 'id' });
+        .upsert(profilePayload, { onConflict: 'id' })
+        .select()
+        .single();
       if (upsertErr) {
         // Friendly messages
         if (String(upsertErr.message).toLowerCase().includes('foreign key') || upsertErr.code === '23503') {
@@ -661,10 +692,30 @@ const EnhancedRegister = () => {
         } else if (upsertErr.code === '42501' || upsertErr.code === 'P0001') {
           toast.error('No permission to update this profile.');
         } else {
-          toast.error(`Profile save failed: ${upsertErr.message}`);
+          toast.error(`Profile save failed: ${getFriendlyErrorMessage(upsertErr, 'Unable to save profile.')}`);
         }
         throw upsertErr;
       }
+
+      // Ensure server-side role is set and JWT refreshed so UI shows correct role immediately
+      try {
+        const endpoint = process.env.REACT_APP_SUPABASE_URL
+          ? `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/set-role`
+          : '/functions/v1/set-role';
+
+        const { data: sess } = await supabase.auth.getSession();
+        await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(sess?.session?.access_token ? { 'Authorization': `Bearer ${sess.session.access_token}` } : {}),
+            ...(process.env.REACT_APP_SUPABASE_KEY ? { 'apikey': process.env.REACT_APP_SUPABASE_KEY } : {}),
+          },
+          body: JSON.stringify({ role: selectedRole }),
+        }).catch(() => undefined);
+        await supabase.auth.refreshSession().catch(() => undefined);
+      } catch (_) { /* ignore */ }
+
       // Refresh context cache and show banner with redirect
       await refreshProfile(hydratedUser.id).catch(() => undefined);
       setShowCompletionBanner(true);
@@ -676,7 +727,7 @@ const EnhancedRegister = () => {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('Registration process error:', err?.message || err);
-      setError(err.message || 'An unexpected error occurred during registration.');
+      setError(getFriendlyErrorMessage(err, 'An unexpected error occurred during registration.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -692,7 +743,7 @@ const EnhancedRegister = () => {
       // If direct navigation is needed post-social-login (e.g. to a profile completion step), handle it here or in App.js based on auth state.
       // navigate('/dashboard'); // Example navigation
     } catch (err) {
-      setError(err.message || 'Social login failed. Please try again or use email registration.');
+      setError(getFriendlyErrorMessage(err, 'Social login failed. Please try again or use email registration.'));
       console.error('Social login error:', err);
     } finally {
       setIsLoading(false);
@@ -866,42 +917,23 @@ const EnhancedRegister = () => {
               {errors.graduationYear && <p className={commonErrorClass}>{errors.graduationYear}</p>}
             </div>
             <div>
-              <label className={commonLabelClass}>Degree Program *</label>
-              <select
-                name="degreeCode"
-                value={formData.degreeCode}
-                onChange={handleChange}
+              <DegreeSelect
+                value={formData.degree_code}
+                onChange={(v) => setFormData(prev => ({ ...prev, degree_code: v, department_id: '' }))}
                 required
-                ref={degreeInputRef}
-                disabled={loadingCatalogs}
-                className={`${commonInputClass(errors.degreeCode)} bg-white`}
-              >
-                <option value="" disabled>{loadingCatalogs ? 'Loading degrees…' : 'Select degree...'}</option>
-                {degrees.map(d => (
-                  <option key={d.code} value={d.code}>{d.label}</option>
-                ))}
-              </select>
-              {errors.degreeCode && <p className={commonErrorClass}>{errors.degreeCode}</p>}
+                error={errors.degree_code || null}
+              />
             </div>
           </div>
           <div>
-            <label className={commonLabelClass}>Department *</label>
-            <select
-              name="departmentId"
-              value={formData.departmentId}
-              onChange={handleChange}
+            <DepartmentSelect
+              degreeCode={formData.degree_code}
+              value={formData.department_id}
+              onChange={(v) => setFormData(prev => ({ ...prev, department_id: v }))}
               required
-              disabled={!formData.degreeCode || loadingCatalogs}
-              className={`${commonInputClass(errors.departmentId)} bg-white`}
-            >
-              <option value="" disabled>
-                {!formData.degreeCode ? 'Select degree first...' : (loadingCatalogs ? 'Loading departments…' : 'Select department...')}
-              </option>
-              {(departmentsByDegree[formData.degreeCode] || []).map(dep => (
-                <option key={dep.id} value={dep.id}>{dep.name}</option>
-              ))}
-            </select>
-            {errors.departmentId && <p className={commonErrorClass}>{errors.departmentId}</p>}
+              disabled={!formData.degree_code}
+              error={errors.department_id || null}
+            />
           </div>
           {/* Employment details for alumni */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-2">
@@ -938,41 +970,22 @@ const EnhancedRegister = () => {
             </div>
           </div>
           <div>
-            <label className={commonLabelClass}>Degree Program *</label>
-            <select
-              name="degreeCode"
-              value={formData.degreeCode}
-              onChange={handleChange}
+            <DegreeSelect
+              value={formData.degree_code}
+              onChange={(v) => setFormData(prev => ({ ...prev, degree_code: v, department_id: '' }))}
               required
-              ref={degreeInputRef}
-              disabled={loadingCatalogs}
-              className={`${commonInputClass(errors.degreeCode)} bg-white`}
-            >
-              <option value="" disabled>{loadingCatalogs ? 'Loading degrees…' : 'Select degree...'}</option>
-              {degrees.map(d => (
-                <option key={d.code} value={d.code}>{d.label}</option>
-              ))}
-            </select>
-            {errors.degreeCode && <p className={commonErrorClass}>{errors.degreeCode}</p>}
+              error={errors.degree_code || null}
+            />
           </div>
           <div>
-            <label className={commonLabelClass}>Department *</label>
-            <select
-              name="departmentId"
-              value={formData.departmentId}
-              onChange={handleChange}
+            <DepartmentSelect
+              degreeCode={formData.degree_code}
+              value={formData.department_id}
+              onChange={(v) => setFormData(prev => ({ ...prev, department_id: v }))}
               required
-              disabled={!formData.degreeCode || loadingCatalogs}
-              className={`${commonInputClass(errors.departmentId)} bg-white`}
-            >
-              <option value="" disabled>
-                {!formData.degreeCode ? 'Select degree first...' : (loadingCatalogs ? 'Loading departments…' : 'Select department...')}
-              </option>
-              {(departmentsByDegree[formData.degreeCode] || []).map(dep => (
-                <option key={dep.id} value={dep.id}>{dep.name}</option>
-              ))}
-            </select>
-            {errors.departmentId && <p className={commonErrorClass}>{errors.departmentId}</p>}
+              disabled={!formData.degree_code}
+              error={errors.department_id || null}
+            />
           </div>
         </>
       )}
@@ -1120,13 +1133,13 @@ const EnhancedRegister = () => {
             {currentStep === 1 && renderStep1()}
             {currentStep === 2 && renderStep2()}
 
-            <div className="flex pt-6 space-x-4">
+            <div className="flex flex-col sm:flex-row pt-6 gap-4">
               {currentStep > 1 && (
                 <button
                   type="button"
                   onClick={handlePrevious}
                   disabled={isLoading}
-                  className="flex-1 px-6 py-3 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ocean-500 transition-colors disabled:opacity-50"
+                  className="w-full sm:w-auto flex-1 px-6 py-3 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ocean-500 transition-colors disabled:opacity-50"
                 >
                   Previous
                 </button>
@@ -1135,7 +1148,7 @@ const EnhancedRegister = () => {
                 type={currentStep === 2 ? "submit" : "button"}
                 onClick={currentStep < 2 ? handleNext : undefined}
                 disabled={isLoading || showCompletionBanner}
-                className="flex-1 px-6 py-3 bg-gradient-to-b from-ocean-500 to-ocean-600 text-white rounded-lg text-sm font-medium min-h-[44px] hover:from-ocean-600 hover:to-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ocean-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                className="w-full sm:w-auto flex-1 px-6 py-3 bg-gradient-to-b from-ocean-500 to-ocean-600 text-white rounded-lg text-sm font-medium min-h-[44px] hover:from-ocean-600 hover:to-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ocean-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
               >
                 {isLoading && currentStep === 2 ? (
                   <>

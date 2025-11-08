@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { MapPinIcon, BriefcaseIcon, StarIcon, AcademicCapIcon } from '@heroicons/react/24/solid';
 import { getDegreeLabel } from '../../hooks/useDegreePrograms';
+import Avatar from '../common/Avatar';
 
 const AlumniCard = ({ alumnus }) => {
   const getInitials = (name) => {
@@ -42,28 +43,9 @@ const AlumniCard = ({ alumnus }) => {
       <div className="relative pb-6 pt-10 px-6 flex flex-col items-center">
         <div className="absolute top-0 inset-x-0 h-20 bg-gradient-to-r from-blue-500 to-indigo-600" aria-hidden="true"></div>
         
-        {avatarUrl ? (
-          <div className="relative z-10">
-            <img
-              className="h-24 w-24 rounded-full object-cover ring-4 ring-white shadow-lg"
-              src={avatarUrl}
-              alt={`${fullName || 'User'}'s profile picture`}
-              onError={(e) => {
-                e.target.onerror = null;
-                e.target.style.display = 'none';
-                const fallback = e.target.nextSibling;
-                if (fallback) fallback.style.display = 'flex';
-              }}
-            />
-            <div className="hidden h-24 w-24 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-xl font-bold items-center justify-center ring-4 ring-white shadow-lg">
-              {initials}
-            </div>
-          </div>
-        ) : (
-          <div className="relative z-10 h-24 w-24 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-xl font-bold flex items-center justify-center ring-4 ring-white shadow-lg">
-            {initials}
-          </div>
-        )}
+        <div className="relative z-10">
+          <Avatar src={avatarUrl} alt={fullName || 'User'} size={96} />
+        </div>
         
         <div className="mt-4 text-center w-full">
           <div className="flex justify-center items-center gap-2 mb-1">

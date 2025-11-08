@@ -11,11 +11,11 @@ const ContactUs = () => {
       <div className="space-y-4 bg-white rounded-lg border border-gray-200 p-6">
         <div>
           <h2 className="font-semibold text-gray-900">Email</h2>
-          <p className="text-gray-700">support@amet-alumni.example</p>
+          <p className="text-gray-700">alumni@ametuniv.ac.in</p>
         </div>
         <div>
           <h2 className="font-semibold text-gray-900">Office Hours</h2>
-          <p className="text-gray-700">Mon–Fri, 9:00 AM – 5:00 PM IST</p>
+          <p className="text-gray-700">Mon–Fri, 8:30 AM – 3:30 PM IST</p>
         </div>
       </div>
     </div>

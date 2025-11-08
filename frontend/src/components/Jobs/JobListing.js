@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import ImageWithFallback from '../common/ImageWithFallback';
 
 const JobListing = ({ job }) => {
   if (!job) {
@@ -10,9 +11,15 @@ const JobListing = ({ job }) => {
 
   return (
     <div className="bg-white shadow-md rounded-lg p-6 mb-4 flex items-start">
-      {company_logo && (
-        <img src={company_logo} alt={`${company} logo`} className="w-16 h-16 mr-6" />
-      )}
+      <div className="w-16 h-16 mr-6 rounded-md overflow-hidden bg-gray-100">
+        <ImageWithFallback
+          src={company_logo}
+          alt={`${company} logo`}
+          className="w-16 h-16"
+          placeholderSrc="/default-avatar.svg"
+          emptyMessage="Employer logo to be uploaded"
+        />
+      </div>
       <div>
         <h3 className="text-xl font-bold text-gray-800">{title}</h3>
         <p className="text-md text-gray-600">{company}</p>
