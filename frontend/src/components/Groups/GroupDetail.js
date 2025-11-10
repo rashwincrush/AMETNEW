@@ -155,20 +155,8 @@ const GroupDetail = () => {
         setAvatarSrc(`${group.group_avatar_url}${cb}`);
         return;
       }
-      // Otherwise, try a short-lived signed URL (private bucket scenario)
-      try {
-        const key = `${id}/avatar.jpg`;
-        const { data, error } = await supabase.storage
-          .from('group_avatars')
-          .createSignedUrl(key, 3600);
-        if (!error && data?.signedUrl) {
-          setAvatarSrc(data.signedUrl);
-        } else {
-          setAvatarSrc('');
-        }
-      } catch {
-        setAvatarSrc('');
-      }
+      // Otherwise, skip signed URL attempts to avoid noisy 400s; let placeholder render
+      setAvatarSrc('');
     };
     buildSrc();
   }, [id, group?.group_avatar_url, group?.updated_at]);
@@ -531,7 +519,7 @@ const GroupDetail = () => {
 
   if (loading) return <div className="flex justify-center items-center h-screen"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div></div>;
   if (error) return <div className="text-red-500 text-center p-4">Error: {error}</div>;
-  if (!group) return <div className="text-center p-4">Group not found.</div>;
+  if (!group) return <div className="text-center p-4">Not available or archived.</div>;
 
   return (
     <div className="bg-gray-100 min-h-screen">
@@ -793,6 +781,12 @@ const GroupDetail = () => {
               
             </div>
           </div>
+          {/* Pending approval banner for creator/admins */}
+          {((user?.id === group.created_by) || (profile?.is_admin === true)) && !group.is_approved && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-800 p-3 mt-4">
+              Awaiting admin approval. Only you and admins can see this group for now.
+            </div>
+          )}
           {(!group.is_private && group.is_approved && !group.is_archived) && (
             <div className="mt-4 pt-4 border-t border-gray-200">
               <ShareButtons url={window.location.href} title={group.name} />
@@ -818,75 +812,54 @@ const GroupDetail = () => {
               const adminOnlyPost = group.is_admin_only_posts === true;
               const publicApproved = (group.is_private === false && group.is_approved === true);
               const canViewPosts = (isMember || publicApproved) && !group.is_archived;
-              const showPostBox = !group.is_archived && isMember && (isAdmin || !adminOnlyPost);
+              const canPost = !group.is_archived && isMember && (isAdmin || !adminOnlyPost);
               if (!canViewPosts) {
-                if (group.is_archived) {
-                  return <p className="text-center text-gray-600">This group is archived.</p>;
-                }
-                if (group.is_private && !isMember) {
-                  return <p className="text-center text-gray-600">This group is private. Ask an admin for access.</p>;
-                }
-                if (!group.is_approved) {
-                  return <p className="text-center text-gray-600">This group is pending review.</p>;
-                }
+                if (group.is_archived) return <p className="text-center text-gray-600">This group is archived.</p>;
+                if (group.is_private && !isMember) return <p className="text-center text-gray-600">This group is private. Ask an admin for access.</p>;
+                if (!group.is_approved) return <p className="text-center text-gray-600">This group is pending review.</p>;
                 return <p className="text-center text-gray-600">You don't have access to view posts.</p>;
               }
               return (
-              <div>
-                {showPostBox ? (
+                <div>
+                  {/* Composer */}
                   <div className="bg-white shadow-md rounded-lg p-6 mb-6">
                     <h2 className="text-xl font-bold mb-4">Create a Post</h2>
+                    {group.is_archived && (
+                      <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">This group is archived; posting is disabled.</div>
+                    )}
+                    {adminOnlyPost && !isAdmin && !group.is_archived && (
+                      <div className="mb-3 text-sm text-purple-700 bg-purple-50 border border-purple-200 rounded p-2">Only group admins can post in this group.</div>
+                    )}
                     <form onSubmit={handleCreatePost}>
-                      <textarea 
-                        value={newPostContent} 
-                        onChange={(e) => setNewPostContent(e.target.value)} 
-                        className="w-full p-2 border rounded" 
-                        placeholder="What's on your mind?" 
-                        maxLength={1000}
+                      <textarea
+                        value={newPostContent}
+                        onChange={(e) => setNewPostContent(e.target.value)}
+                        className="w-full p-2 border rounded"
+                        disabled={!canPost}
                       />
-                    
-                      {/* Image preview */}
-                      {postImagePreview && (
-                        <div className="relative mt-2 inline-block">
-                          <img 
-                            src={postImagePreview} 
-                            alt="Preview" 
-                            className="max-h-40 rounded border" 
-                          />
-                          <button
-                            type="button"
-                            onClick={removeSelectedImage}
-                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-                          >
-                            <X size={16} />
-                          </button>
-                        </div>
-                      )}
-                    
-                      <div className="mt-2 flex items-center justify-between">
-                        <div className="flex items-center">
-                          {/* Image upload button */}
+                      <div className="flex items-center justify-between mt-2">
+                        <div>
                           <input
+                            ref={fileInputRef}
                             type="file"
                             accept="image/*"
-                            onChange={handlePostImageChange}
                             className="hidden"
-                            ref={fileInputRef}
+                            onChange={handlePostImageChange}
+                            disabled={!canPost}
                           />
                           <button
                             type="button"
-                            onClick={() => fileInputRef.current.click()}
+                            onClick={() => fileInputRef.current && fileInputRef.current.click()}
                             className="flex items-center text-blue-500 hover:text-blue-700 mr-2"
+                            disabled={!canPost}
                           >
                             <ImageIcon size={18} className="mr-1" />
                             Add Image
                           </button>
                         </div>
-                        
-                        {/* Post button */}
-                        <button 
-                          type="submit" 
-                          disabled={uploadingPost || (!newPostContent.trim() && !postImage)}
+                        <button
+                          type="submit"
+                          disabled={!canPost || uploadingPost || (!newPostContent.trim() && !postImage)}
                           className={`px-4 py-2 text-white rounded ${uploadingPost ? 'bg-gray-400' : 'bg-green-500 hover:bg-green-600'}`}
                         >
                           {uploadingPost ? 'Posting...' : 'Post'}
@@ -894,88 +867,79 @@ const GroupDetail = () => {
                       </div>
                     </form>
                   </div>
-                ) : (
-                  <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded p-4 mb-6 text-sm">
-                    Only group admins can post in this group.
-                  </div>
-                )}
-                <div className="space-y-4">
-                  {posts.length > 0 ? posts.map(post => (
-                    <div key={post.id} className="bg-white shadow-md rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center">
-                          <img 
-                            src={post.author?.avatar_url || '/default-avatar.png'} 
-                            alt={post.author?.full_name} 
-                            className="w-10 h-10 rounded-full mr-3"
-                          />
-                          <div>
-                            <p className="font-bold">{post.author?.full_name || 'Amet User'}</p>
-                            <p className="text-gray-500 text-sm">{format(new Date(post.created_at), 'PPpp')}</p>
+
+                  {/* Posts list */}
+                  <div className="space-y-4">
+                    {posts.length > 0 ? posts.map(post => (
+                      <div key={post.id} className="bg-white shadow-md rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center">
+                            <img
+                              src={post.author?.avatar_url || '/default-avatar.png'}
+                              alt={post.author?.full_name}
+                              className="w-10 h-10 rounded-full mr-3"
+                            />
+                            <div>
+                              <p className="font-bold">{post.author?.full_name || 'Amet User'}</p>
+                              <p className="text-gray-500 text-sm">{format(new Date(post.created_at), 'PPpp')}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {(isAdmin || post.user_id === user.id) && (
+                              <button
+                                onClick={() => openEditModal(post)}
+                                className="text-gray-500 hover:text-gray-700"
+                                title="Edit post"
+                              >
+                                <Edit size={18} />
+                              </button>
+                            )}
+                            {(isAdmin || post.user_id === user.id) && (
+                              <button
+                                onClick={() => showConfirm('deletePost', post.id)}
+                                className="text-red-500 hover:text-red-700"
+                                title="Delete post"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            )}
+                            {post.user_id !== user.id && (
+                              <button
+                                onClick={() => openReportModal(post.id)}
+                                className="text-orange-500 hover:text-orange-700"
+                                title="Report post"
+                              >
+                                <Shield size={18} />
+                              </button>
+                            )}
                           </div>
                         </div>
-                        
-                        <div className="flex items-center gap-2">
-                          {/* Edit post (owner/admin) */}
-                          {(isAdmin || post.user_id === user.id) && (
-                            <button 
-                              onClick={() => openEditModal(post)}
-                              className="text-gray-500 hover:text-gray-700"
-                              title="Edit post"
-                            >
-                              <Edit size={18} />
-                            </button>
-                          )}
-                          {/* Delete post (owner/admin) */}
-                          {(isAdmin || post.user_id === user.id) && (
-                            <button 
-                              onClick={() => showConfirm('deletePost', post.id)}
-                              className="text-red-500 hover:text-red-700"
-                              title="Delete post"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          )}
-                          {/* Report (non-owner) */}
-                          {post.user_id !== user.id && (
-                            <button
-                              onClick={() => openReportModal(post.id)}
-                              className="text-orange-500 hover:text-orange-700"
-                              title="Report post"
-                            >
-                              <Shield size={18} />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {/* Post content */}
-                      <p className="mb-3">{post.content}</p>
-                      
-                      {/* Post image if available */}
-                      {post.image_url && (
-                        <div className="mt-2 mb-3">
-                          <img 
-                            src={post.image_url} 
-                            alt="Post attachment" 
-                            className="max-h-96 rounded border max-w-full"
-                          />
-                        </div>
-                      )}
 
-                      {/* Comments thread */}
-                      <div className="mt-2">
-                        <CommentsThread postId={post.id} group={group} isMember={isMember} />
+                        <p className="mb-3">{post.content}</p>
+
+                        {post.image_url && (
+                          <div className="mt-2 mb-3">
+                            <img
+                              src={post.image_url}
+                              alt="Post attachment"
+                              className="max-h-96 rounded border max-w-full"
+                            />
+                          </div>
+                        )}
+
+                        <div className="mt-2">
+                          <CommentsThread postId={post.id} group={group} isMember={isMember} />
+                        </div>
                       </div>
-                    </div>
-                  )) : <p>No posts yet. Be the first!</p>}
-                  {hasMore && (
-                    <div className="text-center">
-                      <button onClick={loadMorePosts} className="px-4 py-2 text-sm rounded bg-gray-100 hover:bg-gray-200">Load more</button>
-                    </div>
-                  )}
+                    )) : <p>No posts yet. Be the first!</p>}
+                    {hasMore && (
+                      <div className="text-center">
+                        <button onClick={loadMorePosts} className="px-4 py-2 text-sm rounded bg-gray-100 hover:bg-gray-200">Load more</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
               );
             })()
           )}

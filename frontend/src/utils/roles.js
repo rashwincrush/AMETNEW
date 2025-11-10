@@ -27,6 +27,12 @@ export const ROLE_OPTIONS = [
 export const isAdminLike = (r) => r === 'admin' || r === 'super_admin';
 
 /**
+ * Explicit helpers to match consumer code expectations
+ */
+export const isAdmin = (role) => role === 'admin' || role === 'super_admin';
+export const isEmployer = (role) => role === 'employer';
+
+/**
  * Runtime guard to validate role enum values before sending to RPC
  * @param {any} v
  * @returns {v is AppRole}

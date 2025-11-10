@@ -59,15 +59,11 @@ const EventsList = ({ isAdmin = false }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [filter, setFilter] = useState('upcoming');
-  const [eventType, setEventType] = useState('all');
-  const [sortBy, setSortBy] = useState('start_date_asc'); // New state for sorting
+  const [sortBy, setSortBy] = useState('upcoming');
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list' or 'calendar'
   const subscriptionRef = useRef(null);
 
-  const handleFilterChange = (e) => {
-    setFilter(e.target.value);
-  };
+  // Removed event-type and extra filters as per requirements
 
   // Load up to 8 featured events for the Priority Strip
   const fetchFeaturedEvents = async () => {
@@ -143,51 +139,51 @@ const EventsList = ({ isAdmin = false }) => {
     };
   }, [handleEventsUpdate, handleAttendanceUpdate]);
 
+  // Refetch when sort selection or admin status changes
+  useEffect(() => {
+    fetchEvents();
+  }, [sortBy, isAdmin]);
+
   const fetchEvents = async () => {
     try {
       setLoading(true);
       setError('');
-      let query = supabase
-        .from('events')
-        .select('*')
-        .order('start_date', { ascending: true });
-      
-      // Only show approved & published events to regular users
+
+      const nowIso = new Date().toISOString();
+      let query = supabase.from('events').select('*');
+
+      // Role gating (same for everyone except admins)
       if (!isAdmin) {
         query = query.eq('is_published', true).eq('approval_status', 'approved');
       }
 
-      // Apply filters
-      const now = new Date().toISOString();
-      if (filter === 'upcoming') {
-        query = query.gt('start_date', now);
-      } else if (filter === 'past') {
-        query = query.lt('end_date', now);
-      } else if (filter === 'today') {
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
-        query = query.gte('start_date', todayStart.toISOString())
-                    .lte('end_date', todayEnd.toISOString());
-      }
-
-      if (eventType !== 'all') {
-        query = query.eq('event_type', eventType);
+      // Apply sort/filter mode
+      if (sortBy === 'upcoming') {
+        query = query
+          .gt('start_date', nowIso)
+          .order('start_date', { ascending: true });
+      } else if (sortBy === 'closed') {
+        // Closed if already ended, OR (no end_date AND start_date < now)
+        query = query
+          .or(`end_date.lt.${nowIso},and(end_date.is.null,start_date.lt.${nowIso})`)
+          .order('end_date', { ascending: false, nullsFirst: true })
+          .order('start_date', { ascending: false }); // tie-breaker
+      } else {
+        // oldest
+        query = query.order('start_date', { ascending: true });
       }
 
       const { data: eventsData, error: fetchError } = await query;
-
       if (fetchError) throw fetchError;
 
-      if (eventsData && eventsData.length > 0) {
+      if (eventsData?.length) {
         const eventIds = eventsData.map(e => e.id);
 
-        // Prefer SECURITY DEFINER RPC for counts; fallback to tables if missing
+        // Optional RPC-based counts
         let counts = {};
         try {
-          const { data: rpcCounts, error: rpcErr } = await supabase
-            .rpc('get_event_attendance_counts', { p_event_ids: eventIds });
+          const { data: rpcCounts, error: rpcErr } =
+            await supabase.rpc('get_event_attendance_counts', { p_event_ids: eventIds });
           if (rpcErr) throw rpcErr;
           if (Array.isArray(rpcCounts)) {
             counts = rpcCounts.reduce((acc, r) => {
@@ -196,39 +192,55 @@ const EventsList = ({ isAdmin = false }) => {
             }, {});
           }
         } catch (e) {
-          console.warn('Counts RPC not available, trying event_rsvps:', e?.message || e);
-          const { data: rsvpData, error: rsvpErr } = await supabase
+          console.warn('Counts RPC not available:', e?.message || e);
+        }
+
+        // Fallback: RSVPs
+        try {
+          const { data: rsvpData } = await supabase
             .from('event_rsvps')
             .select('event_id, attendance_status')
             .in('event_id', eventIds);
-          if (!rsvpErr && Array.isArray(rsvpData)) {
-            counts = rsvpData.reduce((acc, r) => {
-              const going = (r.attendance_status || '').toLowerCase() === 'going';
-              if (going) acc[r.event_id] = (acc[r.event_id] || 0) + 1;
+
+          if (Array.isArray(rsvpData)) {
+            const goingSet = new Set(['going','attending','checked_in','attended']);
+            const rsvpCounts = rsvpData.reduce((acc, r) => {
+              const st = (r.attendance_status || '').toLowerCase();
+              if (goingSet.has(st)) acc[r.event_id] = (acc[r.event_id] || 0) + 1;
               return acc;
             }, {});
-          } else {
-            console.warn('event_rsvps not available or error, falling back to event_attendees');
-            const { data: attData, error: attErr } = await supabase
-              .from('event_attendees')
-              .select('event_id,status')
-              .in('event_id', eventIds);
-            if (!attErr && Array.isArray(attData)) {
-              counts = attData.reduce((acc, r) => {
-                const going = (r.status || '').toLowerCase() === 'going';
-                if (going) acc[r.event_id] = (acc[r.event_id] || 0) + 1;
-                return acc;
-              }, {});
-            }
+            for (const id of eventIds) counts[id] = Math.max(counts[id] || 0, rsvpCounts[id] || 0);
           }
+        } catch (e) {
+          console.warn('RSVP counts fallback failed:', e?.message || e);
         }
 
-        const eventsWithCounts = eventsData.map(event => ({
-          ...event,
-          attendees_count: counts[event.id] || 0,
+        // Fallback: attendees table
+        try {
+          const { data: attData } = await supabase
+            .from('event_attendees')
+            .select('event_id, attendance_status')
+            .in('event_id', eventIds);
+
+          if (Array.isArray(attData)) {
+            const goingSet = new Set(['going','attending','checked_in','attended']);
+            const attCounts = attData.reduce((acc, r) => {
+              const st = (r.attendance_status || '').toLowerCase();
+              if (goingSet.has(st)) acc[r.event_id] = (acc[r.event_id] || 0) + 1;
+              return acc;
+            }, {});
+            for (const id of eventIds) counts[id] = Math.max(counts[id] || 0, attCounts[id] || 0);
+          }
+        } catch (e) {
+          console.warn('Attendees table fallback failed:', e?.message || e);
+        }
+
+        const eventsWithCounts = eventsData.map(ev => ({
+          ...ev,
+          attendees_count: counts[ev.id] || 0,
         }));
 
-        // Normalize for calendar consumers
+        // Calendar normalization (unchanged)
         const istZone = 'Asia/Kolkata';
         const normalizeType = (et) => {
           const v = (et || '').toLowerCase();
@@ -242,12 +254,12 @@ const EventsList = ({ isAdmin = false }) => {
           return parts.length ? parts.join(', ') : (ev.location || 'Location not specified');
         };
         const toIST = (iso) => utcToZonedTime(new Date(iso), istZone);
+
         const normalizedForCalendar = eventsWithCounts.map(ev => {
           const isVirtual = !!(ev.is_virtual || (ev.event_type && ev.event_type.toLowerCase() === 'virtual'));
           const category = normalizeType(ev.event_type);
           const start = toIST(ev.start_date);
           const end = toIST(ev.end_date || ev.start_date);
-          const locationText = buildLocation(ev);
           return {
             id: ev.id,
             title: ev.title,
@@ -258,7 +270,7 @@ const EventsList = ({ isAdmin = false }) => {
               ...ev,
               type: isVirtual ? 'virtual' : 'in-person',
               category,
-              location: locationText,
+              location: buildLocation(ev),
               attendees: ev.attendees_count || 0,
             }
           };
@@ -266,11 +278,10 @@ const EventsList = ({ isAdmin = false }) => {
 
         setEvents(eventsWithCounts);
         setCalendarEvents(normalizedForCalendar);
-        return;
+      } else {
+        setEvents([]);
+        setCalendarEvents([]);
       }
-
-      setEvents(eventsData || []);
-      setCalendarEvents([]);
     } catch (err) {
       console.error('Error fetching events:', err);
       setError('Failed to load events');
@@ -282,12 +293,10 @@ const EventsList = ({ isAdmin = false }) => {
   const getEventStatus = (startDate, endDate) => {
     const now = new Date();
     const start = new Date(startDate);
-    const end = new Date(endDate);
-
-    if (isPast(end)) return 'Past';
-    if (isFuture(start)) return 'Upcoming';
-    if (isToday(start) || isThisWeek(start) || (now >= start && now <= end)) return 'Happening Now';
-    return 'Scheduled';
+    const end = endDate ? new Date(endDate) : start; // fallback
+    if (now > end) return 'Past';
+    if (now < start) return 'Upcoming';
+    return 'Happening Now';
   };
 
   const getStatusColor = (status) => {
@@ -323,26 +332,27 @@ const EventsList = ({ isAdmin = false }) => {
     return venue || address || (eventType === 'hybrid' ? 'Hybrid Event' : 'Location not specified');
   };
 
+  const now = new Date();
   const processedEvents = events
-    .filter(event => 
-      event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (event.description && event.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (event.venue && event.venue.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (event.address && event.address.toLowerCase().includes(searchTerm.toLowerCase()))
-    )
+    .filter(ev => {
+      // text search only within the server-filtered set
+      const q = searchTerm.toLowerCase();
+      if (!q) return true;
+      return (
+        ev.title?.toLowerCase().includes(q) ||
+        ev.description?.toLowerCase().includes(q) ||
+        ev.venue?.toLowerCase().includes(q) ||
+        ev.address?.toLowerCase().includes(q)
+      );
+    })
     .sort((a, b) => {
-      switch (sortBy) {
-        case 'start_date_asc':
-          return new Date(a.start_date) - new Date(b.start_date);
-        case 'start_date_desc':
-          return new Date(b.start_date) - new Date(a.start_date);
-        case 'title_asc':
-          return a.title.localeCompare(b.title);
-        case 'popularity_desc':
-          return (b.attendees_count || 0) - (a.attendees_count || 0);
-        default:
-          return 0;
+      if (sortBy === 'upcoming' || sortBy === 'oldest') {
+        return new Date(a.start_date) - new Date(b.start_date);
       }
+      // closed: newest closed first; use end_date || start_date as the effective end
+      const aEnd = new Date(a.end_date || a.start_date);
+      const bEnd = new Date(b.end_date || b.start_date);
+      return bEnd - aEnd;
     });
 
   if (loading) {
@@ -406,7 +416,7 @@ const EventsList = ({ isAdmin = false }) => {
       {/* Filter and Search Controls */}
       <Paper elevation={0} sx={{ p: 2, mb: 4, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={5}>
+          <Grid item xs={12} md={7}>
             <TextField
               fullWidth
               variant="outlined"
@@ -422,41 +432,7 @@ const EventsList = ({ isAdmin = false }) => {
               }}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <FormControl fullWidth variant="outlined">
-              <InputLabel>Filter by Status</InputLabel>
-              <Select
-                value={filter}
-                onChange={handleFilterChange}
-                label="Filter by Status"
-              >
-                <MenuItem value="all">All Events</MenuItem>
-                <MenuItem value="upcoming">Upcoming</MenuItem>
-                <MenuItem value="today">Today</MenuItem>
-                <MenuItem value="past">Past Events</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <FormControl fullWidth variant="outlined">
-              <InputLabel>Event Type</InputLabel>
-              <Select
-                value={eventType}
-                onChange={(e) => setEventType(e.target.value)}
-                label="Event Type"
-              >
-                <MenuItem value="all">All Types</MenuItem>
-                <MenuItem value="workshop">Workshop</MenuItem>
-                <MenuItem value="conference">Conference</MenuItem>
-                <MenuItem value="networking">Networking</MenuItem>
-                <MenuItem value="seminar">Seminar</MenuItem>
-                <MenuItem value="webinar">Webinar</MenuItem>
-                <MenuItem value="social">Social</MenuItem>
-                <MenuItem value="other">Other</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid item xs={12} sm={6} md={2}>
+          <Grid item xs={12} sm={6} md={5}>
             <FormControl fullWidth variant="outlined">
               <InputLabel>Sort By</InputLabel>
               <Select
@@ -464,10 +440,9 @@ const EventsList = ({ isAdmin = false }) => {
                 onChange={(e) => setSortBy(e.target.value)}
                 label="Sort By"
               >
-                <MenuItem value="start_date_asc">Date (Upcoming)</MenuItem>
-                <MenuItem value="start_date_desc">Date (Newest First)</MenuItem>
-                <MenuItem value="title_asc">Title (A-Z)</MenuItem>
-                <MenuItem value="popularity_desc">Popularity</MenuItem>
+                <MenuItem value="oldest">By Oldest</MenuItem>
+                <MenuItem value="upcoming">By Upcoming</MenuItem>
+                <MenuItem value="closed">Closed/Expired Events</MenuItem>
               </Select>
             </FormControl>
           </Grid>
@@ -481,18 +456,15 @@ const EventsList = ({ isAdmin = false }) => {
             No events found
           </Typography>
           <Typography color="textSecondary" paragraph>
-            {searchTerm || filter !== 'all' || eventType !== 'all'
-              ? 'Try adjusting your search or filters'
-              : 'Check back later for upcoming events'}
+            {searchTerm ? 'Try adjusting your search'
+              : 'Check back later for events'}
           </Typography>
-          {(searchTerm || filter !== 'all' || eventType !== 'all') && (
+          {searchTerm && (
             <Button 
               variant="outlined" 
               color="primary"
               onClick={() => {
                 setSearchTerm('');
-                setFilter('all');
-                setEventType('all');
               }}
             >
               Clear all filters

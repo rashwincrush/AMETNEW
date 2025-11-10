@@ -34,3 +34,28 @@ export const hasOverviewData = (j) => {
     (j?.salary_max != null)
   );
 };
+
+// Deadline helpers for expired logic
+export const getDeadline = (row) =>
+  row?.deadline ?? row?.application_deadline ?? row?.expires_at ?? null;
+
+export const isExpired = (row) => {
+  const d = getDeadline(row);
+  return d ? new Date(d) < new Date() : false;
+};
+
+// Minimal client-side sorting (three modes)
+export const sortJobs = (rows, sort = 'newest') => {
+  const byTitleAZ = (a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' });
+  const dateOrNull = (d) => (d ? new Date(d).getTime() : Number.POSITIVE_INFINITY);
+
+  switch (sort) {
+    case 'alpha': // Title (A–Z)
+      return [...rows].sort(byTitleAZ);
+    case 'deadline': // Deadline (Soonest)
+      return [...rows].sort((a, b) => dateOrNull(getDeadline(a)) - dateOrNull(getDeadline(b)));
+    case 'newest': // Date Posted (Newest)
+    default:
+      return [...rows].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+};

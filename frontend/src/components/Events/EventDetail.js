@@ -1,110 +1,150 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../utils/supabase';
 import { format, parseISO, isPast, isFuture } from 'date-fns';
 import { formatInTimeZone, utcToZonedTime } from 'date-fns-tz';
-import { ArrowLeft, Edit, Trash2, Calendar, Clock, MapPin, Tag, Users, CheckCircle, BarChart2 } from 'lucide-react';
+import { ArrowLeft, Edit, Trash2, Calendar, Clock, MapPin, Tag, Users, CheckCircle, BarChart2, Star } from 'lucide-react';
 import SocialShareButtons from '../common/SocialShareButtons';
 import ImageWithFallback from '../common/ImageWithFallback';
+import dayjs from 'dayjs';
+import { useEvent, useMyRsvp, useMyFeedback, useOrganizer, useEventComputedFlags } from '../../hooks/useEventData';
+import { useAuth } from '../../contexts/AuthContext';
 
 const EventDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [event, setEvent] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { user, isAdmin } = useAuth();
+  
+  // Data fetching with React Query
+  const { data: event, isLoading } = useEvent(id);
+  const { data: myRsvp, refetch: refetchRsvp } = useMyRsvp(id);
+  const { data: myFeedback, refetch: refetchFeedback } = useMyFeedback(id);
+  const { data: organizer } = useOrganizer(id);
+  
+  // Local state
   const [error, setError] = useState('');
   const [rsvpLoading, setRsvpLoading] = useState(false);
-  const [rsvpSuccess, setRsvpSuccess] = useState('');
-  const [attendees, setAttendees] = useState([]);
-  const [attendeesOpen, setAttendeesOpen] = useState(false);
-  const [userRsvp, setUserRsvp] = useState(null);
-  const [currentUserId, setCurrentUserId] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [showFeedback, setShowFeedback] = useState(false);
-  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [showRsvpSuccess, setShowRsvpSuccess] = useState(false);
   const [feedbackRating, setFeedbackRating] = useState(0);
   const [feedbackComment, setFeedbackComment] = useState('');
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+  const [attendees, setAttendees] = useState([]);
+  const [attendeesOpen, setAttendeesOpen] = useState(false);
+  const [rsvpBanner, setRsvpBanner] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  
+  // Computed values
+  const { startISO, endISO, eventStarted, eventEnded } = useEventComputedFlags(event);
+  const rsvpStatusVal = myRsvp?.attendance_status?.toLowerCase() || '';
+  const iAmAttendee = ['going', 'attended', 'checked_in', 'attending'].includes(rsvpStatusVal);
+  const canShowFeedback = eventEnded && iAmAttendee && !myFeedback;
+  const isOrganizerOrAdmin = user?.id === event?.organizer_id || !!isAdmin;
 
-  const fetchEventData = useCallback(async () => {
-    try {
-      const { data: eventData, error: eventError } = await supabase
-        .from('events')
-        .select('*')
-        .eq('id', id)
-        .single();
-      if (eventError) throw eventError;
-      setEvent(eventData);
-
-      // First, fetch RSVPs for this event with status 'going'
-      const { data: rsvpsData, error: rsvpsError } = await supabase
-        .from('event_rsvps')
-        .select('id, user_id, attendance_status')
-        .eq('event_id', id)
-        .eq('attendance_status', 'going');
-      
-      if (rsvpsError) throw rsvpsError;
-      
-      if (rsvpsData && rsvpsData.length > 0) {
-        // Get all user IDs from RSVPs
-        const userIds = rsvpsData.map(rsvp => rsvp.user_id);
-        
-        // Then fetch profile data for these users
-        const { data: profilesData, error: profilesError } = await supabase
-          .from('profiles')
-          .select('id, full_name, avatar_url, current_position, role')
-          .in('id', userIds);
-        
-        if (profilesError) throw profilesError;
-        
-        // Combine RSVP data with profile data
-        const attendeesWithProfiles = rsvpsData.map(rsvp => {
-          const profile = profilesData?.find(p => p.id === rsvp.user_id);
-          return {
-            id: rsvp.id,
-            attendance_status: rsvp.attendance_status,
-            profiles: profile || null
-          };
-        });
-        
-        setAttendees(attendeesWithProfiles.filter(a => a.profiles));
-      } else {
-        setAttendees([]);
-      }
-
-    } catch (err) {
-      console.error("Error fetching event data:", err);
-      setError('Failed to fetch event details.');
-    }
-  }, [id]);
-
-  const fetchCurrentUser = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      setCurrentUserId(user.id);
-      const { data: rsvpData, error: rsvpError } = await supabase
-        .from('event_rsvps')
-        .select('*')
-        .eq('event_id', id)
-        .eq('user_id', user.id);
-
-      if (rsvpError) {
-        console.error('Error fetching user RSVP:', rsvpError);
-        setUserRsvp(null);
-      } else {
-        setUserRsvp(rsvpData.length > 0 ? rsvpData[0] : null);
-      }
-
-      const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-      if (profile && ['admin', 'super_admin'].includes(profile.role)) {
-        setIsAdmin(true);
-      }
-    }
-  }, [id]);
-
+  // Realtime subscription for RSVP changes
   useEffect(() => {
-    setLoading(true);
-    Promise.all([fetchEventData(), fetchCurrentUser()]).finally(() => setLoading(false));
-  }, [id, fetchEventData, fetchCurrentUser]);
+    if (!id || !user?.id) return;
+    
+    const channel = supabase
+      .channel(`event_attendees:${id}:${user.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'event_attendees',
+        filter: `event_id=eq.${id}`,
+      }, () => {
+        queryClient.invalidateQueries({ queryKey: ['myRsvp', id] });
+      })
+      .subscribe();
+      
+    return () => {
+      try { supabase.removeChannel(channel); } 
+      catch (e) { console.warn('Failed to remove channel:', e); }
+    };
+  }, [id, user?.id, queryClient]);
+  
+  // Hide success message if event has ended
+  useEffect(() => {
+    if (eventEnded) {
+      setShowRsvpSuccess(false);
+    }
+  }, [eventEnded]);
+
+  // Fetch attendees when component mounts or RSVP status changes
+  useEffect(() => {
+    const fetchAttendees = async () => {
+      if (!id) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('event_attendees')
+          .select(`
+            id,
+            user_id,
+            attendance_status,
+            profiles:profiles(
+              id,
+              full_name,
+              first_name,
+              last_name,
+              avatar_url,
+              role,
+              current_position
+            )
+          `)
+          .eq('event_id', id)
+          .eq('attendance_status', 'going');
+          
+        if (error) throw error;
+        let rows = data || [];
+        const missing = rows.filter(r => !r.profiles && r.user_id).map(r => r.user_id);
+        if (missing.length > 0) {
+          const { data: profs, error: pErr } = await supabase
+            .from('profiles')
+            .select('id, full_name, first_name, last_name, avatar_url, role, current_position')
+            .in('id', Array.from(new Set(missing)));
+          if (!pErr && Array.isArray(profs)) {
+            const pMap = new Map(profs.map(p => [p.id, p]));
+            rows = rows.map(r => (r.profiles ? r : { ...r, profiles: pMap.get(r.user_id) || null }));
+          }
+        }
+        setAttendees(rows);
+      } catch (err) {
+        console.error('Error fetching attendees:', err);
+        setError('Failed to load attendees');
+      }
+    };
+    
+    fetchAttendees();
+    
+    // Set up realtime subscription
+    const channel = supabase
+      .channel(`event-attendees-${id}`)
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'event_attendees', 
+          filter: `event_id=eq.${id}` 
+        }, 
+        () => {
+          fetchAttendees();
+          refetchRsvp();
+        }
+      )
+      .subscribe();
+      
+    return () => {
+      supabase.removeChannel(channel).catch(console.error);
+    };
+  }, [id, refetchRsvp]);
+
+  // Update RSVP banner based on attendance and event status
+  useEffect(() => {
+    setRsvpBanner(iAmAttendee && !eventStarted);
+  }, [iAmAttendee, eventStarted]);
 
   const handleDelete = async () => {
     if (!window.confirm('Are you sure you want to delete this event?')) return;
@@ -118,37 +158,75 @@ const EventDetail = () => {
     }
   };
 
-  const handleRsvp = async (attendance_status) => {
-    if (!currentUserId) return setError('You must be logged in to RSVP.');
+  const handleAttend = async () => {
+    if (!user) return setShowLoginPrompt(true);
+    
     setRsvpLoading(true);
     try {
-      const { error } = await supabase.rpc('rsvp_to_event', { 
-        p_event_id: id, 
-        p_attendee_id: currentUserId, 
-        p_attendance_status_text: attendance_status 
-      });
-
+      const row = { 
+        event_id: id, 
+        user_id: user.id, 
+        attendance_status: 'going' 
+      };
+      
+      const { error } = await supabase
+        .from('event_attendees')
+        .upsert(row, { onConflict: 'event_id,user_id' });
+        
       if (error) throw error;
-
-      setRsvpSuccess(`Successfully RSVP'd as ${attendance_status}!`);
       
-      // Only show feedback option for completed events
-      const isCompleted = event.end_date && isPast(parseISO(event.end_date));
-      if (isCompleted && attendance_status === 'going') {
-        setShowFeedback(true);
-        setFeedbackSubmitted(false);
-      } else {
-        setShowFeedback(false);
-      }
-      
-      await Promise.all([fetchEventData(), fetchCurrentUser()]);
-      setTimeout(() => setRsvpSuccess(''), 3000);
+      setShowRsvpSuccess(true);
+      await refetchRsvp();
     } catch (err) {
       console.error('Error during RSVP:', err);
-      setError('Failed to process your RSVP.');
+      setError('Failed to process your RSVP. Please try again.');
     } finally {
       setRsvpLoading(false);
     }
+  };
+  
+  // Update RSVP status
+  const updateRsvpStatus = async (status) => {
+    if (!user) return setShowLoginPrompt(true);
+    
+    setRsvpLoading(true);
+    try {
+      if (status === 'going') {
+        const { error } = await supabase
+          .from('event_attendees')
+          .upsert(
+            { 
+              event_id: id, 
+              user_id: user.id, 
+              attendance_status: 'going' 
+            },
+            { onConflict: 'event_id,user_id' }
+          );
+        if (error) throw error;
+        setShowRsvpSuccess(true);
+        setRsvpBanner(true);
+      } else {
+        const { error } = await supabase
+          .from('event_attendees')
+          .delete()
+          .eq('event_id', id)
+          .eq('user_id', user.id);
+        if (error) throw error;
+        setShowRsvpSuccess(false);
+        setRsvpBanner(false);
+      }
+      await refetchRsvp();
+    } catch (err) {
+      console.error('Error updating RSVP:', err);
+      setError(`Failed to ${status === 'going' ? 'RSVP to' : 'cancel RSVP for'} this event.`);
+    } finally {
+      setRsvpLoading(false);
+    }
+  };
+
+  // Handle RSVP action
+  const handleRsvp = (status) => {
+    return () => updateRsvpStatus(status);
   };
 
   const getEventStatus = (startDate, endDate) => {
@@ -161,38 +239,146 @@ const EventDetail = () => {
 
   const handleFeedbackSubmit = async (e) => {
     e.preventDefault();
-    if (feedbackRating === 0) {
-      setError('Please provide a rating.');
+    if (!user) return setShowLoginPrompt(true);
+    
+    // Don't submit if no rating is provided
+    if (!feedbackRating) {
+      setError('Please provide a rating before submitting feedback.');
       return;
     }
+    
     setRsvpLoading(true);
     try {
-      const { error } = await supabase.from('event_feedback').insert([
-        {
-          event_id: id,
-          user_id: currentUserId,
-          rsvp_status: userRsvp?.attendance_status || 'unknown',
-          rating: feedbackRating,
-          comment: feedbackComment,
-        },
-      ]);
-      if (error) throw error;
+      const payload = {
+        event_id: id,
+        user_id: user.id,
+        rating: Math.round(Number(feedbackRating)),
+        comments: feedbackComment,
+      };
+      
+      // Upsert fallback when unique constraint may be missing on (event_id,user_id)
+      const { data: existing, error: selErr } = await supabase
+        .from('event_feedback')
+        .select('id')
+        .eq('event_id', id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (selErr) throw selErr;
+      if (existing?.id) {
+        const { error: updErr } = await supabase
+          .from('event_feedback')
+          .update({ rating: payload.rating, comments: payload.comments })
+          .eq('id', existing.id);
+        if (updErr) throw updErr;
+      } else {
+        const { error: insErr } = await supabase
+          .from('event_feedback')
+          .insert(payload);
+        if (insErr) throw insErr;
+      }
+      
+      // Reset form and show success state
       setFeedbackSubmitted(true);
-      setShowFeedback(false);
+      setFeedbackRating(0);
+      setFeedbackComment('');
+      
+      // Refresh feedback data
+      await refetchFeedback();
+      
     } catch (err) {
-      console.error('Error submitting feedback:', err);
-      setError('Failed to submit your feedback.');
+      console.error('Error submitting feedback:', err?.message || err, err);
+      setError('Failed to submit your feedback. Please try again.');
     } finally {
       setRsvpLoading(false);
     }
   };
 
-  if (loading && !event) return <div className="flex justify-center items-center h-screen"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div></div>;
+  const submitFeedback = async ({ rating, comment }) => {
+    if (!user) return setShowLoginPrompt(true);
+    
+    setRsvpLoading(true);
+    try {
+      const payload = {
+        event_id: id,
+        user_id: user.id,
+        rating: Math.round(Number(rating)),
+        comments: comment,
+      };
+      
+      const { data: existing2, error: selErr2 } = await supabase
+        .from('event_feedback')
+        .select('id')
+        .eq('event_id', id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (selErr2) throw selErr2;
+      if (existing2?.id) {
+        const { error: updErr2 } = await supabase
+          .from('event_feedback')
+          .update({ rating: payload.rating, comments: payload.comments })
+          .eq('id', existing2.id);
+        if (updErr2) throw updErr2;
+      } else {
+        const { error: insErr2 } = await supabase
+          .from('event_feedback')
+          .insert(payload);
+        if (insErr2) throw insErr2;
+      }
+      
+      setFeedbackSubmitted(true);
+      await refetchFeedback();
+    } catch (err) {
+      console.error('Error submitting feedback:', err);
+      setError('Failed to submit your feedback. Please try again.');
+    } finally {
+      setRsvpLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (showLoginPrompt) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full text-center">
+          <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100">
+            <svg className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <h2 className="mt-3 text-xl font-medium text-gray-900">Authentication Required</h2>
+          <p className="mt-2 text-gray-600">You need to be logged in to view this event.</p>
+          <div className="mt-6">
+            <Link
+              to="/login"
+              state={{ from: window.location.pathname }}
+              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Log in
+            </Link>
+            <p className="mt-3 text-sm text-gray-500">
+              Don't have an account?{' '}
+              <Link to="/register" className="font-medium text-blue-600 hover:text-blue-500">
+                Sign up
+              </Link>
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (error) return <div className="text-center p-4 text-red-500 bg-red-100 rounded-md">Error: {error}</div>;
   if (!event) return <div className="text-center p-4">Event not found.</div>;
 
   const eventStatus = getEventStatus(event.start_date, event.end_date);
-  const canViewFeedback = (event.end_date && isPast(parseISO(event.end_date))) || event.status === 'completed';
+  const canViewFeedback = eventEnded || event.status === 'completed';
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -296,29 +482,58 @@ const EventDetail = () => {
 
               {/* RSVP & Admin */}
               <div className="md:col-span-1 space-y-4">
-                {(event.organizer_email || event.organizer_phone) && (
+                {(organizer || event.organizer_name || event.organizer_email || event.organizer_phone) && (
                   <div className="bg-gray-50 p-4 rounded-lg border">
-                    <h3 className="font-bold text-lg mb-3">Contact Organizer</h3>
-                    {event.organizer_email && <p className="text-sm text-gray-600 break-all"><strong>Email:</strong> {event.organizer_email}</p>}
-                    {event.organizer_phone && <p className="text-sm text-gray-600 mt-1"><strong>Phone:</strong> {event.organizer_phone}</p>}
+                    <h3 className="font-bold text-lg mb-3">Organizer</h3>
+                    <div className="flex items-center gap-3">
+                      <img src={(organizer?.avatar_url) || '/default-avatar.svg'} alt={(organizer?.name) || 'Organizer'} className="w-10 h-10 rounded-full" />
+                      <div>
+                        {(organizer?.name || event.organizer_name) && <div className="font-medium text-gray-800">{organizer?.name || event.organizer_name}</div>}
+                        {organizer?.company_name && <div className="text-sm text-gray-500">{organizer.company_name}</div>}
+                        {organizer?.current_location && <div className="text-sm text-gray-500">{organizer.current_location}</div>}
+                        {organizer?.graduation_year && <div className="text-xs text-gray-400">Batch of {organizer.graduation_year}</div>}
+                      </div>
+                    </div>
+                    <div className="mt-3 space-y-1">
+                      {(organizer?.email || event.organizer_email) && <a className="text-sm text-blue-600 hover:underline" href={`mailto:${organizer?.email || event.organizer_email}`}>{organizer?.email || event.organizer_email}</a>}
+                      {(organizer?.phone || event.organizer_phone) && <a className="block text-sm text-blue-600 hover:underline" href={`tel:${organizer?.phone || event.organizer_phone}`}>{organizer?.phone || event.organizer_phone}</a>}
+                    </div>
                   </div>
                 )}
 
                 <div className="bg-gray-50 p-4 rounded-lg border">
                   <h3 className="font-bold text-lg mb-3 text-center">RSVP Here</h3>
                   {error && <div className="text-center p-2 mb-3 bg-red-100 text-red-700 rounded">{error}</div>}
-                  {rsvpSuccess && <div className="text-center p-2 mb-3 bg-green-100 text-green-700 rounded">{rsvpSuccess}</div>}
-                  {userRsvp?.attendance_status === 'going' ? (
+                  {rsvpBanner && (
+                    <div className="mb-3 rounded-md border p-3 bg-blue-50 text-blue-800 text-center">
+                      You’re attending. We’ll remind you when it starts.
+                    </div>
+                  )}
+                  {eventEnded ? (
+                    <div className="text-center text-gray-500">Event ended</div>
+                  ) : iAmAttendee && !eventStarted ? (
                     <div className="text-center">
-                      <div className="flex items-center justify-center text-green-600 font-semibold mb-2"><CheckCircle className="w-5 h-5 mr-2"/> You are going!</div>
-                      <button onClick={() => handleRsvp('not_going')} disabled={rsvpLoading} className="text-sm text-red-500 hover:underline">Cancel RSVP</button>
+                      <div className="flex items-center justify-center text-green-600 font-semibold mb-2">
+                        <CheckCircle className="w-5 h-5 mr-2"/> You are going!
+                      </div>
+                      <button 
+                        onClick={handleRsvp('not_going')} 
+                        disabled={rsvpLoading} 
+                        className="text-sm text-red-500 hover:underline"
+                      >
+                        Cancel RSVP
+                      </button>
                     </div>
                   ) : (
-                    <button onClick={() => handleRsvp('going')} disabled={rsvpLoading || (event.end_date && isPast(parseISO(event.end_date)))} className="inline-flex items-center justify-center w-full min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white font-bold hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 disabled:bg-gray-400 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <button 
+                      onClick={handleRsvp('going')} 
+                      disabled={rsvpLoading || eventStarted} 
+                      className="inline-flex items-center justify-center w-full min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white font-bold hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 disabled:bg-gray-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                       {rsvpLoading ? 'Processing...' : 'Attend Event'}
                     </button>
                   )}
-                  {showFeedback && !feedbackSubmitted && event.end_date && isPast(parseISO(event.end_date)) && (
+                  {canShowFeedback && !feedbackSubmitted && (
                     <form onSubmit={handleFeedbackSubmit} className="mt-4 pt-4 border-t">
                       <h4 className="font-bold text-md mb-2 text-center">How was your experience?</h4>
                       <div className="flex justify-center items-center mb-3">
@@ -352,7 +567,7 @@ const EventDetail = () => {
                   )}
                 </div>
 
-                {isAdmin && (
+                {isOrganizerOrAdmin && (
                   <div className="bg-gray-50 p-4 rounded-lg border">
                     <h3 className="font-bold text-lg mb-3 text-center">Admin Actions</h3>
                     <div className="flex flex-col space-y-2">
@@ -402,23 +617,32 @@ const EventDetail = () => {
                   </div>
                   {attendees.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 max-h-96 overflow-auto">
-                      {attendees.map(attendee => (
-                        <Link to={`/profile/${attendee.profiles.id}`} key={attendee.id} className="flex items-center gap-3 p-2 rounded hover:bg-gray-50">
-                          <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-100">
-                            <ImageWithFallback
-                              src={attendee.profiles.avatar_url}
-                              alt={attendee.profiles.full_name}
-                              className="w-12 h-12"
-                              placeholderSrc="/default-avatar.svg"
-                              emptyMessage="Profile image to be uploaded"
-                            />
-                          </div>
-                          <div>
-                            <p className="font-semibold text-sm text-gray-800">{attendee.profiles.full_name}</p>
-                            <p className="text-xs text-gray-500">{attendee.profiles.role || attendee.profiles.current_position}</p>
-                          </div>
-                        </Link>
-                      ))}
+                      {attendees
+                        .filter(a => a && (a.user_id || a.profiles))
+                        .map((attendee) => {
+                          const profile = attendee.profiles || {};
+                          const profileId = attendee.user_id || profile.id;
+                          const name = profile.full_name || [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Attendee';
+                          const role = profile.role || profile.current_position || '';
+                          const avatar = profile.avatar_url;
+                          return (
+                            <Link to={profileId ? `/profile/${profileId}` : '#'} key={attendee.id} className="flex items-center gap-3 p-2 rounded hover:bg-gray-50">
+                              <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-100">
+                                <ImageWithFallback
+                                  src={avatar}
+                                  alt={name}
+                                  className="w-12 h-12"
+                                  placeholderSrc="/default-avatar.svg"
+                                  emptyMessage="Profile image to be uploaded"
+                                />
+                              </div>
+                              <div>
+                                <p className="font-semibold text-sm text-gray-800">{name}</p>
+                                {role && <p className="text-xs text-gray-500">{role}</p>}
+                              </div>
+                            </Link>
+                          );
+                        })}
                     </div>
                   ) : (
                     <p className="text-gray-500">No attendees yet.</p>

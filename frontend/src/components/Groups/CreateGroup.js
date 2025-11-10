@@ -4,7 +4,8 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { can } from '../../utils/permissions';
+import { canCreateGroup } from '../../utils/acl';
+import { createGroup } from '../../api/groups';
 
 const CreateGroup = () => {
   const [name, setName] = useState('');
@@ -17,7 +18,7 @@ const CreateGroup = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (user && !can('groups:create', userRole)) {
+    if (user && !canCreateGroup(userRole)) {
       toast.error('You are not allowed to create a group.');
       navigate('/groups');
     }
@@ -34,43 +35,12 @@ const CreateGroup = () => {
     const toastId = toast.loading('Creating your group...');
 
     try {
-      // Pre-check: ensure group name is available to avoid RPC 409 conflicts
       const nameToCheck = name.trim();
-      const { data: existing, error: checkError } = await supabase
-        .from('groups')
-        .select('id')
-        .ilike('name', nameToCheck)
-        .limit(1);
-      if (!checkError && Array.isArray(existing) && existing.length > 0) {
-        toast.error('Name already in use. Please choose a different name.', { id: toastId });
-        setLoading(false);
-        return;
-      }
-
-      // Use the secure RPC function to create group and add admin in one step
-      const { data, error: createError } = await supabase.rpc('create_group_and_add_admin', {
-        group_name: nameToCheck,
-        group_description: description.trim(),
-        group_is_private: isPrivate,
-        group_tags: tagsInput
-          .split(',')
-          .map(t => t.trim())
-          .filter(Boolean),
-      });
-
-      if (createError) {
-        // Handle duplicate name error gracefully
-        const code = String(createError.code || createError.status || '');
-        const msg = String(createError.message || '');
-        if (code === '23505' || code === '409' || /duplicate key|already exists|unique/i.test(msg)) {
-          toast.error('Name already in use. Please choose a different name.', { id: toastId });
-          return;
-        }
-        throw createError;
-      }
+      const tags = tagsInput.split(',').map(t => t.trim()).filter(Boolean);
+      const id = await createGroup({ name: nameToCheck, description: description.trim(), isPrivate, tags });
 
       // Optional avatar upload after group creation
-      if (avatarFile && data) {
+      if (avatarFile && id) {
         try {
           // Validate image type and size (max 2MB)
           const ACCEPT = ['image/jpeg', 'image/png'];
@@ -85,7 +55,7 @@ const CreateGroup = () => {
             setLoading(false);
             return;
           }
-          const filePath = `${data}/avatar.jpg`;
+          const filePath = `${id}/avatar.jpg`;
           const { error: uploadError } = await supabase.storage
             .from('group_avatars')
             .upload(filePath, avatarFile, {
@@ -108,7 +78,7 @@ const CreateGroup = () => {
                 group_avatar_url: pub?.publicUrl || null,
                 updated_at: new Date().toISOString(),
               })
-              .eq('id', data);
+              .eq('id', id);
             if (updErr) {
               console.warn('Failed to persist group avatar URL:', updErr);
             }
@@ -119,7 +89,7 @@ const CreateGroup = () => {
       }
 
       toast.success('Group created successfully!', { id: toastId });
-      navigate(`/groups/${data}`);
+      navigate(`/groups/${id}/manage`);
     } catch (err) {
       console.error("Error creating group:", err);
       const msg = String(err?.message || '');

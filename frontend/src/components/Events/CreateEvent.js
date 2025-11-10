@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { formatDate } from '../../utils/dateUtils';
 import { 
   PhotoIcon,
   CalendarIcon,
@@ -163,16 +164,25 @@ const CreateEvent = () => {
         const today = new Date();
         today.setHours(0, 0, 0, 0); // Compare date part only
         // Check if eventDate is a valid date before comparison
-        if (!isNaN(eventDate.getTime()) && eventDate < today) {
-          newErrors.date = 'Event date cannot be in the past';
+        if (!isNaN(eventDate.getTime())) {
+          if (eventDate < today) {
+            newErrors.date = 'Event date cannot be in the past';
+          }
+        } else {
+          newErrors.date = 'Invalid date format';
         }
       } else {
         // If date is not set, it's already caught by '!formData.date' check
       }
 
       // Validate end time is after start time
-      if (formData.startTime && formData.endTime && formData.startTime >= formData.endTime) {
-        newErrors.endTime = 'End time must be after start time';
+      if (formData.startTime && formData.endTime) {
+        const [startHours, startMinutes] = formData.startTime.split(':').map(Number);
+        const [endHours, endMinutes] = formData.endTime.split(':').map(Number);
+        
+        if (startHours > endHours || (startHours === endHours && startMinutes >= endMinutes)) {
+          newErrors.endTime = 'End time must be after start time';
+        }
       }
 
       setErrors(newErrors);
@@ -209,16 +219,25 @@ const CreateEvent = () => {
 
       console.log('Image processing complete');
       console.log('Creating event data object');
+      // Create date objects in local timezone first
+      const startDate = new Date(formData.date);
+      const [startHours, startMinutes] = formData.startTime.split(':').map(Number);
+      const [endHours, endMinutes] = formData.endTime.split(':').map(Number);
+      
+      // Set the time components
+      startDate.setHours(startHours, startMinutes, 0, 0);
+      const endDate = new Date(startDate);
+      endDate.setHours(endHours, endMinutes, 0, 0);
+      
       const eventData = {
         title: formData.title,
         description: formData.description,
         // Employers create 'recruitment' events by default, else use chosen category
         category: userRole === 'employer' ? 'recruitment' : formData.category,
         event_type: formData.type,
-        // Persist timestamps in UTC to avoid client timezone shifts
-        // Build from local date+time, then convert to ISO (UTC)
-        start_date: new Date(`${formData.date}T${formData.startTime}:00`).toISOString(),
-        end_date: new Date(`${formData.date}T${formData.endTime}:00`).toISOString(),
+        // Convert to ISO strings (in UTC)
+        start_date: startDate.toISOString(),
+        end_date: endDate.toISOString(),
         venue: formData.venue,
         address: formData.address,
         virtual_link: formData.virtualLink,
@@ -552,29 +571,7 @@ const CreateEvent = () => {
             )}
           </div>
 
-          <div className="mt-6 space-y-3">
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                name="requiresApproval"
-                checked={formData.requiresApproval}
-                onChange={handleInputChange}
-                className="mr-2"
-              />
-              <span className="text-sm text-gray-700">Require admin approval for registrations</span>
-            </label>
-
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                name="allowWaitingList"
-                checked={formData.allowWaitingList}
-                onChange={handleInputChange}
-                className="mr-2"
-              />
-              <span className="text-sm text-gray-700">Allow waiting list when event is full</span>
-            </label>
-          </div>
+          
         </div>
 
         {/* Event Image */}

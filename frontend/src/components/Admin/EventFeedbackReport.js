@@ -67,7 +67,7 @@ const EventFeedbackReport = () => {
                 ))}
                 <span className="ml-2 text-gray-600">({item.rating}/5)</span>
               </div>
-              {item.comment && <p className="text-gray-700 mt-2 pl-1">{item.comment}</p>}
+              {item.comments && <p className="text-gray-700 mt-2 pl-1">{item.comments}</p>}
               <p className="text-xs text-gray-400 mt-2">RSVP Status: {item.rsvp_status}</p>
             </div>
           ))

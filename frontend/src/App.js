@@ -104,6 +104,7 @@ import MyMentorship from './components/Mentorship/MyMentorship.js';
 import MentorshipChat from './components/Mentorship/MentorshipChat.js';
 import HelpCenter from './pages/HelpCenter';
 import ContactUs from './pages/ContactUs';
+import NotificationSettings from './pages/Settings/NotificationSettings';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -196,6 +197,7 @@ function AppContent() {
             <Route path="/profile" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="access:profile_settings"><Profile user={profile || user} /></ProtectedRoute></RequireCompleteProfile>} />
             {/* Security settings and password management */}
             <Route path="/profile/security" element={<ProtectedRoute requiredPermission="access:profile_settings"><Security /></ProtectedRoute>} />
+            <Route path="/settings/notifications" element={<ProtectedRoute requiredPermission="access:profile_settings"><NotificationSettings /></ProtectedRoute>} />
             {/* Allow password update page for logged-in users too (e.g., via header button) */}
             <Route path="/update-password" element={<UpdatePassword />} />
             <Route path="/companies/:id" element={<PublicCompanyProfile />} />

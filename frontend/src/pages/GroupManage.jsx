@@ -13,11 +13,12 @@ import {
 import { supabase } from '../utils/supabase';
 import { ArrowLeft, Shield, UserMinus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { canManageGroup } from '../utils/acl';
 
 export default function GroupManage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { profile } = useAuth();
+  const { profile, user, userRole } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [group, setGroup] = useState(null);
@@ -67,20 +68,20 @@ export default function GroupManage() {
       try {
         const siteAdmin = profile?.is_admin === true;
         setIsSiteAdmin(siteAdmin);
-        let groupAdmin = false;
         const { data: mem } = await getMyGroupMembership(id);
-        if (mem?.role === 'admin') groupAdmin = true;
-        setIsGroupAdmin(groupAdmin);
-        setAuthorized(siteAdmin || groupAdmin);
-        if (!(siteAdmin || groupAdmin)) {
+        const can = canManageGroup({ id: user?.id, role: userRole }, group || {}, mem || undefined);
+        setIsGroupAdmin(mem?.role === 'admin');
+        setAuthorized(!!can);
+        if (!can) {
           toast.error('You are not authorized to manage this group.');
+          navigate(`/groups/${id}`);
         }
       } catch (e) {
         console.error('Authz check failed', e);
       }
     };
     checkAuthz();
-  }, [id, profile]);
+  }, [id, profile, user?.id, userRole, group, navigate]);
 
   const ensureAnotherAdminExists = async (excludingUserId) => {
     const { count, error } = await supabase

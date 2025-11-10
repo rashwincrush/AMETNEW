@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import NotificationBell from '../Notifications/NotificationBell';
+import Bell from '../Notifications/Bell';
 import { 
   Bars3Icon,
   XMarkIcon
@@ -104,7 +104,7 @@ const Header = ({ user }) => {
         <div className="flex items-center space-x-4">
 
           {/* Notifications */}
-          <NotificationBell currentUser={currentUser} />
+          <Bell />
 
           {/* User Menu */}
           <div className="relative" ref={userMenuRef}>

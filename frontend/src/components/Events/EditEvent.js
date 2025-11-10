@@ -39,7 +39,6 @@ const EditEvent = () => {
     maxAttendees: '',
     price: '',
     priceType: 'free',
-    requiresApproval: false,
     tags: '',
     organizerName: '',
     organizerEmail: '',
@@ -106,7 +105,6 @@ const EditEvent = () => {
         maxAttendees: data.max_attendees || '',
         price: data.price || '',
         priceType: data.price > 0 ? 'paid' : 'free',
-        requiresApproval: data.requires_approval || false,
         tags: Array.isArray(data.tags) ? data.tags.join(', ') : (data.tags || ''),
         organizerName: data.organizer_name || '',
         organizerEmail: data.organizer_email || '',
@@ -217,7 +215,7 @@ const EditEvent = () => {
     // Updated allowed fields based on actual schema
     const allowed = [
       'title', 'description', 'long_description', 'start_date', 'end_date', 'venue', 'address',
-      'virtual_link', 'max_attendees', 'price', 'requires_approval',
+      'virtual_link', 'max_attendees', 'price',
       'tags', 'category', 'event_type', 'organizer_name', 'organizer_email', 'organizer_phone',
       'agenda', 'featured_image_url', 'updated_at', 'updated_by'
     ];
@@ -250,7 +248,6 @@ const EditEvent = () => {
         virtual_link: formData.virtualLink,
         max_attendees: formData.maxAttendees ? parseInt(formData.maxAttendees) : null,
         price: formData.priceType === 'paid' && formData.price ? parseFloat(formData.price) : 0,
-        requires_approval: formData.requiresApproval,
         tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
         organizer_name: formData.organizerName,
         organizer_email: formData.organizerEmail,

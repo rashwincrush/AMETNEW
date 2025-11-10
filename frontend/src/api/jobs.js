@@ -36,3 +36,24 @@ export async function fetchJobById(jobId) {
   if (error) throw error;
   return data;
 }
+
+// Expired jobs feeds (admin/employer)
+export async function fetchExpiredJobsAdmin({ limit = 50, offset = 0, search = null }) {
+  const { data, error } = await supabase.rpc('get_expired_jobs_admin', {
+    p_limit: limit,
+    p_offset: offset,
+    p_search: search,
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchMyExpiredJobs({ limit = 50, offset = 0, search = null }) {
+  const { data, error } = await supabase.rpc('get_my_expired_jobs', {
+    p_limit: limit,
+    p_offset: offset,
+    p_search: search,
+  });
+  if (error) throw error;
+  return data ?? [];
+}

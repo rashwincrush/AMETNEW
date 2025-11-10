@@ -1,54 +1,84 @@
-import React, { useState, useEffect } from 'react';
-import { fetchJobsFeed } from '../../api/jobs';
-import { Box, Typography, Paper, TextField, Grid, CircularProgress } from '@mui/material';
-import JobCard from './JobCard'; // Import the new component
+import React, { useMemo, useState } from 'react';
+import { Box, Typography, Grid, CircularProgress } from '@mui/material';
+import JobCard from './JobCard.jsx';
+import JobsFilterBar from './JobsFilterBar.jsx';
+import { useAuth } from '../../contexts/AuthContext';
+import { isAdmin, isEmployer } from '../../utils/roles';
+import { sortJobs } from '../../utils/jobs';
+import { useExpiredJobs } from '../../hooks/useExpiredJobs';
+import { useOpenJobs } from '../../hooks/useOpenJobs';
 
 const JobsList = () => {
-  const [jobs, setJobs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { user, userRole } = useAuth();
+  const uid = user?.id ?? null;
+
+  // Minimal controls
   const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('newest'); // 'newest' | 'deadline' | 'alpha'
+  const [expiredOnly, setExpiredOnly] = useState(false);
 
-  useEffect(() => {
-    fetchJobs();
-  }, []);
+  const canSeeExpired = isAdmin(userRole) || isEmployer(userRole);
 
-  const fetchJobs = async () => {
-    try {
-      setLoading(true);
-      const data = await fetchJobsFeed();
-      setJobs(data || []);
-    } catch (err) {
-      setError('Failed to load jobs');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Expired list (RPC) only when toggle ON and role allowed
+  const expiredQuerySearch = expiredOnly && canSeeExpired ? (search || null) : null;
+  const {
+    data: expiredData,
+    fetchNextPage: fetchMoreExpired,
+    hasNextPage: hasMoreExpired,
+    isLoading: loadingExpired,
+    isError: errorExpired,
+  } = useExpiredJobs({ role: userRole, search: expiredQuerySearch });
 
-  const filteredJobs = jobs.filter(job =>
-    job.title?.toLowerCase().includes(search.toLowerCase()) ||
-    job.company_name?.toLowerCase().includes(search.toLowerCase())
-  );
+  // Open/all list (RLS + client filter) when toggle OFF
+  const {
+    data: openData,
+    fetchNextPage: fetchMoreOpen,
+    hasNextPage: hasMoreOpen,
+    isLoading: loadingOpen,
+    isError: errorOpen,
+  } = useOpenJobs({ role: userRole, search });
+
+  // Flatten and map viewer id for ownership checks in cards
+  const expiredRows = useMemo(() => {
+    if (!expiredOnly || !canSeeExpired) return [];
+    const flat = (expiredData?.pages ?? []).flat();
+    return uid ? flat.map(r => ({ ...r, __auth_user_id: uid })) : flat;
+  }, [expiredOnly, canSeeExpired, expiredData, uid]);
+
+  const openRows = useMemo(() => {
+    if (expiredOnly) return [];
+    const flat = (openData?.pages ?? []).flat();
+    return uid ? flat.map(r => ({ ...r, __auth_user_id: uid })) : flat;
+  }, [expiredOnly, openData, uid]);
+
+  const rows = useMemo(() => {
+    const base = expiredOnly && canSeeExpired ? expiredRows : openRows;
+    return sortJobs(base, sort);
+  }, [expiredOnly, canSeeExpired, expiredRows, openRows, sort]);
+
+  const loading = expiredOnly ? loadingExpired : loadingOpen;
+  const error = expiredOnly ? errorExpired : errorOpen;
+  const fetchMore = expiredOnly ? fetchMoreExpired : fetchMoreOpen;
+  const hasMore = expiredOnly ? hasMoreExpired : hasMoreOpen;
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', py: 4, px: 2 }}>
       <Typography variant="h4" sx={{ mb: 3, fontWeight: 'bold' }}>Job Openings</Typography>
-      <Paper sx={{ p: 2, mb: 4, borderRadius: 2 }}>
-        <TextField
-          label="Search by title or company"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          fullWidth
-          variant="outlined"
+      <div className="mb-4">
+        <JobsFilterBar
+          role={userRole}
+          search={search} setSearch={setSearch}
+          sort={sort} setSort={setSort}
+          expiredOnly={expiredOnly} setExpiredOnly={setExpiredOnly}
         />
-      </Paper>
+      </div>
       {loading ? (
         <Box display="flex" justifyContent="center" alignItems="center" minHeight="300px">
           <CircularProgress />
         </Box>
       ) : error ? (
         <Typography color="error">{error}</Typography>
-      ) : filteredJobs.length === 0 ? (
+      ) : rows.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">
           <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
             <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -60,21 +90,20 @@ const JobsList = () => {
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <p className="text-gray-600">
-              {filteredJobs.length === jobs.length
-                ? `Showing all ${jobs.length} jobs`
-                : `Showing ${filteredJobs.length} of ${jobs.length} jobs`
-              }
-            </p>
-          </div>
           <Grid container spacing={3}>
-            {filteredJobs.map(job => (
-              <Grid item xs={12} sm={6} md={4} key={job.id}>
-                <JobCard job={job} />
+            {rows.map(row => (
+              <Grid item xs={12} sm={6} md={4} key={row.id}>
+                <JobCard row={row} role={userRole} />
               </Grid>
             ))}
           </Grid>
+          {hasMore && (
+            <div className="mt-6 flex justify-center">
+              <button onClick={() => fetchMore()} className="px-4 py-2 border rounded-lg">
+                Load more
+              </button>
+            </div>
+          )}
         </div>
       )}
     </Box>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon, CalendarIcon, UserCircleIcon, BriefcaseIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import { formatDate, formatDateOnly } from '../../utils/dateUtils';
 
 const ContentDetailsModal = ({ item, isOpen, onClose }) => {
   if (!item) return null;
@@ -31,9 +32,21 @@ const ContentDetailsModal = ({ item, isOpen, onClose }) => {
           <dl className="space-y-4">
              <div className="flex items-start">
               <CalendarIcon className="h-5 w-5 text-gray-400 mr-3 mt-1" />
-              <div>
-                <dt className="text-sm font-medium text-gray-500">Event Date</dt>
-                <dd className="text-sm text-gray-900">{new Date(item.event_date).toLocaleDateString()}</dd>
+              <div className="space-y-2">
+                <div>
+                  <dt className="text-sm font-medium text-gray-500">Start Date</dt>
+                  <dd className="text-sm text-gray-900">
+                    {item.start_date ? formatDate(item.start_date) : 'N/A'}
+                  </dd>
+                </div>
+                {item.end_date && (
+                  <div>
+                    <dt className="text-sm font-medium text-gray-500">End Date</dt>
+                    <dd className="text-sm text-gray-900">
+                      {formatDate(item.end_date)}
+                    </dd>
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-start">
@@ -73,7 +86,7 @@ const ContentDetailsModal = ({ item, isOpen, onClose }) => {
                     <span>{item.creator?.first_name || 'Unknown'} {item.creator?.last_name || ''}</span>
                     <span className="text-gray-300">|</span>
                     <CalendarIcon className="h-5 w-5" />
-                    <span>{new Date(item.created_at).toLocaleString()}</span>
+                    <span>{formatDate(item.created_at)}</span>
                   </div>
                 </div>
 

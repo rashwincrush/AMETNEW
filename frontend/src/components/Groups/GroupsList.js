@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase, fetchGroups, joinGroup, leaveGroup, requestGroupMembership } from '../../utils/supabase';
 import { fetchMembershipMap } from '../../utils/memberships';
 import { useAuth } from '../../contexts/AuthContext';
-import { can } from '../../utils/permissions';
+import { canCreateGroup } from '../../utils/acl';
 import { Users, Search, Tag, Calendar, Filter } from 'lucide-react';
 import ImageWithFallback from '../common/ImageWithFallback';
 
@@ -46,19 +46,8 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
         setImgSrc(`${group.group_avatar_url}${cb}`);
         return;
       }
-      try {
-        const key = `${group.id}/avatar.jpg`;
-        const { data, error } = await supabase.storage
-          .from('group_avatars')
-          .createSignedUrl(key, 3600);
-        if (!error && data?.signedUrl) {
-          setImgSrc(data.signedUrl);
-        } else {
-          setImgSrc('');
-        }
-      } catch {
-        setImgSrc('');
-      }
+      // No stored URL; skip signed URL attempts to avoid noisy 400s for missing/private objects
+      setImgSrc('');
     };
     build();
   }, [group?.group_avatar_url, group?.updated_at, group?.id]);
@@ -367,7 +356,7 @@ const GroupsList = () => {
     <div className="container mx-auto p-4 md:p-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800 mb-4 md:mb-0">Networking Groups</h1>
-        {user && can('groups:create', userRole) && (
+        {user && canCreateGroup(userRole) && (
           <Link
             to="/groups/new"
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105"
