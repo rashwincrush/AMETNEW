@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { toast } from 'react-hot-toast';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { 
@@ -37,6 +38,13 @@ import ShareButtons from '../common/ShareButtons';
 import ImageWithFallback from '../common/ImageWithFallback';
 import { format } from 'date-fns';
 import CommentsThread from './CommentsThread';
+import { joinGroupV2 } from '../../api/groups';
+import { ROLE_LABELS } from '../../utils/roles';
+import { canPostToGroup } from '../../utils/acl';
+import { getFriendlyErrorMessage } from '../../utils/errors';
+import { isMember as checkMemberPresence } from '../../utils/membershipPresence';
+
+// Removed local roleLabel; use ROLE_LABELS for consistency
 
 // Local helper to avoid importing from ignored lib/membership in Vercel builds
 async function getMyMembership(supabaseClient, groupId) {
@@ -55,12 +63,13 @@ async function getMyMembership(supabaseClient, groupId) {
 
 const GroupDetail = () => {
   const { id } = useParams();
-  const { user, profile } = useAuth();
+  const { user, profile, userRole } = useAuth();
   const [group, setGroup] = useState(null);
   const [posts, setPosts] = useState([]);
   const [isMember, setIsMember] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [members, setMembers] = useState([]);
+  const [memberCount, setMemberCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [newPostContent, setNewPostContent] = useState('');
@@ -72,6 +81,7 @@ const GroupDetail = () => {
   const [postImagePreview, setPostImagePreview] = useState(null);
   const [uploadingPost, setUploadingPost] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [joinPending, setJoinPending] = useState(false);
   const [memberToRemove, setMemberToRemove] = useState(null);
   const [postToDelete, setPostToDelete] = useState(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -106,13 +116,19 @@ const GroupDetail = () => {
       const { data: groupData, error: groupError } = await fetchGroupDetails(id);
       if (groupError) throw groupError;
       setGroup(groupData);
+      // Initialize members from fetched group data (if present) so count shows immediately
+      if (Array.isArray(groupData?.members)) {
+        setMembers(groupData.members);
+        setMemberCount(groupData.members.length || 0);
+      }
       
-      // Determine membership and admin using new helper
+      // Determine membership presence using group_memberships and admin role via group_members
       let memberCheck = false;
       let adminCheck = false;
       if (user?.id) {
+        const presence = await checkMemberPresence(supabase, id, user.id);
+        memberCheck = !!presence;
         const mem = await getMyMembership(supabase, id);
-        memberCheck = !!mem;
         const isSiteAdmin = profile?.is_admin === true;
         adminCheck = (mem?.role === 'admin') || isSiteAdmin;
       }
@@ -120,6 +136,17 @@ const GroupDetail = () => {
       setIsAdmin(adminCheck);
 
       // console debug removed to avoid referencing undefined variables
+
+      // Fetch a lightweight members count (head-only) for the header tab badge
+      try {
+        const { count } = await supabase
+          .from('group_members')
+          .select('user_id', { count: 'exact', head: true })
+          .eq('group_id', id);
+        if (typeof count === 'number') setMemberCount(count);
+      } catch (e) {
+        // ignore count failures; UI will fall back
+      }
 
       // Fetch posts if user is a member or the group is public (paged)
       if (memberCheck || !groupData.is_private) {
@@ -183,6 +210,10 @@ const GroupDetail = () => {
         window.location.href = `/login?redirect=/groups/${id}`;
         return;
       }
+      if (userRole === 'employer') {
+        setError('Employers cannot perform this action.');
+        return;
+      }
       // Enforce showJoin/showLeave rules
       const isSiteAdmin = profile?.is_admin === true;
       const isApproved = group.is_approved === true;
@@ -203,59 +234,28 @@ const GroupDetail = () => {
         }
       }
       
-      // Private group: submit a membership request for non-admins
-      if (!isMember && isPrivate && !isAdmin) {
-        const { error } = await requestGroupMembership(id);
-        if (error) {
-          if (String(error.code) === '23505' || error.status === 409) {
-            setError("Your request is already pending or you're already a member.");
-          } else if (String(error.code) === '42501') {
-            setError("You don't have permission to request this group.");
-          } else {
-            setError(error.message);
-          }
+      // Private or public join via RPC v2
+      if (!isMember) {
+        const status = await joinGroupV2(id);
+        if (status === 'active') {
+          toast.success('Joined group');
+          setJoinPending(false);
+          await loadGroupData();
         } else {
-          setError('Join request sent to group admins.');
+          // pending
+          setJoinPending(true);
+          toast.success('Request sent');
         }
         return;
       }
 
-      if (!isMember && !showJoin) return; // no-op if join not allowed
-      if (isMember && !showLeave) return;  // no-op if leave not allowed
-
-      const action = isMember ? leaveGroup : joinGroup;
-      
-      // For joining: only pass group ID (backend handles current user)
-      // For leaving: pass both group ID and user ID
-      const { error } = isMember 
-        ? await leaveGroup(id, user.id)
-        : await joinGroup(id);
-      
-      if (error) {
-        const code = String(error.code || '');
-        const msg = String(error.message || '');
-        if (code === "23505" || error.status === 409) {
-          setError("You're already a member of this group");
-        } else if (code === "42501" || /permission denied/i.test(msg)) {
-          setError("You don't have permission to join this group");
-        } else if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
-          setError('This group is currently not available. It may be pending review or archived.');
-        } else {
-          setError('Unable to complete this action right now. Please try again.');
-        }
-      } else {
-        // Toggle membership status and refresh data
-        setIsMember(!isMember);
-        loadGroupData();
-      }
+      // Leave (block last admin handled server-side; we still run UI check above)
+      const { error } = await leaveGroup(id, user.id);
+      if (error) throw error;
+      await loadGroupData();
     } catch (err) {
       console.error("Error handling membership change:", err);
-      const msg = String(err?.message || '');
-      if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
-        setError('This action is not available right now. The group may be pending review or archived.');
-      } else {
-        setError("An unexpected error occurred. Please try again.");
-      }
+      setError(getFriendlyErrorMessage(err, 'An unexpected error occurred. Please try again.'));
     }
   };
 
@@ -488,6 +488,13 @@ const GroupDetail = () => {
     }
     e.preventDefault();
     if (!newPostContent.trim() && !postImage) return;
+    // Respect posting policy: archived or admin-only
+    const isSiteAdmin = profile?.is_admin === true;
+    const me = isAdmin ? { role: 'admin', status: 'active' } : (isMember ? { role: 'member', status: 'active' } : null);
+    if (userRole === 'employer' || !canPostToGroup(group || {}, !!isSiteAdmin, me || undefined)) {
+      setError('You don’t have permission for that.');
+      return;
+    }
     
     setUploadingPost(true);
     try {
@@ -511,7 +518,7 @@ const GroupDetail = () => {
       removeSelectedImage();
     } catch (err) {
       console.error("Error creating post:", err);
-      setError("Failed to create post.");
+      setError(getFriendlyErrorMessage(err, 'Failed to create post.'));
     } finally {
       setUploadingPost(false);
     }
@@ -520,6 +527,39 @@ const GroupDetail = () => {
   if (loading) return <div className="flex justify-center items-center h-screen"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div></div>;
   if (error) return <div className="text-red-500 text-center p-4">Error: {error}</div>;
   if (!group) return <div className="text-center p-4">Not available or archived.</div>;
+
+  // Private route guard: block non-members (except site admins) from viewing private groups
+  const isSiteAdmin = profile?.is_admin === true;
+  if (group.is_private && !isMember && !isSiteAdmin) {
+    return (
+      <div className="container mx-auto p-6">
+        <Link to="/groups" className="flex items-center text-sm font-medium text-gray-600 hover:text-gray-900 mb-4">
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to All Groups
+        </Link>
+        <div className="bg-white rounded-lg shadow-md p-8 text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Access denied</h1>
+          <p className="text-gray-600 mb-6">This is a private group. You must be a member to view its content.</p>
+          {userRole !== 'employer' && (
+            <button
+              onClick={async () => {
+                try {
+                  const { error } = await requestGroupMembership(id);
+                  if (error) throw error;
+                  alert('Join request sent to group admins.');
+                } catch (e) {
+                  alert('Failed to send join request.');
+                }
+              }}
+              className="px-4 py-2 rounded bg-gray-900 text-white"
+            >
+              Request to join
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-gray-100 min-h-screen">
@@ -726,21 +766,22 @@ const GroupDetail = () => {
             </div>
             
             <div className="flex-shrink-0 mt-4 md:mt-0 md:ml-4 flex items-center gap-2">
-              {(() => {
-                const isSiteAdmin = profile?.is_admin === true;
-                const isApproved = group.is_approved === true;
-                const isPrivate = group.is_private === true;
-                const showManage = isAdmin && !group.is_archived;
-                const showJoin = !group.is_archived && !isMember && isApproved && !isPrivate;
-                const showLeave = !group.is_archived && isMember && !isAdmin;
-                const showRequest = !group.is_archived && !isMember && isPrivate && !isAdmin;
-                return (
-                  <>
+                  {(() => {
+                    const isSiteAdmin = profile?.is_admin === true;
+                    const isApproved = group.is_approved === true;
+                    const isPrivate = group.is_private === true;
+                    const showManage = isAdmin && !group.is_archived;
+                    const showJoin = userRole !== 'employer' && !group.is_archived && !isMember && isApproved && !isPrivate;
+                    const showLeave = !group.is_archived && isMember && !isAdmin;
+                    const showRequest = userRole !== 'employer' && !group.is_archived && !isMember && isPrivate && !isAdmin;
+                    return (
+                      <>
                     {showJoin && (
                       <button 
                         onClick={handleMembership}
-                        className="px-6 py-2 rounded-lg font-semibold text-white transition-all bg-blue-600 hover:bg-blue-700">
-                        Join Group
+                        disabled={joinPending}
+                        className={`px-6 py-2 rounded-lg font-semibold text-white transition-all ${joinPending ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                        {joinPending ? 'Request sent' : 'Join Group'}
                       </button>
                     )}
                     {showLeave && (
@@ -749,6 +790,9 @@ const GroupDetail = () => {
                         className="px-6 py-2 rounded-lg font-semibold text-white transition-all bg-red-500 hover:bg-red-600">
                         Leave Group
                       </button>
+                    )}
+                    {!showJoin && !showLeave && isMember && (
+                      <span className="px-3 py-1 rounded bg-gray-100 text-gray-600 text-sm">Member</span>
                     )}
                     {showRequest && (
                       <button 
@@ -799,7 +843,7 @@ const GroupDetail = () => {
           <div className="border-b border-gray-200">
             <nav className="-mb-px flex space-x-8" aria-label="Tabs">
               <button onClick={() => setActiveTab('posts')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'posts' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}><MessageSquare className="inline-block w-5 h-5 mr-2"/>Posts</button>
-              <button onClick={() => setActiveTab('members')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'members' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}><Users className="inline-block w-5 h-5 mr-2"/>Members ({members.length})</button>
+              <button onClick={() => setActiveTab('members')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'members' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}><Users className="inline-block w-5 h-5 mr-2"/>Members ({memberCount || members?.length || group?.members?.length || 0})</button>
               <button onClick={() => setActiveTab('about')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'about' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}><Info className="inline-block w-5 h-5 mr-2"/>About</button>
             </nav>
           </div>
@@ -904,15 +948,7 @@ const GroupDetail = () => {
                                 <Trash2 size={18} />
                               </button>
                             )}
-                            {post.user_id !== user.id && (
-                              <button
-                                onClick={() => openReportModal(post.id)}
-                                className="text-orange-500 hover:text-orange-700"
-                                title="Report post"
-                              >
-                                <Shield size={18} />
-                              </button>
-                            )}
+                            {/* Report post option removed */}
                           </div>
                         </div>
 
@@ -962,6 +998,11 @@ const GroupDetail = () => {
                       className="w-20 h-20 rounded-full mx-auto mb-2"
                     />
                     <p className="font-semibold">{member.user.full_name}</p>
+                    <p className="text-sm text-gray-600">
+                      {(ROLE_LABELS[member?.user?.role] || 'Alumni')}
+                      {" • "}
+                      {member.role === 'admin' ? 'Group Admin' : 'Member'}
+                    </p>
                   </div>
                   
                   {/* Remove member button (admin only, can't remove self or other admins) */}

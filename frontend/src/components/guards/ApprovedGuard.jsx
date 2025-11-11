@@ -1,6 +1,7 @@
 import React from 'react';
 import { useApproval } from '../../hooks/useApproval';
 import { useAuth } from '../../contexts/AuthContext';
+import { isAdminLike } from '../../utils/roles';
 
 // Guard component to restrict access based on approval status
 export default function ApprovedGuard({
@@ -17,12 +18,13 @@ export default function ApprovedGuard({
     isApprovedMentee,
     isApprovedEmployer,
   } = useApproval();
-  const { isAdmin } = useAuth();
+  const { getUserRole } = useAuth();
 
   if (loading) return skeleton;
 
-  // Admins bypass approval checks
-  if (isAdmin) return <>{children}</>;
+  // Admin-like roles bypass approval checks
+  const role = getUserRole ? getUserRole() : undefined;
+  if (isAdminLike(role)) return <>{children}</>;
 
   const allowed =
     require === 'approved' ? isApproved :

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { supabase, createThread, onPostgresChangesOnce, checkConnectionStatus } from '../../utils/supabase';
+import { supabase, createThread, checkConnectionStatus } from '../../utils/supabase';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { idempotentConnect, getLatestEdge, acceptPending, declinePending, cancelPending } from '../../utils/connections';
 import { 
@@ -11,10 +11,11 @@ import {
 import toast from 'react-hot-toast';
 import MessageBubble from './MessageBubble';
 import { format } from 'date-fns';
-import { getDisconnectCooldown, setDisconnectCooldown, clearDisconnectCooldown, formatCooldownTime } from '../../utils/ui';
+import { getDisconnectCooldown, clearDisconnectCooldown, formatCooldownTime } from '../../utils/ui';
 import AvatarComponent from '../common/Avatar';
+import { useDmRealtime } from '../../hooks/useDmRealtime';
 
-const ChatWindow = ({ thread, currentUser }) => {
+const ChatWindow = ({ thread, currentUser, onMessageSent }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,12 +33,8 @@ const ChatWindow = ({ thread, currentUser }) => {
 
   // Scroll to bottom when messages change
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, [messages]);
 
   const canSend = !!(activeThread && activeThread.can_send);
   const [edge, setEdge] = useState(null);
@@ -68,7 +65,7 @@ const ChatWindow = ({ thread, currentUser }) => {
         }
         // If missing or invalid thread_id but we have other_user_id, try to create/resolve
         if (thread.other_user_id) {
-          try { await createThread(currentUser.id, thread.other_user_id); } catch(_) { void 0; }
+          try { await createThread(currentUser.id, thread.other_user_id); } catch(_) { /* ignore */ }
           const { data: resolved } = await supabase
             .from('v_my_dm_threads')
             .select('*')
@@ -89,7 +86,7 @@ const ChatWindow = ({ thread, currentUser }) => {
   useEffect(() => {
     if (!currentUser) return;
 
-    // If we have a thread id, load messages and subscribe
+    // If we have a thread id, load messages
     if (activeThread?.thread_id) {
       const threadId = activeThread.thread_id;
       const load = async () => {
@@ -114,7 +111,7 @@ const ChatWindow = ({ thread, currentUser }) => {
           const sinceISO = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
           const { data: msgs, error: mErr } = await supabase
             .from('dm_messages')
-            .select('*')
+            .select('id, thread_id, sender_id, body, created_at, client_id')
             .eq('thread_id', threadId)
             .gte('created_at', sinceISO)
             .order('created_at', { ascending: true });
@@ -129,31 +126,6 @@ const ChatWindow = ({ thread, currentUser }) => {
       };
 
       load();
-
-      // Attach realtime listener idempotently via registry to avoid double subscribe in Strict Mode
-      onPostgresChangesOnce(
-        `dm-messages-${threadId}`,
-        `dm-messages-handler-${threadId}`,
-        { event: '*', schema: 'public', table: 'dm_messages', filter: `thread_id=eq.${threadId}` },
-        (payload) => {
-          setMessages((prev) => {
-            if (payload.eventType === 'INSERT') {
-              if (prev.some((m) => m.id === payload.new.id)) return prev;
-              return [...prev, payload.new];
-            }
-            if (payload.eventType === 'UPDATE') {
-              return prev.map((m) => (m.id === payload.new.id ? payload.new : m));
-            }
-            if (payload.eventType === 'DELETE') {
-              return prev.filter((m) => m.id !== payload.old.id);
-            }
-            return prev;
-          });
-        }
-      );
-
-      // No explicit cleanup needed; registry manages single subscribe
-      return undefined;
     }
 
     // If deep-linked with only other_user_id, load that user's public profile for header
@@ -182,7 +154,20 @@ const ChatWindow = ({ thread, currentUser }) => {
     }
   }, [activeThread?.thread_id, activeThread?.other_user_id, currentUser?.id]);
 
-  // Check connection status using centralized utility
+  useDmRealtime(
+    activeThread?.thread_id || null,
+    useCallback((row) => {
+      setMessages((prev) => {
+        if (row?.client_id && prev.some((m) => m.client_id === row.client_id)) {
+          return prev.map((m) => (m.client_id === row.client_id ? row : m));
+        }
+        if (prev.some((m) => m.id === row.id)) return prev;
+        return [...prev, row];
+      });
+    }, [])
+  );
+
+  // Check connection status
   const checkConnection = useCallback(async () => {
     if (!currentUser?.id || !activeThread?.other_user_id) {
       setIsConnected(false);
@@ -192,17 +177,15 @@ const ChatWindow = ({ thread, currentUser }) => {
     try {
       const connected = await checkConnectionStatus(currentUser.id, activeThread.other_user_id);
       setIsConnected(connected);
-      
-      // If disconnected, check for cooldown
       if (!connected) {
         const cooldown = getDisconnectCooldown(activeThread.other_user_id);
         setCooldownEnd(cooldown);
       } else {
-        // If reconnected, clear cooldown
         clearDisconnectCooldown(activeThread.other_user_id);
         setCooldownEnd(null);
       }
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.warn('Failed to check connection status', err);
       setIsConnected(false);
     } finally {
@@ -210,15 +193,13 @@ const ChatWindow = ({ thread, currentUser }) => {
     }
   }, [currentUser?.id, activeThread?.other_user_id]);
 
-  // Load current connection edge between users and subscribe to changes
+  // Load current connection edge between users and subscribe to changes (kept same UI behavior)
   useEffect(() => {
-    let unsub = null;
     const loadEdge = async () => {
       if (!currentUser?.id || !activeThread?.other_user_id) return;
       try {
         const e = await getLatestEdge(currentUser.id, activeThread.other_user_id);
         setEdge(e);
-        // Also check connection status
         await checkConnection();
       } catch (err) {
         // eslint-disable-next-line no-console
@@ -226,82 +207,66 @@ const ChatWindow = ({ thread, currentUser }) => {
       }
     };
     loadEdge();
-
-    // Realtime subscribe to connections affecting this pair (idempotent)
-    try {
-      onPostgresChangesOnce(
-        `conn-${currentUser?.id}-${activeThread?.other_user_id}`,
-        `conn-handler-${currentUser?.id}-${activeThread?.other_user_id}`,
-        { event: '*', schema: 'public', table: 'connections' },
-        (payload) => {
-          const r = payload.new || payload.old;
-          if (!r) return;
-          const involvesPair = (
-            (r.requester_id === currentUser?.id && r.recipient_id === activeThread?.other_user_id) ||
-            (r.recipient_id === currentUser?.id && r.requester_id === activeThread?.other_user_id)
-          );
-          if (involvesPair) {
-            getLatestEdge(currentUser.id, activeThread.other_user_id).then(setEdge).catch(()=>{});
-            checkConnection();
-          }
-        }
-      );
-    } catch(e) {
-      // eslint-disable-next-line no-console
-      console.warn('Failed to subscribe connection channel', e);
-    }
-
-    return () => { /* no-op cleanup; registry manages channels */ };
   }, [currentUser?.id, activeThread?.other_user_id, checkConnection]);
 
   const handleSendMessage = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
-    
-    if (isSending || sendingMessageRef.current) return; // guard against double-dispatch
+    if (isSending || sendingMessageRef.current) return;
     if (!newMessage.trim() || !currentUser || !activeThread?.thread_id) return;
-    
-    // Check if users can send first (connection gate)
     if (!canSendDerived) {
       toast.error('You must be connected to send messages.');
       return;
     }
-    
+
     try {
       setIsSending(true);
       sendingMessageRef.current = true;
-      
-      // Send message (text only) to dm_messages
-      const { data, error } = await supabase
-        .from('dm_messages')
-        .insert([{ thread_id: activeThread.thread_id, sender_id: currentUser.id, body: newMessage.trim() }])
-        .select()
-        .single();
-        
-      if (error) {
-        console.error('Error sending message:', error);
-        if (error.code === '42501' || error.message?.includes('permission denied')) {
-          toast.error('You are not allowed to send messages in this thread.');
-          return;
-        }
-        // Check if disconnected during send
-        const stillConnected = await checkConnectionStatus(currentUser.id, activeThread.other_user_id);
-        if (!stillConnected) {
-          toast.error('Message could not be sent — connection removed');
-          await checkConnection();
-          return;
-        }
-        throw error;
-      }
-      
-      // Optimistic append
-      if (data) {
-        setMessages((prev) => [...prev, data]);
-      }
-      
-      // Clear form
+
+      // Debug: verify correct dm_threads.id is used
+      console.log('sending to threadId=', activeThread.thread_id);
+
+      const clientId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const optimistic = {
+        id: `temp_${clientId}`,
+        thread_id: activeThread.thread_id,
+        sender_id: currentUser.id,
+        body: newMessage.trim(),
+        client_id: clientId,
+        created_at: new Date().toISOString(),
+        _optimistic: true,
+      };
+      setMessages((prev) => [...prev, optimistic]);
+
+      // Clear form immediately
       setNewMessage('');
-      
+
+      const { data, error } = await supabase.rpc('send_dm_message', {
+        p_thread_id: activeThread.thread_id,
+        p_body: optimistic.body,
+        p_client_id: clientId,
+      });
+
+      if (error) {
+        console.error('send_dm_message error', error);
+        // rollback optimistic
+        setMessages((prev) => prev.filter((m) => m.client_id !== clientId));
+        // Add specific errors if needed; otherwise generic
+        toast.error('Failed to send message.');
+        return;
+      }
+
+      // Replace optimistic if realtime hasn't yet
+      setMessages((prev) => {
+        const without = prev.filter((m) => m.client_id !== clientId);
+        const exists = without.some((m) => m.id === data.id);
+        return exists ? without : [...without, data];
+      });
+
+      if (typeof onMessageSent === 'function') {
+        try { onMessageSent(); } catch (_) { /* no-op */ }
+      }
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error('Error sending message:', err);
       toast.error('Failed to send message. Please try again.');
     } finally {
@@ -321,7 +286,6 @@ const ChatWindow = ({ thread, currentUser }) => {
       setCooldownTimer(null);
       return;
     }
-    
     const updateTimer = () => {
       const now = Date.now();
       if (now >= cooldownEnd) {
@@ -332,10 +296,8 @@ const ChatWindow = ({ thread, currentUser }) => {
         setCooldownTimer(formatCooldownTime(cooldownEnd));
       }
     };
-    
     updateTimer();
-    const interval = setInterval(updateTimer, 60000); // Update every minute
-    
+    const interval = setInterval(updateTimer, 60000);
     return () => clearInterval(interval);
   }, [cooldownEnd, activeThread?.other_user_id]);
 
@@ -345,10 +307,8 @@ const ChatWindow = ({ thread, currentUser }) => {
     try {
       await idempotentConnect(currentUser.id, activeThread.other_user_id);
       toast.success('Connection request sent');
-      // Recheck connection status and refetch in parallel
       await Promise.all([
         checkConnection(),
-        // Refetch thread to get updated can_send
         (async () => {
           const { data: updated } = await supabase
             .from('v_my_dm_threads')
@@ -359,6 +319,7 @@ const ChatWindow = ({ thread, currentUser }) => {
         })()
       ]);
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error('Failed to reconnect:', err);
       toast.error('Failed to send connection request');
     } finally {
@@ -476,7 +437,7 @@ const ChatWindow = ({ thread, currentUser }) => {
                 readStatus={false}
               />
             ))}
-            <div ref={messagesEndRef} /> {/* Scroll anchor */}
+            <div ref={messagesEndRef} />
           </>
         ) : (
           <div className="flex flex-col items-center justify-center h-64 text-center">
@@ -509,6 +470,7 @@ const ChatWindow = ({ thread, currentUser }) => {
                           await checkConnection();
                           toast.success('Connection accepted');
                         } catch (err) {
+                          // eslint-disable-next-line no-console
                           console.error(err);
                         }
                       }}
@@ -521,6 +483,7 @@ const ChatWindow = ({ thread, currentUser }) => {
                           await declinePending(currentUser.id, activeThread.other_user_id);
                           toast('Request rejected');
                         } catch (err) {
+                          // eslint-disable-next-line no-console
                           console.error(err);
                         }
                       }}
@@ -539,6 +502,7 @@ const ChatWindow = ({ thread, currentUser }) => {
                         await checkConnection();
                         toast('Request canceled');
                       } catch (err) {
+                        // eslint-disable-next-line no-console
                         console.error(err);
                       }
                     }}

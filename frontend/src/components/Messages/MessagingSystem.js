@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../../utils/supabase';
 import { logActivity } from '../../utils/activityLogger';
 import ConversationList from './ConversationList';
@@ -8,6 +8,7 @@ import { useNotification } from '../../hooks/useNotification';
 import useConnectionsPanel from '../../hooks/useConnectionsPanel';
 import ConnectionsPanel from './ConnectionsPanel';
 import { useLocation } from 'react-router-dom';
+import { debounce } from '../../utils/debounce';
 
 const MessagingSystem = () => {
   const { showInfo, showSuccess, showError } = useNotification();
@@ -17,7 +18,6 @@ const MessagingSystem = () => {
   const [selectedThread, setSelectedThread] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [error, setError] = useState(null);
-  // const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   // Track component mount state
   const isMountedRef = useRef(true);
   const errorNotifiedRef = useRef(false);
@@ -29,7 +29,7 @@ const MessagingSystem = () => {
   // Always call hooks at the top level (badge for pending received requests)
   const { counts } = useConnectionsPanel(currentUser?.id);
 
-  // Fetch current user (session + profile) with small retry to handle transient network hiccups
+  // Fetch current user (session + profile)
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
@@ -40,46 +40,25 @@ const MessagingSystem = () => {
       if (peerInit) {
         setSelectedThread({ other_user_id: peerInit });
       }
-    } catch (_) {
-      // benign: ignore URL parsing errors
-    }
+    } catch (_) { /* ignore */ }
+
     const fetchCurrentUser = async () => {
       try {
-        // Prefer session-based lookup to avoid extra network request
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error) throw error;
         const user = session?.user;
-
         if (user) {
-          // Try up to 2 retries for the profile read if a network error occurs
-          const fetchProfileWithRetry = async (attempts = 2) => {
-            try {
-              const { data: profile, error: profileError } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', user.id)
-                .single();
-              if (profileError) throw profileError;
-              return profile;
-            } catch (e) {
-              const isNetFail = (e && (e.name === 'TypeError' || String(e).includes('Failed to fetch')));
-              if (isNetFail && attempts > 0) {
-                await new Promise(r => setTimeout(r, 300));
-                return fetchProfileWithRetry(attempts - 1);
-              }
-              throw e;
-            }
-          };
-
+          // Try to fetch profile (non-fatal if fails)
           let profile = null;
           try {
-            profile = await fetchProfileWithRetry();
-          } catch (pfErr) {
-            // Non-fatal: proceed with session user only
-            console.warn('Profile fetch failed; proceeding with session user only');
-            profile = null;
-          }
-
+            const { data: p, error: perr } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', user.id)
+              .single();
+            if (perr) throw perr;
+            profile = p;
+          } catch (_) { profile = null; }
           setCurrentUser(profile ? { ...user, ...profile } : user);
         }
       } catch (err) {
@@ -91,9 +70,7 @@ const MessagingSystem = () => {
         }
       }
     };
-    
     fetchCurrentUser();
-    // Log page view
     logActivity({ action: 'messages_page_view', route: '/messages' });
   }, []);
 
@@ -117,15 +94,14 @@ const MessagingSystem = () => {
     setActiveTab(getTabFromQS());
   }, [window.location.search]);
 
-  // Fetch all DM threads for the current user via view v_my_dm_threads
+  // Fetch all DM threads via view v_my_dm_threads
   const fetchUserThreads = useCallback(async () => {
     if (!currentUser) return;
     const now = Date.now();
-    if (fetchingConvsRef.current || (now - lastFetchAtRef.current) < 1500) {
+    if (fetchingConvsRef.current || (now - lastFetchAtRef.current) < 500) {
       return;
     }
     fetchingConvsRef.current = true;
-
     try {
       setLoading(true);
       const { data, error } = await supabase
@@ -156,43 +132,105 @@ const MessagingSystem = () => {
     }
   }, [currentUser, fetchUserThreads]);
 
-  // If /messages?peer=<id> is present, try to select that thread or create it
+  // Debounced refresh
+  const debouncedRefresh = useMemo(() => debounce(fetchUserThreads, 350), [fetchUserThreads]);
+
+  // Current thread ids for filtering events
+  const threadIds = useMemo(() => (Array.isArray(threads) ? threads.map(t => t.thread_id).filter(Boolean) : []), [threads]);
+  const threadIdsKey = useMemo(() => threadIds.join(','), [threadIds]);
+
+  // Global realtime subscriptions with channel registry and batching
+  useEffect(() => {
+    if (!currentUser?.id) return undefined;
+
+    const createdChannels = [];
+    const effectId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const batchSize = 20;
+
+    for (let i = 0; i < threadIds.length; i += batchSize) {
+      const batch = threadIds.slice(i, i + batchSize);
+      if (batch.length === 0) continue;
+      const topic = `dm-inbox:${currentUser.id}:${i / batchSize}:${effectId}`;
+      const ch = supabase.channel(topic);
+      createdChannels.push(ch);
+      const inFilter = `in.(${batch.join(',')})`;
+
+      ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_messages', filter: `thread_id=${inFilter}` }, () => debouncedRefresh());
+      ch.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dm_threads', filter: `id=${inFilter}` }, () => debouncedRefresh());
+      ch.subscribe();
+    }
+
+    const partTopic = `dm-participation:${currentUser.id}:${effectId}`;
+    const chPart = supabase.channel(partTopic);
+    createdChannels.push(chPart);
+    chPart.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_participants', filter: `user_id=eq.${currentUser.id}` }, () => debouncedRefresh());
+    chPart.subscribe();
+
+    return () => {
+      for (const ch of createdChannels) {
+        try { ch.unsubscribe(); } catch (e) { void e; }
+      }
+    };
+  }, [currentUser?.id, threadIdsKey, debouncedRefresh]);
+
+  // Refresh on window focus
+  useEffect(() => {
+    const onFocus = () => { fetchUserThreads(); };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [fetchUserThreads]);
+
+  // If /messages?peer=<id> present, try to select that thread or create it
   useEffect(() => {
     (async () => {
       try {
         const params = new URLSearchParams(location.search || window.location.search);
+        const thread = params.get('thread');
         const peer = params.get('peer');
-        if (!peer || !currentUser) return;
+        if (!currentUser) return;
 
-        // If already selected for this peer, do nothing
-        if (selectedThread?.other_user_id && String(selectedThread.other_user_id) === String(peer)) {
-          return;
+        if (thread) {
+          if (selectedThread?.thread_id && String(selectedThread.thread_id) === String(thread)) return;
+          const { data: found } = await supabase
+            .from('v_my_dm_threads')
+            .select('*')
+            .eq('thread_id', thread)
+            .maybeSingle();
+          if (found) {
+            setSelectedThread(found);
+            return;
+          }
         }
 
-        // Try selecting an existing thread directly
-        const { data: existing } = await supabase
-          .from('v_my_dm_threads')
-          .select('*')
-          .eq('other_user_id', peer)
-          .maybeSingle();
-        if (existing) {
-          setSelectedThread(existing);
-          return;
+        if (peer) {
+          if (selectedThread?.other_user_id && String(selectedThread.other_user_id) === String(peer)) {
+            return;
+          }
+
+          const { data: existing } = await supabase
+            .from('v_my_dm_threads')
+            .select('*')
+            .eq('other_user_id', peer)
+            .maybeSingle();
+          if (existing) {
+            setSelectedThread(existing);
+            return;
+          }
+          await handleCreateConversation(peer);
+          setSelectedThread((cur) => cur || { other_user_id: peer });
         }
-        // Otherwise try to create/resolve
-        await handleCreateConversation(peer);
-        // If still not found, set a stub so ChatWindow can show context
-        setSelectedThread((cur) => cur || { other_user_id: peer });
-      } catch (e) {
-        // no-op
-      }
+      } catch (_) { /* no-op */ }
     })();
-  }, [location.search, currentUser]);
-
-  // Realtime is handled inside ChatWindow per selected thread
+  }, [location.search, currentUser, selectedThread?.thread_id, selectedThread?.other_user_id]);
 
   const handleSelectThread = (thread) => {
     setSelectedThread(thread);
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (thread?.thread_id) params.set('thread', thread.thread_id);
+      const newUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState({}, '', newUrl);
+    } catch (_) { /* ignore */ }
     logActivity({ action: 'dm_open_thread', meta: { threadId: thread?.thread_id }, route: '/messages' });
   };
 
@@ -204,22 +242,17 @@ const MessagingSystem = () => {
 
     try {
       setLoading(true);
-
-      // Create or get DM thread using new RPC
       const { data: threadId, error: threadErr } = await createThread(currentUser.id, targetUserId);
       if (threadErr) {
         console.warn('createThread failed:', threadErr?.message || threadErr);
-        // Continue anyway - ChatWindow will show connection banner if needed
       }
 
-      // Fetch threads and select the one for target user
       await fetchUserThreads();
       const thread = (Array.isArray(threads) ? threads : []).find(t => String(t.other_user_id) === String(targetUserId));
       if (thread) {
         setSelectedThread(thread);
         showSuccess('Conversation ready.');
       } else {
-        // In case trigger is eventual, poll once more
         const { data } = await supabase
           .from('v_my_dm_threads')
           .select('*')
@@ -309,6 +342,7 @@ const MessagingSystem = () => {
               <ChatWindow
                 thread={selectedThread}
                 currentUser={currentUser}
+                onMessageSent={debouncedRefresh}
               />
             </div>
           </div>

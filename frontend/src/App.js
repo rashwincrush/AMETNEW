@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { toast } from 'react-hot-toast';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RealtimeProvider } from './utils/supabase';
@@ -259,15 +260,30 @@ function AppContent() {
             { /* Deprecated: MentorMatching route removed */ }
             <Route path="/mentorship/mentor/:id" element={<ProtectedRoute requiredPermission="view:alumni_directory"><MentorProfile /></ProtectedRoute>} />
             <Route path="/mentorship/mentor-settings" element={<ProtectedRoute requiredPermission="manage:mentor_profile"><MentorSettings /></ProtectedRoute>} />
-            <Route path="/groups/*" element={<ProtectedRoute requiredPermission="access:groups"><GroupsPage /></ProtectedRoute>} />
+            <Route
+              path="/groups/*"
+              element={
+                getUserRole() === 'employer'
+                  ? <Navigate to="/events" replace />
+                  : (
+                      <ProtectedRoute requiredPermission="access:groups">
+                        <GroupsPage />
+                      </ProtectedRoute>
+                    )
+              }
+            />
             <Route
               path="/groups/:id/manage"
               element={
-                <ProtectedRoute requiredPermission="access:groups">
-                  <RequireGroupAdmin>
-                    <GroupManage />
-                  </RequireGroupAdmin>
-                </ProtectedRoute>
+                getUserRole() === 'employer'
+                  ? <Navigate to="/events" replace />
+                  : (
+                      <ProtectedRoute requiredPermission="access:groups">
+                        <RequireGroupAdmin>
+                          <GroupManage />
+                        </RequireGroupAdmin>
+                      </ProtectedRoute>
+                    )
               }
             />
             <Route path="/messages" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="message:users"><Messages /></ProtectedRoute></RequireCompleteProfile>} />

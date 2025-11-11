@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { coalesceAppUrl, isQuickLink } from '../../utils/jobs';
 import { requestConnectionForJob } from '../../utils/connections';
 import ImageWithFallback from '../common/ImageWithFallback';
+import { supabase } from '../../utils/supabase';
 
 export default function JobDetailsQuickLink({ job, companyName, companyLogo, isOwner, isAdmin }) {
   const { user } = useAuth();
@@ -59,13 +60,16 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
 
         {/* Primary CTA */}
         <div className="mt-6 flex flex-wrap gap-3">
-          <a
-            href={externalUrl}
-            target="_blank" rel="noopener noreferrer"
+          <button
+            onClick={() => {
+              if (!externalUrl) return;
+              const ok = window.confirm("External listing. Clicking will take you to a page outside the Alumni portal. Continue?");
+              if (ok) window.open(externalUrl, '_blank', 'noopener');
+            }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ocean-600 text-white hover:bg-ocean-700"
           >
             Apply Externally
-          </a>
+          </button>
 
           {/* Optional: Ask Employer if viewer isn’t the poster */}
           {user?.id && employerId && user.id !== employerId && (
@@ -84,7 +88,35 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
               Ask Employer
             </button>
           )}
+
+          {canEdit && (
+            <button
+              onClick={async () => {
+                const ok = window.confirm('Disable this external job? Applicants will no longer see Apply on this listing.');
+                if (!ok) return;
+                try {
+                  const { error } = await supabase
+                    .from('jobs')
+                    .update({ is_active: false })
+                    .eq('id', job.id);
+                  if (error) throw error;
+                  toast.success('Quick Link disabled');
+                } catch (e) {
+                  console.error('Disable Quick Link failed', e);
+                  toast.error('Failed to disable. Please try again.');
+                }
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-300 text-red-600 hover:bg-red-50"
+            >
+              Disable
+            </button>
+          )}
         </div>
+
+        {/* External disclaimer */}
+        <p className="mt-3 text-xs text-gray-500">
+          External listing. You will be redirected to the employer's site to apply. Availability depends on the external deadline.
+        </p>
 
         {/* Meta row removed per minimal spec */}
       </div>

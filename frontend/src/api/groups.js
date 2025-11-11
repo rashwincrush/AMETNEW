@@ -3,10 +3,11 @@ import { supabase } from '../utils/supabase';
 // Create (pending) via SECURITY DEFINER RPC
 export async function createGroup({ name, description = '', isPrivate = false, tags = [] }) {
   const { data, error } = await supabase.rpc('create_group_and_add_admin', {
-    group_name: name,
-    group_description: description,
-    group_is_private: isPrivate,
-    group_tags: tags
+    group_name: name.trim(),
+    group_description: (description || '').trim(),
+    group_is_private: !!isPrivate,
+    group_tags: Array.isArray(tags) ? tags : 
+      (tags || '').split(',').map(t => t.trim()).filter(Boolean)
   });
   if (error) throw error;
   return data; // group_id
@@ -113,5 +114,48 @@ export async function updateComment(id, content) {
 }
 export async function deleteComment(id) {
   const { error } = await supabase.from('group_comments').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// Moderation RPCs (JS build uses this file by default when importing '../api/groups')
+export async function joinGroupV2(groupId) {
+  const { data, error } = await supabase.rpc('join_group_v2', { p_group_id: groupId });
+  if (error) throw error;
+  return data;
+}
+
+export async function inviteMemberByEmail(groupId, email) {
+  const { error } = await supabase.rpc('invite_member_by_email', { p_group_id: groupId, p_email: String(email || '').toLowerCase() });
+  if (error) throw error;
+}
+
+export async function listPendingMembers(groupId) {
+  const { data, error } = await supabase.rpc('list_pending_members', { p_group_id: groupId });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function approveGroupMember(groupId, userId) {
+  const { error } = await supabase.rpc('approve_group_member', { p_group_id: groupId, p_user_id: userId });
+  if (error) throw error;
+}
+
+export async function rejectGroupMember(groupId, userId) {
+  const { error } = await supabase.rpc('reject_group_member', { p_group_id: groupId, p_user_id: userId });
+  if (error) throw error;
+}
+
+export async function setMemberRoleRpc(groupId, userId, role) {
+  const { error } = await supabase.rpc('set_member_role', { p_group_id: groupId, p_user_id: userId, p_role: role });
+  if (error) throw error;
+}
+
+export async function removeMemberRpc(groupId, userId) {
+  const { error } = await supabase.rpc('remove_member', { p_group_id: groupId, p_user_id: userId });
+  if (error) throw error;
+}
+
+export async function leaveGroupRpc(groupId) {
+  const { error } = await supabase.rpc('leave_group', { p_group_id: groupId });
   if (error) throw error;
 }

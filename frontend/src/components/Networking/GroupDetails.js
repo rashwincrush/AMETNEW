@@ -4,6 +4,7 @@ import { supabase } from '../../utils/supabase'; // Adjust this path if needed
 import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeftIcon, GlobeAltIcon, LockClosedIcon, TagIcon, UsersIcon, UserPlusIcon, ArrowRightOnRectangleIcon, ChatBubbleOvalLeftEllipsisIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
+import { ROLE_LABELS } from '../../utils/roles';
 
 const GroupDetails = () => {
   const { groupId } = useParams();
@@ -36,54 +37,33 @@ const GroupDetails = () => {
         }
         setGroup(groupData);
 
-        // Step 2: Fetch members (just the user IDs and roles)
+        // Step 2: Fetch members with their profile roles via the memberships view
         const { data: memberData, error: memberError } = await supabase
-          .from('group_members')
-          .select('user_id, role')
+          .from('group_memberships')
+          .select('role, user:profiles!group_memberships_user_id_fkey(id, full_name, avatar_url, role)')
           .eq('group_id', groupId);
 
         if (memberError) {
           throw new Error('Could not fetch group members.');
         }
         
-        // Step 3: Get the list of user IDs from the members
-        const userIds = memberData.map(member => member.user_id);
-        
-        // Step 4: Fetch public identities for those users
-        if (userIds.length > 0) {
-          const { data: publicRows, error: publicErr } = await supabase
-            .from('alumni_directory_public')
-            .select('id, full_name, avatar_url')
-            .in('id', userIds);
+        // Step 3: Normalize and set members
+        const membersWithProfiles = (memberData || []).map(m => ({
+          role: m.role,
+          profiles: m.user || { id: 'unknown', full_name: 'Unknown User', avatar_url: null, role: null }
+        }));
+        setMembers(membersWithProfiles);
 
-          if (publicErr) {
-            throw new Error('Could not fetch member identities.');
+        // Step 4: Check if the current user is a member and get their role
+        if (user) {
+          const currentUserMembership = (memberData || []).find(m => m?.user?.id === user.id);
+          if (currentUserMembership) {
+            setIsMember(true);
+            setCurrentUserRole(currentUserMembership.role);
+          } else {
+            setIsMember(false);
+            setCurrentUserRole(null);
           }
-
-          // Step 5: Join the data manually
-          const membersWithIdent = memberData.map(member => {
-            const ident = (publicRows || []).find(p => p.id === member.user_id);
-            return {
-              role: member.role,
-              profiles: ident || { id: member.user_id, full_name: 'Unknown User', avatar_url: null }
-            };
-          });
-
-          setMembers(membersWithIdent || []);
-          
-          // Step 6: Check if the current user is a member and get their role
-          if (user) {
-            const currentUserMembership = memberData.find(m => m.user_id === user.id);
-            if (currentUserMembership) {
-              setIsMember(true);
-              setCurrentUserRole(currentUserMembership.role);
-            } else {
-              setIsMember(false);
-              setCurrentUserRole(null);
-            }
-          }
-        } else {
-          setMembers([]);
         }
 
         // Step 7: Fetch group posts
@@ -453,7 +433,11 @@ const GroupDetails = () => {
                     />
                     <div className="flex-grow">
                       <p className="font-semibold text-gray-800">{member.profiles.full_name}</p>
-                      <p className="text-sm text-gray-500 capitalize">{member.role}</p>
+                      <p className="text-sm text-gray-500">
+                        {(ROLE_LABELS[member.profiles.role] || 'Alumni')}
+                        {" • "}
+                        {member.role === 'admin' ? 'Group Admin' : 'Member'}
+                      </p>
                     </div>
                   </li>
                 ))}

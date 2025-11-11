@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { log } from '../../utils/log';
+import { toISODate } from '../../utils/dateClean';
 
 const GuardReady = ({ onReady }) => {
   useEffect(() => { onReady && onReady(); }, [onReady]);
@@ -72,7 +73,7 @@ const EditJob = () => {
             id, title, company_name, location, job_type,
             description, requirements, salary_range, application_url,
             contact_email, external_url, apply_url, company_id,
-            posted_by, user_id, created_by, deadline,
+            posted_by, user_id, created_by, deadline, application_deadline,
             is_active, is_approved
           `)
           .eq('id', id)
@@ -142,7 +143,7 @@ const EditJob = () => {
     const {
       title, company_name, location, job_type, description, requirements,
       salary_range, application_url, contact_email, external_url, apply_url,
-      company_id, deadline, is_active
+      company_id, deadline, application_deadline, is_active
     } = formData || {};
 
     // Normalize and enforce the DB constraint jobs_external_target_at_most_one
@@ -172,12 +173,32 @@ const EditJob = () => {
       return;
     }
 
-    const updateData = {
-      title, company_name, location, job_type, description, requirements,
-      salary_range, application_url: norm_application_url, contact_email,
-      external_url: norm_external_url, apply_url: norm_apply_url,
-      company_id, deadline, is_active
-    };
+    const isQuick = !!(norm_application_url || norm_external_url);
+    let updateData;
+    if (isQuick) {
+      // Minimal Quick Link update
+      const isoDate = toISODate(String((application_deadline || deadline || '').toString()).trim());
+      if (!title || !norm_application_url || !isoDate) {
+        toast.error('For Quick Link, Title, External URL, and Deadline are required.');
+        setIsSubmitting(false);
+        return;
+      }
+      updateData = {
+        title,
+        company_name: (company_name || '').trim() || null,
+        application_url: norm_application_url,
+        application_deadline: isoDate,
+        description: (description || '').trim() || null,
+      };
+    } else {
+      // Legacy in-app update
+      updateData = {
+        title, company_name, location, job_type, description, requirements,
+        salary_range, application_url: norm_application_url, contact_email,
+        external_url: norm_external_url, apply_url: norm_apply_url,
+        company_id, deadline, is_active
+      };
+    }
 
     if (isAdmin) updateData.is_approved = formData?.is_approved ?? false;
     if (!isAdmin) {
@@ -253,77 +274,102 @@ const EditJob = () => {
 
                 <form onSubmit={handleSave}>
                   <Grid container spacing={3}>
-                    <Grid item xs={12}>
-                      <TextField required fullWidth label="Job Title" name="title"
-                        value={formData.title || ''} onChange={handleChange} disabled={isSubmitting} />
-                    </Grid>
+                    {/* Quick Link minimal form */}
+                    {(() => {
+                      const quick = !!(formData?.application_url || formData?.external_url);
+                      if (!quick) return null;
+                      return (
+                        <>
+                          <Grid item xs={12}>
+                            <TextField required fullWidth label="Job Title" name="title"
+                              value={formData.title || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField fullWidth label="Company Name (Optional)" name="company_name"
+                              value={formData.company_name || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField required fullWidth label="External Application URL (https:// or mailto:)" name="application_url"
+                              value={formData.application_url || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <TextField required type="date" fullWidth label="Deadline" name="application_deadline"
+                              value={(formData.application_deadline || formData.deadline) ? new Date(formData.application_deadline || formData.deadline).toISOString().split('T')[0] : ''}
+                              onChange={(e) => setFormData(p => ({ ...p, application_deadline: e.target.value }))}
+                              InputLabelProps={{ shrink: true }} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField fullWidth multiline rows={3} label="Summary (Optional)" name="description"
+                              value={formData.description || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                        </>
+                      );
+                    })()}
 
-                    <Grid item xs={12} sm={6}>
-                      <TextField select required fullWidth label="Job Type" name="job_type"
-                        value={formData.job_type || 'Full-time'} onChange={handleChange} disabled={isSubmitting}>
-                        <MenuItem value="Full-time">Full-time</MenuItem>
-                        <MenuItem value="Part-time">Part-time</MenuItem>
-                        <MenuItem value="Contract">Contract</MenuItem>
-                        <MenuItem value="Internship">Internship</MenuItem>
-                      </TextField>
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <TextField required fullWidth label="Location" name="location"
-                        value={formData.location || ''} onChange={handleChange} disabled={isSubmitting} />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <TextField required fullWidth multiline rows={4} label="Job Description" name="description"
-                        value={formData.description || ''} onChange={handleChange} disabled={isSubmitting} />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <TextField fullWidth multiline rows={3} label="Requirements" name="requirements"
-                        value={formData.requirements || ''} onChange={handleChange}
-                        disabled={isSubmitting} helperText="Use bullet points (•) or newlines to separate requirements"
-                        sx={{
-                          '& .MuiInputBase-input': {
-                            lineHeight: 1.5,
-                            fontSize: '1rem',
-                          },
-                          '& textarea': {
-                            whiteSpace: 'pre-wrap',
-                            wordWrap: 'break-word',
-                          }
-                        }} />
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <TextField fullWidth label="Salary Range" name="salary_range"
-                        value={formData.salary_range || ''} onChange={handleChange} disabled={isSubmitting} />
-                    </Grid>
-
-                    <Grid item xs={12} sm={6}>
-                      <TextField type="date" fullWidth label="Application Deadline" name="deadline"
-                        value={formData.deadline ? new Date(formData.deadline).toISOString().split('T')[0] : ''}
-                        onChange={handleChange} InputLabelProps={{ shrink: true }} disabled={isSubmitting} />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <TextField fullWidth label="Application URL / Email" name="application_url"
-                        value={formData.application_url || ''} onChange={handleChange} disabled={isSubmitting} />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <TextField fullWidth label="External Apply URL" name="external_url"
-                        value={formData.external_url || ''} onChange={handleChange} disabled={isSubmitting} />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <TextField fullWidth label="Direct Apply URL" name="apply_url"
-                        value={formData.apply_url || ''} onChange={handleChange} disabled={isSubmitting} />
-                    </Grid>
-
-                    <Grid item xs={12}>
-                      <TextField fullWidth label="Contact Email" name="contact_email"
-                        value={formData.contact_email || ''} onChange={handleChange} disabled={isSubmitting} />
-                    </Grid>
+                    {/* In-App form (legacy) */}
+                    {(() => {
+                      const quick = !!(formData?.application_url || formData?.external_url);
+                      if (quick) return null;
+                      return (
+                        <>
+                          <Grid item xs={12}>
+                            <TextField required fullWidth label="Job Title" name="title"
+                              value={formData.title || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <TextField select required fullWidth label="Job Type" name="job_type"
+                              value={formData.job_type || 'Full-time'} onChange={handleChange} disabled={isSubmitting}>
+                              <MenuItem value="Full-time">Full-time</MenuItem>
+                              <MenuItem value="Part-time">Part-time</MenuItem>
+                              <MenuItem value="Contract">Contract</MenuItem>
+                              <MenuItem value="Internship">Internship</MenuItem>
+                            </TextField>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <TextField required fullWidth label="Location" name="location"
+                              value={formData.location || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField required fullWidth multiline rows={4} label="Job Description" name="description"
+                              value={formData.description || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField fullWidth multiline rows={3} label="Requirements" name="requirements"
+                              value={formData.requirements || ''} onChange={handleChange}
+                              disabled={isSubmitting} helperText="Use bullet points (•) or newlines to separate requirements"
+                              sx={{
+                                '& .MuiInputBase-input': { lineHeight: 1.5, fontSize: '1rem' },
+                                '& textarea': { whiteSpace: 'pre-wrap', wordWrap: 'break-word' }
+                              }} />
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <TextField fullWidth label="Salary Range" name="salary_range"
+                              value={formData.salary_range || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <TextField type="date" fullWidth label="Application Deadline" name="deadline"
+                              value={formData.deadline ? new Date(formData.deadline).toISOString().split('T')[0] : ''}
+                              onChange={handleChange} InputLabelProps={{ shrink: true }} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField fullWidth label="Application URL / Email" name="application_url"
+                              value={formData.application_url || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField fullWidth label="External Apply URL" name="external_url"
+                              value={formData.external_url || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField fullWidth label="Direct Apply URL" name="apply_url"
+                              value={formData.apply_url || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField fullWidth label="Contact Email" name="contact_email"
+                              value={formData.contact_email || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                        </>
+                      );
+                    })()}
 
                     {isAdmin && (
                       <Grid item xs={12}>

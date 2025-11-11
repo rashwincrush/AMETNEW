@@ -546,14 +546,27 @@ export const fetchConversations = async (userId) => {
 
 /**
  * Creates or retrieves a DM thread between two users.
- * Uses the new dm_get_or_create_thread RPC.
+ * Primary RPC: get_or_create_dm_thread (preferred)
+ *  - Params: p_user1, p_user2 (new) or user1, user2 (alt)
+ * Fallback RPC: dm_get_or_create_thread with u1, u2 (legacy)
  */
 export const createThread = async (userAId, userBId) => {
-  const { data, error } = await supabase.rpc('dm_get_or_create_thread', {
-    u1: userAId,
-    u2: userBId,
-  });
-  return { data, error };
+  // Try new RPC with primary param names
+  try {
+    let resp = await supabase.rpc('get_or_create_dm_thread', { p_user1: userAId, p_user2: userBId });
+    if (!resp.error && resp.data != null) return { data: resp.data, error: null };
+    // Try alternate param names on the same RPC
+    resp = await supabase.rpc('get_or_create_dm_thread', { user1: userAId, user2: userBId });
+    if (!resp.error && resp.data != null) return { data: resp.data, error: null };
+  } catch (_) { /* continue to legacy fallback */ }
+
+  // Legacy fallback RPC name and params
+  try {
+    const resp = await supabase.rpc('dm_get_or_create_thread', { u1: userAId, u2: userBId });
+    return { data: resp.data ?? null, error: resp.error ?? null };
+  } catch (error) {
+    return { data: null, error };
+  }
 };
 
 // Legacy alias for backward compatibility during migration
@@ -675,6 +688,7 @@ export const fetchGroups = async (options = {}) => {
     limit = 100,
     isAdmin = false,
     currentUserId = null,
+    userRole = null,
   } = options;
 
   // Base selection without profiles embed (avoid RLS errors). If you need creator identity, hydrate from alumni_directory_public at call site.
@@ -694,12 +708,35 @@ export const fetchGroups = async (options = {}) => {
     return { data, error };
   }
 
+  // Special case: Employers only see groups they are explicitly invited to (i.e., where they are members)
+  if (userRole === 'employer') {
+    if (!currentUserId) return { data: [], error: null };
+    const { data: memRows, error: memErr } = await supabase
+      .from('group_members')
+      .select('group_id')
+      .eq('user_id', currentUserId);
+    if (memErr) return { data: null, error: memErr };
+    const groupIds = (memRows || []).map(r => r.group_id);
+    if (groupIds.length === 0) return { data: [], error: null };
+    let q = supabase
+      .from('groups')
+      .select(`*`)
+      .in('id', groupIds)
+      .order(sortBy, { ascending: sortOrder === 'asc' })
+      .limit(limit);
+    if (searchQuery) q = q.ilike('name', `%${searchQuery}%`);
+    if (tags && tags.length > 0) q = q.contains('tags', tags);
+    const { data, error } = await q;
+    // mark is_member true
+    const flagged = (data || []).map(g => ({ ...g, is_member: true }));
+    return { data: flagged, error };
+  }
+
   // Non-admin path: public groups + private groups where user is a member
   let publicQ = supabase
     .from('groups')
     .select(baseSelect)
     .eq('is_private', false)
-    .eq('is_approved', true)
     .order(sortBy, { ascending: sortOrder === 'asc' })
     .limit(limit);
   if (searchQuery) publicQ = publicQ.ilike('name', `%${searchQuery}%`);
@@ -711,7 +748,7 @@ export const fetchGroups = async (options = {}) => {
       if (!currentUserId) return { data: [], error: null };
       // Step 1: fetch membership group ids only (avoid nested embeds that can trip RLS recursion)
       const { data: memRows, error: memErr } = await supabase
-        .from('group_memberships')
+        .from('group_members')
         .select('group_id')
         .eq('user_id', currentUserId);
       if (memErr) return { data: null, error: memErr };
@@ -748,7 +785,12 @@ export const fetchGroups = async (options = {}) => {
   });
 
   // Apply client-side filters that weren't applicable to member join select
-  let filtered = merged;
+  // Policy: For non-admins, only show approved, non-archived, public groups (plus any groups the user is a member of)
+  let filtered = merged.filter(g => {
+    if (isAdmin) return true;
+    if (g.is_member) return true;
+    return g.is_approved === true && g.is_archived === false && g.is_private === false;
+  });
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     filtered = filtered.filter(g => (g.name || '').toLowerCase().includes(q));
@@ -812,8 +854,8 @@ export const getMyGroupMembership = async (groupId) => {
 // Fetch members for a group (role + profile), load on-demand for Members tab
 export const fetchGroupMembers = async (groupId, limit = 200, offset = 0) => {
   const { data, error } = await supabase
-    .from('group_memberships')
-    .select('role, created_at, user:profiles!group_memberships_user_id_fkey(id, full_name, avatar_url, email, headline)')
+    .from('group_members')
+    .select('role, created_at, user:profiles(id, full_name, avatar_url, email, headline, role)')
     .eq('group_id', groupId)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
@@ -822,6 +864,7 @@ export const fetchGroupMembers = async (groupId, limit = 200, offset = 0) => {
 
 // Create a new group (backend triggers will set creator/admin membership)
 export const createGroup = async (groupData) => {
+  await guardEmployers();
   // Use the secure RPC function to create group and add admin in one step
   const { data, error } = await supabase.rpc('create_group_and_add_admin', {
     group_name: groupData.name,
@@ -833,7 +876,21 @@ export const createGroup = async (groupData) => {
 };
 
 // Join a group (backend trigger/RLS infers user_id and role)
-export const joinGroup = async (groupId) => {
+export const joinGroup = async (groupId, userId) => {
+  await guardEmployers();
+  // If userId is provided, perform idempotent upsert (preferred)
+  if (userId) {
+    const { data, error } = await supabase
+      .from('group_memberships')
+      .upsert(
+        { group_id: groupId, user_id: userId, role: 'member' },
+        { onConflict: 'group_id,user_id', ignoreDuplicates: true }
+      )
+      .select('group_id, user_id, role')
+      .single();
+    return { data, error };
+  }
+  // Fallback: rely on RLS/trigger to infer current user
   const { data, error } = await supabase
     .from('group_memberships')
     .insert([{ group_id: groupId }])
@@ -843,6 +900,7 @@ export const joinGroup = async (groupId) => {
 
 // Leave a group
 export const leaveGroup = async (groupId, userId) => {
+  await guardEmployers();
   const { data, error } = await supabase
     .from('group_memberships')
     .delete()
@@ -853,6 +911,7 @@ export const leaveGroup = async (groupId, userId) => {
 
 // Request to join a private group (creates a pending membership request)
 export const requestGroupMembership = async (groupId) => {
+  await guardEmployers();
   const { data, error } = await supabase
     .from('group_memberships')
     .insert([{ group_id: groupId, status: 'pending' }])
@@ -861,6 +920,7 @@ export const requestGroupMembership = async (groupId) => {
 };
 
 export const addGroupMember = async (groupId, userId, role = 'member') => {
+  await guardEmployers();
   const { data, error } = await supabase
     .from('group_members')
     .insert([{ group_id: groupId, user_id: userId, role }])
@@ -904,6 +964,7 @@ export const fetchPostComments = async (postId) => {
 
 // Create a new post in a group
 export const createGroupPost = async (postData) => {
+  await guardEmployers();
   const { data, error } = await supabase
     .from('group_posts')
     .insert([postData])
@@ -914,6 +975,7 @@ export const createGroupPost = async (postData) => {
 
 // Delete a post from a group
 export const deleteGroupPost = async (postId) => {
+  await guardEmployers();
   const { data, error } = await supabase
     .from('group_posts')
     .delete()
@@ -923,6 +985,7 @@ export const deleteGroupPost = async (postId) => {
 
 // Update a post in a group (content and/or image)
 export const updateGroupPost = async (postId, updates) => {
+  await guardEmployers();
   const { data, error } = await supabase
     .from('group_posts')
     .update(updates)
@@ -934,6 +997,7 @@ export const updateGroupPost = async (postId, updates) => {
 
 // Report a group post
 export const reportGroupPost = async ({ post_id, reason, reporter_id }) => {
+  await guardEmployers();
   const { data, error } = await supabase
     .from('group_post_reports')
     .insert([{ post_id, reason, reporter_id }])
@@ -944,6 +1008,7 @@ export const reportGroupPost = async ({ post_id, reason, reporter_id }) => {
 
 // Remove a member from a group
 export const removeGroupMember = async (groupId, userId) => {
+  await guardEmployers();
   const { data, error } = await supabase
     .from('group_members')
     .delete()
@@ -954,6 +1019,7 @@ export const removeGroupMember = async (groupId, userId) => {
 
 // Update group details
 export const updateGroupDetails = async (groupId, updates) => {
+  await guardEmployers();
   const { data, error } = await supabase
     .from('groups')
     .update(updates)
@@ -962,6 +1028,23 @@ export const updateGroupDetails = async (groupId, updates) => {
     .single();
   return { data, error };
 };
+
+// Local helper to guard employer role for group mutations
+async function guardEmployers() {
+  try {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth?.user?.id;
+    if (!uid) return;
+    const { data: prof } = await supabase.from('profiles').select('role').eq('id', uid).maybeSingle();
+    if (prof?.role === 'employer') {
+      const err = new Error('Employers cannot perform this action.');
+      err.code = 'EMPLOYER_POLICY';
+      throw err;
+    }
+  } catch (_) {
+    // If profile fetch fails, do not block
+  }
+}
 
 // Set member role within a group (e.g., 'admin' | 'member')
 export const setMemberRole = async (groupId, userId, role) => {

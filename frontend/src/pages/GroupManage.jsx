@@ -5,15 +5,23 @@ import {
   fetchGroupDetails,
   updateGroupDetails,
   fetchGroupMembers,
-  setMemberRole,
-  removeGroupMember,
   getMyGroupMembership,
-  addGroupMember
 } from '../utils/supabase';
+import {
+  listPendingMembers,
+  approveGroupMember,
+  rejectGroupMember,
+  setMemberRoleRpc,
+  removeMemberRpc,
+  inviteMemberByEmail,
+  leaveGroupRpc,
+} from '../api/groups';
 import { supabase } from '../utils/supabase';
 import { ArrowLeft, Shield, UserMinus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { canManageGroup } from '../utils/acl';
+import { getFriendlyErrorMessage } from '../utils/errors';
+import { ROLE_LABELS } from '../utils/roles';
 
 export default function GroupManage() {
   const { id } = useParams();
@@ -28,14 +36,17 @@ export default function GroupManage() {
   const [authorized, setAuthorized] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviting, setInviting] = useState(false);
+  const [authMessage, setAuthMessage] = useState('You are not authorized to manage this group.');
 
   // Editable fields
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
-  const [isAdminOnlyPosts, setIsAdminOnlyPosts] = useState(false);
+  // Admin-only Posts toggle removed per spec
   const [isApproved, setIsApproved] = useState(false);
+  const [pending, setPending] = useState([]);
+  const [leaving, setLeaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,11 +58,16 @@ export default function GroupManage() {
       setDescription(data?.description || '');
       setTags(Array.isArray(data?.tags) ? data.tags.join(', ') : '');
       setIsPrivate(!!data?.is_private);
-      setIsAdminOnlyPosts(!!data?.is_admin_only_posts);
+      // is_admin_only_posts removed from UI
       setIsApproved(!!data?.is_approved);
 
       const { data: mems } = await fetchGroupMembers(id, 200, 0);
       setMembers(mems || []);
+      // Load pending requests
+      try {
+        const rows = await listPendingMembers(id);
+        setPending(rows || []);
+      } catch (_) { /* ignore */ }
     } catch (e) {
       console.error('Failed to load group:', e);
       toast.error('Failed to load group');
@@ -69,7 +85,8 @@ export default function GroupManage() {
         const siteAdmin = profile?.is_admin === true;
         setIsSiteAdmin(siteAdmin);
         const { data: mem } = await getMyGroupMembership(id);
-        const can = canManageGroup({ id: user?.id, role: userRole }, group || {}, mem || undefined);
+        const isCreator = (group?.created_by === user?.id);
+        const can = canManageGroup(!!siteAdmin, !!isCreator, mem || undefined);
         setIsGroupAdmin(mem?.role === 'admin');
         setAuthorized(!!can);
         if (!can) {
@@ -108,11 +125,24 @@ export default function GroupManage() {
       toast.success('Basics updated');
     } catch (e) {
       console.error(e);
-      const msg = String(e?.message || '');
-      if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
-        toast.error('Changes saved, but this group may now be hidden due to policy changes.');
-      } else {
-        toast.error('Unable to save changes. Please try again.');
+      const msg = getFriendlyErrorMessage(e, 'Unable to save changes. Please try again.');
+      toast.error(msg);
+      if (String(e?.code) === '42501') {
+        // Refetch membership and group, then lock UI if not admin anymore
+        try {
+          const [{ data: mem }, { data: fresh }] = await Promise.all([
+            getMyGroupMembership(id),
+            fetchGroupDetails(id)
+          ]);
+          setGroup(fresh || group);
+          const siteAdmin = profile?.is_admin === true;
+          const isCreator = (fresh?.created_by === user?.id);
+          const can = canManageGroup(!!siteAdmin, !!isCreator, mem || undefined);
+          if (!can) {
+            setAuthorized(false);
+            setAuthMessage("You’re no longer a group admin.");
+          }
+        } catch (_) { /* ignore */ }
       }
     } finally {
       setSaving(false);
@@ -124,7 +154,6 @@ export default function GroupManage() {
     try {
       const payload = {
         is_private: isPrivate,
-        is_admin_only_posts: isAdminOnlyPosts,
       };
       const { data, error } = await updateGroupDetails(id, payload);
       if (error) throw error;
@@ -132,11 +161,23 @@ export default function GroupManage() {
       toast.success('Privacy updated');
     } catch (e) {
       console.error(e);
-      const msg = String(e?.message || '');
-      if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
-        toast.error('Privacy updated, but access may have changed. The group could now be hidden.');
-      } else {
-        toast.error('Unable to update privacy. Please try again.');
+      const msg = getFriendlyErrorMessage(e, 'Unable to update privacy. Please try again.');
+      toast.error(msg);
+      if (String(e?.code) === '42501') {
+        try {
+          const [{ data: mem }, { data: fresh }] = await Promise.all([
+            getMyGroupMembership(id),
+            fetchGroupDetails(id)
+          ]);
+          setGroup(fresh || group);
+          const siteAdmin = profile?.is_admin === true;
+          const isCreator = (fresh?.created_by === user?.id);
+          const can = canManageGroup(!!siteAdmin, !!isCreator, mem || undefined);
+          if (!can) {
+            setAuthorized(false);
+            setAuthMessage("You’re no longer a group admin.");
+          }
+        } catch (_) { /* ignore */ }
       }
     } finally {
       setSaving(false);
@@ -167,7 +208,7 @@ export default function GroupManage() {
       toast.success(`Group ${data?.is_approved ? 'approved' : 'set to pending review'}`);
     } catch (e) {
       console.error(e);
-      toast.error('Unable to update approval. Please try again.');
+      toast.error(getFriendlyErrorMessage(e, 'Unable to update approval. Please try again.'));
     } finally {
       setSaving(false);
     }
@@ -175,13 +216,12 @@ export default function GroupManage() {
 
   const promote = async (member) => {
     try {
-      const { error } = await setMemberRole(id, member.user.id, 'admin');
-      if (error) throw error;
+      await setMemberRoleRpc(id, member.user.id, 'admin');
       setMembers(prev => prev.map(m => m.user.id === member.user.id ? { ...m, role: 'admin' } : m));
       toast.success('Promoted to admin');
     } catch (e) {
       console.error(e);
-      toast.error('Failed to promote');
+      toast.error(getFriendlyErrorMessage(e, 'Failed to promote'));
     }
   };
 
@@ -194,13 +234,12 @@ export default function GroupManage() {
           return;
         }
       }
-      const { error } = await setMemberRole(id, member.user.id, 'member');
-      if (error) throw error;
+      await setMemberRoleRpc(id, member.user.id, 'member');
       setMembers(prev => prev.map(m => m.user.id === member.user.id ? { ...m, role: 'member' } : m));
       toast.success('Demoted to member');
     } catch (e) {
       console.error(e);
-      toast.error('Failed to demote');
+      toast.error(getFriendlyErrorMessage(e, 'Failed to demote'));
     }
   };
 
@@ -213,13 +252,27 @@ export default function GroupManage() {
           return;
         }
       }
-      const { error } = await removeGroupMember(id, member.user.id);
-      if (error) throw error;
+      await removeMemberRpc(id, member.user.id);
       setMembers(prev => prev.filter(m => m.user.id !== member.user.id));
       toast.success('Removed from group');
     } catch (e) {
       console.error(e);
-      toast.error('Failed to remove');
+      toast.error(getFriendlyErrorMessage(e, 'Failed to remove'));
+    }
+  };
+
+  const leaveGroup = async () => {
+    if (!window.confirm('Are you sure you want to leave this group?')) return;
+    setLeaving(true);
+    try {
+      await leaveGroupRpc(id);
+      toast.success('You left the group');
+      navigate(`/groups/${id}`);
+    } catch (e) {
+      console.error(e);
+      toast.error(getFriendlyErrorMessage(e, 'Unable to leave group. You may be the last admin.'));
+    } finally {
+      setLeaving(false);
     }
   };
 
@@ -253,7 +306,7 @@ export default function GroupManage() {
           <h1 className="text-2xl font-bold ml-4">Manage Group</h1>
         </div>
         <div className="bg-white rounded shadow p-6">
-          <p className="text-gray-700">You are not authorized to manage this group.</p>
+          <p className="text-gray-700">{authMessage}</p>
         </div>
       </div>
     );
@@ -293,7 +346,6 @@ export default function GroupManage() {
         <h2 className="text-lg font-semibold mb-3">Privacy</h2>
         <div className="flex gap-6">
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} /> Private</label>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={isAdminOnlyPosts} onChange={(e) => setIsAdminOnlyPosts(e.target.checked)} /> Admin-only Posts</label>
         </div>
         <div className="mt-3 text-right">
           <button onClick={savePrivacy} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50">Save</button>
@@ -315,6 +367,34 @@ export default function GroupManage() {
         </section>
       )}
 
+      {/* Pending Requests */}
+      {(isSiteAdmin || isGroupAdmin) && (
+        <section className="bg-white rounded shadow p-4 mb-6">
+          <h2 className="text-lg font-semibold mb-3">Pending Requests</h2>
+          {pending.length === 0 ? (
+            <div className="text-sm text-gray-600">No pending requests.</div>
+          ) : (
+            <div className="space-y-3">
+              {pending.map((p) => (
+                <div key={p.user_id} className="flex items-center justify-between border rounded p-3">
+                  <div className="flex items-center gap-3">
+                    <img src="/default-avatar.png" alt="" className="w-8 h-8 rounded-full" />
+                    <div>
+                      <div className="text-sm font-medium">{p.user_id}</div>
+                      <div className="text-xs text-gray-500">Requested at {new Date(p.requested_at).toLocaleString()}</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={async () => { await approveGroupMember(id, p.user_id); toast.success('Approved'); load(); }} className="text-xs px-3 py-1 rounded bg-green-50 text-green-700">Approve</button>
+                    <button onClick={async () => { await rejectGroupMember(id, p.user_id); toast.success('Rejected'); load(); }} className="text-xs px-3 py-1 rounded bg-red-50 text-red-700">Reject</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Members */}
       <section className="bg-white rounded shadow p-4 mb-6">
         <h2 className="text-lg font-semibold mb-3">Members</h2>
@@ -322,38 +402,32 @@ export default function GroupManage() {
           <div className="mb-4 flex gap-2 items-end">
             <div className="flex-1">
               <label className="block text-sm text-gray-700">Invite by email</label>
-              <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="user@example.com" className="w-full p-2 border rounded" />
+              <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="user@example.com" className="w-full p-2 border rounded" disabled={group?.is_archived} />
+              <p className="text-xs text-gray-500 mt-1">Employers cannot be invited to groups.</p>
             </div>
             <button
-              disabled={inviting || !inviteEmail}
+              disabled={inviting || !inviteEmail || group?.is_archived}
               onClick={async () => {
                 setInviting(true);
                 try {
-                  const { data: prof, error } = await supabase
-                    .from('profiles')
-                    .select('id, full_name, avatar_url, email, headline')
-                    .eq('email', inviteEmail)
-                    .maybeSingle();
-                  if (error) throw error;
-                  if (!prof?.id) {
-                    toast.error('No user found with that email.');
-                  } else {
-                    const { data: added, error: addErr } = await addGroupMember(id, prof.id, 'member');
-                    if (addErr) throw addErr;
-                    setMembers(prev => [{ user: prof, role: 'member' }, ...prev.filter(m => m.user.id !== prof.id)]);
-                    toast.success('Member added');
-                    setInviteEmail('');
-                  }
+                  await inviteMemberByEmail(id, inviteEmail);
+                  toast.success('Invitation sent');
+                  setInviteEmail('');
                 } catch (e) {
                   console.error('Invite failed', e);
-                  toast.error('Failed to add member');
+                  const msg = String(e?.message || '');
+                  if (/Employers cannot be invited/i.test(msg)) {
+                    toast.error('Employers cannot be invited to groups.');
+                  } else {
+                    toast.error(getFriendlyErrorMessage(e, 'Failed to invite member'));
+                  }
                 } finally {
                   setInviting(false);
                 }
               }}
               className="px-3 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
             >
-              {inviting ? 'Adding...' : 'Add'}
+              {inviting ? 'Sending...' : 'Send Invite'}
             </button>
           </div>
         )}
@@ -367,7 +441,11 @@ export default function GroupManage() {
                 <img src={m.user.avatar_url || '/default-avatar.png'} alt={m.user.full_name} className="w-10 h-10 rounded-full" />
                 <div>
                   <div className="font-medium">{m.user.full_name}</div>
-                  <div className="text-xs text-gray-500">{m.role === 'admin' ? 'Admin' : 'Member'}</div>
+                  <div className="text-xs text-gray-500">
+                    {(ROLE_LABELS[m.user.role] || 'Alumni')}
+                    {" • "}
+                    {m.role === 'admin' ? 'Group Admin' : 'Member'}
+                  </div>
                 </div>
               </div>
               <div className="mt-3 flex gap-2">
@@ -390,6 +468,7 @@ export default function GroupManage() {
         <h2 className="text-lg font-semibold mb-3 text-red-700">Danger Zone</h2>
         <p className="text-sm text-gray-600 mb-3">Archiving will disable new posts and hide the group from listings.</p>
         <button onClick={archiveGroup} disabled={saving} className="px-4 py-2 border border-red-600 text-red-600 rounded disabled:opacity-50">Archive Group</button>
+        <button onClick={leaveGroup} disabled={leaving} className="ml-3 px-4 py-2 border border-gray-600 text-gray-700 rounded disabled:opacity-50">{leaving ? 'Leaving…' : 'Leave Group'}</button>
       </section>
     </div>
   );

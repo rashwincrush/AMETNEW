@@ -3,6 +3,7 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { getFriendlyErrorMessage } from '../../utils/errors';
+import { safeObjectName } from '../../utils/files';
 
 export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess }) {
   const { user } = useAuth();
@@ -11,7 +12,7 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
   const [submitting, setSubmitting] = useState(false);
   const dialogRef = useRef(null);
   const prevFocusRef = useRef(null);
-  const MAX_SIZE = 5 * 1024 * 1024; // 5 MB (standardized with ProfileResume)
+  const MAX_SIZE = 3 * 1024 * 1024; // 3 MB bucket limit
 
   const formatKolkata = (iso) => {
     try {
@@ -82,8 +83,13 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
       toast.error('Please upload your resume.');
       return;
     }
+    // Enforce MIME type (PDF/DOC/DOCX)
+    if (!/(pdf|msword|officedocument\.wordprocessingml\.document)$/i.test(file.type || '')) {
+      toast.error('Only PDF/DOC/DOCX are allowed.');
+      return;
+    }
     if (file.size > MAX_SIZE) {
-      toast.error('File too large (max 5 MB).');
+      toast.error('File too large (max 3 MB).');
       return;
     }
     const allowedExt = ['pdf','doc','docx'];
@@ -96,14 +102,21 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
     setSubmitting(true);
     const toastId = toast.loading('Submitting application...');
     try {
-      // Upload resume to storage: resumes/{userId}/{uuid}-{originalName}
+      // Upload resume to storage: resumes/{userId}/{uuid}-{safeName}
+      const uid = user.id;
       const uuid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const path = `${user.id}/${uuid}-${file.name}`;
-      const { error: uploadErr } = await supabase.storage.from('resumes').upload(path, file, { upsert: false });
+      const key = `${uid}/${uuid}-${safeObjectName(file.name)}`;
+      const { error: uploadErr } = await supabase.storage
+        .from('resumes')
+        .upload(key, file, {
+          upsert: true,
+          cacheControl: '3600',
+          contentType: file?.type || 'application/pdf',
+        });
       if (uploadErr) throw uploadErr;
 
       // Get a public URL for persistent storage in job_applications.resume_url
-      const { data: pub } = await supabase.storage.from('resumes').getPublicUrl(path);
+      const { data: pub } = await supabase.storage.from('resumes').getPublicUrl(key);
       const publicUrl = pub?.publicUrl || null;
 
       // Insert application with minimal columns (trust RLS), using public URL
@@ -111,7 +124,7 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
       let insertPayload = base;
 
       // Try with resume_url if column exists; on failure due to column absence, retry without
-      let res = await supabase.from('job_applications').insert({ ...insertPayload, resume_url: publicUrl || path }).select('id').single();
+      let res = await supabase.from('job_applications').insert({ ...insertPayload, resume_url: publicUrl || key }).select('id').single();
       if (res.error && /column\s+"?resume_url"?/i.test(res.error.message || '')) {
         res = await supabase.from('job_applications').insert(base).select('id').single();
       }
@@ -122,7 +135,7 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
         throw new Error(msg);
       }
 
-      if (onSuccess) onSuccess({ publicUrl: publicUrl || null, path });
+      if (onSuccess) onSuccess({ publicUrl: publicUrl || null, path: key });
       toast.success('Application submitted!', { id: toastId });
       onClose();
     } catch (err) {
@@ -152,9 +165,10 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
               onChange={(e) => {
                 const f = e.target.files?.[0] || null;
                 if (!f) { setFile(null); return; }
-                if (f.size > MAX_SIZE) { toast.error('File too large (max 5 MB).'); e.target.value=''; setFile(null); return; }
+                if (f.size > MAX_SIZE) { toast.error('File too large (max 3 MB).'); e.target.value=''; setFile(null); return; }
                 const ext = (f.name.split('.').pop() || '').toLowerCase();
                 if (!['pdf','doc','docx'].includes(ext)) { toast.error('Unsupported file type.'); e.target.value=''; setFile(null); return; }
+                if (!/(pdf|msword|officedocument\.wordprocessingml\.document)$/i.test(f.type || '')) { toast.error('Only PDF/DOC/DOCX are allowed.'); e.target.value=''; setFile(null); return; }
                 setFile(f);
               }}
               className="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"

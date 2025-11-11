@@ -44,7 +44,7 @@ const Navigation = () => {
     // Filter menu items that the user has permission to access
     // Additionally, hide Directory for employers explicitly
     return allMenuItems.filter(item => {
-      if (role === 'employer' && item.path === '/directory') return false;
+      if (role === 'employer' && (item.path === '/directory' || item.path === '/groups')) return false;
       return hasPermission(item.permission);
     });
   };

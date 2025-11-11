@@ -4,8 +4,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { useApproval } from '../../hooks/useApproval';
-import { handleSupabaseGuardError } from '../../utils/mapSupabaseErrorToToast';
+import { mapSupabaseErrorToToast } from '../../utils/mapSupabaseErrorToToast';
 import { buildJobPayload } from '../../utils/jobPayloadBuilder';
+import { toISODate } from '../../utils/dateClean';
+import { isValidUrl, isValidEmail } from '../../utils/validators';
 import {
   Box,
   Stepper,
@@ -42,6 +44,7 @@ const PostJob = () => {
   const [activeStep, setActiveStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
+  const [publishIntent, setPublishIntent] = useState(false);
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState('');
   const [showSelectionScreen, setShowSelectionScreen] = useState(true);
@@ -119,6 +122,14 @@ const PostJob = () => {
       if (!formData.location.trim()) newErrors.location = 'Location is required.';
       // Work Mode, Job Type, and Experience Level have defaults, but you could add validation if needed.
     }
+    if (activeStep === steps.length - 1) { // Final step: Details & Contact
+      if (!formData.summary || !formData.summary.trim()) {
+        newErrors.summary = 'A short job summary is required.';
+      }
+      if (!formData.contact_email || !formData.contact_email.trim()) {
+        newErrors.contact_email = 'Contact email is required.';
+      }
+    }
     // No validation for step 1 (Job Content) or step 2 (Details & Contact) as fields are optional.
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -140,18 +151,15 @@ const PostJob = () => {
 
     const newErrors = {};
     if (!formData.title.trim()) newErrors.title = 'Job Title is required.';
-    if (!formData.company_name.trim()) newErrors.company_name = 'Company Name is required.';
     if (!formData.external_application_url.trim()) {
       newErrors.external_application_url = 'External Application URL is required.';
     } else {
-      try {
-        const url = new URL(formData.external_application_url);
-        if (url.protocol !== 'https:' && url.protocol !== 'mailto:') {
-          newErrors.external_application_url = 'URL must start with https:// or mailto:';
-        }
-      } catch (_) {
-        newErrors.external_application_url = 'Please enter a valid URL.';
+      if (!isValidUrl(formData.external_application_url, ['https', 'mailto'])) {
+        newErrors.external_application_url = 'Please enter a valid URL (https:// or mailto:).';
       }
+    }
+    if (!formData.deadline || !String(formData.deadline).trim()) {
+      newErrors.deadline = 'Deadline is required.';
     }
 
     setErrors(newErrors);
@@ -168,16 +176,37 @@ const PostJob = () => {
         return;
       }
 
-      const { data: existingCompany } = await supabase.from('companies').select('id').eq('name', formData.company_name.trim()).single();
-      let companyId = existingCompany?.id;
-      if (!companyId) {
-        const { data: newCompany, error: createError } = await supabase.from('companies').insert({ name: formData.company_name.trim(), created_by: session.user.id }).select('id').single();
-        if (createError) throw createError;
-        companyId = newCompany.id;
+      let companyId = null;
+      const companyNameTrim = String(formData.company_name || '').trim();
+      if (companyNameTrim) {
+        const { data: existingCompany } = await supabase.from('companies').select('id').eq('name', companyNameTrim).maybeSingle();
+        companyId = existingCompany?.id || null;
+        if (!companyId) {
+          const { data: newCompany, error: createError } = await supabase
+            .from('companies')
+            .insert({ name: companyNameTrim, created_by: session.user.id })
+            .select('id')
+            .single();
+          if (createError) throw createError;
+          companyId = newCompany.id;
+        }
       }
 
-      const payload = buildJobPayload(formData, companyId, 'quick');
-      const insertPayload = { ...payload, is_approved: false, is_active: true, created_by: session.user.id };
+      // Normalize date picker to YYYY-MM-DD
+      const isoDate = toISODate(String(formData.deadline || '').trim());
+      const insertPayload = {
+        ...(companyId ? { company_id: companyId } : {}),
+        title: formData.title.trim(),
+        company_name: companyNameTrim || null,
+        application_url: formData.external_application_url.trim(),
+        application_deadline: isoDate,
+        // Optional description if provided, but not required in this path
+        description: formData.summary?.trim() || null,
+        status: 'active',
+        is_active: true,
+        is_approved: false,
+        created_by: session.user.id,
+      };
       const { error: jobError } = await supabase.from('jobs').insert(insertPayload).select('id').single();
       if (jobError) throw jobError;
 
@@ -186,14 +215,31 @@ const PostJob = () => {
 
     } catch (err) {
       console.error('Error submitting Quick Link job:', err);
-      handleSupabaseGuardError(err);
+      mapSupabaseErrorToToast(err);
     } finally {
+      setPublishIntent(false);
       setIsSubmitting(false);
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const submitter = e?.nativeEvent?.submitter;
+    const isExplicitPublish = submitter && submitter.name === 'publish';
+    console.log('DEBUG handleSubmit', {
+      activeStep,
+      submitterName: submitter?.name,
+      isExplicitPublish
+    });
+    // Prevent submission before final step; advance instead
+    if (activeStep !== steps.length - 1) {
+      handleNext();
+      return;
+    }
+    // Only proceed on explicit Publish button click
+    if (!isExplicitPublish) {
+      return;
+    }
     if (!isApprovedEmployer && !isAdmin) { toast.error('Your profile is not approved. Kindly contact administrator.'); return; }
 
     if (!validateStep()) {
@@ -307,7 +353,8 @@ const PostJob = () => {
       }
 
       const payload = buildJobPayload(formData, companyId, 'form');
-      const insertPayload = { ...payload, is_approved: false, is_active: true, created_by: session.user.id };
+      // Enforce publish-ready status to trigger DB constraints (status='active')
+      const insertPayload = { ...payload, status: 'active', is_approved: false, is_active: true, created_by: session.user.id };
       console.log("Submitting In-App job with payload:", insertPayload);
       const { data: newJob, error: jobError } = await supabase.from('jobs').insert(insertPayload).select('id').single();
         
@@ -327,7 +374,7 @@ const PostJob = () => {
       }
     } catch (err) {
       console.error('Error submitting job:', err);
-      handleSupabaseGuardError(err);
+      mapSupabaseErrorToToast(err);
     } finally {
       setIsSubmitting(false);
     }
@@ -370,7 +417,7 @@ const PostJob = () => {
         return (
           <Grid container spacing={3}>
             <Grid item xs={12}>
-              <TextField fullWidth multiline rows={3} name="summary" label="Summary (Short, 1-2 sentences)" value={formData.summary} onChange={handleChange} />
+              <TextField fullWidth multiline rows={3} name="summary" label="Summary (Short, 1-2 sentences)" value={formData.summary} onChange={handleChange} error={!!errors.summary} helperText={errors.summary} />
             </Grid>
             <Grid item xs={12}>
               <TextField fullWidth multiline rows={5} name="responsibilities" label="Qualifications" value={formData.responsibilities} onChange={handleChange} placeholder="- Qualification 1\n- Qualification 2" />
@@ -415,7 +462,7 @@ const PostJob = () => {
               )}
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="contact_email" type="email" label="Hiring Contact Email (Internal Only)" value={formData.contact_email} onChange={handleChange} />
+              <TextField fullWidth name="contact_email" type="email" label="Hiring Contact Email (Internal Only)" value={formData.contact_email} onChange={handleChange} error={!!errors.contact_email} helperText={errors.contact_email} />
             </Grid>
           </Grid>
         );
@@ -456,7 +503,7 @@ const PostJob = () => {
     setActiveStep(0);
   };
 
-  if (!apprLoading && !isApprovedEmployer) {
+  if (!apprLoading && !isApprovedEmployer && !isAdmin) {
     return (
       <div className="p-6 rounded-lg bg-gradient-to-br from-red-50 to-orange-50 text-red-700 border border-red-200">
         <div className="flex items-center gap-3 mb-4">
@@ -692,10 +739,24 @@ const PostJob = () => {
                       <TextField required fullWidth name="title" label="Job Title" value={formData.title} onChange={handleChange} error={!!errors.title} helperText={errors.title} />
                     </Grid>
                     <Grid item xs={12}>
-                      <TextField required fullWidth name="company_name" label="Company Name" value={formData.company_name} onChange={handleChange} error={!!errors.company_name} helperText={errors.company_name} />
+                      <TextField fullWidth name="company_name" label="Company Name (Optional)" value={formData.company_name} onChange={handleChange} error={!!errors.company_name} helperText={errors.company_name} />
                     </Grid>
                     <Grid item xs={12}>
                       <TextField required fullWidth type="url" name="external_application_url" label="External Application URL (https:// or mailto:)" value={formData.external_application_url} onChange={handleChange} error={!!errors.external_application_url} helperText={errors.external_application_url} />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        required
+                        fullWidth
+                        type="date"
+                        name="deadline"
+                        label="Deadline"
+                        value={formData.deadline}
+                        onChange={handleChange}
+                        InputLabelProps={{ shrink: true }}
+                        error={!!errors.deadline}
+                        helperText={errors.deadline}
+                      />
                     </Grid>
                     <Grid item xs={12}>
                       <TextField fullWidth multiline rows={3} name="summary" label="Summary (Optional)" value={formData.summary} onChange={handleChange} />
@@ -704,6 +765,7 @@ const PostJob = () => {
                   
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4, pt: 3, borderTop: '1px solid #e0e0e0' }}>
                     <Button 
+                      type="button"
                       onClick={handleBackToSelection}
                       size="large"
                       sx={{ 
@@ -747,7 +809,14 @@ const PostJob = () => {
                 </form>
               ) : (
                 /* Full Job Post Form */
-                <form onSubmit={handleSubmit}>
+                <form
+                  onSubmit={handleSubmit}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                    }
+                  }}
+                >
                   <Box sx={{ mb: 4 }}>
                     <Typography variant="h5" sx={{ 
                       mb: 1, 
@@ -767,6 +836,7 @@ const PostJob = () => {
                   
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4, pt: 3, borderTop: '1px solid #e0e0e0' }}>
                     <Button 
+                      type="button"
                       onClick={activeStep === 0 ? handleBackToSelection : handleBack} 
                       size="large"
                       sx={{ 
@@ -783,8 +853,13 @@ const PostJob = () => {
                     {activeStep === steps.length - 1 ? (
                       <Button 
                         variant="contained" 
-                        type="submit" 
-                        disabled={isSubmitting}
+                        type="submit"
+                        name="publish"
+                        disabled={(() => {
+                          const hasCore = formData.title.trim() && formData.company_name.trim() && formData.location.trim() && formData.job_type?.trim();
+                          const hasFinal = (formData.summary && formData.summary.trim()) && (formData.contact_email && formData.contact_email.trim());
+                          return isSubmitting || !(hasCore && hasFinal);
+                        })()}
                         size="large"
                         sx={{ 
                           px: 4,
@@ -809,6 +884,7 @@ const PostJob = () => {
                       </Button>
                     ) : (
                       <Button 
+                        type="button"
                         variant="contained" 
                         onClick={handleNext}
                         size="large"

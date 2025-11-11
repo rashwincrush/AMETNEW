@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { canCreateGroup } from '../../utils/acl';
 import { Users, Search, Tag, Calendar, Filter } from 'lucide-react';
 import ImageWithFallback from '../common/ImageWithFallback';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 
 // Skeleton loader component for a better loading experience
 const GroupCardSkeleton = () => (
@@ -20,7 +21,7 @@ const GroupCardSkeleton = () => (
 );
 
 // Group card component
-const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, canManageAllGroups }) => {
+const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, canManageAllGroups, userRole }) => {
   const [imgSrc, setImgSrc] = useState('');
   const isCreator = group.created_by === currentUserId;
   const formattedDate = new Date(group.created_at).toLocaleDateString();
@@ -34,9 +35,10 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
   const isPrivate = group.is_private === true;
   const isSiteAdmin = !!canManageAllGroups;
   const showManage = (isGroupAdmin || isSiteAdmin) && !group.is_archived;
-  const showJoin = !group.is_archived && !isMember && isApproved && !isPrivate;
+  const employer = userRole === 'employer';
+  const showJoin = !employer && !group.is_archived && !isMember && isApproved && !isPrivate;
   const showLeave = !group.is_archived && isMember && !(isGroupAdmin || isSiteAdmin);
-  const showRequest = !group.is_archived && !isMember && isPrivate;
+  const showRequest = !employer && !group.is_archived && !isMember && isPrivate;
   
   // Build avatar image src: prefer stored public URL; otherwise fetch a signed URL
   useEffect(() => {
@@ -195,6 +197,7 @@ const GroupsList = () => {
           tags: selectedTags.length > 0 ? selectedTags : undefined,
           isAdmin: canManageAllGroups, // Admins can see all
           currentUserId: user?.id || null, // Non-admins: include private groups where member
+          userRole: userRole || null,
         });
         
         if (error) throw error;
@@ -313,17 +316,7 @@ const GroupsList = () => {
         
         // Handle potential errors
         if (error) {
-          const code = String(error.code || '');
-          const msg = String(error.message || '');
-          if (code === "23505") {
-            setError("You're already a member of this group.");
-          } else if (code === "42501" || /permission denied/i.test(msg)) {
-            setError("You don't have permission to join this group.");
-          } else if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
-            setError('This group is currently not available. It may be pending review or archived.');
-          } else {
-            setError('Unable to join this group right now. Please try again.');
-          }
+          setError(getFriendlyErrorMessage(error, 'Unable to join this group right now. Please try again.'));
           return;
         }
         
@@ -332,12 +325,7 @@ const GroupsList = () => {
       }
     } catch (err) {
       console.error("Error joining/leaving group:", err);
-      const msg = String(err?.message || '');
-      if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
-        setError('This action is not available right now. The group may be pending review or archived.');
-      } else {
-        setError("An error occurred while trying to join/leave the group.");
-      }
+      setError(getFriendlyErrorMessage(err, 'An error occurred while trying to join/leave the group.'));
       setTimeout(() => setError(null), 3000);
     }
   };
@@ -456,6 +444,7 @@ const GroupsList = () => {
                 onJoinLeave={handleJoinLeave}
                 currentUserId={user?.id}
                 canManageAllGroups={canManageAllGroups}
+                userRole={userRole}
               />
             );
           })

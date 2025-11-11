@@ -7,6 +7,11 @@ export function getFriendlyErrorMessage(err, fallback = 'Something went wrong. P
   const status = String(err?.status ?? '').toLowerCase();
   const msg = String(err?.message ?? '').toLowerCase();
 
+  // Explicit employer policy block
+  if (code === 'employer_policy' || /employers cannot perform this action/i.test(msg)) {
+    return 'Employers cannot perform this action.';
+  }
+
   // PostgREST single-row mismatch (common when an entity becomes hidden/pending)
   if (/json object requested, multiple \(or no\) rows returned/i.test(msg)) {
     return 'This item is currently not available. It may be pending review or archived.';
@@ -14,12 +19,12 @@ export function getFriendlyErrorMessage(err, fallback = 'Something went wrong. P
 
   // Permission denied
   if (code === '42501' || status === '403' || /permission denied|rls|not allowed|forbidden/i.test(msg)) {
-    return "You don't have permission to perform this action.";
+    return "You don't have permission for that.";
   }
 
   // Duplicate/unique violations
   if (code === '23505' || /duplicate|unique constraint/i.test(msg)) {
-    return 'This already exists.';
+    return 'Already a member or request pending.';
   }
 
   // Not found

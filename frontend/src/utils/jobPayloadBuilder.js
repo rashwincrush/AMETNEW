@@ -31,7 +31,10 @@ const toIntOrNull = (val) => {
 const toISO = (dateStr) => {
   if (!dateStr) return null;
   try {
-    return new Date(dateStr).toISOString();
+    // Return date-only string (YYYY-MM-DD) to satisfy DATE columns
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString().slice(0, 10);
   } catch (e) {
     return null;
   }
@@ -48,12 +51,12 @@ export function buildJobPayload(form, companyId, mode) {
   // Sanitize numeric salary inputs (strings with commas/symbols to integers)
   const sanitizedMin = parseINR(form.salary_min);
   const sanitizedMax = parseINR(form.salary_max);
-  // For Quick Links, set exactly one of the three link fields.
-  // For In-App forms, leave all three null.
+  // For Quick Links, set exactly one link field expected by DB constraints.
+  // For In-App forms, leave link fields null and rely on contact_email.
   const linkFields =
     mode === 'quick'
-      ? { external_url: form.external_application_url?.trim() || null, application_url: null, apply_url: null }
-      : { external_url: null, application_url: null, apply_url: null };
+      ? { application_url: form.external_application_url?.trim() || null, external_url: null, apply_url: null }
+      : { application_url: null, external_url: null, apply_url: null };
 
   // Map the free-text skills input to a string array.
   const skills = splitCsvToArray(form.nice_to_have_skills || form.skillsText);

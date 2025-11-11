@@ -1,20 +1,19 @@
-export const coalesceAppUrl = (j) =>
-  (j && (
-    j.application_url ||
-    j.apply_url ||
-    j.external_url ||
-    j.url ||
-    j.company_apply_url
-  )) || null;
+export const coalesceAppUrl = (j) => {
+  if (!j) return '';
+  const a = (j.application_url && String(j.application_url).trim()) || '';
+  const b = (j.external_url && String(j.external_url).trim()) || '';
+  const c = (j.apply_url && String(j.apply_url).trim()) || '';
+  return a || b || c || '';
+};
 
 export const getSourceType = (j) => {
   const st = j?.source_type;
   if (st === 'quick_link' || st === 'in_app') return st;
-  // Legacy fallback based on presence of external application URL
-  return coalesceAppUrl(j) ? 'quick_link' : 'in_app';
+  const hasExternal = !!(j?.application_url || j?.external_url);
+  return hasExternal ? 'quick_link' : 'in_app';
 };
 
-export const isQuickLink = (j) => getSourceType(j) === 'quick_link';
+export const isQuickLink = (j) => !!(j?.application_url || j?.external_url);
 export const isInternal = (j) => getSourceType(j) === 'in_app';
 
 export const companyDisplay = (j) => ({

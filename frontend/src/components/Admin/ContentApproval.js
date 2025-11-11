@@ -60,6 +60,10 @@ const ContentApproval = () => {
   // RPC one-liners: pending counts and feed
   const [pendingCounts, setPendingCounts] = useState(null);
   const [feed, setFeed] = useState([]);
+  // Rejection dialog state
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectItem, setRejectItem] = useState(null);
 
   const fetchPendingContent = useCallback(async () => {
     // Reset all states
@@ -153,6 +157,8 @@ const ContentApproval = () => {
       let gq = groupsQuery;
       if (statusFilter === 'pending') {
         gq = applyPendingFilters(gq);
+        // Also exclude archived groups from the pending review list
+        gq = gq.eq('is_archived', false);
       } else if (statusFilter === 'approved') {
         gq = gq.eq('is_approved', true);
       } else if (statusFilter === 'rejected') {
@@ -318,13 +324,8 @@ const ContentApproval = () => {
         };
         break;
       case 'group':
-        tableName = 'groups';
-        updateData = { 
-          is_approved: true, 
-          is_rejected: false, 
-          reviewed_by: profile?.id, 
-          reviewed_at: new Date().toISOString() 
-        };
+        tableName = null; // using RPC instead
+        updateData = null;
         break;
       default:
         tableName = 'content_approvals';
@@ -336,8 +337,13 @@ const ContentApproval = () => {
     }
 
     try {
-      const { error } = await supabase.from(tableName).update(updateData).eq('id', id);
-      if (error) throw error;
+      if (content_type === 'group') {
+        const { error } = await supabase.rpc('admin_review_group', { p_group_id: id, p_action: 'approve' });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from(tableName).update(updateData).eq('id', id);
+        if (error) throw error;
+      }
       
       toast.success(`${item.type} approved successfully.`);
       // Remove from the appropriate state array
@@ -357,6 +363,8 @@ const ContentApproval = () => {
       
       // Also remove from the combined UI array
       setPendingContent(current => current.filter(p => p.id !== id));
+      // Refetch lists to stay fresh
+      fetchPendingContent();
     } catch (err) {
       console.error(`Error approving ${content_type}:`, err);
       toFriendlyToast(toast, err, `Failed to approve ${content_type}. Please try again.`);
@@ -368,55 +376,63 @@ const ContentApproval = () => {
     setIsModalOpen(true);
   };
 
-  const handleReject = async (item) => {
-    const { id, content_type } = item;
-    const reason = prompt(`Please provide a reason for rejecting this ${content_type}:`);
-    if (reason === null) return; // User cancelled the prompt
+  const handleReject = (item) => {
+    setRejectItem(item);
+    setRejectReason('');
+    setRejectOpen(true);
+  };
 
+  const handleRejectConfirm = async () => {
+    const item = rejectItem;
+    if (!item) return;
+    const reason = String(rejectReason || '').trim();
+    if (!reason) { toast.error('Please provide a rejection reason.'); return; }
+
+    const { id, content_type } = item;
     let tableName, updateData;
 
     switch (content_type) {
       case 'job':
         tableName = 'jobs';
-        updateData = { 
-          is_rejected: true, 
-          rejection_reason: reason, 
-          reviewed_by: profile?.id, 
-          reviewed_at: new Date().toISOString() 
+        updateData = {
+          is_rejected: true,
+          rejection_reason: reason,
+          reviewed_by: profile?.id,
+          reviewed_at: new Date().toISOString()
         };
         break;
       case 'event':
         tableName = 'events';
-        updateData = { 
+        updateData = {
           approval_status: 'rejected',
-          rejection_reason: reason, 
-          reviewed_by: profile?.id, 
-          reviewed_at: new Date().toISOString() 
+          rejection_reason: reason,
+          reviewed_by: profile?.id,
+          reviewed_at: new Date().toISOString()
         };
         break;
       case 'group':
-        tableName = 'groups';
-        updateData = { 
-          is_rejected: true, 
-          rejection_reason: reason, 
-          reviewed_by: profile?.id, 
-          reviewed_at: new Date().toISOString() 
-        };
+        tableName = null; // using RPC instead
+        updateData = null;
         break;
       default:
         tableName = 'content_approvals';
-        updateData = { 
-          status: 'rejected', 
-          reviewer_id: profile?.id, 
-          reviewed_at: new Date().toISOString(), 
-          rejection_reason: reason 
+        updateData = {
+          status: 'rejected',
+          reviewer_id: profile?.id,
+          reviewed_at: new Date().toISOString(),
+          rejection_reason: reason
         };
     }
 
     try {
-      const { error } = await supabase.from(tableName).update(updateData).eq('id', id);
-      if (error) throw error;
-      
+      if (content_type === 'group') {
+        const { error } = await supabase.rpc('admin_review_group', { p_group_id: id, p_action: 'reject' });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from(tableName).update(updateData).eq('id', id);
+        if (error) throw error;
+      }
+
       toast.success(`${item.type} rejected successfully.`);
       // Remove from the appropriate state array
       switch (content_type) {
@@ -432,9 +448,14 @@ const ContentApproval = () => {
         default:
           setPendingOtherContent(current => current.filter(p => p.id !== id));
       }
-      
+
       // Also remove from the combined UI array
       setPendingContent(current => current.filter(p => p.id !== id));
+      setRejectOpen(false);
+      setRejectItem(null);
+      setRejectReason('');
+      // Refetch lists to stay fresh
+      fetchPendingContent();
     } catch (err) {
       console.error(`Error rejecting ${content_type}:`, err);
       toFriendlyToast(toast, err, `Failed to reject ${content_type}. Please try again.`);
@@ -732,6 +753,41 @@ const ContentApproval = () => {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
       />
+
+      {/* Rejection Reason Dialog */}
+      {rejectOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setRejectOpen(false)} aria-hidden="true" />
+          <div className="relative bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900">Reject {rejectItem?.type}</h3>
+            <p className="mt-2 text-sm text-gray-600">Please provide a reason for rejecting this {rejectItem?.content_type}.</p>
+            <textarea
+              className="mt-4 w-full rounded-md border border-gray-300 p-3 focus:outline-none focus:ring-2 focus:ring-ocean-500"
+              rows={4}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Enter rejection reason"
+              aria-label="Rejection reason"
+            />
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRejectOpen(false)}
+                className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRejectConfirm}
+                className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-md bg-red-600 text-white hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

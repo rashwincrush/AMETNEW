@@ -107,7 +107,12 @@ const JobPostingForm = () => {
     setIsSubmitting(true);
     setError('');
     try {
-      const deadline = formData.deadline ? new Date(formData.deadline).toISOString() : null;
+      const deadline = formData.deadline
+        ? (() => {
+            const d = new Date(formData.deadline);
+            return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+          })()
+        : null;
 
       // If employer, ensure the selected company's logo is set from profile DP when missing
       if (userRole === 'employer' && formData.company_id) {
