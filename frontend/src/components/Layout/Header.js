@@ -2,20 +2,22 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import Bell from '../Notifications/Bell';
+import { useCurrentUserIdentity } from '../../hooks/useCurrentUser';
 import { 
   Bars3Icon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
+import { useMobileNav } from './MobileNavContext';
 
 const Header = ({ user }) => {
-  // Get the latest user profile from auth context
-  const { profile, signOut } = useAuth();
-  
-  // Use the most up-to-date user information (profile from context or passed user prop)
-  const currentUser = profile || user;
+  const { user: authUserFromContext, profile: profileFromContext, signOut } = useAuth();
+  const { name: displayName, avatarUrl, isLoading } = useCurrentUserIdentity();
+  const currentUser = profileFromContext || authUserFromContext || user;
+  const avatarSrc = avatarUrl ? `${avatarUrl}?t=${new Date().getTime()}` : '/default-avatar.svg';
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuRef = useRef(null);
+  const { open: isNavOpen, setOpen: setNavOpen } = useMobileNav();
 
   // Close popover when clicking outside
   useEffect(() => {
@@ -38,10 +40,20 @@ const Header = ({ user }) => {
   };
 
   return (
-    <header role="banner" className="bg-white shadow-sm border-b border-ocean-200 px-6 py-4">
-      <div className="flex items-center justify-between space-x-6">
+    <header role="banner" className="bg-white shadow-sm border-b border-ocean-200 px-4 sm:px-6 py-3 sm:py-4">
+      <div className="flex items-center justify-between space-x-4 sm:space-x-6">
         {/* Logo and Title */}
         <div className="flex items-center">
+          <button
+            type="button"
+            aria-label="Open menu"
+            aria-controls="mobile-nav"
+            aria-expanded={isNavOpen}
+            onClick={() => setNavOpen(true)}
+            className="md:hidden p-2 rounded-lg hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+          >
+            <Bars3Icon className="h-6 w-6" />
+          </button>
           <Link to="/" className="flex items-center space-x-3">
             
             
@@ -49,7 +61,7 @@ const Header = ({ user }) => {
         </div>
 
         {/* Animated Tagline with Water Animation - Centered */}
-        <div className="flex-1 flex justify-center px-4">
+        <div className="hidden sm:flex flex-1 justify-center px-4">
           <style>
             {`
               @keyframes fade-in-slide-up {
@@ -115,7 +127,7 @@ const Header = ({ user }) => {
               className="flex items-center space-x-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 p-2 rounded-lg hover:bg-gray-100 min-h-[44px]"
             >
               <div className="text-right">
-                <p className="text-sm font-medium text-gray-900">{currentUser.full_name || currentUser.name || 'User'}</p>
+                <p className="text-sm font-medium text-gray-900">{isLoading ? '…' : displayName}</p>
                 <p className="text-xs text-ocean-600">
                   {currentUser.role === 'super_admin' ? 'Super Admin' :
                    currentUser.role === 'admin' ? 'Administrator' :
@@ -124,15 +136,19 @@ const Header = ({ user }) => {
                    currentUser.primary_role || currentUser.role || 'Alumni'}
                 </p>
               </div>
-              <img 
-                src={currentUser.avatar_url ? `${currentUser.avatar_url}?t=${new Date().getTime()}` : '/default-avatar.svg'} 
-                alt={currentUser.full_name || currentUser.name || 'User'}
-                className="w-12 h-12 rounded-full object-cover"
-                onError={(e) => {
-                  e.target.onerror = null;
-                  e.target.src = '/default-avatar.svg';
-                }}
-              />
+              {isLoading ? (
+                <div className="w-12 h-12 rounded-full bg-gray-200 animate-pulse" />
+              ) : (
+                <img 
+                  src={avatarSrc}
+                  alt={displayName}
+                  className="w-12 h-12 rounded-full object-cover"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.src = '/default-avatar.svg';
+                  }}
+                />
+              )}
             </button>
 
             {/* Dropdown Menu */}
@@ -140,7 +156,7 @@ const Header = ({ user }) => {
               <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg z-50 border border-gray-200" role="menu" aria-label="User menu">
                 <div className="py-1">
                   <div className="px-4 py-3 border-b border-gray-200">
-                    <p className="text-sm font-semibold text-gray-900 truncate">{currentUser.full_name || currentUser.name || 'User'}</p>
+                    <p className="text-sm font-semibold text-gray-900 truncate">{isLoading ? '…' : displayName}</p>
                     <p className="text-xs text-gray-500 truncate">{currentUser.email || 'No email provided'}</p>
                     <p className="text-xs text-ocean-600 mt-1 font-medium">
                       {currentUser.role === 'super_admin' ? 'Super Admin' :

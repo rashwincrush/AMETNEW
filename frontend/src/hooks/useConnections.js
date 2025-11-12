@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../utils/supabase';
+import { idempotentConnect } from '../utils/connections';
 import toast from 'react-hot-toast';
 import { toFriendlyToast } from '../utils/errors';
 
-export const AllowedStatuses = new Set(['pending','accepted','connected','declined','rejected']);
+export const AllowedStatuses = new Set(['pending','accepted','declined']);
 
 export function useConnections(currentUserId, visibleProfileIds = []) {
   const [byProfile, setByProfile] = useState(new Map());
@@ -180,22 +181,19 @@ export function useConnectionsPanel(currentUserId) {
     const optimistic = { id: null, requester_id: currentUserId, recipient_id: targetProfileId, status: 'pending' };
     setByProfile(new Map(byProfile).set(targetProfileId, optimistic));
 
-    const { data, error } = await supabase
-      .from('connections')
-      .insert([{ requester_id: currentUserId, recipient_id: targetProfileId, status: 'pending' }])
-      .select()
-      .single();
-
-    if (error) {
+    try {
+      const data = await idempotentConnect(currentUserId, targetProfileId);
+      if (data) {
+        setByProfile(new Map(byProfile).set(targetProfileId, data));
+      }
+      toast.success('Request sent');
+    } catch (error) {
       const map = new Map(byProfile);
       if (prev) map.set(targetProfileId, prev); else map.delete(targetProfileId);
       setByProfile(map);
       toFriendlyToast(toast, error, 'Could not send request');
       return;
     }
-
-    setByProfile(new Map(byProfile).set(targetProfileId, data));
-    toast.success('Request sent');
   }, [byProfile, currentUserId]);
 
   const accept = useCallback(async (targetProfileId) => {
@@ -249,7 +247,7 @@ export function useConnectionsPanel(currentUserId) {
 
   const removeConnection = useCallback(async (targetProfileId) => {
     const row = byProfile.get(targetProfileId);
-    if (!row || !['accepted','connected'].includes(row.status)) return;
+    if (!row || !['accepted'].includes(row.status)) return;
 
     // Prefer RPC if present
     try {

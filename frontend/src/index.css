@@ -4,6 +4,19 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  .safe-top { padding-top: env(safe-area-inset-top); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .vh-100dvh { min-height: 100dvh; }
+  .tap-target { min-height: 44px; min-width: 44px; }
+  .text-balance { text-wrap: balance; }
+}
+
+@layer components {
+  .h1-fluid { @apply text-fluid-h1 font-semibold text-gray-900; }
+  .h2-fluid { @apply text-fluid-h2 font-semibold text-gray-900; }
+}
+
 @layer components {
   .form-label {
     @apply block text-sm font-semibold text-gray-700 mb-1.5;
@@ -48,3 +61,4 @@ code {
     font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New",
         monospace;
 }
+

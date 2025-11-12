@@ -184,11 +184,9 @@ const PostJob = () => {
         if (!companyId) {
           const { data: newCompany, error: createError } = await supabase
             .from('companies')
-            .insert({ name: companyNameTrim, created_by: session.user.id })
-            .select('id')
-            .single();
+            .insert({ name: companyNameTrim, created_by: session.user.id }, { returning: 'representation' });
           if (createError) throw createError;
-          companyId = newCompany.id;
+          companyId = Array.isArray(newCompany) ? newCompany[0]?.id : newCompany?.id;
         }
       }
 
@@ -207,7 +205,9 @@ const PostJob = () => {
         is_approved: false,
         created_by: session.user.id,
       };
-      const { error: jobError } = await supabase.from('jobs').insert(insertPayload).select('id').single();
+      const { error: jobError } = await supabase
+        .from('jobs')
+        .insert(insertPayload, { returning: 'minimal' });
       if (jobError) throw jobError;
 
       toast.success('Quick Link job posted successfully!');
@@ -330,21 +330,20 @@ const PostJob = () => {
           }
         }
       } else {
-        const { data: newCompany, error: createError } = await supabase
+          const { data: newCompany, error: createError } = await supabase
           .from('companies')
           .insert({
             name: formData.company_name.trim(),
             logo_url: logoUrl,
             created_by: session.user.id 
-          })
-          .select();
+          }, { returning: 'representation' });
           
         if (createError) {
           console.error("Error creating company:", createError);
           throw new Error(`Failed to create company: ${createError.message}`);
         }
         
-        companyId = newCompany[0].id;
+        companyId = Array.isArray(newCompany) ? newCompany[0]?.id : newCompany?.id;
       }
       
       if (!companyId) {
@@ -356,7 +355,9 @@ const PostJob = () => {
       // Enforce publish-ready status to trigger DB constraints (status='active')
       const insertPayload = { ...payload, status: 'active', is_approved: false, is_active: true, created_by: session.user.id };
       console.log("Submitting In-App job with payload:", insertPayload);
-      const { data: newJob, error: jobError } = await supabase.from('jobs').insert(insertPayload).select('id').single();
+      const { data: newJob, error: jobError } = await supabase
+        .from('jobs')
+        .insert(insertPayload, { returning: 'representation' });
         
       if (jobError) {
         console.error("Error creating job:", jobError);
@@ -367,8 +368,9 @@ const PostJob = () => {
       console.log("Job created successfully");
       toast.success('Job posted!');
 
-      if (newJob && newJob[0]?.id) {
-        navigate(`/jobs/${newJob[0].id}`);
+      const newJobId = Array.isArray(newJob) ? newJob[0]?.id : newJob?.id;
+      if (newJobId) {
+        navigate(`/jobs/${newJobId}`);
       } else {
         navigate('/jobs');
       }

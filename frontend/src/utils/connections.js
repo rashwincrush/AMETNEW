@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 import toast from 'react-hot-toast';
+const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_KEY;
 
 // Returns latest connection edge between a and b (by updated_at then created_at)
 export async function getLatestEdge(a, b) {
@@ -28,37 +30,164 @@ export async function fetchRel(meId, otherId) {
 }
 
 // Idempotent connect: accepts incoming if present, treats duplicates as success
-export async function idempotentConnect(meId, otherId, knownRel) {
-  if (!meId || !otherId || meId === otherId) return;
-  const rel = knownRel ?? (await fetchRel(meId, otherId));
+export async function idempotentConnect(requesterId, recipientId) {
+  if (!requesterId || !recipientId) throw new Error('Missing IDs');
+  if (requesterId === recipientId) throw new Error('Cannot connect to yourself');
 
-  // If they already sent us a request, 'Connect' should accept instead
-  if (rel?.status === 'pending' && rel?.pending_side === 'received') {
-    return acceptPending(meId, otherId);
+  // RPC-first (if present on the DB): lets the server own requester_id/status under RLS
+  const rpcAttempts = [
+    { name: 'request_connection', params: { p_recipient: recipientId } },
+  ];
+  for (const attempt of rpcAttempts) {
+    try {
+      const { data, error } = await supabase.rpc(attempt.name, attempt.params);
+      if (!error && data) return data;
+    } catch (_) { /* try next */ }
   }
 
-  // If last same-direction edge was removed/declined, revive it to pending
-  const last = await getLatestEdge(meId, otherId);
-  const sameDirection = last && last.requester_id === meId && last.recipient_id === otherId;
-  if (sameDirection && ['removed', 'declined'].includes(last.status)) {
-    await updateEdge(last.id, 'pending');
-    return;
-  }
-
-  // Already pending/connected/accepted/declined from view → nothing to do
-  if (rel?.status) return;
-
-  // Fresh insert
-  const { error } = await supabase
+  // check existing (either direction)
+  const { data: existing, error: findErr } = await supabase
     .from('connections')
-    .insert({ requester_id: meId, recipient_id: otherId, status: 'pending' });
-  if (error) {
-    const code = (error?.code || error?.status || error?.message || '').toString().toLowerCase();
-    if (code.includes('23505') || code.includes('409') || code.includes('duplicate') || code.includes('conflict')) {
-      // Treat duplicate as success (double-clicks / race)
-      return;
+    .select('id,status,requester_id,recipient_id')
+    .or(`and(requester_id.eq.${requesterId},recipient_id.eq.${recipientId}),and(requester_id.eq.${recipientId},recipient_id.eq.${requesterId})`)
+    .order('updated_at', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (findErr) throw findErr;
+  if (existing?.length) {
+    const edge = existing[0];
+
+    // auto-accept if the *other* person already requested me
+    if (edge.status === 'pending' && edge.requester_id === recipientId) {
+      const { data, error } = await supabase
+        .from('connections')
+        .update({ status: 'accepted' })
+        .eq('id', edge.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
     }
-    throw error;
+
+    // revive same-direction declined back to pending
+    if (edge.status === 'declined' && edge.requester_id === requesterId) {
+      const { data, error } = await supabase
+        .from('connections')
+        .update({ status: 'pending' })
+        .eq('id', edge.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    }
+
+    return edge; // already have something; treat as success
+  }
+
+  // Primary insert path: manual fetch without columns query param (works around PostgREST columns= for JSON bug)
+  let createErr = null;
+  try {
+    const { data: sess } = await supabase.auth.getSession();
+    const accessToken = sess?.session?.access_token;
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !accessToken) throw new Error('Missing env/session');
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/connections`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${accessToken}`,
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify([{ recipient_id: recipientId }]),
+    });
+    if (!resp.ok) {
+      let j = null; try { j = await resp.json(); } catch (_) { /* no-op */ }
+      console.error('manual POST /connections failed', resp.status, j);
+      throw new Error('manual-insert-failed');
+    }
+    const latest = await getLatestEdge(requesterId, recipientId);
+    if (latest) return latest;
+    return null;
+  } catch (eManual) {
+    createErr = eManual;
+    // fall back to supabase-js insert attempts
+  }
+
+  // fresh insert: prefer minimal payload to satisfy RLS/triggers (let DB set requester_id/status)
+  // fallback to explicit payload if minimal insert fails for any reason
+  try {
+    const { error } = await supabase
+      .from('connections')
+      .insert([{ recipient_id: recipientId }], { returning: 'minimal' });
+    if (error) throw error;
+    // fetch the latest edge after insert
+    const latest = await getLatestEdge(requesterId, recipientId);
+    if (latest) return latest;
+    return null;
+  } catch (e) {
+    createErr = e;
+    // continue to fallback path
+  }
+
+  // minimal attempt 2: provide status only (let DB derive requester_id)
+  try {
+    const { error } = await supabase
+      .from('connections')
+      .insert([{ recipient_id: recipientId, status: 'pending' }], { returning: 'minimal' });
+    if (error) throw error;
+    const latest = await getLatestEdge(requesterId, recipientId);
+    if (latest) return latest;
+    return null;
+  } catch (e1) {
+    // keep original minimal error but prefer the more recent detail if any
+    if (!createErr) createErr = e1;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('connections')
+      .insert([{ requester_id: requesterId, recipient_id: recipientId, status: 'pending' }], { returning: 'minimal' });
+    if (error) throw error;
+    const latest = await getLatestEdge(requesterId, recipientId);
+    if (latest) return latest;
+    return null;
+  } catch (e2) {
+    const msg = (e2?.message || e2?.code || '').toString().toLowerCase();
+    if (msg.includes('23505') || msg.includes('409') || msg.includes('duplicate') || msg.includes('conflict')) {
+      // treat duplicate as success by returning the latest edge
+      const latest = await getLatestEdge(requesterId, recipientId);
+      if (latest) return latest;
+      return null;
+    }
+    // Log original minimal insert error for diagnostics
+    console.error('connections.idempotentConnect insert errors', { minimal: createErr, fallback: e2 });
+    // Final fallback: raw fetch without columns param to avoid client library query mutation
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const accessToken = sess?.session?.access_token;
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !accessToken) throw e2;
+      const resp = await fetch(`${SUPABASE_URL}/rest/v1/connections`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${accessToken}`,
+          'Prefer': 'return=minimal',
+        },
+        body: JSON.stringify([{ recipient_id: recipientId }]),
+      });
+      if (!resp.ok) {
+        let j = null; try { j = await resp.json(); } catch (_) { /* no-op */ }
+        console.error('manual POST /connections failed', resp.status, j);
+        throw e2;
+      }
+      const latest = await getLatestEdge(requesterId, recipientId);
+      if (latest) return latest;
+      return null;
+    } catch (e3) {
+      throw e2; // rethrow original
+    }
   }
 }
 

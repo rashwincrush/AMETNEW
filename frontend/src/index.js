@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
 import App from "./App";
+import { MobileNavProvider } from "./components/Layout/MobileNavContext";
 // App.js already wraps the tree with <Router> and <AuthProvider>
 
 // Production hardening: silence console in production
@@ -19,6 +20,8 @@ if (process.env.NODE_ENV === 'production') {
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <React.StrictMode>
-    <App />
+    <MobileNavProvider>
+      <App />
+    </MobileNavProvider>
   </React.StrictMode>,
 );

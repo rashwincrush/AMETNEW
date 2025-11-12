@@ -124,9 +124,13 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
       let insertPayload = base;
 
       // Try with resume_url if column exists; on failure due to column absence, retry without
-      let res = await supabase.from('job_applications').insert({ ...insertPayload, resume_url: publicUrl || key }).select('id').single();
+      let res = await supabase
+        .from('job_applications')
+        .insert({ ...insertPayload, resume_url: publicUrl || key }, { returning: 'minimal' });
       if (res.error && /column\s+"?resume_url"?/i.test(res.error.message || '')) {
-        res = await supabase.from('job_applications').insert(base).select('id').single();
+        res = await supabase
+          .from('job_applications')
+          .insert(base, { returning: 'minimal' });
       }
       if (res.error) {
         const msg = (res.error.status === 403 || /RLS|Not allowed|permission/i.test(res.error.message))

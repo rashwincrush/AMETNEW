@@ -178,11 +178,11 @@ function AppContent() {
 
   // After loading, render routes based on user authentication
   return user ? (
-    <div className="flex h-screen bg-ocean-50">
+    <div className="flex vh-100dvh safe-top safe-bottom bg-ocean-50">
       <Navigation user={profile || user} />
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Header user={profile || user} />
-        <main id="main-content" className="flex-1 overflow-x-hidden overflow-y-auto bg-gradient-to-br from-ocean-50 to-ocean-100 p-6">
+        <main id="main-content" className="flex-1 overflow-x-hidden overflow-y-auto bg-gradient-to-br from-ocean-50 to-ocean-100 p-4 sm:p-5 md:p-6 lg:p-8">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/terms-of-service" element={<TermsOfService />} />

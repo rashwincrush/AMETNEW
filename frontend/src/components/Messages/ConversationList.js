@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { MagnifyingGlassIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import { formatDistanceToNow } from 'date-fns';
+import { useProfileById } from '../../hooks/useProfileById';
+import { getDisplayName } from '../../utils/displayName';
 
 // Simple in-memory cache of failed avatar URLs to avoid retry storms
 const failedAvatarCache = new Set();
@@ -28,6 +30,68 @@ const Avatar = ({ url, name }) => {
       height={48}
       onError={() => { failedAvatarCache.add(url); setFailed(true); }}
     />
+  );
+};
+
+const ThreadRow = ({ thread, selected, onSelect }) => {
+  const { profile, isLoading } = useProfileById(thread.other_user_id);
+  const name = getDisplayName(profile, null);
+  const avatarUrl = profile?.avatar_url || null;
+  const initial = (name || '?').charAt(0).toUpperCase();
+
+  return (
+    <div 
+      onClick={() => onSelect(thread)}
+      className={`px-4 py-3 border-b cursor-pointer hover:bg-gray-50 ${selected ? 'bg-gray-100' : ''}`}
+    >
+      <div className="flex items-center">
+        <div className="relative">
+          {isLoading ? (
+            <div className="w-12 h-12 bg-gray-200 rounded-full animate-pulse" />
+          ) : avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={name || 'avatar'}
+              className="w-12 h-12 rounded-full object-cover"
+              loading="lazy"
+              decoding="async"
+              onError={(e) => { e.target.onerror = null; e.target.src = '/default-avatar.svg'; }}
+            />
+          ) : (
+            <div className="w-12 h-12 bg-ocean-100 rounded-full flex items-center justify-center text-ocean-600 font-bold overflow-hidden">
+              {initial}
+            </div>
+          )}
+
+          {thread.can_send && (
+            <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></span>
+          )}
+        </div>
+
+        <div className="ml-4 flex-1">
+          <div className="flex justify-between items-center">
+            <div className="flex-1">
+              <h4 className="font-medium">
+                {(name || '').replace(/\s*\(\d+\)\s*$/, '').trim()}
+                {thread.unread_count > 0 && (
+                  <span className="ml-2 inline-block w-2 h-2 bg-ocean-500 rounded-full"></span>
+                )}
+              </h4>
+              {thread.other_user_role === 'employer' ? (
+                <p className="text-xs text-gray-500 truncate">
+                  {thread.other_user_company || 'Company'}
+                </p>
+              ) : (
+                <p className="text-xs text-gray-500 truncate">
+                  {[thread.other_user_title, thread.other_user_company].filter(Boolean).join(' · ')}
+                </p>
+              )}
+            </div>
+            <span className="text-xs text-gray-500">{/* timestamp unavailable in view */}</span>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -131,51 +195,13 @@ const ConversationList = ({
             ))}
           </>
         ) : filteredThreads.length > 0 ? (
-          // Thread list items
           filteredThreads.map((thread) => (
-            <div 
+            <ThreadRow
               key={thread.thread_id}
-              onClick={() => onSelectThread(thread)}
-              className={`px-4 py-3 border-b cursor-pointer hover:bg-gray-50 ${selectedThread?.thread_id === thread.thread_id ? 'bg-gray-100' : ''}`}
-            >
-              <div className="flex items-center">
-                {/* Avatar */}
-                <div className="relative">
-                  <Avatar url={thread.other_user_avatar_url} name={thread.other_user_name} />
-                  
-                  {/* Online status indicator */}
-                  {thread.can_send && (
-                    <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></span>
-                  )}
-                </div>
-                
-                {/* Name and timestamp */}
-                <div className="ml-4 flex-1">
-                  <div className="flex justify-between items-center">
-                    <div className="flex-1">
-                      <h4 className="font-medium">
-                        {(thread.other_user_name || '').replace(/\s*\(\d+\)\s*$/, '').trim()}
-                        {/* Unread indicator - subtle dot */}
-                        {thread.unread_count > 0 && (
-                          <span className="ml-2 inline-block w-2 h-2 bg-ocean-500 rounded-full"></span>
-                        )}
-                      </h4>
-                      {/* Role-based subtitle */}
-                      {thread.other_user_role === 'employer' ? (
-                        <p className="text-xs text-gray-500 truncate">
-                          {thread.other_user_company || 'Company'}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-gray-500 truncate">
-                          {[thread.other_user_title, thread.other_user_company].filter(Boolean).join(' · ')}
-                        </p>
-                      )}
-                    </div>
-                    <span className="text-xs text-gray-500">{/* timestamp unavailable in view */}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+              thread={thread}
+              selected={selectedThread?.thread_id === thread.thread_id}
+              onSelect={onSelectThread}
+            />
           ))
         ) : searchQuery ? (
           // No search results

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase, mapOAuthToProfileData, onPostgresChangesOnce } from '../utils/supabase';
+import { upsertMyProfileFillOnly } from '../services/profile';
 import { ROLES, isRole } from '../constants/roles';
 
 // Helper for conditional logging
@@ -15,6 +16,7 @@ const logger = {
 const SAFE_PROFILE_FIELDS = [
   'id',
   'email',
+  'full_name',
   'first_name',
   'last_name',
   'phone',
@@ -414,13 +416,37 @@ export const AuthProvider = ({ children }) => {
   // Initialize auth once and set up listener
   useEffect(() => {
     // Only run once - check both ref and window global
-    if (initializedRef.current || window.AMET_AUTH.initialized) return;
+    if (initializedRef.current || window.AMET_AUTH.initialized) {
+      // Hydrate from current session to avoid being stuck in loading
+      (async () => {
+        try {
+          const { data: { session: current } } = await supabase.auth.getSession();
+          setSession(current || null);
+          setUser(current?.user || null);
+          if (current?.user?.id) {
+            await fetchUserProfile(current.user.id);
+          } else {
+            setLoading(false);
+          }
+        } catch (_) {
+          setLoading(false);
+        }
+      })();
+      return;
+    }
     
     // Mark as initialized in both places
     initializedRef.current = true;
     window.AMET_AUTH.initialized = true;
     
     logger.log('Initializing AuthContext...');
+
+    // Purge legacy localStorage keys that might cache stale names
+    try {
+      ['currentUser', 'displayName', 'profileCache'].forEach((k) => {
+        if (localStorage.getItem(k)) localStorage.removeItem(k);
+      });
+    } catch (_) { /* ignore */ }
     
     // Single emergency timeout that completely overrides the loading state
     // This is the final fallback if everything else fails
@@ -444,7 +470,21 @@ export const AuthProvider = ({ children }) => {
         logger.log('User metadata:', newSession.user.user_metadata);
         logger.log('App metadata:', newSession.user.app_metadata);
         
-        // Map and update profile with OAuth data
+        // Seed-only: derive a seed and upsert fill-only (never overwrite user edits)
+        try {
+          const m = newSession.user?.user_metadata || {};
+          const full_name = (m.full_name || m.name || `${m.given_name || ''} ${m.family_name || ''}` ).trim();
+          const seed = {
+            full_name: full_name || null,
+            first_name: m.given_name || null,
+            last_name: m.family_name || null,
+            avatar_url: m.avatar_url || m.picture || null,
+            email: newSession.user?.email || null,
+          };
+          upsertMyProfileFillOnly(seed).catch(() => undefined);
+        } catch (_) { /* ignore */ }
+
+        // Map and update profile with OAuth data (fill-only at field level)
         handleOAuthProfileData(newSession.user, provider);
       }
       
@@ -502,22 +542,6 @@ export const AuthProvider = ({ children }) => {
       logger.log('Safety timeout triggered - forcing app to exit loading state');
       setLoading(false);
     }, 2000);
-
-    // Check for existing session at init
-    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-      if (initialSession?.user) {
-        logger.log('Existing session found, user ID:', initialSession.user.id);
-        setUser(initialSession.user);
-        setSession(initialSession);
-        fetchUserProfile(initialSession.user.id);
-      } else {
-        logger.log('No session found during initialization');
-        setLoading(false);
-      }
-    }).catch(error => {
-      logger.error('Error checking session:', error);
-      setLoading(false);
-    });
 
     return () => {
       // Clean up all timeouts using our helper

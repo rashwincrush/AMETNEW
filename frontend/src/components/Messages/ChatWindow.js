@@ -6,7 +6,8 @@ import {
   PaperAirplaneIcon, 
   ChatBubbleLeftRightIcon,
   ExclamationTriangleIcon,
-  UserPlusIcon
+  UserPlusIcon,
+  ArrowLeftIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import MessageBubble from './MessageBubble';
@@ -16,7 +17,7 @@ import AvatarComponent from '../common/Avatar';
 import { useDmRealtime } from '../../hooks/useDmRealtime';
 import { ensureDmThreadWith, sendDmMessage } from '../../api/dm';
 
-const ChatWindow = ({ thread, currentUser, onMessageSent }) => {
+const ChatWindow = ({ thread, currentUser, onMessageSent, onBack }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -326,19 +327,30 @@ const ChatWindow = ({ thread, currentUser, onMessageSent }) => {
     }
   };
 
+  const displayName = (otherProfile?.full_name || activeThread?.other_user_name || '').trim();
+
   if (!activeThread?.thread_id && activeThread?.other_user_id) {
     // Show header for the selected peer even if the DM thread is not created yet
     return (
       <div className="flex-1 flex flex-col bg-white">
-        {otherProfile && (
-          <div className="bg-white border-b border-gray-200 p-4 flex items-center">
+        {(otherProfile || displayName) && (
+          <div className="bg-white border-b border-gray-200 p-4 flex items-center sticky top-0 z-10">
             <div className="flex items-center space-x-3">
-              <AvatarComponent src={otherProfile.avatar_url} alt={otherProfile.full_name} size={40} />
+              {/* Mobile back */}
+              <button
+                type="button"
+                onClick={() => onBack && onBack()}
+                className="md:hidden mr-1 p-2 rounded-lg hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
+                aria-label="Back to conversations"
+              >
+                <ArrowLeftIcon className="w-5 h-5 text-gray-700" />
+              </button>
+              <AvatarComponent src={otherProfile?.avatar_url} alt={displayName || 'Contact'} size={40} />
               <div>
-                <h3 className="text-lg font-medium text-gray-900">{otherProfile.full_name}</h3>
-                {(otherProfile.job_title || otherProfile.company) && (
+                <h3 className="text-lg font-medium text-gray-900">{displayName || 'Conversation'}</h3>
+                {(otherProfile?.job_title || otherProfile?.company) && (
                   <p className="text-sm text-gray-500">
-                    {[otherProfile.job_title, otherProfile.company].filter(Boolean).join(' at ')}
+                    {[otherProfile?.job_title, otherProfile?.company].filter(Boolean).join(' at ')}
                   </p>
                 )}
               </div>
@@ -365,15 +377,24 @@ const ChatWindow = ({ thread, currentUser, onMessageSent }) => {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-white">
+    <div className="flex-1 flex flex-col bg-white min-h-0">
       {/* Header with recipient info */}
-      {otherProfile && (
-        <div className="bg-white border-b border-gray-200 p-4 flex items-center">
+      {(otherProfile || displayName) && (
+        <div className="bg-white border-b border-gray-200 p-4 flex items-center sticky top-0 z-10">
           <div className="flex items-center space-x-3">
-            <AvatarComponent src={otherProfile.avatar_url} alt={otherProfile.full_name} size={40} />
+            {/* Mobile back */}
+            <button
+              type="button"
+              onClick={() => onBack && onBack()}
+              className="md:hidden mr-1 p-2 rounded-lg hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
+              aria-label="Back to conversations"
+            >
+              <ArrowLeftIcon className="w-5 h-5 text-gray-700" />
+            </button>
+            <AvatarComponent src={otherProfile?.avatar_url} alt={displayName || 'Contact'} size={40} />
             <div>
               <h3 className="text-lg font-medium text-gray-900">
-                {otherProfile.full_name}
+                {displayName || 'Conversation'}
                 <button
                   className="ml-3 text-sm text-ocean-600 hover:underline"
                   onClick={() => {
@@ -389,12 +410,12 @@ const ChatWindow = ({ thread, currentUser, onMessageSent }) => {
               </h3>
               {activeThread.other_user_role === 'employer' ? (
                 <p className="text-sm text-gray-500">
-                  {activeThread.other_user_company || otherProfile.company || 'Company'}
+                  {activeThread.other_user_company || otherProfile?.company || 'Company'}
                 </p>
               ) : (
-                (otherProfile.job_title || otherProfile.company) && (
+                (otherProfile?.job_title || otherProfile?.company) && (
                   <p className="text-sm text-gray-500">
-                    {[otherProfile.job_title, otherProfile.company]
+                    {[otherProfile?.job_title, otherProfile?.company]
                       .filter(Boolean)
                       .join(' at ')}
                   </p>
@@ -416,8 +437,8 @@ const ChatWindow = ({ thread, currentUser, onMessageSent }) => {
         </div>
       )}
 
-      {/* Messages (no inner scrollbar) */}
-      <div className="flex-1 p-4 space-y-4">
+      {/* Messages */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
         {loading ? (
           <div className="flex justify-center items-center h-full">
             <div className="text-center">
@@ -544,7 +565,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent }) => {
       )}
       
       {/* Message Input */}
-      <div className="p-4 border-t border-gray-200 bg-white">
+      <div className="p-4 border-t border-gray-200 bg-white sticky bottom-0 safe-bottom">
         <form onSubmit={(e) => { e.preventDefault(); if (!isSending) handleSendMessage(e); }} className="flex items-end space-x-2">
           <div className="flex-1">
             <div className="relative">

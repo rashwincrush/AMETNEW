@@ -234,7 +234,7 @@ const Notifications = () => {
     try {
       const { error } = await supabase
         .from('connections')
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .update({ status: newStatus })
         .eq('id', requestId);
 
       if (error) {

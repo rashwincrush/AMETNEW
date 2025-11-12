@@ -21,7 +21,7 @@ export default function useConnectionsPanel(currentUserId) {
 
       const receivedEdges = (edges || []).filter(r => r.status === 'pending' && r.recipient_id === currentUserId);
       const sentEdges = (edges || []).filter(r => r.status === 'pending' && r.requester_id === currentUserId);
-      const acceptedEdges = (edges || []).filter(r => ['accepted','connected'].includes(r.status));
+      const acceptedEdges = (edges || []).filter(r => ['accepted'].includes(r.status));
 
       const peerIds = Array.from(new Set([
         ...receivedEdges.map(r => r.requester_id),
@@ -111,7 +111,7 @@ export default function useConnectionsPanel(currentUserId) {
         .eq('status', 'pending')
         .maybeSingle();
       if (!edge) return;
-      const { error } = await supabase.from('connections').update({ status: 'rejected' }).eq('id', edge.id);
+      const { error } = await supabase.from('connections').update({ status: 'declined' }).eq('id', edge.id);
       if (error) throw error;
       toast('Request rejected');
       load();
@@ -142,7 +142,7 @@ export default function useConnectionsPanel(currentUserId) {
         .from('connections')
         .select('id')
         .or(`and(requester_id.eq.${currentUserId},recipient_id.eq.${peerId}),and(requester_id.eq.${peerId},recipient_id.eq.${currentUserId})`)
-        .in('status', ['accepted', 'connected'])
+        .in('status', ['accepted'])
         .maybeSingle();
       if (!edge) return;
       const { error } = await supabase.from('connections').delete().eq('id', edge.id);

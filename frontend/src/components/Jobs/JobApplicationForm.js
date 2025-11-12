@@ -77,7 +77,7 @@ const JobApplicationForm = ({ jobId, deadline }) => {
           resume_url: filePath,
           status: 'submitted',
         },
-      ]).select('*');
+      ], { returning: 'minimal' });
 
       if (insertError) throw insertError;
 

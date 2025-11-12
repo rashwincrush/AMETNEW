@@ -373,15 +373,15 @@ const MessagingSystem = () => {
 
         {/* Content */}
         {activeTab === 'connections' ? (
-          <div className="flex">
+          <div className="flex flex-col">
             <div className="w-full">
               <ConnectionsPanel currentUserId={currentUser?.id} />
             </div>
           </div>
         ) : (
-          <div className="flex">
+          <div className="flex flex-col md:flex-row">
             {/* Sidebar */}
-            <div className="w-full md:w-96 lg:w-[26rem] border-r border-gray-200">
+            <div className={`${selectedThread ? 'hidden' : 'block'} md:block w-full md:w-96 lg:w-[26rem] border-r border-gray-200`}>
               <ConversationList
                 threads={threads}
                 onSelectThread={handleSelectThread}
@@ -391,12 +391,13 @@ const MessagingSystem = () => {
             </div>
 
             {/* Main Chat Area */}
-            <div className="flex-1 flex flex-col">
+            <div className={`flex-1 flex flex-col ${selectedThread ? 'block' : 'hidden'} md:block`}>
               <ChatWindow
                 key={selectedThread?.thread_id || selectedThread?.other_user_id || 'none'}
                 thread={selectedThread}
                 currentUser={currentUser}
                 onMessageSent={debouncedRefresh}
+                onBack={() => setSelectedThread(null)}
               />
             </div>
           </div>

@@ -145,7 +145,7 @@ const JobPostingForm = () => {
         is_approved: false, // Jobs are not auto-approved
         is_verified: false, // Jobs are not auto-verified
         is_active: true, // Job is active upon creation
-      }]).select();
+      }], { returning: 'minimal' });
 
       if (jobError) throw jobError;
 
