@@ -1,4 +1,4 @@
-import { supabase } from '../utils/supabase';
+import { supabase, onPostgresChangesOnce } from '../utils/supabase';
 
 // Allowed types per spec
 export const ALLOWED_TYPES = new Set([
@@ -63,12 +63,10 @@ export async function markAllRead() {
 }
 
 export function subscribeMyNotifications(userId, onChange) {
-  return supabase
-    .channel(`notifications:${userId}`)
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${userId}` },
-      onChange
-    )
-    .subscribe();
+  return onPostgresChangesOnce(
+    `notifications:${userId}`,
+    `*:public:notifications:recipient_id=eq.${userId}`,
+    { event: '*', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${userId}` },
+    onChange
+  );
 }

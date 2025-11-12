@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { addComment, editComment, fetchComments } from '../../api/comments'
-import { supabase } from '../../utils/supabase'
+import { onPostgresChangesOnce, waitForRealtimeReady } from '../../utils/supabase'
 import { canCommentOnGroup } from '../../utils/acl'
 import { useAuth } from '../../contexts/AuthContext'
 import toast from 'react-hot-toast'
@@ -39,9 +39,13 @@ export default function CommentsThread({ postId, group, isMember }) {
   }, [postId])
 
   useEffect(() => {
-    const channel = supabase
-      .channel(`gc:${postId}`)
-      .on('postgres_changes',
+    if (!postId) return;
+    let dispose;
+    (async () => {
+      await waitForRealtimeReady(3000);
+      dispose = onPostgresChangesOnce(
+        `gc:${postId}`,
+        `*:public:group_comments:post_id=eq.${postId}`,
         { event: '*', schema: 'public', table: 'group_comments', filter: `post_id=eq.${postId}` },
         (payload) => {
           setComments((prev) => {
@@ -51,11 +55,9 @@ export default function CommentsThread({ postId, group, isMember }) {
             return prev
           })
         }
-      )
-      .subscribe((status) => { void status; })
-
-    channelRef.current = channel
-    return () => { supabase.removeChannel(channel) }
+      );
+    })();
+    return () => { try { dispose && dispose(); } catch (_) { void 0; } };
   }, [postId])
 
   const onSubmit = async (e) => {

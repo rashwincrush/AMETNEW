@@ -234,8 +234,8 @@ const Mentorship = () => {
       // Use RLS-safe public view for mentors directory
       let q = supabase
         .from('v_mentors_public')
-        .select('id,user_id,status,expertise,created_at,full_name,avatar_url,location,is_available_for_mentorship,approval_status')
-        .order('created_at', { ascending: false });
+        .select('*')
+        .order('full_name', { ascending: true });
 
       // Server-side availability filter from the view when toggled
       if (showOnlyAccepting) {

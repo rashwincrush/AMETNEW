@@ -1,32 +1,68 @@
 import { supabase } from '../utils/supabase';
-import { createThread } from '../utils/supabase';
+
+const inflight = new Map();
+const sleep = (n) => new Promise((r) => setTimeout(r, n));
+const isUuid = (s) => !!s && /^[0-9a-f-]{36}$/i.test(s);
 
 export async function ensureDmThreadWith(otherUserId) {
   if (!otherUserId) throw new Error('otherUserId required');
-  try {
-    try { await createThread(undefined, otherUserId); } catch (_) {}
-    const { data, error } = await supabase
-      .from('v_my_dm_threads')
-      .select('*')
-      .eq('other_user_id', otherUserId)
-      .maybeSingle();
-    if (error) throw error;
-    if (!data?.thread_id) throw new Error('Thread not found');
-    return data.thread_id;
-  } catch (err) {
-    throw err;
-  }
+  const { data: userData, error: userErr } = await supabase.auth.getUser();
+  if (userErr) throw userErr;
+  const me = userData?.user?.id;
+  if (!me) throw new Error('Not authenticated');
+  if (!isUuid(me) || !isUuid(otherUserId) || me === otherUserId) throw new Error('invalid-peer');
+
+  if (inflight.has(otherUserId)) return inflight.get(otherUserId);
+
+  const run = async () => {
+    const call = async () => {
+      const { data, error } = await supabase.rpc('get_or_create_dm_thread', {
+        p_user1: me,
+        p_user2: otherUserId,
+      });
+      if (error) throw error;
+      if (!isUuid(data)) throw new Error('bad-thread-id');
+      return data;
+    };
+
+    try {
+      return await call();
+    } catch (e) {
+      const code = e?.code || '';
+      const msg = String(e?.message || '');
+      if (code === '404' || code === '400' || /not\s*found/i.test(msg)) {
+        await sleep(500 + Math.random() * 1000);
+        return await call();
+      }
+      throw e;
+    }
+  };
+
+  const p = run().finally(() => inflight.delete(otherUserId));
+  inflight.set(otherUserId, p);
+  return p;
 }
 
-export async function sendDmMessage(threadId, body, clientId) {
+export async function sendDmMessage(threadId, body, repair) {
   if (!threadId) throw new Error('threadId required');
   const { data, error } = await supabase.rpc('send_dm_message', {
     p_thread_id: threadId,
     p_body: body,
-    p_client_id: clientId,
   });
-  if (error) throw error;
-  return data?.id;
+  if (!error) return typeof data === 'string' ? data : data?.id;
+
+  // Retry once if Not a participant and repair callback is provided
+  if (error?.message && /Not a participant/i.test(error.message) && typeof repair === 'function') {
+    const fixedThreadId = await repair();
+    const { data: data2, error: err2 } = await supabase.rpc('send_dm_message', {
+      p_thread_id: fixedThreadId || threadId,
+      p_body: body,
+    });
+    if (err2) throw err2;
+    return typeof data2 === 'string' ? data2 : data2?.id;
+  }
+
+  throw error;
 }
 
 export async function fetchMyThreads() {

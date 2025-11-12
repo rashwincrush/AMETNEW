@@ -71,13 +71,25 @@ export function useNotifications() {
 
   // realtime
   const subRef = useRef(null);
+  const debounceRef = useRef(null);
   useEffect(() => {
     if (!user) return;
     subRef.current = subscribeMyNotifications(user.id, () => {
-      qc.invalidateQueries({ queryKey: ['notifications', user.id] });
+      // Debounce invalidation to avoid thrashing on rapid events
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ['notifications', user.id] });
+      }, 300);
     });
     return () => {
-      if (subRef.current) supabase.removeChannel(subRef.current);
+      if (subRef.current) {
+        try { subRef.current(); } catch (_) { void 0; }
+        subRef.current = null;
+      }
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
     };
   }, [user?.id]);
 

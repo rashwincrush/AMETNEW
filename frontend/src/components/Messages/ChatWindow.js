@@ -14,6 +14,7 @@ import { format } from 'date-fns';
 import { getDisconnectCooldown, clearDisconnectCooldown, formatCooldownTime } from '../../utils/ui';
 import AvatarComponent from '../common/Avatar';
 import { useDmRealtime } from '../../hooks/useDmRealtime';
+import { ensureDmThreadWith, sendDmMessage } from '../../api/dm';
 
 const ChatWindow = ({ thread, currentUser, onMessageSent }) => {
   const [messages, setMessages] = useState([]);
@@ -86,12 +87,15 @@ const ChatWindow = ({ thread, currentUser, onMessageSent }) => {
   useEffect(() => {
     if (!currentUser) return;
 
-    // If we have a thread id, load messages
+    // If we have a thread id, reset state and load messages
     if (activeThread?.thread_id) {
       const threadId = activeThread.thread_id;
       const load = async () => {
         setLoading(true);
         try {
+          // Reset UI to reflect new selection immediately
+          setMessages([]);
+          setOtherProfile(null);
           const { data: pub } = await supabase
             .from('alumni_directory_public')
             .select('id, full_name, avatar_url, current_job_title, company_name, location_city, location_country')
@@ -225,42 +229,37 @@ const ChatWindow = ({ thread, currentUser, onMessageSent }) => {
       // Debug: verify correct dm_threads.id is used
       console.log('sending to threadId=', activeThread.thread_id);
 
-      const clientId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const optimistic = {
-        id: `temp_${clientId}`,
-        thread_id: activeThread.thread_id,
-        sender_id: currentUser.id,
-        body: newMessage.trim(),
-        client_id: clientId,
-        created_at: new Date().toISOString(),
-        _optimistic: true,
-      };
-      setMessages((prev) => [...prev, optimistic]);
-
-      // Clear form immediately
+      const toSend = newMessage.trim();
+      // Clear form immediately; rely on realtime delivery
       setNewMessage('');
 
-      const { data, error } = await supabase.rpc('send_dm_message', {
-        p_thread_id: activeThread.thread_id,
-        p_body: optimistic.body,
-        p_client_id: clientId,
-      });
-
-      if (error) {
-        console.error('send_dm_message error', error);
-        // rollback optimistic
-        setMessages((prev) => prev.filter((m) => m.client_id !== clientId));
-        // Add specific errors if needed; otherwise generic
-        toast.error('Failed to send message.');
-        return;
+      try {
+        await sendDmMessage(activeThread.thread_id, toSend);
+      } catch (err) {
+        console.error('send_dm_message error', err);
+        // If not a participant, try to ensure the thread then retry once
+        if (err?.message && /Not a participant/i.test(err.message) && activeThread?.other_user_id) {
+          try {
+            const ensuredId = await ensureDmThreadWith(activeThread.other_user_id);
+            if (ensuredId && ensuredId !== activeThread.thread_id) {
+              const { data: found } = await supabase
+                .from('v_my_dm_threads')
+                .select('*')
+                .eq('thread_id', ensuredId)
+                .maybeSingle();
+              if (found) setActiveThread(found);
+            }
+            await sendDmMessage(ensuredId || activeThread.thread_id, toSend);
+          } catch (retryErr) {
+            console.error('retry send_dm_message error', retryErr);
+            toast.error('Failed to send message.');
+            return;
+          }
+        } else {
+          toast.error('Failed to send message.');
+          return;
+        }
       }
-
-      // Replace optimistic if realtime hasn't yet
-      setMessages((prev) => {
-        const without = prev.filter((m) => m.client_id !== clientId);
-        const exists = without.some((m) => m.id === data.id);
-        return exists ? without : [...without, data];
-      });
 
       if (typeof onMessageSent === 'function') {
         try { onMessageSent(); } catch (_) { /* no-op */ }

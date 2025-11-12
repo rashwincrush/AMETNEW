@@ -71,7 +71,9 @@ const MessageBubble = ({ message, isOwn, timestamp, readStatus }) => {
         )}
         
         {/* Text content */}
-        {message.content && <p className="break-words">{message.content}</p>}
+        {(message.body || message.content) && (
+          <p className="break-words">{message.body || message.content}</p>
+        )}
         
         {/* Timestamp and read receipt */}
         <div className="flex items-center justify-end mt-1 space-x-1">

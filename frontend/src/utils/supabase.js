@@ -96,6 +96,8 @@ export function ensureChannelSubscribed(name) {
         if (status === 'SUBSCRIBED') {
           logger.info('Realtime is ready');
           entry.subscribed = true;
+          // mark realtime ready for any waiters
+          try { if (typeof window !== 'undefined') { window.__sb_rt_ready__ = true; } } catch (_) { void 0; }
         }
       });
     } catch (e) {
@@ -117,12 +119,46 @@ export function onPostgresChangesOnce(channelName, key, params, handler) {
   const channel = ensureChannelSubscribed(channelName);
   const entry = _channelRegistry[channelName];
   if (!entry.listeners) entry.listeners = new Set();
-  if (entry.listeners.has(key)) {
-    return channel;
+  if (!entry.listeners.has(key)) {
+    entry.listeners.add(key);
+    channel.on('postgres_changes', params, handler);
   }
-  entry.listeners.add(key);
-  channel.on('postgres_changes', params, handler);
-  return channel;
+  // return disposer that decrements refcount and removes channel when unused
+  return () => {
+    const e = _channelRegistry[channelName];
+    if (!e) return;
+    if (e.listeners && e.listeners.has(key)) e.listeners.delete(key);
+    e.refCount = Math.max(0, (e.refCount || 0) - 1);
+    if (e.refCount === 0) {
+      try { supabase.removeChannel(e.channel); } catch (_) { void 0; }
+      delete _channelRegistry[channelName];
+    }
+  };
+}
+
+// --- Realtime readiness helpers ---
+let __rtWaiters = [];
+export function isRealtimeReady() {
+  try { return !!(window && window.__sb_rt_ready__); } catch (_) { return false; }
+}
+export function waitForRealtimeReady(timeoutMs = 4000) {
+  if (isRealtimeReady()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    __rtWaiters.push(() => { clearTimeout(timer); resolve(true); });
+    // attach a lightweight watcher to system-status to flip ready
+    const ch = ensureChannelSubscribed('system-status');
+    const check = setInterval(() => {
+      if (_channelRegistry['system-status']?.subscribed) {
+        clearInterval(check);
+        try { if (typeof window !== 'undefined') { window.__sb_rt_ready__ = true; } } catch (_) { void 0; }
+        __rtWaiters.forEach(fn => { try { fn(); } catch(_) { void 0; } });
+        __rtWaiters = [];
+      }
+    }, 100);
+    // auto clear after timeout; resolve already handles
+    setTimeout(() => clearInterval(check), timeoutMs + 100);
+  });
 }
 
 /**

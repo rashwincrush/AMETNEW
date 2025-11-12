@@ -28,7 +28,7 @@ export async function fetchGroup(groupId, userId) {
   const [g, m] = await Promise.all([
     supabase.from('groups').select('*').eq('id', groupId).single(),
     userId
-      ? supabase.from('group_members').select('role,status').eq('group_id', groupId).eq('user_id', userId).maybeSingle()
+      ? supabase.from('group_members').select('role,status', { head: false }).eq('group_id', groupId).eq('user_id', userId).maybeSingle()
       : Promise.resolve({ data: null, error: null })
   ]);
   if (g.error) throw g.error;

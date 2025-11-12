@@ -4,6 +4,7 @@ import { logActivity } from '../../utils/activityLogger';
 import ConversationList from './ConversationList';
 import ChatWindow from './ChatWindow';
 import { createThread } from '../../utils/supabase';
+import { ensureDmThreadWith } from '../../api/dm';
 import { useNotification } from '../../hooks/useNotification';
 import useConnectionsPanel from '../../hooks/useConnectionsPanel';
 import ConnectionsPanel from './ConnectionsPanel';
@@ -181,6 +182,7 @@ const MessagingSystem = () => {
   }, [fetchUserThreads]);
 
   // If /messages?peer=<id> present, try to select that thread or create it
+  const processedParamsRef = useRef({ thread: null, peer: null });
   useEffect(() => {
     (async () => {
       try {
@@ -189,8 +191,14 @@ const MessagingSystem = () => {
         const peer = params.get('peer');
         if (!currentUser) return;
 
+        // Avoid reprocessing same values (StrictMode / HMR)
+        if (processedParamsRef.current.thread === thread && processedParamsRef.current.peer === peer) {
+          return;
+        }
+
+        processedParamsRef.current = { thread, peer };
+
         if (thread) {
-          if (selectedThread?.thread_id && String(selectedThread.thread_id) === String(thread)) return;
           const { data: found } = await supabase
             .from('v_my_dm_threads')
             .select('*')
@@ -198,15 +206,18 @@ const MessagingSystem = () => {
             .maybeSingle();
           if (found) {
             setSelectedThread(found);
+            try {
+              const params2 = new URLSearchParams(window.location.search);
+              params2.set('thread', found.thread_id);
+              params2.delete('peer');
+              const newUrl = `${window.location.pathname}?${params2.toString()}`;
+              window.history.replaceState({}, '', newUrl);
+            } catch (_) { /* ignore */ }
             return;
           }
         }
 
         if (peer) {
-          if (selectedThread?.other_user_id && String(selectedThread.other_user_id) === String(peer)) {
-            return;
-          }
-
           const { data: existing } = await supabase
             .from('v_my_dm_threads')
             .select('*')
@@ -214,6 +225,13 @@ const MessagingSystem = () => {
             .maybeSingle();
           if (existing) {
             setSelectedThread(existing);
+            try {
+              const params2 = new URLSearchParams(window.location.search);
+              params2.set('thread', existing.thread_id);
+              params2.delete('peer');
+              const newUrl = `${window.location.pathname}?${params2.toString()}`;
+              window.history.replaceState({}, '', newUrl);
+            } catch (_) { /* ignore */ }
             return;
           }
           await handleCreateConversation(peer);
@@ -221,16 +239,37 @@ const MessagingSystem = () => {
         }
       } catch (_) { /* no-op */ }
     })();
-  }, [location.search, currentUser, selectedThread?.thread_id, selectedThread?.other_user_id]);
+  }, [location.search, currentUser]);
 
   const handleSelectThread = (thread) => {
-    setSelectedThread(thread);
     try {
       const params = new URLSearchParams(window.location.search);
-      if (thread?.thread_id) params.set('thread', thread.thread_id);
-      const newUrl = `${window.location.pathname}?${params.toString()}`;
-      window.history.replaceState({}, '', newUrl);
-    } catch (_) { /* ignore */ }
+      if (thread?.thread_id) {
+        // 1) Push URL to thread
+        params.set('thread', thread.thread_id);
+        params.delete('peer');
+        processedParamsRef.current = { thread: thread.thread_id, peer: null };
+        const newUrl = `${window.location.pathname}?${params.toString()}`;
+        window.history.replaceState({}, '', newUrl);
+        // 2) Resolve from current threads list to avoid stale object
+        const resolved = (Array.isArray(threads) ? threads : []).find(t => String(t.thread_id) === String(thread.thread_id));
+        setSelectedThread(resolved || thread);
+      } else if (thread?.other_user_id) {
+        // No thread yet — set peer in URL and kick off creation flow
+        params.set('peer', thread.other_user_id);
+        params.delete('thread');
+        processedParamsRef.current = { thread: null, peer: thread.other_user_id };
+        const newUrl = `${window.location.pathname}?${params.toString()}`;
+        window.history.replaceState({}, '', newUrl);
+        setSelectedThread({ other_user_id: thread.other_user_id });
+        // Fire and forget ensure; selection will normalize to thread via URL effect
+        handleCreateConversation(thread.other_user_id);
+      } else {
+        setSelectedThread(thread || null);
+      }
+    } catch (_) {
+      setSelectedThread(thread || null);
+    }
     logActivity({ action: 'dm_open_thread', meta: { threadId: thread?.thread_id }, route: '/messages' });
   };
 
@@ -242,12 +281,26 @@ const MessagingSystem = () => {
 
     try {
       setLoading(true);
-      const { data: threadId, error: threadErr } = await createThread(currentUser.id, targetUserId);
-      if (threadErr) {
-        console.warn('createThread failed:', threadErr?.message || threadErr);
+      let ensuredId = null;
+      try {
+        ensuredId = await ensureDmThreadWith(targetUserId);
+      } catch (e) {
+        console.warn('ensureDmThreadWith failed:', e?.message || e);
       }
 
       await fetchUserThreads();
+      if (ensuredId) {
+        const { data: found } = await supabase
+          .from('v_my_dm_threads')
+          .select('*')
+          .eq('thread_id', ensuredId)
+          .maybeSingle();
+        if (found) {
+          setSelectedThread(found);
+          showSuccess('Conversation ready.');
+          return;
+        }
+      }
       const thread = (Array.isArray(threads) ? threads : []).find(t => String(t.other_user_id) === String(targetUserId));
       if (thread) {
         setSelectedThread(thread);
@@ -340,6 +393,7 @@ const MessagingSystem = () => {
             {/* Main Chat Area */}
             <div className="flex-1 flex flex-col">
               <ChatWindow
+                key={selectedThread?.thread_id || selectedThread?.other_user_id || 'none'}
                 thread={selectedThread}
                 currentUser={currentUser}
                 onMessageSent={debouncedRefresh}
