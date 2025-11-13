@@ -3,6 +3,7 @@ import Logo from '../common/Logo';
 import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, CheckIcon, ArrowLeftIcon, XMarkIcon } from '@heroicons/react/24/outline'; 
 import { supabase, signInWithGoogle, signInWithLinkedIn } from '../../utils/supabase';
+import { saveProfileSocialLinks } from '../../services/socialLinks';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { getFriendlyErrorMessage } from '../../utils/errors';
@@ -73,6 +74,7 @@ const EnhancedRegister = () => {
     'first_name',
     'last_name',
     'phone',
+    'avatar_url',
     'location',
     'graduation_year',
     'degree_code',
@@ -81,6 +83,9 @@ const EnhancedRegister = () => {
     'student_id',
     'company_name',
     'current_job_title',
+    'industry',
+    'company_size',
+    'company_website',
   ];
 
   const pickSafeProfileFields = (src) => {
@@ -631,6 +636,12 @@ const EnhancedRegister = () => {
 
       if (selectedRole === 'student') {
         stage2.expected_graduation_year = Number(formData.expectedGraduationYear) || null;
+        stage2.student_id = formData.studentId?.trim() || null;
+      }
+      if (selectedRole === 'employer') {
+        stage2.industry = formData.industry?.trim() || null;
+        stage2.company_size = formData.companySize || null;
+        stage2.company_website = formData.companyWebsite?.trim() || null;
       }
 
       const { data: signUpData, error } = await supabase.auth.signUp({

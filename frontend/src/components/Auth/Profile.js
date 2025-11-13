@@ -73,12 +73,16 @@ const Profile = () => {
     degree_code: '',
     department_id: '',
     batch: '',
+    expected_graduation_year: '',
     student_id: '',
     date_of_birth: '',
     skills: [],
     achievements: [],
     interests: [],
     languages: [],
+    industry: '',
+    company_size: '',
+    company_website: '',
     socialLinks: {
       linkedin: '',
       github: '',
@@ -92,6 +96,7 @@ const Profile = () => {
 
   // Define isEmployer constant
   const isEmployer = getUserRole() === 'employer';
+  const isStudent = getUserRole() === 'student';
   
   // Handle changes to company form fields
   const handleCompanyChange = (e) => {
@@ -285,8 +290,12 @@ const Profile = () => {
             degree_code: cleanedProfile.degree_code || '',
             department_id: cleanedProfile.department_id || '',
             graduation_year: cleanedProfile.graduation_year || '',
+            expected_graduation_year: cleanedProfile.expected_graduation_year || '',
             student_id: cleanedProfile.student_id || '',
             date_of_birth: cleanedProfile.date_of_birth || '',
+            industry: cleanedProfile.industry || '',
+            company_size: cleanedProfile.company_size || '',
+            company_website: cleanedProfile.company_website || '',
             skills: Array.isArray(cleanedProfile.skills) ? cleanedProfile.skills : [],
             achievements: Array.isArray(cleanedProfile.achievements) ? cleanedProfile.achievements.map(achievement => {
               // Handle null or undefined achievement
@@ -586,12 +595,17 @@ const Profile = () => {
         degree_code: degreeCode,
         department_id: isEmployer ? null : (formData.department_id || null),
         graduation_year: formData.graduation_year,
+        expected_graduation_year: isStudent ? formData.expected_graduation_year : null,
         student_id: formData.student_id,
         date_of_birth: formData.date_of_birth,
         skills: formData.skills,
         achievements: Array.isArray(formData.achievements) ? formData.achievements.filter(a => a && typeof a === 'object' && a.title) : [],
         interests: formData.interests,
         languages: formData.languages,
+        // Employer-only fields on profiles
+        industry: isEmployer ? (formData.industry || null) : null,
+        company_size: isEmployer ? (formData.company_size || null) : null,
+        company_website: isEmployer ? (formData.company_website || null) : null,
       };
 
       const profileUpdates = { updated_at: new Date().toISOString() };
@@ -608,7 +622,7 @@ const Profile = () => {
       });
 
       // Handle empty strings for fields that need to be null in the database
-    ['date_of_birth', 'graduation_year', 'student_id'].forEach(field => {
+    ['date_of_birth', 'graduation_year', 'expected_graduation_year', 'student_id'].forEach(field => {
       if (profileUpdates[field] === '') {
         profileUpdates[field] = null;
       }
@@ -626,6 +640,11 @@ const Profile = () => {
     if (profileUpdates.graduation_year !== null && profileUpdates.graduation_year !== undefined) {
       const yearValue = parseInt(profileUpdates.graduation_year, 10);
       profileUpdates.graduation_year = isNaN(yearValue) ? null : yearValue;
+    }
+    // Convert expected_graduation_year to integer if it exists and is not null
+    if (profileUpdates.expected_graduation_year !== null && profileUpdates.expected_graduation_year !== undefined) {
+      const eYear = parseInt(profileUpdates.expected_graduation_year, 10);
+      profileUpdates.expected_graduation_year = isNaN(eYear) ? null : eYear;
     }
 
     // Do not write JSON social_links back to profiles; managed via table
@@ -717,12 +736,16 @@ const Profile = () => {
             degree_code: updatedProfile.degree_code || formData.degree_code,
             department_id: updatedProfile.department_id || formData.department_id,
             batch: updatedProfile.batch || formData.batch,
+            expected_graduation_year: updatedProfile.expected_graduation_year ?? formData.expected_graduation_year,
             student_id: updatedProfile.student_id || formData.student_id,
             date_of_birth: updatedProfile.date_of_birth || formData.date_of_birth,
             skills: updatedProfile.skills || formData.skills,
             achievements: updatedProfile.achievements || formData.achievements,
             interests: updatedProfile.interests || formData.interests,
             languages: updatedProfile.languages || formData.languages,
+            industry: updatedProfile.industry ?? formData.industry,
+            company_size: updatedProfile.company_size ?? formData.company_size,
+            company_website: updatedProfile.company_website ?? formData.company_website,
             // Keep UI social links from form (table-managed)
             socialLinks: formData.socialLinks,
           };
@@ -1103,27 +1126,50 @@ const Profile = () => {
               </div>
             </div>
             
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Graduation Year</label>
-              <input
-                type="number"
-                name="graduation_year"
-                value={formData.graduation_year || ''}
-                onChange={(e) => {
-                  // Handle empty string specifically for number inputs
-                  const val = e.target.value;
-                  const fieldName = e.target.name;
-                  setFormData(prev => ({
-                    ...prev,
-                    [fieldName]: val === '' ? '' : val
-                  }));
-                }}
-                min="1900"
-                max={new Date().getFullYear()}
-                className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                placeholder="Enter your graduation year (e.g. 2020)"
-              />
-            </div>
+            {!isStudent && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Graduation Year</label>
+                <input
+                  type="number"
+                  name="graduation_year"
+                  value={formData.graduation_year || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const fieldName = e.target.name;
+                    setFormData(prev => ({
+                      ...prev,
+                      [fieldName]: val === '' ? '' : val
+                    }));
+                  }}
+                  min="1900"
+                  max={new Date().getFullYear()}
+                  className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                  placeholder="Enter your graduation year (e.g. 2020)"
+                />
+              </div>
+            )}
+            {isStudent && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Expected Graduation Year</label>
+                <input
+                  type="number"
+                  name="expected_graduation_year"
+                  value={formData.expected_graduation_year || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const fieldName = e.target.name;
+                    setFormData(prev => ({
+                      ...prev,
+                      [fieldName]: val === '' ? '' : val
+                    }));
+                  }}
+                  min="1900"
+                  max={new Date().getFullYear() + 10}
+                  className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                  placeholder="Enter your expected graduation year (e.g. 2026)"
+                />
+              </div>
+            )}
             {!isEmployer && (
               <>
                 <div className="space-y-2">
