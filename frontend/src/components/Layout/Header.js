@@ -174,14 +174,6 @@ const Header = ({ user }) => {
                   >
                     Your Profile
                   </Link>
-                  <Link
-                    to="/dashboard"
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 min-h-[44px] flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
-                    onClick={() => setShowUserMenu(false)}
-                    role="menuitem"
-                  >
-                    Dashboard
-                  </Link>
                   <div className="border-t border-gray-200 my-1"></div>
                   <button
                     onClick={handleLogout}

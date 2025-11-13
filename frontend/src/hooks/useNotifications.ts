@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { supabase } from '../utils/supabase';
-import { Notification, fetchNotifications, markAllRead, markOneRead, subscribeMyNotifications } from '../api/notifications';
+import { fetchNotifications, markAllRead, markOneRead, subscribeMyNotifications, BellNotification } from '../api/notifications';
 import { useAuth } from '../contexts/AuthContext';
 
 dayjs.extend(relativeTime);
@@ -11,44 +11,45 @@ dayjs.extend(relativeTime);
 export type NotificationFilterTab = 'all' | 'unread' | 'read';
 
 export function useNotifications() {
-  const { user } = useAuth();
+  const { user } = useAuth() as any;
   const qc = useQueryClient();
   const [filterTab, setFilterTab] = useState<NotificationFilterTab>('all');
   const [typeFilter, setTypeFilter] = useState<Set<string>>(new Set());
   const [cursor, setCursor] = useState<string | undefined>(undefined);
 
-  const key = useMemo(() => ['notifications', user?.id, { filterTab, types: [...typeFilter], cursor }], [user?.id, filterTab, typeFilter, cursor]);
+  // Query key excludes filters because filtering is done client-side
+  const key = useMemo(() => ['notifications', user?.id, { cursor }], [user?.id, cursor]);
 
   const query = useQuery({
     queryKey: key,
     enabled: !!user,
     queryFn: async () => {
-      // Build dynamic query to support filters
-      let base = supabase
-        .from('notifications')
-        .select('*')
-        .eq('recipient_id', user!.id)
-        .order('is_read', { ascending: true })
-        .order('created_at', { descending: true })
-        .limit(30);
-
-      if (filterTab === 'unread') base = base.eq('is_read', false);
-      if (filterTab === 'read') base = base.eq('is_read', true);
-      if (typeFilter.size > 0) base = base.in('type', [...typeFilter]);
-      if (cursor) base = base.lt('created_at', cursor);
-
-      const { data, error } = await base;
-      if (error) throw error;
-      return (data || []) as Notification[];
+      // Strict newest-first from bell_notifications via API helper
+      const rows = await fetchNotifications({ limit: 30, cursor });
+      return rows as BellNotification[];
     },
-    keepPreviousData: true,
   });
 
-  // unread count derived
-  const unreadCount = (query.data || []).filter((n) => !n.is_read).length;
+  const all = (query.data || []) as BellNotification[];
+
+  // Apply tab filter in memory
+  const byTab = useMemo(() => {
+    if (filterTab === 'unread') return all.filter((n) => !n.is_read);
+    if (filterTab === 'read') return all.filter((n) => n.is_read);
+    return all;
+  }, [all, filterTab]);
+
+  // Apply type filter in memory
+  const items = useMemo(() => {
+    if (!typeFilter || typeFilter.size === 0) return byTab;
+    return byTab.filter((n) => typeFilter.has(n.type));
+  }, [byTab, typeFilter]);
+
+  // unread count derived from all loaded
+  const unreadCount = useMemo(() => all.filter((n) => !n.is_read).length, [all]);
 
   // realtime
-  const subRef = useRef<any>();
+  const subRef = useRef<any>(null);
   useEffect(() => {
     if (!user) return;
     subRef.current = subscribeMyNotifications(user.id, () => {
@@ -61,7 +62,7 @@ export function useNotifications() {
 
   // pagination: load more
   const loadMore = async () => {
-    const current = query.data || [];
+    const current = all;
     if (current.length === 0) return;
     const last = current[current.length - 1];
     setCursor(last.created_at);
@@ -90,7 +91,7 @@ export function useNotifications() {
   };
 
   return {
-    items: query.data || [],
+    items,
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     error: query.error as any,
@@ -103,4 +104,21 @@ export function useNotifications() {
     markOne,
     markAll,
   };
+}
+
+// Optional: RPC-based unread count for bell badge
+export function useBellUnreadCount() {
+  const { user } = useAuth() as any;
+  return useQuery({
+    queryKey: ['bell-unread-count', user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_bell_unread_count');
+      if (error) throw error;
+      const n = typeof data === 'number' ? data : 0;
+      return n as number;
+    },
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
 }

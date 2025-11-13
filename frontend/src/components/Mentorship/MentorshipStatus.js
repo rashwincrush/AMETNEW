@@ -107,9 +107,8 @@ const MentorshipStatus = () => {
     try {
       const { error } = await supabase
         .from('mentorship_requests')
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
-        .eq('id', requestId)
-        .eq('mentor_id', user.id);
+        .update({ status: newStatus })
+        .eq('id', requestId);
 
       if (error) throw error;
       toast.success(`Request ${newStatus}.`);

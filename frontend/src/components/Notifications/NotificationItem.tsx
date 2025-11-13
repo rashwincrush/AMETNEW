@@ -1,16 +1,16 @@
 import React from 'react';
 import dayjs from 'dayjs';
-import { useRouter } from 'next/router';
+import { useNavigate } from 'react-router-dom';
 import { iconForType } from './NotificationIcons';
 import type { Notification } from '../../api/notifications';
 
 type Props = { n: Notification; onToggleRead?: (id: string, toRead?: boolean) => void };
 
 export default function NotificationItem({ n, onToggleRead }: Props) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const Icon = iconForType(n.type, n.metadata || undefined);
   const open = () => {
-    if (n.link) router.push(n.link);
+    if (n.link) navigate(n.link);
   };
 
   return (

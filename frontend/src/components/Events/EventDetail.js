@@ -506,7 +506,7 @@ const EventDetail = () => {
                   {error && <div className="text-center p-2 mb-3 bg-red-100 text-red-700 rounded">{error}</div>}
                   {rsvpBanner && (
                     <div className="mb-3 rounded-md border p-3 bg-blue-50 text-blue-800 text-center">
-                      You’re attending. We’ll remind you when it starts.
+                    Your attendance is confirmed!
                     </div>
                   )}
                   {eventEnded ? (

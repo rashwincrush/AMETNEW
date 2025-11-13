@@ -29,16 +29,18 @@ export type Notification = {
   created_at: string;
 };
 
+// View-backed type is the same shape exposed by bell_notifications
+export type BellNotification = Notification;
+
 export async function fetchNotifications({ limit = 30, cursor }: { limit?: number; cursor?: string }) {
   const { data: auth } = await supabase.auth.getUser();
   const user = auth?.user;
   if (!user) throw new Error('Not authenticated');
 
   let query = supabase
-    .from('notifications')
+    .from('bell_notifications')
     .select('*')
     .eq('recipient_id', user.id)
-    .order('is_read', { ascending: true })
     .order('created_at', { descending: true })
     .limit(limit);
 
@@ -48,7 +50,7 @@ export async function fetchNotifications({ limit = 30, cursor }: { limit?: numbe
 
   const { data, error } = await query;
   if (error) throw error;
-  return (data || []) as Notification[];
+  return (data || []) as BellNotification[];
 }
 
 export async function markOneRead(id: string) {

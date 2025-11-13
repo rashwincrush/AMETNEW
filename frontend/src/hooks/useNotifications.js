@@ -45,10 +45,9 @@ export function useNotifications() {
     enabled: !!user,
     queryFn: async () => {
       let base = supabase
-        .from('notifications')
+        .from('bell_notifications')
         .select('*')
         .eq('recipient_id', user.id)
-        .order('is_read', { ascending: true })
         .order('created_at', { descending: true })
         .limit(30);
 
@@ -66,7 +65,12 @@ export function useNotifications() {
     keepPreviousData: true,
   });
 
-  const items = query.data || [];
+  // Always enforce newest-first ordering client-side for safety
+  const items = (query.data || []).slice().sort((a, b) => {
+    const ta = new Date(a.created_at).getTime();
+    const tb = new Date(b.created_at).getTime();
+    return tb - ta;
+  });
   const unreadCount = items.filter((n) => !n.is_read).length;
 
   // realtime
@@ -152,4 +156,20 @@ export function useNotifications() {
     markOne,
     markAll,
   };
+}
+
+// RPC-based unread count for bell badge (JS variant)
+export function useBellUnreadCount() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['bell-unread-count', user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_bell_unread_count');
+      if (error) throw error;
+      return typeof data === 'number' ? data : 0;
+    },
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
 }

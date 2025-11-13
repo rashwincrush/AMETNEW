@@ -198,9 +198,8 @@ export default function MyMentorship() {
     try {
       const { error } = await supabase
         .from('mentorship_requests')
-        .update({ status: 'accepted', updated_at: new Date().toISOString() })
-        .eq('id', req.id)
-        .eq('mentor_id', user.id);
+        .update({ status: 'accepted' })
+        .eq('id', req.id);
       if (error) throw error;
       toast.success('Request accepted');
       // Ensure a connection exists so chat can start immediately
@@ -223,9 +222,8 @@ export default function MyMentorship() {
     try {
       const { error } = await supabase
         .from('mentorship_requests')
-        .update({ status: 'rejected', updated_at: new Date().toISOString() })
-        .eq('id', id)
-        .eq('mentor_id', user.id);
+        .update({ status: 'rejected' })
+        .eq('id', id);
       if (error) throw error;
       toast.success('Request rejected');
       queryClient.invalidateQueries({ queryKey: ['mentorRequests'] });

@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BellIcon } from '@heroicons/react/24/outline';
 import NotificationsPanel from './NotificationsPanel';
-import { useNotifications } from '../../hooks/useNotifications';
+import { useNotifications, useBellUnreadCount } from '../../hooks/useNotifications.js';
 import { useLocation } from 'react-router-dom';
 
 export default function Bell() {
-  const { unreadCount } = useNotifications();
+  const { unreadCount: localUnread } = useNotifications();
+  const { data: rpcUnreadCount, error: rpcError } = useBellUnreadCount();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const location = useLocation();
@@ -25,6 +26,8 @@ export default function Bell() {
     return () => document.removeEventListener('click', onClick);
   }, []);
 
+  const badgeCount = (!rpcError && typeof rpcUnreadCount === 'number') ? rpcUnreadCount : localUnread;
+
   return (
     <div className="relative" ref={ref}>
       <button
@@ -34,9 +37,9 @@ export default function Bell() {
         onClick={() => setOpen((v) => !v)}
       >
         <BellIcon className="w-6 h-6 text-gray-700" />
-        {unreadCount > 0 && (
+        {badgeCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] leading-[18px] text-center">
-            {unreadCount}
+            {badgeCount}
           </span>
         )}
       </button>
