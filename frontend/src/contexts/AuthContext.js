@@ -28,6 +28,10 @@ const SAFE_PROFILE_FIELDS = [
   'current_job_title',
   'location',
   'avatar_url',
+  'industry',
+  'company_size',
+  'company_website',
+  'role',
 ];
 
 const pickSafeProfileFields = (src) => {
@@ -101,7 +105,7 @@ export const AuthProvider = ({ children }) => {
   const initializedRef = useRef(window.AMET_AUTH.initialized);
   const profileFetchedRef = useRef(window.AMET_AUTH.profileFetched);
 
-  const fetchUserProfile = useCallback(async (userId) => {
+  const fetchUserProfile = useCallback(async (userId, force = false) => {
     // If no userId, exit early
     if (!userId) {
       logger.log('No userId provided to fetchUserProfile');
@@ -127,7 +131,7 @@ export const AuthProvider = ({ children }) => {
     }
     
     // Prevent multiple fetches for the same user
-    if (profileFetchedRef.current === userId) {
+    if (profileFetchedRef.current === userId && !force) {
       logger.log(`Profile already fetched for userId: ${userId}, skipping fetch`);
       return;
     }
@@ -659,7 +663,7 @@ export const AuthProvider = ({ children }) => {
     signOut,
     updateProfile,
     fetchUserProfile,
-    refreshProfile: fetchUserProfile,
+    refreshProfile: (id) => fetchUserProfile(id, true),
     isAuthenticated: !!user,
     isAdmin,
     userRole,

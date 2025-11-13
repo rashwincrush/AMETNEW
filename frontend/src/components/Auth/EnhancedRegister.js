@@ -86,6 +86,7 @@ const EnhancedRegister = () => {
     'industry',
     'company_size',
     'company_website',
+    'role',
   ];
 
   const pickSafeProfileFields = (src) => {
@@ -681,7 +682,7 @@ const EnhancedRegister = () => {
         first_name: formData.firstName.trim() || null,
         last_name: formData.lastName.trim() || null,
         phone: formData.phone?.trim() || null,
-        primary_role: selectedRole,
+        role: selectedRole,
         location: formData.currentLocation?.trim() || formData.location?.trim() || null,
         graduation_year: isAlumni ? (Number(formData.graduationYear) || null) : null,
         degree_code: (isAlumni || isStudent) ? (formData.degree_code || null) : null,

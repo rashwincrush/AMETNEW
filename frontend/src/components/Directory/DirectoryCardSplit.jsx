@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckBadgeIcon, ChevronRightIcon, AcademicCapIcon, BuildingOffice2Icon, BriefcaseIcon } from '@heroicons/react/24/outline';
+import { CheckBadgeIcon, ChevronRightIcon, AcademicCapIcon, BuildingOffice2Icon, BriefcaseIcon, BuildingLibraryIcon, CalendarDaysIcon } from '@heroicons/react/24/outline';
 import ConnectionCTA from '../shared/ConnectionCTA';
 import { DegreeChip, DeptChip, CompanyChip, PositionChip } from '../shared/Chips';
 import { useAuth } from '../../contexts/AuthContext';
@@ -107,13 +107,13 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
             )}
             {departmentLabel && (
               <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
-                <AcademicCapIcon className="h-3 w-3 text-slate-400 shrink-0" aria-hidden="true" />
+                <BuildingLibraryIcon className="h-3 w-3 text-slate-400 shrink-0" aria-hidden="true" />
                 <span className="truncate" title={departmentLabel}>{departmentLabel}</span>
               </div>
             )}
             {batch && (
               <div className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs text-slate-700 max-w-full truncate">
-                <AcademicCapIcon className="h-3 w-3 text-slate-400 shrink-0" aria-hidden="true" />
+                <CalendarDaysIcon className="h-3 w-3 text-slate-400 shrink-0" aria-hidden="true" />
                 <span className="truncate" title={`Batch ${batch}`}>Batch {batch}</span>
               </div>
             )}
