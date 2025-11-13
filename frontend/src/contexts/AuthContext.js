@@ -22,8 +22,8 @@ const SAFE_PROFILE_FIELDS = [
   'phone',
   'graduation_year',
   'expected_graduation_year',
-  'degree_program',
-  'department',
+  'degree_code',
+  'department_id',
   'company_name',
   'current_job_title',
   'location',
@@ -179,8 +179,8 @@ export const AuthProvider = ({ children }) => {
               phone: md.phone || null,
               graduation_year: md.graduation_year ? Number(md.graduation_year) : null,
               expected_graduation_year: md.expected_graduation_year ? Number(md.expected_graduation_year) : null,
-              degree_program: md.degree_program || null,
-              department: md.department || null,
+              degree_code: md.degree_code || null,
+              department_id: md.department_id || null,
               company_name: md.company_name || null,
               current_job_title: md.current_job_title || md.job_title || null,
               location: md.location || null,
@@ -199,8 +199,8 @@ export const AuthProvider = ({ children }) => {
               // Retry without FK-prone fields
               try {
                 const minimal = { ...safePayload };
-                delete minimal.degree_program;
-                delete minimal.department;
+                delete minimal.degree_code;
+                delete minimal.department_id;
                 const minimalSafe = pickSafeProfileFields(minimal);
                 ({ data: created } = await supabase
                   .from('profiles')

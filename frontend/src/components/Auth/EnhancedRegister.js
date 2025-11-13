@@ -73,7 +73,6 @@ const EnhancedRegister = () => {
     'first_name',
     'last_name',
     'phone',
-    'primary_role',
     'location',
     'graduation_year',
     'degree_code',
@@ -82,12 +81,6 @@ const EnhancedRegister = () => {
     'student_id',
     'company_name',
     'current_job_title',
-    'industry',
-    'company_size',
-    'company_website',
-    'linkedin_url',
-    'github_url',
-    'website',
   ];
 
   const pickSafeProfileFields = (src) => {
