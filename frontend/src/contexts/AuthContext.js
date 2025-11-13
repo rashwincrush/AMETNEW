@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { supabase, mapOAuthToProfileData } from '../utils/supabase';
+import { supabase, mapOAuthToProfileData, onPostgresChangesOnce } from '../utils/supabase';
+import { upsertMyProfileFillOnly } from '../services/profile';
+import { ROLES, isRole } from '../constants/roles';
 
 // Helper for conditional logging
 const isDev = process.env.NODE_ENV === 'development';
@@ -8,6 +10,30 @@ const logger = {
   log: (...args) => isDev && console.log(...args),
   error: (...args) => console.error(...args),
   warn: (...args) => isDev && console.warn(...args)
+};
+
+// Whitelist of user-editable profile fields to avoid admin-only columns
+const SAFE_PROFILE_FIELDS = [
+  'id',
+  'email',
+  'full_name',
+  'first_name',
+  'last_name',
+  'phone',
+  'graduation_year',
+  'expected_graduation_year',
+  'degree_code',
+  'department_id',
+  'company_name',
+  'current_job_title',
+  'location',
+  'avatar_url',
+];
+
+const pickSafeProfileFields = (src) => {
+  const out = {};
+  for (const k of SAFE_PROFILE_FIELDS) if (k in src) out[k] = src[k];
+  return out;
 };
 
 const AuthContext = createContext({});
@@ -32,7 +58,7 @@ if (!window.AMET_AUTH) {
   };
 }
 
-// Define permissions for each role
+// Define permissions for each role (ALIGN: db-enum-roles)
 const PERMISSIONS = {
   // Alumni role permissions
   alumni: [
@@ -41,19 +67,19 @@ const PERMISSIONS = {
     'access:profile_settings',
     'manage:mentor_profile', 'manage:mentee_requests', 'chat:mentees', 'manage:mentoring_slots'
   ],
-  // Keep 'user' role mirroring 'alumni' (legacy mapping)
-  user: [
-    'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
-    'request:mentorship', 'become:mentor', 'access:groups', 'message:users',
-    'access:profile_settings',
-    'manage:mentor_profile', 'manage:mentee_requests', 'chat:mentees', 'manage:mentoring_slots'
-  ],
   employer: [
-    'access:dashboard', 'post:jobs', 'manage:company_profile', 'view:job_applications',
-    'access:events', 'manage:jobs', 'access:profile_settings'
+    'access:dashboard',
+    'view:jobs',            // allow Job Portal menu visibility
+    'post:jobs',
+    'manage:jobs',
+    'view:job_applications',
+    'manage:company_profile',
+    'access:events',
+    'message:users',        // allow messaging entry and gated chat
+    'access:profile_settings'
   ],
   admin: ['access:all'],
-  super_admin: ['access:all'],
+  super_admin: ['access:all', 'view:feedback_reports'],
   student: [
     'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
     'request:mentorship', 'access:groups', 'message:users',
@@ -62,6 +88,8 @@ const PERMISSIONS = {
 };
 
 export const AuthProvider = ({ children }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -124,18 +152,120 @@ export const AuthProvider = ({ children }) => {
 
       if (error) throw error;
 
+      // Debug what we actually got
+      logger.log('Profile fetch result:', { profileData, hasData: !!profileData, dataKeys: profileData ? Object.keys(profileData) : 'null' });
+      
       // Check rejection status
       if (profileData && profileData.alumni_verification_status === 'rejected') {
         logger.log('User account is rejected');
         setRejectionStatus({ isRejected: true });
         setProfile(null); // No profile data for rejected users
-      } else {
-        logger.log('Profile fetched successfully');
+      } else if (profileData) {
+        logger.log('Profile fetched successfully:', profileData);
         setProfile(profileData);
+      } else {
+        // No profile exists - create a seed row from auth metadata as a fallback
+        logger.log('No profile found for user; attempting to create from auth metadata');
+        try {
+          const { data: authData } = await supabase.auth.getUser();
+          const u = authData?.user;
+          if (u?.id === userId) {
+            const md = u.user_metadata || {};
+            const seed = {
+              id: u.id,
+              email: u.email,
+              first_name: md.first_name || null,
+              last_name: md.last_name || null,
+              phone: md.phone || null,
+              graduation_year: md.graduation_year ? Number(md.graduation_year) : null,
+              expected_graduation_year: md.expected_graduation_year ? Number(md.expected_graduation_year) : null,
+              degree_code: md.degree_code || null,
+              department_id: md.department_id || null,
+              company_name: md.company_name || null,
+              current_job_title: md.current_job_title || md.job_title || null,
+              location: md.location || null,
+              avatar_url: md.avatar_url || md.avatar || null,
+            };
+            const sanitized = Object.fromEntries(Object.entries(seed).filter(([, v]) => v !== undefined));
+            const safePayload = pickSafeProfileFields(sanitized);
+            let { data: created, error: createErr } = await supabase
+              .from('profiles')
+              .upsert(safePayload)
+              .select()
+              .maybeSingle();
+            if (createErr) {
+              const msg = String(createErr.message || createErr);
+              logger.warn('Failed to create profile from auth metadata:', msg);
+              // Retry without FK-prone fields
+              try {
+                const minimal = { ...safePayload };
+                delete minimal.degree_code;
+                delete minimal.department_id;
+                const minimalSafe = pickSafeProfileFields(minimal);
+                ({ data: created } = await supabase
+                  .from('profiles')
+                  .upsert(minimalSafe)
+                  .select()
+                  .maybeSingle());
+                if (created) {
+                  logger.log('Created minimal profile after FK retry');
+                  setProfile(created);
+                } else {
+                  setProfile(null);
+                }
+              } catch (retryErr) {
+                logger.warn('Profile seed retry failed:', retryErr);
+                setProfile(null);
+              }
+            } else {
+              logger.log('Created profile from auth metadata');
+              setProfile(created || null);
+            }
+          } else {
+            setProfile(null);
+          }
+        } catch (seedErr) {
+          logger.warn('Error during profile seed creation:', seedErr);
+          setProfile(null);
+        }
       }
     } catch (error) {
       logger.error('Error fetching profile:', error);
-      setProfile(null);
+      // Fallback: attempt to create a minimal profile row for the current user
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        const u = authData?.user;
+        if (u?.id === userId) {
+          const md = u.user_metadata || {};
+          const seed = {
+            id: u.id,
+            email: u.email,
+            first_name: md.first_name || null,
+            last_name: md.last_name || null,
+            location: md.location || null,
+            avatar_url: md.avatar_url || md.avatar || null,
+            created_at: new Date().toISOString(),
+          };
+          const sanitized = Object.fromEntries(Object.entries(seed).filter(([, v]) => v !== undefined));
+          const safePayload = pickSafeProfileFields(sanitized);
+          const { data: created } = await supabase
+            .from('profiles')
+            .upsert(safePayload)
+            .select()
+            .maybeSingle();
+          if (created) {
+            logger.log('Created minimal profile after fetch error');
+            setProfile(created);
+          } else {
+            setProfile(null);
+          }
+        } else {
+          setProfile(null);
+        }
+      } catch (seedErr) {
+        logger.warn('Profile seed after error failed:', seedErr);
+        setProfile(null);
+      }
     } finally {
       // Clear auth operation flag to allow subsequent operations
       window.AMET_AUTH.authInProgress = false;
@@ -214,7 +344,7 @@ export const AuthProvider = ({ children }) => {
       .update(updatesToApply)
       .eq('id', user.id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
 
@@ -286,13 +416,37 @@ export const AuthProvider = ({ children }) => {
   // Initialize auth once and set up listener
   useEffect(() => {
     // Only run once - check both ref and window global
-    if (initializedRef.current || window.AMET_AUTH.initialized) return;
+    if (initializedRef.current || window.AMET_AUTH.initialized) {
+      // Hydrate from current session to avoid being stuck in loading
+      (async () => {
+        try {
+          const { data: { session: current } } = await supabase.auth.getSession();
+          setSession(current || null);
+          setUser(current?.user || null);
+          if (current?.user?.id) {
+            await fetchUserProfile(current.user.id);
+          } else {
+            setLoading(false);
+          }
+        } catch (_) {
+          setLoading(false);
+        }
+      })();
+      return;
+    }
     
     // Mark as initialized in both places
     initializedRef.current = true;
     window.AMET_AUTH.initialized = true;
     
     logger.log('Initializing AuthContext...');
+
+    // Purge legacy localStorage keys that might cache stale names
+    try {
+      ['currentUser', 'displayName', 'profileCache'].forEach((k) => {
+        if (localStorage.getItem(k)) localStorage.removeItem(k);
+      });
+    } catch (_) { /* ignore */ }
     
     // Single emergency timeout that completely overrides the loading state
     // This is the final fallback if everything else fails
@@ -316,7 +470,21 @@ export const AuthProvider = ({ children }) => {
         logger.log('User metadata:', newSession.user.user_metadata);
         logger.log('App metadata:', newSession.user.app_metadata);
         
-        // Map and update profile with OAuth data
+        // Seed-only: derive a seed and upsert fill-only (never overwrite user edits)
+        try {
+          const m = newSession.user?.user_metadata || {};
+          const full_name = (m.full_name || m.name || `${m.given_name || ''} ${m.family_name || ''}` ).trim();
+          const seed = {
+            full_name: full_name || null,
+            first_name: m.given_name || null,
+            last_name: m.family_name || null,
+            avatar_url: m.avatar_url || m.picture || null,
+            email: newSession.user?.email || null,
+          };
+          upsertMyProfileFillOnly(seed).catch(() => undefined);
+        } catch (_) { /* ignore */ }
+
+        // Map and update profile with OAuth data (fill-only at field level)
         handleOAuthProfileData(newSession.user, provider);
       }
       
@@ -339,11 +507,13 @@ export const AuthProvider = ({ children }) => {
         // Update session state
         setSession(newSession);
         setUser(newSession?.user || null);
-        
+
+        // Onboarding retired: no draft resume
+
         // Handle profile fetch if we have a user
         if (newSession?.user?.id) {
           const currentUserId = window.AMET_AUTH.currentUserId;
-          
+
           // Detect user ID change and force a reset
           if (currentUserId && currentUserId !== newSession.user.id) {
             logger.log(`⚠️ Auth event with user ID change detected: ${currentUserId} → ${newSession.user.id}`);
@@ -353,7 +523,7 @@ export const AuthProvider = ({ children }) => {
             profileFetchedRef.current = null;
             window.AMET_AUTH.profileFetched = null;
           }
-          
+
           // Only fetch if this is a new user ID or first fetch
           if (currentUserId !== newSession.user.id) {
             fetchUserProfile(newSession.user.id);
@@ -372,22 +542,6 @@ export const AuthProvider = ({ children }) => {
       logger.log('Safety timeout triggered - forcing app to exit loading state');
       setLoading(false);
     }, 2000);
-
-    // Check for existing session at init
-    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-      if (initialSession?.user) {
-        logger.log('Existing session found, user ID:', initialSession.user.id);
-        setUser(initialSession.user);
-        setSession(initialSession);
-        fetchUserProfile(initialSession.user.id);
-      } else {
-        logger.log('No session found during initialization');
-        setLoading(false);
-      }
-    }).catch(error => {
-      logger.error('Error checking session:', error);
-      setLoading(false);
-    });
 
     return () => {
       // Clean up all timeouts using our helper
@@ -417,33 +571,21 @@ export const AuthProvider = ({ children }) => {
     if (!user?.id) return;
     logger.log('Subscribing to realtime profile changes for user:', user.id);
 
-    const channel = supabase
-      .channel(`profile-changes-${user.id}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'profiles',
-        filter: `id=eq.${user.id}`
-      }, async (payload) => {
+    onPostgresChangesOnce(
+      `profile-changes-${user.id}`,
+      `profile-changes-handler-${user.id}`,
+      { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
+      async (payload) => {
         logger.log('Realtime profile update received:', payload.eventType);
         try {
           await fetchUserProfile(user.id);
         } catch (err) {
           logger.error('Failed to refresh profile after realtime update:', err);
         }
-      })
-      .subscribe((status) => {
-        logger.log('Realtime channel status:', status);
-      });
-
-    return () => {
-      try {
-        supabase.removeChannel(channel);
-        logger.log('Unsubscribed from realtime profile changes for user:', user.id);
-      } catch (e) {
-        // ignore
       }
-    };
+    );
+
+    return () => { /* registry manages channel lifecycle */ };
   }, [user?.id, fetchUserProfile]);
   
   // Monitor loading state changes
@@ -451,35 +593,58 @@ export const AuthProvider = ({ children }) => {
     logger.log(`Loading state changed to: ${loading}`);
   }, [loading]);
 
-  // Normalize role handling: prefer explicit role, then fallbacks
+  // Normalize role handling strictly from profiles.role (single source of truth)
   const getUserRole = useCallback(() => {
-    // If profile doesn't exist, default to 'student'
-    if (!profile) return 'student';
+    // If profile doesn't exist, default to 'alumni'
+    if (!profile) return 'alumni';
 
-    // Map legacy 'user' to 'alumni'
-    if (profile.role === 'user') return 'alumni';
+    // Prefer explicit DB role if valid
+    if (profile.role && isRole(profile.role)) return profile.role;
 
-    // Prefer explicit role if present (e.g., 'super_admin', 'admin', 'alumni', 'employer')
-    if (profile.role) return profile.role;
+    // Fallback: use auth metadata role until Edge Function updates DB role
+    const metaRole = user?.user_metadata?.role;
+    if (metaRole && isRole(metaRole)) return metaRole;
 
-    // Fallback: is_admin flag grants 'admin'
-    if (profile.is_admin === true) return 'admin';
-
-    // Final default
+    // Default aligned with enum
     return 'alumni';
-  }, [profile]);
+  }, [profile, user]);
   const userRole = getUserRole();
   const isAdmin = userRole === 'admin' || userRole === 'super_admin';
 
+  // Helper functions for role checks (do not break existing boolean isAdmin)
+  const isSuperAdminFn = useCallback(() => userRole === 'super_admin', [userRole]);
+  const isAdminFn = useCallback(() => userRole === 'admin' || userRole === 'super_admin', [userRole]);
+
   const hasPermission = useCallback((permission) => {
+    // Critical: Only Super Admin should see feedback reports regardless of other permissions
+    if (permission === 'view:feedback_reports') {
+      return userRole === 'super_admin';
+    }
     const userPermissions = PERMISSIONS[userRole] || [];
     return userPermissions.includes('access:all') || userPermissions.includes(permission);
   }, [userRole]);
 
   const hasAnyPermission = useCallback((permissions) => {
     const userPermissions = PERMISSIONS[userRole] || [];
-    return userPermissions.includes('access:all') || permissions.some(p => userPermissions.includes(p));
+    return userPermissions.includes('access:all') || permissions.some((p) => userPermissions.includes(p));
   }, [userRole]);
+
+  // Backfill profiles.email from auth if missing (safe, user-editable column)
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!user?.id) return;
+        if (!profile) return;
+        if (profile.email) return;
+        if (!user.email) return;
+        await supabase.from('profiles').update({ email: user.email.toLowerCase() }).eq('id', user.id);
+        // refresh local profile cache silently
+        await fetchUserProfile(user.id).catch(() => undefined);
+      } catch (_) {
+        // ignore
+      }
+    })();
+  }, [user?.id, user?.email, profile?.email]);
 
   const hasAllPermissions = useCallback((permissions) => {
     const userPermissions = PERMISSIONS[userRole] || [];
@@ -494,14 +659,19 @@ export const AuthProvider = ({ children }) => {
     signOut,
     updateProfile,
     fetchUserProfile,
+    refreshProfile: fetchUserProfile,
     isAuthenticated: !!user,
     isAdmin,
     userRole,
+    role: userRole,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
     getUserRole,
-    rejectionStatus
+    rejectionStatus,
+    // New helpers
+    isAdminFn,
+    isSuperAdmin: isSuperAdminFn
   };
 
   return (
