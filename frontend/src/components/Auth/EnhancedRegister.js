@@ -73,14 +73,21 @@ const EnhancedRegister = () => {
     'first_name',
     'last_name',
     'phone',
+    'primary_role',
+    'location',
+    'graduation_year',
     'degree_code',
     'department_id',
-    'graduation_year',
-    'location',
+    'expected_graduation_year',
+    'student_id',
     'company_name',
     'current_job_title',
-    'show_in_directory',
-    'avatar_url',
+    'industry',
+    'company_size',
+    'company_website',
+    'linkedin_url',
+    'github_url',
+    'website',
   ];
 
   const pickSafeProfileFields = (src) => {
@@ -662,19 +669,29 @@ const EnhancedRegister = () => {
       }
 
       // Session present immediately → single write to public.profiles
+      const isAlumni = selectedRole === 'alumni';
+      const isStudent = selectedRole === 'student';
       const profilePayloadRaw = {
         id: hydratedUser.id,
         email: hydratedUser.email?.toLowerCase() || formData.email.trim().toLowerCase(),
         first_name: formData.firstName.trim() || null,
         last_name: formData.lastName.trim() || null,
-        location: formData.currentLocation?.trim() || null,
-        company_name: formData.companyName?.trim() || null,
-        current_job_title: formData.jobTitle?.trim() || null,
-        degree_code: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.degreeCode || null) : null,
-        department_id: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.departmentId || null) : null,
-        graduation_year: (selectedRole === 'alumni') ? (Number(formData.graduationYear) || null) : null,
-        show_in_directory: undefined,
-        avatar_url: undefined,
+        phone: formData.phone?.trim() || null,
+        primary_role: selectedRole,
+        location: formData.currentLocation?.trim() || formData.location?.trim() || null,
+        graduation_year: isAlumni ? (Number(formData.graduationYear) || null) : null,
+        degree_code: (isAlumni || isStudent) ? (formData.degree_code || null) : null,
+        department_id: (isAlumni || isStudent) ? (formData.department_id || null) : null,
+        expected_graduation_year: isStudent ? (Number(formData.expectedGraduationYear) || null) : null,
+        student_id: isStudent ? (formData.studentId?.trim() || null) : null,
+        company_name: (isAlumni || isEmployer) ? (formData.companyName?.trim() || null) : null,
+        current_job_title: (isAlumni || isEmployer) ? (formData.jobTitle?.trim() || null) : null,
+        industry: isEmployer ? (formData.industry?.trim() || null) : null,
+        company_size: isEmployer ? (formData.companySize || null) : null,
+        company_website: isEmployer ? (formData.companyWebsite?.trim() || null) : null,
+        linkedin_url: formData.linkedinProfile?.trim() || null,
+        github_url: formData.githubProfile?.trim() || null,
+        website: formData.websiteUrl?.trim() || null,
       };
       const profilePayload = pickSafeProfileFields(profilePayloadRaw);
 
