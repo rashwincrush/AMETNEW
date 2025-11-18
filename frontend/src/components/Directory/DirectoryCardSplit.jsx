@@ -72,7 +72,7 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
         <div className="flex items-center mb-3">
           {/* Avatar */}
           <div className="h-16 w-16 flex-shrink-0 rounded-full overflow-hidden ring-1 ring-slate-200 shadow-sm mr-3 flex items-center justify-center">
-            <Avatar src={profile.avatar_url} alt={profile.full_name || 'Profile'} size={64} />
+            <Avatar src={profile.avatar_url} alt={profile.full_name || 'Profile'} size={64} version={profile?.updated_at} />
           </div>
           
           {/* Name and batch */}

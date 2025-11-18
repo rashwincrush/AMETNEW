@@ -274,8 +274,10 @@ const PostJob = () => {
     setIsSubmitting(true);
     try {
       let companyId = formData.company_id;
-      // For employers, if no explicit logo chosen, default to profile logo or avatar (DP)
-      let logoUrl = formData.logo_url || (userRole === 'employer' ? (profile?.logo_url || profile?.avatar_url || '') : formData.logo_url);
+      // Proposed logo URL for the company; will be refined based on existing company state
+      let logoUrl = formData.logo_url || null;
+      // Track the effective logo we want to reflect back onto the employer profile (DP)
+      let effectiveLogoUrlForEmployer = null;
 
       if (logoFile) {
         try {
@@ -307,7 +309,7 @@ const PostJob = () => {
 
       const { data: existingCompanies, error: findError } = await supabase
         .from('companies')
-        .select('id')
+        .select('id, logo_url')
         .eq('name', formData.company_name.trim());
 
       if (findError) {
@@ -316,25 +318,48 @@ const PostJob = () => {
       }
 
       if (existingCompanies && existingCompanies.length > 0) {
-        companyId = existingCompanies[0].id;
-        
-        if (logoUrl) {
+        const existing = existingCompanies[0];
+        companyId = existing.id;
+
+        // Start from the current company logo as canonical
+        let finalLogoUrl = existing.logo_url || null;
+
+        if (logoFile && logoUrl) {
+          // Explicit new upload: always override existing logo
+          finalLogoUrl = logoUrl;
+        } else if (!existing.logo_url) {
+          // Company has no logo yet; initialise from fallback (form/logo or employer DP)
+          const fallbackLogo = logoUrl || (userRole === 'employer' ? (profile?.logo_url || profile?.avatar_url || '') : null);
+          finalLogoUrl = fallbackLogo || null;
+        }
+
+        if (finalLogoUrl && finalLogoUrl !== existing.logo_url) {
           const { error: updateError } = await supabase
             .from('companies')
-            .update({ logo_url: logoUrl })
+            .update({ logo_url: finalLogoUrl })
             .eq('id', companyId);
-            
+
           if (updateError) {
             console.error("Error updating company logo:", updateError);
             throw new Error(`Failed to update company logo: ${updateError.message}`);
           }
         }
+
+        if (finalLogoUrl) {
+          effectiveLogoUrlForEmployer = finalLogoUrl;
+        }
       } else {
-          const { data: newCompany, error: createError } = await supabase
+        // New company: derive logo from explicit upload, form, or employer DP
+        let newCompanyLogoUrl = logoUrl;
+        if (!newCompanyLogoUrl && userRole === 'employer') {
+          newCompanyLogoUrl = profile?.logo_url || profile?.avatar_url || null;
+        }
+
+        const { data: newCompany, error: createError } = await supabase
           .from('companies')
           .insert({
             name: formData.company_name.trim(),
-            logo_url: logoUrl,
+            logo_url: newCompanyLogoUrl || null,
             created_by: session.user.id 
           }, { returning: 'representation' });
           
@@ -344,6 +369,20 @@ const PostJob = () => {
         }
         
         companyId = Array.isArray(newCompany) ? newCompany[0]?.id : newCompany?.id;
+        if (newCompanyLogoUrl) {
+          effectiveLogoUrlForEmployer = newCompanyLogoUrl;
+        }
+      }
+
+      // Keep employer DP in sync with the company logo when applicable
+      if (userRole === 'employer' && effectiveLogoUrlForEmployer && profile?.id) {
+        const { error: profileLogoError } = await supabase
+          .from('profiles')
+          .update({ avatar_url: effectiveLogoUrlForEmployer })
+          .eq('id', profile.id);
+        if (profileLogoError) {
+          console.error('Error updating employer profile logo:', profileLogoError);
+        }
       }
       
       if (!companyId) {
@@ -453,15 +492,37 @@ const PostJob = () => {
             <Grid item xs={12}>
               <Typography variant="subtitle1" gutterBottom>Company Logo</Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Avatar src={logoPreview || profile.avatar_url || ''} alt="Company Logo Preview" sx={{ width: 60, height: 60, border: '1px solid #ddd' }} />
-                <Button variant="outlined" component="label">Upload New Logo<input type="file" hidden accept="image/png, image/jpeg, image/jpg, image/svg+xml" onChange={handleLogoChange} /></Button>
-                {logoPreview && <Button size="small" onClick={() => { setLogoFile(null); setLogoPreview(''); }}>Remove</Button>}
+                <Avatar
+                  src={logoPreview || formData.logo_url || profile.logo_url || profile.avatar_url || ''}
+                  alt="Company Logo Preview"
+                  sx={{ width: 60, height: 60, border: '1px solid #ddd' }}
+                />
+                <Button variant="outlined" component="label">
+                  Upload Company Logo
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/png, image/jpeg, image/jpg, image/svg+xml"
+                    onChange={handleLogoChange}
+                  />
+                </Button>
+                {logoPreview && (
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setLogoFile(null);
+                      setLogoPreview('');
+                    }}
+                  >
+                    Remove
+                  </Button>
+                )}
               </Box>
-              {userRole === 'employer' ? (
-                <Typography variant="caption" color="text.secondary">Optional. Your profile avatar will be used by default if no logo is uploaded.</Typography>
-              ) : (
-                <Typography variant="caption" color="text.secondary">Max 2MB. PNG, JPG, SVG.</Typography>
-              )}
+              <Typography variant="caption" color="text.secondary">
+                Upload your official <strong>company logo</strong>. This logo will be shown for this company across all of
+                its jobs in the portal. If you don’t upload one, your profile picture will be used temporarily until a
+                proper company logo is set.
+              </Typography>
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField fullWidth name="contact_email" type="email" label="Hiring Contact Email (Internal Only)" value={formData.contact_email} onChange={handleChange} error={!!errors.contact_email} helperText={errors.contact_email} />

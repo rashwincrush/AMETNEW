@@ -2,11 +2,15 @@ import React, { useState } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useApproval } from '../../hooks/useApproval';
 import { handleSupabaseGuardError } from '../../utils/mapSupabaseErrorToToast';
+import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
 export default function RequestMentorshipButton({ mentorId, disabled = false, requested = false, onSuccess }) {
   const { loading, isApprovedMentee } = useApproval();
   const [busy, setBusy] = useState(false);
+  const { user } = useAuth();
+
+  const isOwnerMentor = !!user && !!mentorId && user.id === mentorId;
 
   const onClick = async () => {
     if (!isApprovedMentee) {
@@ -14,6 +18,10 @@ export default function RequestMentorshipButton({ mentorId, disabled = false, re
       return;
     }
     if (requested) return; // already requested
+    if (isOwnerMentor) {
+      toast.error("You can’t join your own mentorship as a mentee.");
+      return;
+    }
     try {
       setBusy(true);
       const { data: userData } = await supabase.auth.getUser();
@@ -29,7 +37,12 @@ export default function RequestMentorshipButton({ mentorId, disabled = false, re
         });
 
       if (error) {
-        handleSupabaseGuardError(error);
+        const msg = String(error?.message || '');
+        if (msg.includes('mentorship_requests_no_self_mentee')) {
+          toast.error("You can’t join your own mentorship as a mentee.");
+        } else {
+          handleSupabaseGuardError(error);
+        }
         return;
       }
 
@@ -49,20 +62,24 @@ export default function RequestMentorshipButton({ mentorId, disabled = false, re
   const isDisabled = loading || busy || !isApprovedMentee || !!disabled || !!requested;
 
   return (
-    <button
-      onClick={onClick}
-      disabled={isDisabled}
-      aria-disabled={isDisabled}
-      title={
-        !isApprovedMentee
-          ? 'Your profile is not approved. Kindly contact administrator.'
-          : requested
-            ? 'Request pending'
-            : (disabled ? 'This mentor isn’t accepting requests right now.' : 'Request mentorship')
-      }
-      className={`flex-1 btn-ocean py-2 px-3 rounded text-sm ${isDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
-    >
-      {requested ? 'Request pending' : (busy ? 'Sending…' : 'Request Mentorship')}
-    </button>
+    isOwnerMentor ? (
+      <p className="text-xs text-gray-500">You are the mentor for this program.</p>
+    ) : (
+      <button
+        onClick={onClick}
+        disabled={isDisabled}
+        aria-disabled={isDisabled}
+        title={
+          !isApprovedMentee
+            ? 'Your profile is not approved. Kindly contact administrator.'
+            : requested
+              ? 'Request pending'
+              : (disabled ? 'This mentor isn’t accepting requests right now.' : 'Request mentorship')
+        }
+        className={`flex-1 btn-ocean py-2 px-3 rounded text-sm ${isDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+      >
+        {requested ? 'Request pending' : (busy ? 'Sending…' : 'Request Mentorship')}
+      </button>
+    )
   );
 }

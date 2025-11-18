@@ -78,7 +78,7 @@ export default function CommentsThread({ postId, group, isMember }) {
     setComments((prev) => [...prev, optimistic])
     setDraft('')
     try {
-      const saved = await addComment(postId, value)
+      const saved = await addComment(postId, value, group?.id)
       setComments((prev) => prev.map(c => c.id === optimistic.id ? saved : c))
     } catch (err) {
       setComments((prev) => prev.filter(c => c.id !== optimistic.id))

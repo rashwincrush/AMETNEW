@@ -27,6 +27,8 @@ export async function loadProfileSocialLinks(profileId: string): Promise<SocialL
         github: obj.github || null,
         x: obj.x || obj.twitter || null,
         website: obj.website || null,
+        instagram: obj.instagram || null,
+        facebook: obj.facebook || null,
       };
     }
   } catch (_) {

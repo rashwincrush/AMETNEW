@@ -79,6 +79,13 @@ const MentorsTab = () => {
 
   const forceUnavailable = useCallback(async (userId) => {
     try {
+      // Optimistic update: flip availability immediately
+      const prev = rows.slice();
+      setRows(r => r.map(x => (
+        x.user_id === userId
+          ? { ...x, applicant: { ...x.applicant, is_available_for_mentorship: false } }
+          : x
+      )));
       const { error } = await supabase
         .from('profiles')
         .update({ is_available_for_mentorship: false })
@@ -89,8 +96,10 @@ const MentorsTab = () => {
     } catch (e) {
       console.error(e);
       toast.error('Failed to force unavailable');
+      // Revert if optimistic update was applied
+      fetchRows();
     }
-  }, [fetchRows]);
+  }, [fetchRows, rows]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -187,7 +196,7 @@ const MentorsTab = () => {
           {statusFilter === 'pending' ? 'No mentor applications in Pending.' : 'No mentor applications in this view.'}
         </div>
       ) : (
-        <div className="overflow-x-auto border rounded-lg">
+        <div className="overflow-x-auto border rounded-lg mb-4">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>

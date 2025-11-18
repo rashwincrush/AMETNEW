@@ -104,10 +104,28 @@ const ConversationList = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Filter conversations based on search query
-  const filteredThreads = Array.isArray(threads)
-    ? threads.filter(t => (t.other_user_name || '').toLowerCase().includes(searchQuery.toLowerCase()))
-    : [];
+  // Filter conversations based on search query and sort by latest activity (newest first)
+  const filteredThreads = useMemo(() => {
+    const base = Array.isArray(threads)
+      ? threads.filter(t => (t.other_user_name || '').toLowerCase().includes(searchQuery.toLowerCase()))
+      : [];
+
+    const getTimestamp = (t) =>
+      t.last_message_at ||
+      t.latest_message_at ||
+      t.last_dm_at ||
+      t.updated_at ||
+      t.created_at ||
+      null;
+
+    return base.slice().sort((a, b) => {
+      const aTs = getTimestamp(a);
+      const bTs = getTimestamp(b);
+      const aTime = aTs ? new Date(aTs).getTime() : 0;
+      const bTime = bTs ? new Date(bTs).getTime() : 0;
+      return bTime - aTime; // newest first
+    });
+  }, [threads, searchQuery]);
 
   // Format date to relative time (e.g., "2 hours ago")
   const formatDate = (dateString) => {

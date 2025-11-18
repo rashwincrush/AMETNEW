@@ -118,8 +118,8 @@ export async function deleteComment(id) {
 }
 
 // Moderation RPCs (JS build uses this file by default when importing '../api/groups')
-export async function joinGroupV2(groupId) {
-  const { data, error } = await supabase.rpc('join_group_v2', { p_group_id: groupId });
+export async function joinGroup(groupId) {
+  const { data, error } = await supabase.rpc('join_group', { p_group_id: groupId });
   if (error) throw error;
   return data;
 }

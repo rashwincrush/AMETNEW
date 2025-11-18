@@ -17,6 +17,8 @@ import { useConnectionRel } from '../../hooks/useConnectionRel';
 import { useAuth } from '../../contexts/AuthContext';
 import MentorContactPanel from '../Mentorship/MentorContactPanel';
 import Avatar from '../common/Avatar';
+import { useAcademicsCatalog } from '../../hooks/useAcademicsCatalog';
+import { loadProfileSocialLinks } from '../../services/socialLinks';
 
 const AchievementCard = ({ achievement }) => (
   <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-300">
@@ -43,6 +45,7 @@ const AlumniProfile = () => {
   const rel = useConnectionRel(currentUser?.id, id);
   const { getUserRole } = useAuth();
   const role = getUserRole?.();
+  const { degrees, groups } = useAcademicsCatalog();
   
   useEffect(() => {
     const getCurrentUser = async () => {
@@ -54,7 +57,7 @@ const AlumniProfile = () => {
     getCurrentUser();
 
     const fetchAlumnusData = async () => {
-      if (!id) return;
+      if (!id || !role) return;
 
       setLoading(true);
       setError(null);
@@ -118,43 +121,52 @@ const AlumniProfile = () => {
 
         console.log('Fetched alumni from Supabase:', data);
 
-        const transformedAlumnus = (() => {
-          if (role === 'student' || typeof _usePublicTransform !== 'undefined') {
-            const city = data.location_city || '';
-            const country = data.location_country || '';
-            return {
-              id: data.id,
-              name: data.full_name || 'Unknown',
-              email: '',
-              phone: '',
-              graduationYear: data.graduation_year ?? 'Not specified',
-              degree: data.degree_program ?? 'Not specified',
-              department: data.department ?? '', // not provided by view; keep blank
-              currentPosition: data.current_job_title ?? 'Not specified',
-              company: data.company_name ?? 'Not specified',
-              location: [city, country].filter(Boolean).join(', ') || 'Not specified',
-              avatar: data.avatar_url || '/default-avatar.png',
-              coverImage: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
-              verified: false,
-              joinedDate: '',
-              about: '',
-              experience: [],
-              education: [],
-              skills: [],
-              achievements: typeof data.achievements === 'string' ? [data.achievements] : (Array.isArray(data.achievements) ? data.achievements : []),
-              interests: [],
-              languages: [],
-              socialLinks: {},
-            };
-          }
-          return {
+        // Transform to a normalized alumnus object
+        if (role === 'student' || typeof _usePublicTransform !== 'undefined') {
+          const city = data.location_city || '';
+          const country = data.location_country || '';
+          const transformed = {
+            id: data.id,
+            name: data.full_name || 'Unknown',
+            email: '',
+            phone: '',
+            graduationYear: data.graduation_year ?? 'Not specified',
+            degreeLabel: data.degree_program ?? 'Not specified',
+            departmentLabel: data.department ?? '',
+            currentPosition: data.current_job_title ?? 'Not specified',
+            company: data.company_name ?? 'Not specified',
+            location: [city, country].filter(Boolean).join(', ') || 'Not specified',
+            avatar: data.avatar_url || '/default-avatar.png',
+            coverImage: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
+            verified: false,
+            joinedDate: '',
+            about: '',
+            experience: [],
+            education: [],
+            skills: [],
+            achievements: typeof data.achievements === 'string' ? [data.achievements] : (Array.isArray(data.achievements) ? data.achievements : []),
+            interests: [],
+            languages: [],
+            socialLinks: {},
+            updated_at: data.updated_at || null,
+          };
+          setAlumnus(transformed);
+        } else {
+          // Private view: fetch social links from canonical view in parallel
+          const socialLinks = await loadProfileSocialLinks(id);
+          // Fallback: if linkedin_url exists on profile row but not in social_links view, include it
+          const mergedSocialLinks = {
+            ...socialLinks,
+            ...(data.linkedin_url && !socialLinks?.linkedin ? { linkedin: data.linkedin_url } : {})
+          };
+          const transformed = {
             id: data.id,
             name: data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Unknown',
             email: data.email || '',
             phone: data.phone || '',
             graduationYear: data.graduation_year ?? 'Not specified',
-            degree: data.degree_program ?? 'Not specified',
-            department: data.department ?? 'Not specified',
+            degreeLabel: null,
+            departmentLabel: null,
             currentPosition: data.current_job_title ?? 'Not specified',
             company: data.company_name ?? 'Not specified',
             location: data.location ?? 'Not specified',
@@ -169,15 +181,13 @@ const AlumniProfile = () => {
             achievements: Array.isArray(data.achievements) ? data.achievements : [],
             interests: Array.isArray(data.interests) ? data.interests : [],
             languages: Array.isArray(data.languages) ? data.languages : [],
-            socialLinks: {
-              linkedin: data.linkedin_url || '',
-              website: data.website || '',
-              twitter: data.twitter || ''
-            }
+            socialLinks: mergedSocialLinks,
+            updated_at: data.updated_at || null,
+            degree_code: data.degree_code || null,
+            department_id: data.department_id || null,
           };
-        })();
-
-        setAlumnus(transformedAlumnus);
+          setAlumnus(transformed);
+        }
       } catch (err) {
         console.error('An unexpected error occurred:', err);
         setError("This profile isn’t publicly visible.");
@@ -187,7 +197,23 @@ const AlumniProfile = () => {
     };
 
     fetchAlumnusData();
-  }, [id]);
+  }, [id, role]);
+
+  // Compute degree/department labels in private view when catalog is ready
+  useEffect(() => {
+    if (!alumnus || role === 'student') return;
+    const code = alumnus.degree_code;
+    const depId = alumnus.department_id;
+    const foundDegree = code ? degrees.find(d => d.degree_code === code) : null;
+    const degreeLabel = foundDegree?.degree_label || (code ? String(code).toUpperCase() : 'Not specified');
+    let departmentLabel = 'Not specified';
+    const group = code ? (groups.find(g => g.degree_code === code) || null) : null;
+    if (group && depId) {
+      const dep = (group.departments || []).find(d => d.id === depId);
+      if (dep) departmentLabel = dep.name;
+    }
+    setAlumnus(prev => prev ? { ...prev, degreeLabel, departmentLabel } : prev);
+  }, [alumnus?.id, alumnus?.degree_code, alumnus?.department_id, degrees, groups, role]);
 
   // Enrich contact details via RPC for non-students only
   useEffect(() => {
@@ -267,18 +293,11 @@ const AlumniProfile = () => {
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col items-center text-center">
         {/* Profile Picture */}
         <div className="relative mb-4 h-24 w-24 overflow-hidden rounded-full ring-1 ring-slate-200 bg-slate-100 flex items-center justify-center">
-          <Avatar src={alumnus.avatar} alt={`${alumnus.name}'s profile picture`} size={96} />
+          <Avatar src={alumnus.avatar} alt={`${alumnus.name}'s profile picture`} size={96} version={alumnus.updated_at} />
         </div>
         {/* Basic Info */}
         <div className="flex-1 mb-2">
           <h1 className="text-3xl font-bold text-slate-900">{alumnus.name}</h1>
-          {/* Batch pill under name */}
-          {(() => {
-            const batch = alumnus.batch_year ?? alumnus.graduation_year ?? alumnus.batch ?? alumnus.graduationYear ?? null;
-            return batch ? (
-              <div className="mt-1 flex justify-center"><TextPill>Batch {batch}</TextPill></div>
-            ) : null;
-          })()}
         </div>
 
         {/* CTA: shared, scope=profile */}
@@ -338,8 +357,8 @@ const AlumniProfile = () => {
               {Array.isArray(alumnus.education) && alumnus.education.length > 0 ? (
                 alumnus.education.map((edu, index) => (
                   <div key={index} className="flex items-start space-x-3">
-                    <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <AcademicCapIcon className="w-5 h-5 text-white" aria-hidden="true" />
+                    <div className="w-10 h-10 bg-slate-100 ring-1 ring-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <AcademicCapIcon className="w-5 h-5 text-slate-600" aria-hidden="true" />
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-slate-900">{edu.degree}</h3>
@@ -349,7 +368,20 @@ const AlumniProfile = () => {
                   </div>
                 ))
               ) : (
-                <p className="text-slate-500">No education information available.</p>
+                (alumnus.degreeLabel || alumnus.degree_code || alumnus.departmentLabel || alumnus.graduationYear) ? (
+                  <div className="flex items-start space-x-3">
+                    <div className="w-10 h-10 bg-slate-100 ring-1 ring-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <AcademicCapIcon className="w-5 h-5 text-slate-600" aria-hidden="true" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-slate-900">{alumnus.degreeLabel || (alumnus.degree_code ? String(alumnus.degree_code).toUpperCase() : 'Not specified')}</h3>
+                      <p className="text-ocean-600 font-medium">{alumnus.departmentLabel || ''}</p>
+                      <p className="text-sm text-slate-600">{alumnus.graduationYear ? `Batch ${alumnus.graduationYear}` : ''}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-slate-500">No education information available.</p>
+                )
               )}
             </div>
           </div>
@@ -386,14 +418,6 @@ const AlumniProfile = () => {
                 <div>
                   <div className="text-sm text-gray-500">Location</div>
                   <div className="font-medium">{alumnus.location}</div>
-                </div>
-              </div>
-
-              <div className="flex items-center">
-                <AcademicCapIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
-                <div>
-                  <div className="text-sm text-gray-500">Education</div>
-                  <div className="font-medium">{alumnus.degree}, {alumnus.department} ({alumnus.graduationYear})</div>
                 </div>
               </div>
 

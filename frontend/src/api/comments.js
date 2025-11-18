@@ -11,16 +11,28 @@ export async function fetchComments(postId) {
   return data
 }
 
-export async function addComment(postId, content) {
+export async function addComment(postId, content, groupId) {
   const trimmed = (content || '').trim()
   if (!trimmed) throw new Error('Comment cannot be empty')
-  const { data, error } = await supabase
-    .from('group_comments')
-    .insert({ post_id: postId, content: trimmed })
-    .select()
-    .single()
-  if (error) throw error
-  return data
+  // fetch current user id for explicit user_id insert
+  const { data: auth } = await supabase.auth.getUser()
+  const uid = auth?.user?.id || null
+  try {
+    const { data, error } = await supabase
+      .from('group_comments')
+      .insert({ post_id: postId, group_id: groupId || null, user_id: uid, content: trimmed })
+      .select()
+      .single()
+    if (error) throw error
+    return data
+  } catch (error) {
+    const code = error?.code || ''
+    const msg = String(error?.message || '')
+    if (code === '42501' || /can_comment_group/i.test(msg)) {
+      throw new Error("You’re not allowed to comment. Please join the group first.")
+    }
+    throw error
+  }
 }
 
 export async function editComment(commentId, content) {

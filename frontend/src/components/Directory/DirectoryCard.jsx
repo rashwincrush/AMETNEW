@@ -28,7 +28,7 @@ export default function DirectoryCard({ meId, profile, onChanged, compact = fals
     <div className={cardCls}>
       <div className="flex items-start gap-3">
         <div className={compact ? 'mt-0.5' : ''}>
-          <Avatar src={avatar_url} alt={full_name} size={56} />
+          <Avatar src={avatar_url} alt={full_name} size={56} version={profile?.updated_at} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">

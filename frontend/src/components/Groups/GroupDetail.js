@@ -5,7 +5,6 @@ import { supabase } from '../../utils/supabase';
 import { 
   fetchGroupDetails, 
   fetchGroupPosts, 
-  joinGroup, 
   leaveGroup, 
   requestGroupMembership,
   createGroupPost,
@@ -38,7 +37,7 @@ import ShareButtons from '../common/ShareButtons';
 import ImageWithFallback from '../common/ImageWithFallback';
 import { format } from 'date-fns';
 import CommentsThread from './CommentsThread';
-import { joinGroupV2 } from '../../api/groups';
+import { joinGroup } from '../../api/groups';
 import { ROLE_LABELS } from '../../utils/roles';
 import { canPostToGroup } from '../../utils/acl';
 import { getFriendlyErrorMessage } from '../../utils/errors';
@@ -234,9 +233,9 @@ const GroupDetail = () => {
         }
       }
       
-      // Private or public join via RPC v2
+      // Private or public join via RPC
       if (!isMember) {
-        const status = await joinGroupV2(id);
+        const status = await joinGroup(id);
         if (status === 'active') {
           toast.success('Joined group');
           setJoinPending(false);

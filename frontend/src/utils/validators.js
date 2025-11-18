@@ -23,3 +23,29 @@ export function isValidEmail(s = '') {
   if (!v) return false;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 }
+
+// Safe LinkedIn validator: allow empty or prefix-only while typing
+export function validateLinkedIn(value) {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (trimmed === '' || trimmed === 'https://') return null;
+  const linkedInRegex = /^https:\/\/(www\.)?linkedin\.com\/(in|pub|company|school)\/[\w-]+\/?$/i;
+  if (!linkedInRegex.test(trimmed)) {
+    return 'Invalid LinkedIn URL. Use https://www.linkedin.com/(in|pub|company|school)/...';
+  }
+  return null;
+}
+
+// Generic URL validator with same safety: allow empty or prefix-only
+export function validateGenericUrl(value) {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (trimmed === '' || trimmed === 'https://') return null;
+  try {
+    // eslint-disable-next-line no-new
+    new URL(trimmed);
+    return null;
+  } catch {
+    return 'Invalid URL format.';
+  }
+}

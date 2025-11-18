@@ -33,6 +33,14 @@ const normalizePhone = (raw) => {
   return isValid ? normalized : { error: 'Please enter a valid phone in international format (E.164), e.g. +14155552671 or 9876543210 (7-15 digits).' };
 };
 
+// Normalize social URLs to ensure exactly one https:// and avoid partial scheme duplication
+const normalizeUrl = (value) => {
+  if (!value) return '';
+  const stripped = String(value).replace(/^[a-z]+:\/*/i, '');
+  if (stripped.trim() === '') return '';
+  return `https://${stripped}`;
+};
+
 const Profile = () => {
   const navigate = useNavigate();
   const { user, profile, loading, updateProfile, getUserRole, fetchUserProfile } = useAuth();
@@ -791,67 +799,18 @@ const Profile = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     
-    // Handle nested socialLinks object and validate for duplicate URLs
+    // Handle nested socialLinks object with normalization only (no early validation)
     if (name.startsWith('socialLinks.')) {
-      const field = name.split('.')[1];
-      let trimmedValue = value.trim();
-      let validationError = null;
-      
-      // If URL is not empty, validate and check for duplicates
-      if (trimmedValue !== '') {
-        // Ensure http(s) prefix
-        if (!/^https?:\/\//i.test(trimmedValue)) {
-          trimmedValue = 'https://' + trimmedValue;
-        }
-        // Use shared validators
-        const validators = {
-          linkedin: validateLinkedIn,
-          github: validateGitHub,
-          twitter: validateX, // UI field 'twitter' maps to X
-          website: validateWebsite,
-        };
-        const fn = validators[field];
-        if (!fn) {
-          validationError = null;
-        } else if (!fn(trimmedValue)) {
-          if (field === 'linkedin') validationError = 'Invalid LinkedIn URL. Use https://www.linkedin.com/(in|pub|company|school)/...';
-          else if (field === 'github') validationError = 'Use a valid GitHub profile URL (e.g., https://github.com/username)';
-          else if (field === 'twitter') validationError = 'Use https://twitter.com/handle or https://x.com/handle';
-          else if (field === 'website') validationError = 'Website must start with http:// or https://';
-        }
-        
-        // Check if same URL is used in other fields
-        if (!validationError) {
-          const prospective = {
-            ...(formData.socialLinks || {}),
-            [field]: trimmedValue,
-          };
-          const dup = findDuplicateProvider(prospective);
-          if (dup) {
-            validationError = `This URL is already used for your ${dup.fields.find(f => f !== field)}`;
-          }
-        }
-      }
-      
-      // Update validation errors
-      setValidationErrors(prev => {
-        const newErrors = { ...prev };
-        if (validationError) {
-          newErrors[name] = validationError;
-        } else {
-          delete newErrors[name];
-        }
-        return newErrors;
-      });
-      
-      // Update form data with potentially modified URL
-      setFormData(prev => ({
+      const key = name.split('.')[1];
+      const normalized = normalizeUrl(value);
+      setFormData((prev) => ({
         ...prev,
         socialLinks: {
           ...prev.socialLinks,
-          [field]: trimmedValue
-        }
+          [key]: normalized,
+        },
       }));
+      return;
     }
     // Handle array fields that need to be split (comma-separated values)
     else if (['skills', 'interests', 'languages'].includes(name)) {
@@ -986,6 +945,14 @@ const Profile = () => {
       ? 'bg-red-100 text-red-800'
       : 'bg-yellow-100 text-yellow-800';
 
+  const degreeLabel = Array.isArray(degrees)
+    ? (degrees.find(d => String(d.code) === String(formData.degree_code))?.name || null)
+    : null;
+  const deptList = typeof getDepartments === 'function' ? getDepartments(formData.degree_code) : [];
+  const departmentLabel = Array.isArray(deptList)
+    ? (deptList.find(d => String(d.id) === String(formData.department_id))?.name || null)
+    : null;
+
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 bg-gray-50">
       <h1 className="text-3xl font-bold text-gray-800 mb-6">Profile Settings</h1>
@@ -1019,6 +986,9 @@ const Profile = () => {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">{formData.first_name} {formData.last_name}</h1>
               <p className="text-ocean-600 font-medium">{formData.headline}</p>
+              {(degreeLabel || departmentLabel) && (
+                <p className="text-sm text-gray-600">{[degreeLabel, departmentLabel].filter(Boolean).join(' • ')}</p>
+              )}
               {statusLabel && (
                 <div className="mt-2">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusColor}`}>

@@ -104,6 +104,27 @@ const EnhancedRegister = () => {
     return v;
   };
 
+  const normalizePhoneForDb = (raw) => {
+    if (!raw) return null;
+    let v = String(raw).trim();
+    if (!v) return null;
+
+    v = v.replace(/[^0-9+]/g, '');
+
+    if (v.includes('+')) {
+      const plusIndex = v.indexOf('+');
+      v = '+' + v.slice(plusIndex + 1).replace(/\+/g, '');
+    } else {
+      v = `+${v}`;
+    }
+
+    if (!/^\+[1-9][0-9]{6,14}$/.test(v)) {
+      return null;
+    }
+
+    return v;
+  };
+
   const isValidHttpsUrl = (v) => {
     if (!v) return true;
     try {
@@ -319,37 +340,25 @@ const EnhancedRegister = () => {
     } else if (name === 'department_id') {
       if (errors.department_id) setErrors(prev => ({ ...prev, department_id: '' }));
     } else if (name === 'phone') {
-      // Allow only numbers and starting + symbol
-      // First, strip all non-digit and non-plus characters
+      // Enforce E.164-like format (+ followed by 7-15 digits)
       let strippedValue = value.replace(/[^0-9+]/g, '');
-      
-      // Ensure + is only at the beginning if present
+
       if (strippedValue.includes('+')) {
         const plusIndex = strippedValue.indexOf('+');
-        if (plusIndex > 0) {
-          // If + is not at the start, move it to the start
-          strippedValue = '+' + strippedValue.replace(/\+/g, '');
-          setErrors(prev => ({
-            ...prev,
-            [name]: 'Plus sign (+) is only allowed at the beginning of the number'
-          }));
-        } else if (strippedValue.lastIndexOf('+') !== plusIndex) {
-          // If there are multiple + signs, keep only the first one
-          strippedValue = '+' + strippedValue.substring(1).replace(/\+/g, '');
-          setErrors(prev => ({
-            ...prev,
-            [name]: 'Only one plus sign (+) is allowed at the beginning'
-          }));
-        }
+        strippedValue = '+' + strippedValue.slice(plusIndex + 1).replace(/\+/g, '');
       }
-      
+
+      // If user did not type +, we will normalize later, but keep only digits for now
+      if (!strippedValue.startsWith('+')) {
+        strippedValue = strippedValue.replace(/[^0-9]/g, '');
+      }
+
       processedValue = strippedValue;
-      
-      // Give feedback if any characters were removed
+
       if (processedValue !== value && !errors[name]) {
         setErrors(prev => ({
           ...prev,
-          [name]: 'Phone can only contain digits and an optional leading +'
+          [name]: 'Phone can only contain digits and an optional leading + and will be saved in international format.'
         }));
       }
     }
@@ -483,10 +492,11 @@ const EnhancedRegister = () => {
       if (!formData.primaryRole) newErrors.primaryRole = 'Please select your primary role.';
       if (!formData.phone || !formData.phone.trim()) {
         newErrors.phone = 'Phone number is required.';
-      } else if (!/^\+?[0-9]{7,15}$/.test(formData.phone)) {
-        newErrors.phone = 'Phone number must contain 7-15 digits with an optional leading + symbol.';
-      } else if (formData.phone.indexOf('+') > 0) {
-        newErrors.phone = 'Plus sign (+) is only allowed at the beginning of the number';
+      } else {
+        const normalized = normalizePhoneForDb(formData.phone);
+        if (!normalized) {
+          newErrors.phone = 'Phone must be in international format, e.g. +911234567890 (7-15 digits).';
+        }
       }
     }
     
@@ -625,7 +635,7 @@ const EnhancedRegister = () => {
       const stage2 = {
         first_name: formData.firstName.trim(),
         last_name: formData.lastName.trim(),
-        phone: formData.phone.trim(),
+        phone: normalizePhoneForDb(formData.phone),
         graduation_year: (selectedRole === 'alumni') ? Number(formData.graduationYear) : null,
         degree_code: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.degree_code || null) : null,
         department_id: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.department_id || null) : null,
@@ -681,7 +691,7 @@ const EnhancedRegister = () => {
         email: hydratedUser.email?.toLowerCase() || formData.email.trim().toLowerCase(),
         first_name: formData.firstName.trim() || null,
         last_name: formData.lastName.trim() || null,
-        phone: formData.phone?.trim() || null,
+        phone: normalizePhoneForDb(formData.phone),
         role: selectedRole,
         location: formData.currentLocation?.trim() || formData.location?.trim() || null,
         graduation_year: isAlumni ? (Number(formData.graduationYear) || null) : null,
@@ -1092,9 +1102,9 @@ const EnhancedRegister = () => {
           />
           <label htmlFor="agreeToTerms" className="ml-2 text-sm text-gray-700">
             I agree to the
-            {' '}<a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-ocean-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Terms of Service</a>
+            {' '}<a href="/terms-of-service?from=registration" target="_blank" rel="noopener noreferrer" className="text-ocean-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Terms of Service</a>
             {' '}and{' '}
-            <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-ocean-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Privacy Policy</a>.
+            <a href="/privacy-policy?from=registration" target="_blank" rel="noopener noreferrer" className="text-ocean-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Privacy Policy</a>.
           </label>
         </div>
         {errors.agreeToTerms && <p className={commonErrorClass}>{errors.agreeToTerms}</p>}
