@@ -247,8 +247,15 @@ const CreateEvent = () => {
         featured_image_url: null,
         agenda: JSON.stringify(formData.agenda.filter(item => item.time && item.activity)),
         is_published: true,
+        // Organizer identity + display fields
+        organizer_id: user.id,
+        creator_id: user.id,
+        created_by: user.id,
+        organizer_name: formData.organizerName,
+        organizer_email: formData.organizerEmail,
+        organizer_phone: formData.organizerPhone,
+        // Legacy user_id used elsewhere in analytics
         user_id: user.id,
-        organizer_id: user.id // Required field according to schema
       };
       
       console.log('Submitting event data to Supabase:', eventData);

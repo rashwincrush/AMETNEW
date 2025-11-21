@@ -110,6 +110,8 @@ const CreateEventForm = () => {
         end_date: endDateUTC,
         registration_deadline: registrationDeadlineUTC,
         organizer_id: user.id,
+        creator_id: user.id,
+        created_by: user.id,
         tags: Array.isArray(formData.tags) ? formData.tags : formData.tags.split(',').map(t => t.trim()),
       };
 
@@ -117,7 +119,6 @@ const CreateEventForm = () => {
       delete eventData.start_time;
       delete eventData.end_time;
       delete eventData.location;
-      delete eventData.created_by;
 
       const finalEventData = eventData;
 

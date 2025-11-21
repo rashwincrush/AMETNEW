@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import Logo from '../components/common/Logo';
 const AboutPage = () => {
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'auto' });
+    // Ensure About page always starts at the top when navigated to
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    });
   }, []);
   const navigate = useNavigate();
   return (

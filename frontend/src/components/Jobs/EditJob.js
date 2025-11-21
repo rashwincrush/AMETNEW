@@ -71,7 +71,7 @@ const EditJob = () => {
           .from('jobs')
           .select(`
             id, title, company_name, location, job_type,
-            description, requirements, salary_range, application_url,
+            description, requirements, skills, salary_range, application_url,
             contact_email, external_url, apply_url, company_id,
             posted_by, user_id, created_by, deadline, application_deadline,
             is_active, is_approved
@@ -141,7 +141,7 @@ const EditJob = () => {
     setIsSubmitting(true);
 
     const {
-      title, company_name, location, job_type, description, requirements,
+      title, company_name, location, job_type, description, requirements, skills,
       salary_range, application_url, contact_email, external_url, apply_url,
       company_id, deadline, application_deadline, is_active
     } = formData || {};
@@ -193,7 +193,7 @@ const EditJob = () => {
     } else {
       // Legacy in-app update
       updateData = {
-        title, company_name, location, job_type, description, requirements,
+        title, company_name, location, job_type, description, requirements, skills,
         salary_range, application_url: norm_application_url, contact_email,
         external_url: norm_external_url, apply_url: norm_apply_url,
         company_id, deadline, is_active
@@ -332,6 +332,29 @@ const EditJob = () => {
                           <Grid item xs={12}>
                             <TextField required fullWidth multiline rows={4} label="Job Description" name="description"
                               value={formData.description || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField
+                              fullWidth
+                              multiline
+                              rows={2}
+                              label="Key Skills (comma-separated)"
+                              name="skills"
+                              value={Array.isArray(formData.skills) ? formData.skills.join(', ') : (formData.skills || '')}
+                              onChange={(e) => {
+                                const raw = e.target.value || '';
+                                const parts = raw
+                                  .split(',')
+                                  .map((s) => s.trim())
+                                  .filter(Boolean);
+                                setFormData(prev => ({
+                                  ...prev,
+                                  skills: parts,
+                                }));
+                              }}
+                              disabled={isSubmitting}
+                              helperText="Add important skills separated by commas (e.g., Navigation, Engine Maintenance, Leadership)"
+                            />
                           </Grid>
                           <Grid item xs={12}>
                             <TextField fullWidth multiline rows={3} label="Requirements" name="requirements"

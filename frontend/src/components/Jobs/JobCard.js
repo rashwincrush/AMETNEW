@@ -98,9 +98,32 @@ export default function JobCard({ job }) {
       </div>
 
       {/* Middle content */}
-      <p className="text-gray-600 text-sm mt-3 mb-4">
+      <p className="text-gray-600 text-sm mt-3 mb-2">
         {job.description?.slice(0, 120) + (job.description?.length > 120 ? '...' : '')}
       </p>
+
+      {/* Skills preview, if available */}
+      {(() => {
+        const raw = job.skills;
+        const arr = Array.isArray(raw)
+          ? raw
+          : typeof raw === 'string'
+            ? raw.split(',').map(s => s.trim()).filter(Boolean)
+            : [];
+        if (!arr.length) return null;
+        return (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {arr.slice(0, 5).map((skill, idx) => (
+              <span
+                key={idx}
+                className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-ocean-50 text-ocean-700 border border-ocean-100"
+              >
+                {skill}
+              </span>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Meta row */}
       <div className="grid grid-cols-2 gap-2 mb-2">

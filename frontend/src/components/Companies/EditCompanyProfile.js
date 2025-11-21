@@ -72,6 +72,18 @@ const EditCompanyProfileContent = ({ user }) => {
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+
+      const ACCEPT = ['image/jpeg', 'image/png', 'image/webp'];
+      const MAX = 2 * 1024 * 1024; // 2MB
+      if (!ACCEPT.includes(file.type)) {
+        addNotification('Please upload a JPG, PNG, or WebP image.', 'error');
+        return;
+      }
+      if (file.size > MAX) {
+        addNotification('Logo image must be 2 MB or smaller.', 'error');
+        return;
+      }
+
       setLogoFile(file);
       const previewUrl = URL.createObjectURL(file);
       setLogoPreview(previewUrl);
@@ -137,6 +149,7 @@ const EditCompanyProfileContent = ({ user }) => {
                 </div>
               )}
               <input type="file" id="logo" onChange={handleFileChange} className="text-sm" />
+              <p className="text-xs text-gray-500 mt-1">Recommended square logo, JPG/PNG/WebP, up to 2 MB.</p>
             </div>
           </div>
           <div className="md:col-span-2 space-y-6">

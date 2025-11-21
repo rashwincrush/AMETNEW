@@ -374,6 +374,12 @@ const Mentorship = () => {
         return;
       }
 
+      // Prevent mentors from joining their own mentorship as mentees
+      if (mentorId === menteeId) {
+        toast.error("You can’t join your own mentorship as a mentee.");
+        return;
+      }
+
       // Prevent duplicate requests (since no unique constraint in DB)
       const { data: existing, error: existingErr } = await supabase
         .from('mentorship_requests')
@@ -607,18 +613,22 @@ const Mentorship = () => {
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {filteredMentors.map((mentor) => (
-                      <MentorCard
-                        key={mentor.id}
-                        mentor={mentor}
-                        requested={requestedMentorIds.has(mentor.user_id)}
-                        onRequestSuccess={() => {
-                          setRequestedMentorIds(prev => new Set([...(prev || new Set()), mentor.user_id]));
-                          setActiveTab('my-requests');
-                          loadMenteeRequests();
-                        }}
-                      />
-                    ))}
+                    {filteredMentors.map((mentor) => {
+                      const req = mentorshipRequests.find((r) => r.mentor_id === mentor.user_id);
+                      return (
+                        <MentorCard
+                          key={mentor.id}
+                          mentor={mentor}
+                          requested={requestedMentorIds.has(mentor.user_id) || !!req}
+                          requestStatus={req?.status || null}
+                          onRequestSuccess={() => {
+                            setRequestedMentorIds(prev => new Set([...(prev || new Set()), mentor.user_id]));
+                            setActiveTab('my-requests');
+                            loadMenteeRequests();
+                          }}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -754,7 +764,7 @@ const Mentorship = () => {
 };
 
 // Mentor Card Component
-const MentorCard = ({ mentor, requested = false, onRequestSuccess }) => {
+const MentorCard = ({ mentor, requested = false, requestStatus = null, onRequestSuccess }) => {
   const isAvailable = mentor.is_available_for_mentorship === true;
   return (
     <div className="glass-card rounded-lg p-6 card-hover">
@@ -866,6 +876,7 @@ const MentorCard = ({ mentor, requested = false, onRequestSuccess }) => {
             mentorId={mentor.user_id}
             disabled={!mentor.is_available_for_mentorship}
             requested={requested}
+            requestStatus={requestStatus}
             onSuccess={onRequestSuccess}
           />
         </ApprovedGuard>

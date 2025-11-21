@@ -18,7 +18,7 @@ export default function CommentsThread({ postId, group, isMember }) {
   const [comments, setComments] = useState([])
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState('')
-  const canComment = canCommentOnGroup(group, userRole, isMember) && !group?.is_archived
+  const canComment = isMember && canCommentOnGroup(group, userRole, isMember) && !group?.is_archived
   const channelRef = useRef(null)
 
   useEffect(() => {

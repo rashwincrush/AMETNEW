@@ -1074,12 +1074,14 @@ const EnhancedRegister = () => {
         <p className="text-xs text-gray-500 mt-1">Must start with https://github.com/</p>
         {errors.githubProfile && <p className={commonErrorClass}>{errors.githubProfile}</p>}
       </div>
-      <div>
-        <label htmlFor="websiteUrl" className={commonLabelClass}>Personal or Company Website</label>
-        <input id="websiteUrl" name="websiteUrl" type="url" value={formData.websiteUrl} onChange={handleChange} placeholder="https://example.com" className={commonInputClass(errors.websiteUrl)} />
-        <p className="text-xs text-gray-500 mt-1">Must be a valid https URL</p>
-        {errors.websiteUrl && <p className={commonErrorClass}>{errors.websiteUrl}</p>}
-      </div>
+      {formData.primaryRole !== 'employer' && (
+        <div>
+          <label htmlFor="websiteUrl" className={commonLabelClass}>Personal Website</label>
+          <input id="websiteUrl" name="websiteUrl" type="url" value={formData.websiteUrl} onChange={handleChange} placeholder="https://example.com" className={commonInputClass(errors.websiteUrl)} />
+          <p className="text-xs text-gray-500 mt-1">Must be a valid https URL</p>
+          {errors.websiteUrl && <p className={commonErrorClass}>{errors.websiteUrl}</p>}
+        </div>
+      )}
       <div>
         <label htmlFor="currentLocation" className={commonLabelClass}>Current Location</label>
         <input id="currentLocation" name="currentLocation" type="text" value={formData.currentLocation} onChange={handleChange} placeholder="e.g., Chennai, India" className={commonInputClass(false)} />

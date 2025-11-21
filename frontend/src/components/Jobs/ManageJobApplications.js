@@ -320,7 +320,7 @@ const ManageJobApplications = () => {
                   <div key={app.id} className="bg-white shadow rounded-lg p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <Link to={`/profile/${app.applicant_id}`} className="block font-medium text-gray-900 truncate hover:underline">
+                        <Link to={`/directory/${app.applicant_id}`} className="block font-medium text-gray-900 truncate hover:underline">
                           {app._applicant_display || app.applicant_name || 'Applicant'}
                         </Link>
                         {(app._applicant_email || app.applicant_email) && (
@@ -376,7 +376,7 @@ const ManageJobApplications = () => {
                         )}
                       </div>
                       <div className="flex items-center gap-3">
-                        <Link to={`/profile/${app.applicant_id}`} className="text-ocean-600 hover:underline text-sm">View Profile</Link>
+                        <Link to={`/directory/${app.applicant_id}`} className="text-ocean-600 hover:underline text-sm">View Profile</Link>
                         {canMessage(app.applicant_id) ? (
                           <button onClick={() => navigate(`/messages?peer=${app.applicant_id}&job=${actualJobId}`)} className="text-blue-600 hover:underline text-sm">Message</button>
                         ) : (
@@ -405,7 +405,7 @@ const ManageJobApplications = () => {
                       <tr key={app.id}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex flex-col">
-                            <Link to={`/profile/${app.applicant_id}`} className="text-sm font-medium text-gray-900 hover:underline">
+                            <Link to={`/directory/${app.applicant_id}`} className="text-sm font-medium text-gray-900 hover:underline">
                               {app._applicant_display || app.applicant_name || 'Applicant'}
                             </Link>
                             {(app._applicant_email || app.applicant_email) && (
@@ -459,7 +459,7 @@ const ManageJobApplications = () => {
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 space-x-2">
-                          <Link to={`/profile/${app.applicant_id}`} className="text-ocean-600 hover:underline">View Profile</Link>
+                          <Link to={`/directory/${app.applicant_id}`} className="text-ocean-600 hover:underline">View Profile</Link>
                           {canMessage(app.applicant_id) ? (
                             <button onClick={() => navigate(`/messages?peer=${app.applicant_id}&job=${actualJobId}`)} className="text-blue-600 hover:underline">Message</button>
                           ) : (

@@ -36,11 +36,6 @@ export default function DirectoryCard({ meId, profile, onChanged, compact = fals
               <h3 className={nameCls}>{full_name}</h3>
               {headline && <p className={subCls}>{headline}</p>}
             </div>
-            {graduation_year && (
-              <span className="shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-ocean-50 text-ocean-700 border border-ocean-200">
-                Batch {graduation_year}
-              </span>
-            )}
           </div>
 
           {/* Required Basic Details (3 lines) */}

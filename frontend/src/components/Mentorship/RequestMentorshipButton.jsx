@@ -5,7 +5,7 @@ import { handleSupabaseGuardError } from '../../utils/mapSupabaseErrorToToast';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
-export default function RequestMentorshipButton({ mentorId, disabled = false, requested = false, onSuccess }) {
+export default function RequestMentorshipButton({ mentorId, disabled = false, requested = false, requestStatus = null, onSuccess }) {
   const { loading, isApprovedMentee } = useApproval();
   const [busy, setBusy] = useState(false);
   const { user } = useAuth();
@@ -59,7 +59,9 @@ export default function RequestMentorshipButton({ mentorId, disabled = false, re
     }
   };
 
-  const isDisabled = loading || busy || !isApprovedMentee || !!disabled || !!requested;
+  const activeStatus = requestStatus || (requested ? 'pending' : null);
+  const hasOpenRequest = activeStatus === 'pending' || activeStatus === 'accepted';
+  const isDisabled = loading || busy || !isApprovedMentee || !!disabled || hasOpenRequest;
 
   return (
     isOwnerMentor ? (
@@ -72,13 +74,19 @@ export default function RequestMentorshipButton({ mentorId, disabled = false, re
         title={
           !isApprovedMentee
             ? 'Your profile is not approved. Kindly contact administrator.'
-            : requested
-              ? 'Request pending'
-              : (disabled ? 'This mentor isn’t accepting requests right now.' : 'Request mentorship')
+            : activeStatus === 'accepted'
+              ? 'Request accepted'
+              : activeStatus === 'pending'
+                ? 'Request pending'
+                : (disabled ? 'This mentor isn’t accepting requests right now.' : 'Request mentorship')
         }
         className={`flex-1 btn-ocean py-2 px-3 rounded text-sm ${isDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
       >
-        {requested ? 'Request pending' : (busy ? 'Sending…' : 'Request Mentorship')}
+        {activeStatus === 'accepted'
+          ? 'Request Accepted'
+          : activeStatus === 'pending'
+            ? 'Request pending'
+            : (busy ? 'Sending…' : 'Request Mentorship')}
       </button>
     )
   );
