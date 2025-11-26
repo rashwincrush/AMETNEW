@@ -640,7 +640,7 @@ const ContentApproval = () => {
   return (
     <div className="space-y-6">
       {/* Header and filters */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-3 md:space-y-0">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Content Moderation</h2>
           <p className="text-sm text-gray-500">
@@ -648,11 +648,11 @@ const ContentApproval = () => {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center space-x-2">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 w-full md:w-auto">
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="block rounded-md border-gray-300 shadow-sm focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm"
+            className="w-full sm:w-auto block rounded-md border-gray-300 shadow-sm focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm"
             aria-label="Filter content type"
             aria-controls="content-list"
           >
@@ -666,7 +666,7 @@ const ContentApproval = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="block rounded-md border-gray-300 shadow-sm focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm"
+            className="w-full sm:w-auto block rounded-md border-gray-300 shadow-sm focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm"
             aria-label="Filter by moderation status"
           >
             <option value="pending">Pending</option>
@@ -675,7 +675,7 @@ const ContentApproval = () => {
             <option value="all">All</option>
           </select>
 
-          <div className="flex rounded-md shadow-sm" role="group" aria-label="View mode selection">
+          <div className="flex w-full sm:w-auto rounded-md shadow-sm" role="group" aria-label="View mode selection">
             <button
               type="button"
               onClick={() => setViewMode('list')}
@@ -706,7 +706,7 @@ const ContentApproval = () => {
 
           <button
             onClick={fetchPendingContent}
-            className="inline-flex items-center justify-center min-h-[44px] px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ocean-500"
+            className="inline-flex items-center justify-center min-h-[44px] px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ocean-500 w-full sm:w-auto"
             aria-label="Refresh content list"
           >
             <ArrowPathIcon className="w-4 h-4 mr-1" />

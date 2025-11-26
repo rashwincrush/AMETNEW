@@ -371,7 +371,7 @@ const Notifications = () => {
       
       {/* Notifications Section */}
       <div className="mt-10">
-        <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-3 sm:gap-4">
           <h2 className="text-xl font-semibold">All Notifications</h2>
           <button 
             onClick={markAllAsRead} 
@@ -383,8 +383,8 @@ const Notifications = () => {
         
         <div className="bg-white rounded-lg shadow overflow-hidden">
           {/* Tabs and Filters */}
-          <div className="flex flex-wrap items-center justify-between p-4 border-b bg-gray-50">
-            <div className="flex items-center space-x-2">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between p-4 border-b bg-gray-50">
+            <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => setActiveTab('all')} className={`px-3 py-1.5 text-sm rounded-md ${activeTab === 'all' ? 'bg-ocean-500 text-white' : 'bg-white hover:bg-gray-100'}`}>All</button>
               <button onClick={() => setActiveTab('unread')} className={`px-3 py-1.5 text-sm rounded-md ${activeTab === 'unread' ? 'bg-ocean-500 text-white' : 'bg-white hover:bg-gray-100'}`}>Unread</button>
               <button onClick={() => setActiveTab('read')} className={`px-3 py-1.5 text-sm rounded-md ${activeTab === 'read' ? 'bg-ocean-500 text-white' : 'bg-white hover:bg-gray-100'}`}>Read</button>

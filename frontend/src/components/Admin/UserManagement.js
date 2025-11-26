@@ -619,10 +619,10 @@ const UserManagement = () => {
         </div>
 
         {/* Main Content Area */}
-        <div className="bg-white p-6 rounded-2xl shadow-lg">
+        <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-lg">
           {/* Tabs */}
-          <div className="mb-6 border-b border-gray-200">
-            <nav className="-mb-px flex space-x-6" aria-label="Tabs">
+          <div className="mb-6 border-b border-gray-200 overflow-x-auto">
+            <nav className="-mb-px flex space-x-4 md:space-x-6 min-w-max" aria-label="Tabs">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
@@ -631,7 +631,7 @@ const UserManagement = () => {
                     selectedTab === tab.id
                       ? 'border-ocean-500 text-ocean-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+                  } whitespace-nowrap py-3 px-2 border-b-2 font-medium text-sm transition-colors flex-shrink-0`}
                 >
                   {tab.name}
                 </button>
@@ -713,11 +713,11 @@ const UserManagement = () => {
 
           {/* Bulk Actions */}
           {selectedUsers.length > 0 && (
-            <div className="bg-ocean-50 border border-ocean-200 rounded-lg p-3 mb-6 flex items-center justify-between">
+            <div className="bg-ocean-50 border border-ocean-200 rounded-lg p-3 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <p className="text-sm font-medium text-ocean-800">
                 {selectedUsers.length} user{selectedUsers.length > 1 && 's'} selected
               </p>
-              <div className="flex items-center space-x-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <button 
                   onClick={() => handleBulkAction('approve')}
                   className="text-sm font-medium text-green-600 hover:text-green-800 flex items-center"
@@ -920,7 +920,7 @@ const UserManagement = () => {
 
           {/* Pagination */}
           {selectedTab !== 'mentors' && (
-            <div className="flex items-center justify-between mt-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-6">
               <p className="text-sm text-gray-600">
                 Page <span className="font-medium">{page}</span> • Showing <span className="font-medium">{filteredUsers.length}</span>
               </p>

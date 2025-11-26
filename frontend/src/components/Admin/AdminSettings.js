@@ -259,29 +259,29 @@ const AdminSettings = () => {
   // Define the consolidated tabs
   const tabs = [
     {
-      name: 'User Management',
-      icon: <UsersIcon className="w-5 h-5" />,
+      name: 'Users',
+      icon: UsersIcon,
       component: <UserManagement />,
       permission: 'approve_users',
       superAdminOnly: false,
     },
     {
-      name: 'Content Management',
-      icon: <DocumentCheckIcon className="w-5 h-5" />,
+      name: 'Content',
+      icon: DocumentCheckIcon,
       component: <ContentApproval />,
       permission: 'approve_content',
       superAdminOnly: false,
     },
     {
-      name: 'System Administration',
-      icon: <WrenchScrewdriverIcon className="w-5 h-5" />,
+      name: 'System',
+      icon: WrenchScrewdriverIcon,
       component: <SystemAdministration />,
       permission: 'manage_settings',
       superAdminOnly: false,
     },
     {
-      name: 'Security Check',
-      icon: <ShieldCheckIcon className="w-5 h-5" />,
+      name: 'Security',
+      icon: ShieldCheckIcon,
       component: <SecurityCheck />,
       permission: 'manage_settings',
       superAdminOnly: false,
@@ -292,7 +292,7 @@ const AdminSettings = () => {
   if (hasPermission('view:feedback_reports')) {
     tabs.push({
       name: 'Reports',
-      icon: <ClipboardDocumentListIcon className="w-5 h-5" />,
+      icon: ClipboardDocumentListIcon,
       component: <Reports />,
       permission: 'view:feedback_reports',
       superAdminOnly: false,
@@ -303,48 +303,59 @@ const AdminSettings = () => {
 
   return (
     <main id="main-content" className="space-y-6">
-      {/* Header */}
-      <div className="rounded-lg p-6 bg-gradient-to-r from-ocean-500 to-ocean-600 shadow-lg">
-        <div className="flex items-center justify-between">
+      <Tab.Group selectedIndex={selectedIndex} onChange={setSelectedIndex}>
+        {/* Header card: title, subtitle, and tab bar */}
+        <div className="rounded-xl border border-slate-100 bg-white shadow-sm p-4 sm:p-5">
           <div>
-            <h1 className="text-2xl font-bold flex items-center text-white">
-              <Cog6ToothIcon className="w-6 h-6 mr-2" />
-              Admin Dashboard
+            <h1 className="flex items-center text-base sm:text-lg font-semibold text-slate-900">
+              <Cog6ToothIcon className="w-5 h-5 sm:w-6 sm:h-6 mr-2 text-ocean-600" />
+              <span>Admin Settings</span>
             </h1>
-            <p className="mt-1 text-white font-medium">
-              Manage users, content, and site settings from one place.
+            <p className="mt-1 text-xs sm:text-sm text-slate-500">
+              Manage users, content, security and system configuration.
             </p>
           </div>
-          <div className="hidden md:block">
-            <div className="w-16 h-16 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
-              <UsersIcon className="w-8 h-8 text-white" />
-            </div>
+
+          <div className="mt-3 sm:mt-4 relative">
+            <Tab.List
+              className="flex items-center gap-1 overflow-x-auto rounded-lg bg-ocean-50/60 p-1"
+              role="tablist"
+            >
+              {availableTabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <Tab
+                    key={tab.name}
+                    className={({ selected }) =>
+                      `flex-shrink-0 inline-flex items-center gap-2 rounded-lg px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${
+                        selected
+                          ? 'bg-white text-ocean-700 shadow-sm border border-ocean-100'
+                          : 'bg-transparent text-slate-600 hover:bg-white/60 hover:text-ocean-800'
+                      }`
+                    }
+                  >
+                    {({ selected }) => (
+                      <>
+                        <Icon
+                          className={`h-4 w-4 sm:h-5 sm:w-5 ${
+                            selected ? 'text-ocean-600' : 'text-slate-400'
+                          }`}
+                        />
+                        <span className="whitespace-nowrap">{tab.name}</span>
+                      </>
+                    )}
+                  </Tab>
+                );
+              })}
+            </Tab.List>
+            {/* Subtle scroll affordance on mobile */}
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white/80 to-transparent sm:hidden" />
           </div>
         </div>
-      </div>
 
-      {/* Main Content with Tabs */}
-      <div className="glass-card rounded-lg p-2 sm:p-6">
-        <Tab.Group selectedIndex={selectedIndex} onChange={setSelectedIndex}>
-          <Tab.List className="flex space-x-1 rounded-lg bg-ocean-50 p-1" role="tablist">
-            {availableTabs.map((tab) => (
-              <Tab
-                key={tab.name}
-                className={({ selected }) =>
-                  `w-full py-3 text-sm font-medium leading-5 rounded-lg flex items-center justify-center min-h-[44px] transition-all duration-200
-                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2
-                   ${selected
-                      ? 'bg-white text-ocean-700 shadow border-b-2 border-ocean-600'
-                      : 'text-gray-700 hover:bg-white/50 hover:text-ocean-700'
-                   }`
-                }
-              >
-                {tab.icon}
-                <span className="ml-2">{tab.name}</span>
-              </Tab>
-            ))}
-          </Tab.List>
-          <Tab.Panels className="mt-6">
+        {/* Main Content with Tab Panels */}
+        <div className="glass-card rounded-lg p-2 sm:p-6">
+          <Tab.Panels className="mt-4">
             {availableTabs.map((tab, idx) => (
               <Tab.Panel
                 key={idx}
@@ -370,10 +381,10 @@ const AdminSettings = () => {
               </Tab.Panel>
             ))}
           </Tab.Panels>
-        </Tab.Group>
-      </div>
+        </div>
+      </Tab.Group>
     </main>
-  );
-};
+  )
+}
 
 export default AdminSettings;
