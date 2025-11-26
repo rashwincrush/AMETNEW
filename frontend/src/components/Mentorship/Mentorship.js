@@ -280,7 +280,9 @@ const Mentorship = () => {
           applicant: undefined,
           compatibilityScore: 85,
           ratings: '5.0',
-          totalMentees: mentor.max_mentees || 0,
+          // Use current_mentees_count from view as single source of truth for mentee count
+          totalMentees: typeof mentor.current_mentees_count === 'number' ? mentor.current_mentees_count : 0,
+          maxMentees: mentor.max_mentees || null,
           preferences: mentor.mentoring_preferences || {},
           isBookmarked: false,
         };

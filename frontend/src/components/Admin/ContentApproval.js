@@ -82,6 +82,7 @@ const ContentApproval = () => {
     try {
       const jobsQuery = supabase
         .from('jobs')
+        // Join profiles via jobs.user_id -> profiles.id so we can show the creator's name
         .select('*, profiles:user_id(first_name, last_name, avatar_url, email)');
       
       let jq = jobsQuery;
@@ -300,19 +301,14 @@ const ContentApproval = () => {
   
   
   
-    const handleApprove = async (item) => {
+  const handleApprove = async (item) => {
     const { id, content_type } = item;
     let tableName, updateData;
 
     switch (content_type) {
       case 'job':
-        tableName = 'jobs';
-        updateData = { 
-          is_approved: true, 
-          is_rejected: false, 
-          reviewed_by: profile?.id, 
-          reviewed_at: new Date().toISOString() 
-        };
+        tableName = null;
+        updateData = null;
         break;
       case 'event':
         tableName = 'events';
@@ -337,7 +333,25 @@ const ContentApproval = () => {
     }
 
     try {
-      if (content_type === 'group') {
+      if (content_type === 'job') {
+        // Use canonical RPC for job approval to satisfy DB security and triggers
+        const { error: approveError } = await supabase.rpc('approve_job', {
+          p_job_id: id,
+          p_approved: true,
+        });
+        if (approveError) throw approveError;
+
+        // Stamp moderation metadata and clear rejection flag
+        const { error: metaError } = await supabase
+          .from('jobs')
+          .update({
+            is_rejected: false,
+            reviewed_by: profile?.id,
+            reviewed_at: new Date().toISOString(),
+          })
+          .eq('id', id);
+        if (metaError) throw metaError;
+      } else if (content_type === 'group') {
         const { error } = await supabase.rpc('admin_review_group', { p_group_id: id, p_action: 'approve' });
         if (error) throw error;
       } else {

@@ -110,7 +110,12 @@ const EditJob = () => {
         me: user?.id
       });
 
-      setFormData(data);
+      setFormData({
+        ...data,
+        skillsText: Array.isArray(data.skills)
+          ? data.skills.join(', ')
+          : (data.skills || ''),
+      });
     } catch (e) {
       console.error('Error fetching job:', e);
       setError(getFriendlyErrorMessage(e, 'Failed to load job data.'));
@@ -340,15 +345,22 @@ const EditJob = () => {
                               rows={2}
                               label="Key Skills (comma-separated)"
                               name="skills"
-                              value={Array.isArray(formData.skills) ? formData.skills.join(', ') : (formData.skills || '')}
+                              value={
+                                typeof formData.skillsText === 'string'
+                                  ? formData.skillsText
+                                  : (Array.isArray(formData.skills)
+                                      ? formData.skills.join(', ')
+                                      : (formData.skills || ''))
+                              }
                               onChange={(e) => {
                                 const raw = e.target.value || '';
                                 const parts = raw
-                                  .split(',')
+                                  .split(/[\n,]+/)
                                   .map((s) => s.trim())
                                   .filter(Boolean);
                                 setFormData(prev => ({
                                   ...prev,
+                                  skillsText: raw,
                                   skills: parts,
                                 }));
                               }}

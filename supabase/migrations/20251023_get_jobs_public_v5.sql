@@ -50,6 +50,7 @@ returns table (
   location text,
   salary_min int,
   salary_max int,
+  skills text[],
   is_active boolean,
   is_approved boolean,
   created_at timestamp with time zone,
@@ -62,7 +63,7 @@ with base as (
     j.description,
     j.company_id,
     coalesce(c.name, j.company_name) as company_name,
-    c.logo_url as company_logo_url,
+    coalesce(c.logo_url, j.company_logo_url) as company_logo_url,
     j.application_url,
     j.external_url,
     j.apply_url,
@@ -82,12 +83,16 @@ with base as (
     j.location,
     j.salary_min,
     j.salary_max,
+    j.skills,
     j.is_active,
     j.is_approved,
     j.created_at
   from jobs j
   left join companies c on c.id = j.company_id
-  where j.is_active = true and j.is_approved = true
+  where j.is_active = true
+    and j.is_approved = true
+    and coalesce(j.is_rejected, false) = false
+    and j.status = 'active'
     and (p_department is null or j.department = p_department)
     and (p_job_type is null or j.job_type = p_job_type)
     and (p_experience_level is null or j.experience_level = p_experience_level)

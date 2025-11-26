@@ -35,6 +35,18 @@ const EventDetail = () => {
   const [attendeesOpen, setAttendeesOpen] = useState(false);
   const [rsvpBanner, setRsvpBanner] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
+  
+  useEffect(() => {
+    if (!showImageModal) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setShowImageModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showImageModal]);
   
   // Computed values
   const { startISO, endISO, eventStarted, eventEnded } = useEventComputedFlags(event);
@@ -389,15 +401,19 @@ const EventDetail = () => {
         </Link>
 
         <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-          <div className="w-full h-48 md:h-64">
+          <button
+            type="button"
+            className="w-full h-48 md:h-64 cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
+            onClick={() => event.featured_image_url && setShowImageModal(true)}
+          >
             <ImageWithFallback
               src={event.featured_image_url}
               alt={event.title}
-              className="w-full h-full"
+              className="w-full h-full object-cover"
               placeholderSrc="/default-avatar.svg"
               emptyMessage="Event image to be uploaded"
             />
-          </div>
+          </button>
           <div className="p-6">
             <div className="flex flex-col sm:flex-row justify-between items-start mb-2">
               <div>
@@ -478,6 +494,31 @@ const EventDetail = () => {
                     ))}
                   </div>
                 )}
+            {showImageModal && (
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Event image"
+                onClick={() => setShowImageModal(false)}
+              >
+                <div className="relative max-w-4xl w-full mx-4" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    className="absolute top-3 right-3 text-white text-2xl font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-full px-2"
+                    aria-label="Close image"
+                    onClick={() => setShowImageModal(false)}
+                  >
+                    ×
+                  </button>
+                  <img
+                    src={event.featured_image_url || '/default-avatar.svg'}
+                    alt={event.title}
+                    className="w-full max-h-[80vh] object-contain rounded-lg bg-black"
+                  />
+                </div>
+              </div>
+            )}
               </div>
 
               {/* RSVP & Admin */}

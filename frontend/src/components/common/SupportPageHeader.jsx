@@ -19,8 +19,8 @@ const SupportPageHeader = ({ hideBackWhenFromRegistration = false }) => {
   const showBack = !fromRegistration;
 
   return (
-    <div className="flex items-center justify-between mb-6">
-      <div className="flex items-center gap-3">
+    <div className="mb-6 grid grid-cols-3 items-center">
+      <div className="flex items-center justify-start">
         {showBack && (
           <button
             onClick={() => navigate(-1)}
@@ -33,6 +33,8 @@ const SupportPageHeader = ({ hideBackWhenFromRegistration = false }) => {
             <span className="text-sm font-medium">Back</span>
           </button>
         )}
+      </div>
+      <div className="flex items-center justify-center">
         <a
           href="/"
           target="_self"
@@ -43,6 +45,7 @@ const SupportPageHeader = ({ hideBackWhenFromRegistration = false }) => {
           <span className="text-lg font-semibold text-gray-900">AMET Alumni</span>
         </a>
       </div>
+      <div />
     </div>
   );
 };

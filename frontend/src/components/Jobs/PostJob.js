@@ -204,6 +204,7 @@ const PostJob = () => {
         is_active: true,
         is_approved: false,
         created_by: session.user.id,
+        user_id: profile?.id || session.user.id,
       };
       const { error: jobError } = await supabase
         .from('jobs')
@@ -392,7 +393,14 @@ const PostJob = () => {
 
       const payload = buildJobPayload(formData, companyId, 'form');
       // Enforce publish-ready status to trigger DB constraints (status='active')
-      const insertPayload = { ...payload, status: 'active', is_approved: false, is_active: true, created_by: session.user.id };
+      const insertPayload = {
+        ...payload,
+        status: 'active',
+        is_approved: false,
+        is_active: true,
+        created_by: session.user.id,
+        user_id: profile?.id || session.user.id,
+      };
       console.log("Submitting In-App job with payload:", insertPayload);
       const { data: newJob, error: jobError } = await supabase
         .from('jobs')

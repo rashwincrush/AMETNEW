@@ -7,7 +7,7 @@ import { Box, Typography, Paper, TextField, Button, Alert, CircularProgress } fr
 const JobApplyForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, userRole, getUserRole } = useAuth();
   const [resumeUrl, setResumeUrl] = useState('');
   const [coverLetter, setCoverLetter] = useState('');
   const [loading, setLoading] = useState(false);
@@ -26,6 +26,12 @@ const JobApplyForm = () => {
     setLoading(true);
     if (!user) {
       setError('You must be logged in to apply.');
+      setLoading(false);
+      return;
+    }
+    const role = userRole || (typeof getUserRole === 'function' ? getUserRole() : null);
+    if (role === 'employer') {
+      setError('Employers cannot apply to jobs from this portal.');
       setLoading(false);
       return;
     }

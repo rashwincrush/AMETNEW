@@ -316,7 +316,7 @@ const HomePage = () => {
               <div className="flex items-center space-x-3 mb-4">
                 <Logo className="h-10 w-auto" />
                 <div>
-                  <span className="text-xl font-bold text-gray-900">AMET Alumni Portal</span>
+                  <span className="text-xl font-bold text-gray-900">AMET Alumni</span>
                 </div>
               </div>
               <p className="text-gray-600 max-w-md">
@@ -347,7 +347,7 @@ const HomePage = () => {
           </div>
           
           <div className="border-t border-gray-200 mt-8 pt-8 text-center text-gray-500">
-            <p>&copy; {new Date().getFullYear()} AMET Alumni Portal. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} AMET Alumni. All rights reserved.</p>
           </div>
         </div>
       </footer>

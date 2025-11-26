@@ -70,7 +70,7 @@ const formatEventDateTime = (dateString, timeString) => {
 
 const AlumniDashboard = () => {
   const { showInfo } = useNotification();
-  const { user, profile, loading: authLoading } = useAuth();
+  const { user, profile, loading: authLoading, userRole, getUserRole } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState({
@@ -86,6 +86,9 @@ const AlumniDashboard = () => {
   const [loading, setLoading] = useState(true);
   const userName = profile?.full_name || user?.user_metadata?.full_name || user?.email || 'Alumni';
   const hasFetched = useRef(false);
+  const role = userRole || (profile?.role || (typeof getUserRole === 'function' ? getUserRole() : 'alumni'));
+  const isEmployer = role === 'employer';
+  const isStudent = role === 'student';
   
   // Recent Activity now fully handled by <ActivitiesWidget />
 
@@ -137,22 +140,19 @@ const AlumniDashboard = () => {
   const fetchConnectionsCount = useCallback(async (userId) => {
     if (!userId) return 0;
     try {
-      const { data, error } = await supabase.rpc('get_connections_count', { p_user_id: userId });
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.warn('RPC get_connections_count failed, falling back to manual count:', error.message);
-      const { count, error: countError } = await supabase
+      const { count, error } = await supabase
         .from('connections')
         .select('id', { count: 'exact', head: true })
-        .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
-        .eq('status', 'connected');
-      
-      if (countError) {
-        console.error('Error counting connections fallback:', countError);
-        return 0;
+        .or(`requester_id.eq.${userId},recipient_id.eq.${userId}`)
+        .eq('status', 'accepted');
+
+      if (error) {
+        throw error;
       }
-      return count;
+      return count || 0;
+    } catch (error) {
+      console.error('Error counting connections:', error);
+      return 0;
     }
   }, []);
 
@@ -267,30 +267,29 @@ const AlumniDashboard = () => {
         const todayStart = today.toISOString();
         
         // Get event count with increased timeout and retries
-        const eventsCountResult = await promiseWithTimeout(
-          supabase.from('events').select('id', { count: 'exact', head: true })
+        const eventsResult = await promiseWithTimeout(
+          supabase.from('events')
+            .select('id, title, start_date, address, event_type, approval_status, is_published')
             .gte('start_date', todayStart)
-            .eq('is_published', true), 
+            .eq('is_published', true)
+            .eq('approval_status', 'approved')
+            .order('start_date', { ascending: true }),
           15000, // Increased from 8000ms to 15000ms
           2     // Allow up to 2 retries
         );
         
-        if (!eventsCountResult.error) {
-          dashboardUpdates.upcomingEventsCount = eventsCountResult.count || 0;
+        if (!eventsResult.error) {
+          const rows = eventsResult.data || [];
+          const list = rows.slice(0, 3);
+          dashboardUpdates.upcomingEventsList = list;
+          // Derive the dashboard count from all matching upcoming events; widget shows only the top 3
+          dashboardUpdates.upcomingEventsCount = rows.length;
+          dataStatus.events = true;
           dataStatus.eventsCount = true;
         }
         
         // Get event list with increased timeout and retries
-        const eventsListResult = await promiseWithTimeout(
-          supabase.from('events')
-            .select('id, title, start_date, address, event_type')
-            .gte('start_date', todayStart)
-            .eq('is_published', true)
-            .order('start_date', { ascending: true })
-            .limit(3),
-          15000, // Increased from 8000ms to 15000ms
-          2     // Allow up to 2 retries
-        );
+        const eventsListResult = { error: eventsResult.error, data: dashboardUpdates.upcomingEventsList || [] };
         
         if (!eventsListResult.error) {
           dashboardUpdates.upcomingEventsList = eventsListResult.data || [];
@@ -317,32 +316,42 @@ const AlumniDashboard = () => {
         const todayStart = today.toISOString();
         
         // Get jobs count with increased timeout and retries
-        const jobsCountResult = await promiseWithTimeout(
-          supabase.from('jobs')
-            .select('id', { count: 'exact', head: true })
-            .gte('deadline', todayStart)
-            .eq('is_active', true),
+        const jobsResult = await promiseWithTimeout(
+          supabase.rpc('get_jobs_public_v5', {
+            p_search_query: null,
+            p_sort_by: 'created_at',
+            p_sort_order: 'desc',
+            p_limit: 50,
+            p_offset: 0,
+            p_department: null,
+            p_job_type: null,
+            p_experience_level: null,
+            p_location: null,
+            p_industry: null,
+            p_salary_min: null,
+            p_salary_max: null,
+            p_posted_since_days: null,
+          }),
           15000, // Increased from 8000ms to 15000ms
           2     // Allow up to 2 retries
         );
-        
-        if (!jobsCountResult.error) {
-          dashboardUpdates.jobOpportunitiesCount = jobsCountResult.count || 0;
+
+        if (!jobsResult.error) {
+          const rawItems = Array.isArray(jobsResult.data) ? jobsResult.data : (jobsResult.data?.items || []);
+          const totalCount = Array.isArray(jobsResult.data)
+            ? (jobsResult.data?.[0]?.total_count ?? rawItems.length)
+            : (jobsResult.data?.total_count ?? rawItems.length);
+          const jobSlice = rawItems.slice(0, 3);
+          dashboardUpdates.jobRecommendationsList = jobSlice;
+          // Derive the dashboard count from the same RPC used by the public job listing
+          dashboardUpdates.jobOpportunitiesCount = totalCount;
+          dataStatus.jobs = true;
           dataStatus.jobsCount = true;
         }
-        
+
         // Get jobs list with increased timeout and retries
-        const jobsListResult = await promiseWithTimeout(
-          supabase.from('jobs')
-            .select('id, title, company_name, location, created_at')
-            .gte('deadline', todayStart)
-            .eq('is_active', true)
-            .order('created_at', { ascending: false })
-            .limit(3),
-          15000, // Increased from 8000ms to 15000ms
-          2     // Allow up to 2 retries
-        );
-        
+        const jobsListResult = { error: jobsResult.error, data: dashboardUpdates.jobRecommendationsList || [] };
+
         if (!jobsListResult.error) {
           dashboardUpdates.jobRecommendationsList = jobsListResult.data || [];
           dataStatus.jobs = true;
@@ -576,6 +585,7 @@ const AlumniDashboard = () => {
                 </div>
 
                 {/* Job Recommendations */}
+                {!isEmployer && (
                 <div className="glass-card rounded-lg p-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Recommended Jobs</h3>
                   <div className="space-y-3">
@@ -611,6 +621,7 @@ const AlumniDashboard = () => {
                     </Link>
                   </div>
                 </div>
+                )}
 
                 
               </div>
@@ -624,10 +635,12 @@ const AlumniDashboard = () => {
           <UsersIcon className="w-8 h-8 text-ocean-500 mx-auto mb-2" />
           <p className="text-sm font-medium text-gray-900">Find Alumni</p>
         </Link>
-        <Link to="/events/create" className="glass-card rounded-lg p-4 text-center card-hover">
-          <CalendarIcon className="w-8 h-8 text-green-500 mx-auto mb-2" />
-          <p className="text-sm font-medium text-gray-900">Create Event</p>
-        </Link>
+        {!isStudent && (
+          <Link to="/events/create" className="glass-card rounded-lg p-4 text-center card-hover">
+            <CalendarIcon className="w-8 h-8 text-green-500 mx-auto mb-2" />
+            <p className="text-sm font-medium text-gray-900">Create Event</p>
+          </Link>
+        )}
 
         <Link to="/my-applications" className="glass-card rounded-lg p-4 text-center card-hover">
           <ClipboardDocumentCheckIcon className="w-8 h-8 text-orange-500 mx-auto mb-2" />

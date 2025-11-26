@@ -162,8 +162,9 @@ const AlumniProfile = () => {
           const transformed = {
             id: data.id,
             name: data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Unknown',
-            email: data.email || '',
-            phone: data.phone || '',
+            // Contact details are injected solely via get_profile_contact_details RPC
+            email: '',
+            phone: '',
             graduationYear: data.graduation_year ?? 'Not specified',
             degreeLabel: null,
             departmentLabel: null,
@@ -215,10 +216,9 @@ const AlumniProfile = () => {
     setAlumnus(prev => prev ? { ...prev, degreeLabel, departmentLabel } : prev);
   }, [alumnus?.id, alumnus?.degree_code, alumnus?.department_id, degrees, groups, role]);
 
-  // Enrich contact details via RPC for non-students only
+  // Enrich contact details via RPC (backend enforces who is allowed to see email/phone)
   useEffect(() => {
     if (!alumnus?.id) return;
-    if (role === 'student') return; // never fetch contacts for students
     (async () => {
       try {
         const { data: contact, error } = await supabase
@@ -228,8 +228,8 @@ const AlumniProfile = () => {
           if (row) {
             setAlumnus(prev => ({
               ...prev,
-              email: row.email || prev.email || '',
-              phone: row.phone || prev.phone || ''
+              email: row.email || '',
+              phone: row.phone || ''
             }));
           }
         }
@@ -401,7 +401,7 @@ const AlumniProfile = () => {
 
         {/* Right Sidebar */}
         <div className="space-y-6">
-          {/* Contact Info (no email/phone for students) */}
+          {/* Contact Info (email/phone only when backend RPC allows) */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
             <h3 className="text-lg font-semibold text-slate-900 mb-4">Contact Information</h3>
             <div className="space-y-3">
@@ -421,7 +421,7 @@ const AlumniProfile = () => {
                 </div>
               </div>
 
-              {role !== 'student' && alumnus.email && (
+              {alumnus.email && (
                 <div className="flex items-center">
                   <EnvelopeIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
                   <div>
@@ -433,7 +433,7 @@ const AlumniProfile = () => {
                 </div>
               )}
 
-              {role !== 'student' && alumnus.phone && (
+              {alumnus.phone && (
                 <div className="flex items-center">
                   <PhoneIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
                   <div>
@@ -469,8 +469,8 @@ const AlumniProfile = () => {
             </div>
           </div>
 
-          {/* Social Links (hidden for students) */}
-          {role !== 'student' && (
+          {/* Social Links (safe to show for all roles) */}
+          {(
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
               <h3 className="text-lg font-semibold text-slate-900 mb-4">Social Links</h3>
               <div className="space-y-2">

@@ -65,6 +65,56 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
     return ch.toUpperCase();
   };
 
+  let statusBadge = null;
+  if (isAdmin) {
+    const raw = profile?._raw || {};
+    const hasApprovalFields =
+      raw.approval_status !== undefined ||
+      raw.alumni_verification_status !== undefined ||
+      raw.is_approved !== undefined ||
+      raw.is_deleted !== undefined;
+
+    if (hasApprovalFields) {
+      const isDeleted = raw.is_deleted === true;
+
+      if (isDeleted) {
+        statusBadge = (
+          <span
+            className="inline-flex items-center rounded-full bg-red-50 text-red-700 border border-red-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+            title="Deleted profile"
+          >
+            D
+          </span>
+        );
+      } else {
+        const effectiveApproval =
+          raw.approval_status ||
+          raw.alumni_verification_status ||
+          (raw.is_approved ? 'approved' : 'pending');
+
+        if (effectiveApproval === 'rejected') {
+          statusBadge = (
+            <span
+              className="inline-flex items-center rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+              title="Rejected profile"
+            >
+              R
+            </span>
+          );
+        } else if (effectiveApproval && effectiveApproval !== 'approved') {
+          statusBadge = (
+            <span
+              className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+              title="Unapproved profile"
+            >
+              UA
+            </span>
+          );
+        }
+      }
+    }
+  }
+
   return (
     <div className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md hover:border-ocean-300 transition-all duration-200">
       <div className="p-4 flex flex-col">
@@ -89,6 +139,7 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
                   Employer
                 </span>
               )}
+              {statusBadge}
             </div>
             
             {/* Batch chip moved to chips row below to keep all chips together */}

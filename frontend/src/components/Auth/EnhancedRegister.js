@@ -87,6 +87,11 @@ const EnhancedRegister = () => {
     'company_size',
     'company_website',
     'role',
+    // Optional profile fields that have dedicated columns and are editable in Profile Settings
+    'about',
+    'experience',
+    'skills',
+    'interests',
   ];
 
   const pickSafeProfileFields = (src) => {
@@ -704,6 +709,13 @@ const EnhancedRegister = () => {
         industry: isEmployer ? (formData.industry?.trim() || null) : null,
         company_size: isEmployer ? (formData.companySize || null) : null,
         company_website: isEmployer ? (formData.companyWebsite?.trim() || null) : null,
+        // Optional registration fields persisted into profile so they appear in Edit Profile
+        about: formData.bio?.trim() || null,
+        experience: formData.experienceYears && String(formData.experienceYears).trim()
+          ? String(formData.experienceYears).trim()
+          : null,
+        skills: Array.isArray(formData.skills) && formData.skills.length ? formData.skills : null,
+        interests: Array.isArray(formData.interests) && formData.interests.length ? formData.interests : null,
         linkedin_url: formData.linkedinProfile?.trim() || null,
         github_url: formData.githubProfile?.trim() || null,
         website: formData.websiteUrl?.trim() || null,
@@ -721,12 +733,26 @@ const EnhancedRegister = () => {
         // Friendly messages
         if (String(upsertErr.message).toLowerCase().includes('foreign key') || upsertErr.code === '23503') {
           toast.error('Please select a valid Degree from the list.');
-        } else if (upsertErr.code === '42501' || upsertErr.code === 'P0001') {
+        }
+        if (upsertErr.code === '42501' || upsertErr.code === 'P0001') {
           toast.error('No permission to update this profile.');
         } else {
           toast.error(`Profile save failed: ${getFriendlyErrorMessage(upsertErr, 'Unable to save profile.')}`);
         }
         throw upsertErr;
+      }
+
+      // Seed social_links with optional URLs captured during registration so Profile Settings sees them
+      try {
+        await saveProfileSocialLinks(hydratedUser.id, {
+          linkedin: formData.linkedinProfile || null,
+          github: formData.githubProfile || null,
+          website: formData.websiteUrl || null,
+        });
+      } catch (e) {
+        // Non-fatal: profile is created even if social links upsert fails
+        // eslint-disable-next-line no-console
+        console.warn('Failed to seed social links during registration:', e);
       }
 
       // Ensure server-side role is set and JWT refreshed so UI shows correct role immediately
@@ -1115,7 +1141,7 @@ const EnhancedRegister = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-blue-50 flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-ocean-600 via-ocean-700 to-blue-900 flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-2xl">
         <div className="mb-4">
           <a href="/" target="_self" rel="noopener noreferrer" className="inline-flex items-center text-sm font-medium text-ocean-600 hover:text-ocean-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">

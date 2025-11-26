@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Box, Typography, Grid, CircularProgress, Paper } from '@mui/material';
-import { JobCard } from './JobListingsPage'; // Reusing the JobCard component
+import JobCard from './JobListingsPage'; // Reusing the JobCard component (default export)
 import toast from 'react-hot-toast';
 import { useNotification } from '../common/NotificationCenter';
 

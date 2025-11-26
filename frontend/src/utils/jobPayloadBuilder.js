@@ -10,7 +10,10 @@ import { parseINR } from './money';
  */
 const splitCsvToArray = (str) => {
   if (!str) return null;
-  return str.split(',').map(s => s.trim()).filter(Boolean);
+  return str
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 };
 
 /**

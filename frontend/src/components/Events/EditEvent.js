@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { 
   PhotoIcon,
   CalendarIcon,
@@ -21,7 +22,8 @@ import { mergeAndConvertToUTC, formatInIST } from '../../utils/timezone';
 const EditEvent = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, isAdmin } = useAuth();
+  const queryClient = useQueryClient();
+  const { user, isAdmin, profile } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
@@ -88,6 +90,28 @@ const EditEvent = () => {
       if (error) throw error;
       if (!data) throw new Error('Event not found');
 
+      // Derive sensible defaults for organizer fields when the event row doesn't have them yet
+      const fallbackOrganizerName =
+        data.organizer_name ||
+        profile?.full_name ||
+        `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() ||
+        profile?.name ||
+        user?.user_metadata?.full_name ||
+        user?.user_metadata?.name ||
+        '';
+
+      const fallbackOrganizerEmail =
+        data.organizer_email ||
+        profile?.email ||
+        user?.email ||
+        '';
+
+      const fallbackOrganizerPhone =
+        data.organizer_phone ||
+        profile?.phone ||
+        profile?.phone_number ||
+        '';
+
       // Format the data to match our form structure
       const eventData = {
         title: data.title || '',
@@ -106,9 +130,10 @@ const EditEvent = () => {
         price: data.price || '',
         priceType: data.price > 0 ? 'paid' : 'free',
         tags: Array.isArray(data.tags) ? data.tags.join(', ') : (data.tags || ''),
-        organizerName: data.organizer_name || '',
-        organizerEmail: data.organizer_email || '',
-        organizerPhone: data.organizer_phone || '',
+        // Organizer fields: prefer event row values, else fall back to current user's profile once
+        organizerName: fallbackOrganizerName,
+        organizerEmail: fallbackOrganizerEmail,
+        organizerPhone: fallbackOrganizerPhone,
         agenda: data.agenda && data.agenda.length > 0 ? data.agenda : [{ time: '', activity: '' }]
       };
       
@@ -268,7 +293,7 @@ const EditEvent = () => {
         .eq('id', id);
       
       if (updateError) throw updateError;
-      
+
       // Handle image upload if a new image was selected
       if (formData.image && formData.image instanceof File) {
         const BUCKET = 'event-images';
@@ -314,7 +339,10 @@ const EditEvent = () => {
           await supabase.storage.from(BUCKET).remove([oldPath]);
         }
       }
-      
+
+      queryClient.invalidateQueries({ queryKey: ['event', id] });
+      queryClient.invalidateQueries({ queryKey: ['eventOrganizer', id] });
+
       toast.success('Event updated successfully!');
       navigate(`/events/${id}`);
     } catch (err) {

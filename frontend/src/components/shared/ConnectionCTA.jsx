@@ -50,7 +50,7 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
   const showAcceptDecline = scope !== 'directory' && (currentTab === 'received' || (effStatus === 'pending' && effSide === 'received'));
   const showRequestSent = currentTab === 'sent' || (effStatus === 'pending' && effSide === 'sent');
   const showMessage = currentTab === 'connected' || isConnected(effStatus);
-  const showConnect = ((scope === 'profile') || (currentTab === 'all')) && nullishOrReset;
+  const showConnect = (scope === 'profile' || scope === 'directory') && nullishOrReset;
 
   return (
     <div className="space-y-2 w-full max-w-[180px]">

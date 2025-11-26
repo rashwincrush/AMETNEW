@@ -65,7 +65,21 @@ export default function RequestMentorshipButton({ mentorId, disabled = false, re
 
   return (
     isOwnerMentor ? (
-      <p className="text-xs text-gray-500">You are the mentor for this program.</p>
+      <div className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-3 py-1 text-xs font-semibold">
+        <svg
+          className="w-3.5 h-3.5 mr-1.5"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path
+            fillRule="evenodd"
+            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.707a1 1 0 00-1.414-1.414L9 10.172 7.707 8.879A1 1 0 006.293 10.293l2 2a1 1 0 001.414 0l4-4z"
+            clipRule="evenodd"
+          />
+        </svg>
+        <span>You are the mentor for this program</span>
+      </div>
     ) : (
       <button
         onClick={onClick}

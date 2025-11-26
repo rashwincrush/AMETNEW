@@ -8,12 +8,19 @@ import ImageWithFallback from '../common/ImageWithFallback';
 import { supabase } from '../../utils/supabase';
 
 export default function JobDetailsQuickLink({ job, companyName, companyLogo, isOwner, isAdmin }) {
-  const { user } = useAuth();
+  const { user, userRole, getUserRole } = useAuth();
   const navigate = useNavigate();
   const externalUrl = useMemo(() => coalesceAppUrl(job), [job]);
   const employerId = job?.posted_by || job?.user_id || job?.created_by;
   const derivedIsOwner = !!(user?.id && employerId && user.id === employerId);
   const canEdit = (typeof isOwner === 'boolean' ? isOwner : derivedIsOwner) || isAdmin;
+  const role = userRole || (typeof getUserRole === 'function' ? getUserRole() : null);
+  const isEmployer = role === 'employer';
+  const skills = Array.isArray(job?.skills)
+    ? job.skills
+    : typeof job?.skills === 'string'
+      ? job.skills.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
 
   // Guards
   if (!job || !isQuickLink(job)) return null;
@@ -60,16 +67,26 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
 
         {/* Primary CTA */}
         <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            onClick={() => {
-              if (!externalUrl) return;
-              const ok = window.confirm("External listing. Clicking will take you to a page outside the Alumni portal. Continue?");
-              if (ok) window.open(externalUrl, '_blank', 'noopener');
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ocean-600 text-white hover:bg-ocean-700"
-          >
-            Apply Externally
-          </button>
+          {isEmployer ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed"
+              aria-disabled="true"
+            >
+              Accepting Applications
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                if (!externalUrl) return;
+                const ok = window.confirm("External listing. Clicking will take you to a page outside the Alumni portal. Continue?");
+                if (ok) window.open(externalUrl, '_blank', 'noopener');
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ocean-600 text-white hover:bg-ocean-700"
+            >
+              Apply Externally
+            </button>
+          )}
 
           {/* Optional: Ask Employer if viewer isn’t the poster */}
           {user?.id && employerId && user.id !== employerId && (
@@ -126,6 +143,19 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
         <div className="bg-white rounded-2xl shadow-sm border p-6">
           <h2 className="text-lg font-semibold mb-2">Job Description</h2>
           <p className="text-gray-700 whitespace-pre-wrap">{job.description}</p>
+        </div>
+      )}
+
+      {skills.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border p-6 mt-4">
+          <h2 className="text-lg font-semibold mb-2">Key Skills</h2>
+          <div className="flex flex-wrap gap-2">
+            {skills.map((skill, index) => (
+              <span key={index} className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm">
+                {skill}
+              </span>
+            ))}
+          </div>
         </div>
       )}
 

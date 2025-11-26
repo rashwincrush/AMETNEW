@@ -6,7 +6,7 @@ import { getFriendlyErrorMessage } from '../../utils/errors';
 import { safeObjectName } from '../../utils/files';
 
 export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess }) {
-  const { user } = useAuth();
+  const { user, userRole, getUserRole } = useAuth();
   const [file, setFile] = useState(null);
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -73,6 +73,11 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
     e.preventDefault();
     if (!user) {
       toast.error('Please sign in to apply.');
+      return;
+    }
+    const role = userRole || (typeof getUserRole === 'function' ? getUserRole() : null);
+    if (role === 'employer') {
+      toast.error('Employers cannot apply to jobs from this portal.');
       return;
     }
     if (deadlinePassed) {

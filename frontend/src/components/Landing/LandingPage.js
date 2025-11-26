@@ -204,7 +204,7 @@ const LandingPage = () => {
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">
-              Why Join AMET Alumni Network?
+              Why Join AMET Alumni?
             </h2>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
               Unlock the power of our maritime education community and advance your career 
@@ -283,7 +283,7 @@ const LandingPage = () => {
             Ready to Reconnect with Your Alumni Network?
           </h2>
           <p className="text-xl text-ocean-100 mb-8">
-            Join the AMET Alumni Portal today and unlock exclusive opportunities, 
+            Join the AMET Alumni network today and unlock exclusive opportunities, 
             connect with fellow graduates, and advance your maritime career.
           </p>
           
@@ -298,7 +298,7 @@ const LandingPage = () => {
               to="/login"
               className="border-2 border-white text-white px-8 py-4 rounded-lg font-semibold hover:bg-white hover:text-ocean-600 transition-all duration-200"
             >
-              Sign In to Portal
+              Sign In to Network
             </Link>
           </div>
         </div>
@@ -314,7 +314,7 @@ const LandingPage = () => {
                   <span className="text-white font-bold text-lg">A</span>
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-white">AMET Alumni Portal</h3>
+                  <h3 className="text-xl font-bold text-white">AMET Alumni</h3>
                   <p className="text-gray-400 text-sm">Maritime Education Network</p>
                 </div>
               </div>
@@ -346,7 +346,7 @@ const LandingPage = () => {
           </div>
           
           <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
-            <p>&copy; {new Date().getFullYear()} AMET Alumni Portal. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} AMET Alumni. All rights reserved.</p>
           </div>
         </div>
       </div>

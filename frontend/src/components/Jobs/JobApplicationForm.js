@@ -7,7 +7,7 @@ const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
 
 const JobApplicationForm = ({ jobId, deadline }) => {
-  const { user } = useAuth();
+  const { user, userRole, getUserRole } = useAuth();
   const [coverLetter, setCoverLetter] = useState('');
   const [resumeFile, setResumeFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -32,6 +32,11 @@ const JobApplicationForm = ({ jobId, deadline }) => {
     e.preventDefault();
     if (!user) {
       toast.error('You must be logged in to apply.');
+      return;
+    }
+    const role = userRole || (typeof getUserRole === 'function' ? getUserRole() : null);
+    if (role === 'employer') {
+      toast.error('Employers cannot apply to jobs from this portal.');
       return;
     }
     if (!resumeFile) {

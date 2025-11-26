@@ -13,7 +13,7 @@ export default function DirectoryPage() {
   // Profiles now come from RPC-only hook via `dataset`
   const [relMap, setRelMap] = useState(new Map());
   const [counts, setCounts] = useState({ received: 0, sent: 0, connected: 0 });
-  const [activeFilter, setActiveFilter] = useState('all');
+  const [activeFilter, setActiveFilter] = useState('alumni');
   // Search & pagination
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -43,7 +43,7 @@ export default function DirectoryPage() {
 
   // IDs to show when a chip is active (received/sent/connected)
   const tabIds = useMemo(() => {
-    if (activeFilter === 'all') return [];
+    if (activeFilter === 'alumni' || activeFilter === 'students') return [];
     const arr = Array.from(relMap.entries());
     const filtered = arr
       .filter(([id, rel]) => {
@@ -68,9 +68,10 @@ export default function DirectoryPage() {
     return 'name_asc';
   }, [sortBy]);
 
-  // Role-aware source: students use public view (no PII), others use existing RPC
+  // Role-aware flags from auth; directory data always comes from RPC now
   const { isAdmin, getUserRole } = useAuth();
-  const source = (getUserRole && getUserRole() === 'student') ? 'public' : 'rpc';
+  const role = getUserRole ? getUserRole() : 'alumni';
+  const source = 'rpc';
 
   const { items, total, loading: dirLoading, error: dirError, dataset } = useDirectory({
     query: debouncedSearch,
@@ -96,9 +97,59 @@ export default function DirectoryPage() {
   // Normalize dataset for consistent fields
   const base = useMemo(() => (dataset || []).map(normalizeProfile), [dataset]);
 
-  // Build admin counts for All (non-employers) and Employers
-  const allCount = useMemo(() => base.filter(p => !(p.is_employer || p.role === 'employer')).length, [base]);
-  const employersCount = useMemo(() => base.filter(p => (p.is_employer || p.role === 'employer')).length, [base]);
+  // Build counts for Alumni, Students, and Employers
+  const alumniCount = useMemo(
+    () =>
+      base.filter(p => {
+        if (p.is_employer || p.role === 'employer' || p.role === 'student') return false;
+        const raw = p._raw || {};
+        const hasApprovalFields =
+          raw.approval_status !== undefined ||
+          raw.alumni_verification_status !== undefined ||
+          raw.is_approved !== undefined ||
+          raw.is_deleted !== undefined;
+        if (raw.is_deleted === true) return false;
+        if (!hasApprovalFields) return true;
+        const effectiveApproval =
+          raw.approval_status ||
+          raw.alumni_verification_status ||
+          (raw.is_approved ? 'approved' : 'pending');
+        return effectiveApproval === 'approved';
+      }).length,
+    [base]
+  );
+  const studentsCount = useMemo(
+    () => base.filter(p => p.role === 'student').length,
+    [base]
+  );
+  const employersCount = useMemo(
+    () => base.filter(p => (p.is_employer || p.role === 'employer')).length,
+    [base]
+  );
+
+  // Counts passed to ChipBar; hide certain counts for non-admin roles per requirements
+  const countsForChips = useMemo(() => {
+    const baseCounts = {
+      ...counts,
+      alumni: alumniCount,
+      students: studentsCount,
+      employers: employersCount,
+    };
+
+    if (!isAdmin) {
+      if (role === 'alumni') {
+        // Alumni should not see the number of students or employers
+        baseCounts.students = undefined;
+        baseCounts.employers = undefined;
+      } else if (role === 'student') {
+        // Students should not see the number of employers
+        baseCounts.employers = undefined;
+      }
+      // Requests/connection counts remain but their chips are hidden via showConnections=false
+    }
+
+    return baseCounts;
+  }, [counts, alumniCount, studentsCount, employersCount, isAdmin, role]);
 
   const loadRels = useCallback(async () => {
     // Relationship states for all others
@@ -132,7 +183,7 @@ export default function DirectoryPage() {
         .from('connections')
         .select('id', { count: 'exact' })
         .or(`requester_id.eq.${me.id},recipient_id.eq.${me.id}`)
-        .in('status', ['accepted', 'connected'])
+        .eq('status', 'accepted')
         .limit(0)
     ]);
     setCounts({
@@ -156,7 +207,7 @@ export default function DirectoryPage() {
   // Profiles are loaded by hook. Just ensure rels are loaded for tab filters.
   useEffect(() => {
     if (!me) return;
-    if (activeFilter !== 'all' && !relsLoaded) return;
+    if (!['alumni', 'students'].includes(activeFilter) && !relsLoaded) return;
     // No-op: hook handles data loading. We keep this effect to honor dependencies without warnings.
   }, [me, debouncedSearch, currentPage, itemsPerPage, activeFilter, filters.graduation_year, filters.department, sortBy, tabIds, relsLoaded]);
 
@@ -249,16 +300,17 @@ export default function DirectoryPage() {
 
   const applyFilter = useCallback((list, filter) => {
     if (filter === 'employers') return list.filter(p => (p.is_employer || p.role === 'employer'));
-    if (filter === 'all') return list.filter(p => !(p.is_employer || p.role === 'employer'));
+    if (filter === 'alumni') return list.filter(p => !(p.is_employer || p.role === 'employer') && p.role !== 'student');
+    if (filter === 'students') return list.filter(p => p.role === 'student');
     if (filter === 'received') return list.filter(p => p.rel.status === 'pending' && p.rel.pending_side === 'received');
     if (filter === 'sent') return list.filter(p => p.rel.status === 'pending' && p.rel.pending_side === 'sent');
-    if (filter === 'connected') return list.filter(p => ['accepted', 'connected'].includes(p.rel.status));
+    if (filter === 'connected') return list.filter(p => p.rel.status === 'accepted');
     return list;
   }, []);
 
   const filtered = useMemo(() => {
-    const base = activeFilter === 'all' ? rest : withRel;
-    return applyFilter(base, activeFilter);
+    const baseList = activeFilter === 'alumni' ? rest : withRel;
+    return applyFilter(baseList, activeFilter);
   }, [withRel, rest, activeFilter, applyFilter]);
 
   // Derive totals and page slice from filtered results
@@ -270,11 +322,26 @@ export default function DirectoryPage() {
     <div className="mx-auto max-w-[1600px] px-4 py-6 space-y-6">
       {/* Header and search controls */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        {/* Centered title */}
+        <div className="flex flex-col items-center text-center">
           <h1 className="text-2xl font-bold text-slate-900">Alumni Directory</h1>
-          
-          {/* Search + Filter controls */}
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 w-full sm:w-auto">
+        </div>
+
+        {/* Row with ChipBar + search + filter + sort */}
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          {/* ChipBar on the left */}
+          <div className="order-2 w-full lg:order-1 lg:w-auto">
+            <ChipBar
+              counts={countsForChips}
+              active={activeFilter}
+              onChange={setActiveFilter}
+              showEmployers={isAdmin}
+              showConnections={!!me?.id}
+            />
+          </div>
+
+          {/* Search + Filter controls on the right */}
+          <div className="order-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 w-full lg:order-2 lg:w-auto">
             <div className="relative flex-1 sm:max-w-xs">
               <input
                 type="text"
@@ -295,7 +362,7 @@ export default function DirectoryPage() {
                 </button>
               ) : null}
             </div>
-            
+
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -306,7 +373,7 @@ export default function DirectoryPage() {
                 <FunnelIcon className="h-4 w-4 text-slate-500" aria-hidden="true" />
                 Filters
               </button>
-              
+
               <select
                 value={sortBy}
                 onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
@@ -321,16 +388,16 @@ export default function DirectoryPage() {
             </div>
           </div>
         </div>
-        
-        {/* Filter chips */}
+
+        {/* Active filter chips (batch/department) below the controls */}
         {(filters.graduation_year || filters.department) && (
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {filters.graduation_year && (
               <span className="flex items-center gap-1 rounded-full border border-ocean-200 bg-ocean-50 pl-2.5 pr-1 py-1 text-xs font-medium text-ocean-700">
                 Batch: <span className="font-semibold">{filters.graduation_year}</span>
-                <button 
+                <button
                   type="button"
-                  onClick={() => { setFilters(f => ({ ...f, graduation_year: '' })); setCurrentPage(1); }} 
+                  onClick={() => { setFilters(f => ({ ...f, graduation_year: '' })); setCurrentPage(1); }}
                   className="ml-1 rounded-full bg-ocean-100 hover:bg-ocean-200 p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1"
                   aria-label="Remove batch filter"
                 >
@@ -341,9 +408,9 @@ export default function DirectoryPage() {
             {filters.department && (
               <span className="flex items-center gap-1 rounded-full border border-ocean-200 bg-ocean-50 pl-2.5 pr-1 py-1 text-xs font-medium text-ocean-700">
                 Department: <span className="font-semibold">{filters.department}</span>
-                <button 
+                <button
                   type="button"
-                  onClick={() => { setFilters(f => ({ ...f, department: '' })); setCurrentPage(1); }} 
+                  onClick={() => { setFilters(f => ({ ...f, department: '' })); setCurrentPage(1); }}
                   className="ml-1 rounded-full bg-ocean-100 hover:bg-ocean-200 p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1"
                   aria-label="Remove department filter"
                 >
@@ -351,9 +418,9 @@ export default function DirectoryPage() {
                 </button>
               </span>
             )}
-            <button 
+            <button
               type="button"
-              onClick={() => { setFilters({ graduation_year: '', department: '' }); setCurrentPage(1); }} 
+              onClick={() => { setFilters({ graduation_year: '', department: '' }); setCurrentPage(1); }}
               className="inline-flex items-center justify-center min-h-[32px] px-2 text-xs font-medium text-ocean-600 underline-offset-2 hover:underline rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
               aria-label="Clear all filters"
             >
@@ -361,20 +428,10 @@ export default function DirectoryPage() {
             </button>
           </div>
         )}
-        
-        {/* Tab navigation */}
-        <div className="mt-4">
-          <ChipBar
-            counts={{ ...counts, all: allCount, employers: employersCount }}
-            active={activeFilter}
-            onChange={setActiveFilter}
-            showEmployers={isAdmin}
-          />
-        </div>
       </div>
       
       {/* Priority strip */}
-      {priority.length > 0 && activeFilter === 'all' && (
+      {priority.length > 0 && activeFilter === 'alumni' && (
         <div className="bg-gradient-to-r from-sky-50 to-indigo-50 rounded-xl border border-sky-200 shadow-sm p-4 sm:p-6" role="region" aria-label="Priority Connections">
           <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800 mb-4">
             <span className="inline-block h-2 w-2 rounded-full bg-sky-500" aria-hidden="true"></span>
@@ -388,7 +445,8 @@ export default function DirectoryPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800">
-            {activeFilter === 'all' ? 'All Profiles' : 
+            {activeFilter === 'alumni' ? 'Alumni' :
+             activeFilter === 'students' ? 'Students' :
              activeFilter === 'connected' ? 'My Connections' :
              activeFilter === 'received' ? 'Received Requests' : 'Sent Requests'}
           </h2>

@@ -21,7 +21,7 @@ import { toast } from 'react-hot-toast';
 import { toFriendlyToast } from '../../utils/errors';
 
 const Events = () => {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, userRole } = useAuth();
   const [viewMode, setViewMode] = useState('grid');
   const [searchTerm, setSearchTerm] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -244,7 +244,26 @@ const Events = () => {
     }
   };
 
-  const EventCard = ({ event }) => (
+  const getApprovalMeta = (approvalStatus, isPublished) => {
+    if (!isPublished) {
+      return { label: 'Draft', className: 'bg-yellow-100 text-yellow-800' };
+    }
+    switch (approvalStatus) {
+      case 'approved':
+        return { label: 'Approved', className: 'bg-green-100 text-green-800' };
+      case 'pending':
+        return { label: 'Pending', className: 'bg-yellow-100 text-yellow-800' };
+      case 'rejected':
+        return { label: 'Rejected', className: 'bg-red-100 text-red-800' };
+      default:
+        return null;
+    }
+  };
+
+  const EventCard = ({ event }) => {
+    const approval = getApprovalMeta(event.approval_status, event.is_published);
+    const priceLabel = event.price > 0 ? `$${event.price}` : 'Free';
+    return (
     <div className="glass-card rounded-lg overflow-hidden card-hover">
       <div className="relative">
         <img 
@@ -267,7 +286,14 @@ const Events = () => {
       <div className="p-6">
         <div className="flex items-start justify-between mb-3">
           <h3 className="font-semibold text-gray-900 text-lg">{event.title}</h3>
-          <span className="text-ocean-600 font-medium text-sm">{event.price > 0 ? `$${event.price}` : 'Free'}</span>
+          <div className="flex flex-col items-end space-y-1">
+            <span className="text-ocean-600 font-medium text-sm">{priceLabel}</span>
+            {isAdmin && approval && (
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${approval.className}`}>
+                {approval.label}
+              </span>
+            )}
+          </div>
         </div>
         
         <p className="text-gray-600 text-sm mb-4 line-clamp-2">{event.short_description || event.long_description || ''}</p>
@@ -334,9 +360,11 @@ const Events = () => {
       </div>
     </div>
   );
+  };
 
   const EventListItem = ({ event }) => {
     const isUpcoming = new Date(event.start_date) > new Date();
+    const approval = getApprovalMeta(event.approval_status, event.is_published);
     
     return (
       <div className="glass-card rounded-lg overflow-hidden card-hover flex">
@@ -347,7 +375,14 @@ const Events = () => {
         />
         <div className="p-4 flex flex-col flex-1">
           <div className="flex justify-between items-start mb-2">
-            <h3 className="font-semibold text-gray-900 text-lg flex-1 mr-4 line-clamp-2">{event.title}</h3>
+            <div className="flex-1 mr-4">
+              <h3 className="font-semibold text-gray-900 text-lg line-clamp-2">{event.title}</h3>
+              {isAdmin && approval && (
+                <span className={`inline-flex mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${approval.className}`}>
+                  {approval.label}
+                </span>
+              )}
+            </div>
             <span className={`px-3 py-1 rounded-full text-xs font-medium flex-shrink-0 ${getStatusBadge(isUpcoming ? 'upcoming' : 'completed')}`}>
               {isUpcoming ? 'Upcoming' : 'Completed'}
             </span>
@@ -402,13 +437,15 @@ const Events = () => {
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Events</h1>
             <p className="text-gray-600">Discover and participate in alumni events</p>
           </div>
-          <Link 
-            to="/events/create" 
-            className="btn-ocean px-4 py-2 rounded-lg flex items-center"
-          >
-            <PlusIcon className="w-4 h-4 mr-2" />
-            Create Event
-          </Link>
+          {userRole !== 'student' && (
+            <Link 
+              to="/events/create" 
+              className="btn-ocean px-4 py-2 rounded-lg flex items-center"
+            >
+              <PlusIcon className="w-4 h-4 mr-2" />
+              Create Event
+            </Link>
+          )}
         </div>
       </div>
 

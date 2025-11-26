@@ -24,6 +24,8 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
     } catch (_) { return new Date(iso).toLocaleDateString(); }
   };
   const isClosed = deadlinePassed || (job?.status && job.status !== 'active');
+  const isEmployer = userRole === 'employer';
+  const isEmployerOwner = isEmployer && (job?.created_by === user?.id || job?.posted_by === user?.id);
 
   useEffect(() => {
     let mounted = true;
@@ -46,6 +48,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
   const requirements = getListFromField(job.requirements);
   const benefits = getListFromField(job.benefits);
   const niceToHaveSkills = Array.isArray(job.nice_to_have_skills) ? job.nice_to_have_skills : (job.preferredQualifications || []);
+  const skills = Array.isArray(job.skills) ? job.skills : [];
 
   return (
     <div className="max-w-6xl mx-auto px-4 pb-12">
@@ -92,7 +95,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
                 Edit Job
               </Link>
             )}
-            {(userRole === 'employer' && (job?.created_by === user?.id || job?.posted_by === user?.id)) || (['admin', 'super_admin'].includes(userRole)) ? (
+            {isEmployerOwner || (['admin', 'super_admin'].includes(userRole)) ? (
               <Link to={`/jobs/${job.id}/applications`} className="px-3 py-2 rounded-lg bg-ocean-600 text-white hover:bg-ocean-700 text-sm">
                 Manage Applications
               </Link>
@@ -119,6 +122,8 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
                   <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Application Submitted</button>
                 ) : isClosed ? (
                   <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Applications Closed</button>
+                ) : isEmployer ? (
+                  <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Accepting Applications</button>
                 ) : (
                   <button onClick={() => setApplyOpen(true)} className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700">Apply</button>
                 ))}
@@ -184,6 +189,19 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
             .job-requirements ol { list-style: disc; margin-left: 1.25rem; padding-left: 1.25rem; text-align: left; }
             .job-requirements li { margin: 0.25rem 0; }
           `}</style>
+
+          {skills.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm border p-6">
+              <h2 className="text-lg font-semibold mb-2">Key Skills</h2>
+              <div className="flex flex-wrap gap-2">
+                {skills.map((skill, index) => (
+                  <span key={index} className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm">
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Responsibilities */}
           {responsibilities.length > 0 && (

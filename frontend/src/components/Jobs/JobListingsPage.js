@@ -137,6 +137,52 @@ const isDeadlinePassed = (isoLike) => {
     return false;
   }
 };
+
+const getJobStatusMeta = (job, { isAdmin = false, isEmployer = false } = {}) => {
+  const approved = job?.is_approved === true;
+  const rejected = job?.is_rejected === true;
+  const active = job?.is_active === true;
+
+  // Rejected always wins
+  if (rejected) {
+    return { label: 'Rejected', tone: 'danger' };
+  }
+
+  // Pending approval (not approved yet, regardless of visibility)
+  if (!approved) {
+    return { label: 'Pending approval', tone: 'warning' };
+  }
+
+  // Approved but active vs paused
+  if (approved && active) {
+    return { label: 'Live', tone: 'success' };
+  }
+
+  if (approved && !active) {
+    return { label: 'Paused', tone: 'muted' };
+  }
+
+  // Fallback
+  return { label: 'Pending approval', tone: 'warning' };
+};
+
+const StatusBadge = ({ job, isAdmin, isEmployer }) => {
+  const { label, tone } = getJobStatusMeta(job, { isAdmin, isEmployer });
+
+  const toneClasses = {
+    success: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    warning: 'bg-amber-50 text-amber-700 border-amber-200',
+    danger: 'bg-rose-50 text-rose-700 border-rose-200',
+    muted: 'bg-slate-50 text-slate-600 border-slate-200',
+  }[tone] || 'bg-slate-50 text-slate-600 border-slate-200';
+
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${toneClasses}`}>
+      {label}
+    </span>
+  );
+};
+
 const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
@@ -146,9 +192,9 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
 
   const quick = isQuickLink(job);
   const ownerOrAdmin = isOwner || ['admin', 'super_admin'].includes(userRole);
-  const disableQuick = async () => {
-    if (!quick) return;
-    const ok = window.confirm('Disable this external job? Applicants will no longer see Apply on this listing.');
+  const pauseJob = async () => {
+    if (job?.is_active === false) return;
+    const ok = window.confirm('Pause this listing? Applicants will no longer see Apply on this listing.');
     if (!ok) return;
     try {
       const { error } = await supabase
@@ -156,10 +202,27 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
         .update({ is_active: false })
         .eq('id', job.id);
       if (error) throw error;
-      toast.success('Quick Link disabled');
+      toast.success('Listing paused');
     } catch (e) {
-      console.error('Disable Quick Link failed', e);
-      toast.error('Failed to disable. Please try again.');
+      console.error('Pause listing failed', e);
+      toast.error('Failed to pause listing. Please try again.');
+    }
+  };
+
+  const resumeJob = async () => {
+    if (job?.is_active === true || job?.is_active == null) return;
+    const ok = window.confirm('Resume this listing? It will become visible again to eligible candidates.');
+    if (!ok) return;
+    try {
+      const { error } = await supabase
+        .from('jobs')
+        .update({ is_active: true })
+        .eq('id', job.id);
+      if (error) throw error;
+      toast.success('Listing resumed');
+    } catch (e) {
+      console.error('Resume listing failed', e);
+      toast.error('Failed to resume listing. Please try again.');
     }
   };
   
@@ -180,16 +243,6 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   const descTrim = (job.description || '').trim();
   const showDescription = !!descTrim;
 
-  const renderStatusBadge = () => {
-    if (job.is_approved === true) {
-      return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-800">Approved</span>);
-    }
-    if (job.is_active === false) {
-      return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-800">Rejected</span>);
-    }
-    return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800">Pending</span>);
-  };
-
   // Single source of truth for Apply/Upload visibility
   const coalescedDeadline = job?.deadline || job?.application_deadline || null;
   const deadlinePassed = isDeadlinePassed(coalescedDeadline);
@@ -203,12 +256,16 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   );
   const canApply = !hideApplyForNonOwner;
 
+  const rejected = job?.is_rejected === true;
+  const isPaused = job?.is_active === false && !rejected;
+  const canToggleVisibility = ownerOrAdmin && !rejected;
+
   if (!job) return null;
   return (
-    <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow border border-gray-200 h-full flex flex-col">
-      <div className="flex items-start justify-between mb-4 p-6 pb-4">
+    <div className="group relative bg-white rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-[2px] transition-all duration-200 border border-gray-200/80 hover:border-ocean-200 h-full flex flex-col">
+      <div className="flex items-start justify-between mb-3 px-5 pt-5 pb-3">
         <div className="flex items-center flex-1">
-          <div className="w-12 h-12 rounded-lg mr-4 flex-shrink-0 overflow-hidden bg-gray-100">
+          <div className="w-12 h-12 rounded-xl mr-4 flex-shrink-0 overflow-hidden bg-gray-100 shadow-sm">
             <ImageWithFallback
               src={job.companies?.logo_url}
               alt={job.companies?.name || 'Company'}
@@ -219,53 +276,81 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-semibold text-gray-900 line-clamp-2" title={job.title}>{job.title}</h3>
+              <h3 className="font-semibold text-gray-900 text-[15px] line-clamp-2" title={job.title}>{job.title}</h3>
             </div>
           <div className="flex items-center gap-2 flex-wrap mt-1">
             {showCompanyName && (
-              <Link to={`/companies/${job.company_id}`} className="text-ocean-600 font-medium hover:underline text-sm truncate">
+              <Link to={`/companies/${job.company_id}`} className="text-ocean-600 font-medium hover:underline text-xs truncate">
                 {companyNameRaw}
               </Link>
             )}
-            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs flex-shrink-0 ${quick ? 'bg-ocean-100 text-ocean-800' : 'bg-green-100 text-green-800'}`}>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] flex-shrink-0 bg-slate-50 text-slate-600 border border-slate-200">
               {quick ? 'Quick Link' : 'In-App'}
             </span>
-            {renderStatusBadge()}
           </div>
           </div>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-          <button onClick={() => shareJob(job)} className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2" aria-label="Share job">
-            <ShareIcon className="w-5 h-5 text-gray-500" />
-          </button>
-
-          <BookmarkButton
-            jobId={job.id}
-            isBookmarked={isBookmarked}
-            handleBookmark={handleBookmark}
+        <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
+          <StatusBadge
+            job={job}
+            isAdmin={['admin', 'super_admin'].includes(userRole)}
+            isEmployer={userRole === 'employer'}
           />
-          {quick && ownerOrAdmin && (
+          <div className="flex items-center gap-1">
+            <button onClick={() => shareJob(job)} className="inline-flex items-center justify-center w-9 h-9 rounded-full hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2" aria-label="Share job">
+              <ShareIcon className="w-4 h-4 text-gray-500" />
+            </button>
+
+            <BookmarkButton
+              jobId={job.id}
+              isBookmarked={isBookmarked}
+              handleBookmark={handleBookmark}
+            />
+          </div>
+          {canToggleVisibility && (
             <button
-              onClick={disableQuick}
-              className="inline-flex items-center justify-center h-[36px] px-3 ml-1 rounded-md border border-red-300 text-red-600 hover:bg-red-50 text-xs"
-              title="Disable external job"
+              onClick={isPaused ? resumeJob : pauseJob}
+              className="inline-flex items-center justify-center h-7 px-2 rounded-full border border-slate-200 bg-slate-50 text-[11px] font-medium text-slate-700 hover:bg-slate-100 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+              title={isPaused ? 'Resume listing' : 'Pause listing'}
             >
-              Disable
+              {isPaused ? 'Resume listing' : 'Pause listing'}
             </button>
           )}
         </div>
       </div>
 
-      <p className="text-gray-700 text-sm mb-2 px-6 line-clamp-4">{showDescription ? descTrim : 'No description provided.'}</p>
+      <p className="text-gray-700 text-sm mb-2 px-5 line-clamp-4">{showDescription ? descTrim : 'No description provided.'}</p>
+
+      {(() => {
+        const raw = job.skills;
+        const arr = Array.isArray(raw)
+          ? raw
+          : typeof raw === 'string'
+            ? raw.split(',').map((s) => s.trim()).filter(Boolean)
+            : [];
+        if (!arr.length) return null;
+        return (
+          <div className="px-5 mb-2 flex flex-wrap gap-1">
+            {arr.slice(0, 5).map((skill, idx) => (
+              <span
+                key={idx}
+                className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-ocean-50 text-ocean-700 border border-ocean-100"
+              >
+                {skill}
+              </span>
+            ))}
+          </div>
+        );
+      })()}
       {quick && (
-        <div className="px-6 mb-4">
+        <div className="px-5 mb-4">
           <p className="text-xs text-gray-500">
             External listing. Clicking will take you to a page outside the Alumni portal.
           </p>
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 mb-4 px-6 text-sm">
+      <div className="grid grid-cols-2 gap-3 mb-4 px-5 text-sm">
         {!!job.location && (
           <div className="flex items-center text-gray-700">
             <MapPinIcon className="w-4 h-4 mr-2 flex-shrink-0" />
@@ -307,7 +392,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
         )}
       </div>
 
-      <div className="mt-auto border-t border-gray-200 pt-4 px-6 pb-6">
+      <div className="mt-auto border-t border-gray-100 pt-4 px-5 pb-5">
         <div className="flex justify-between items-center mb-3">
           {(() => { const count = getApplicantsCount(job); return (count !== null && count > 0) ? (
             <span className="text-sm text-gray-600">{count} applicant{count === 1 ? '' : 's'}</span>
@@ -330,9 +415,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           )}
           <Link to={`/jobs/${job.id}`} className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg btn-ocean-outline text-sm">View Details</Link>
           {(userRole === 'employer' && isOwner) || (['admin', 'super_admin'].includes(userRole)) ? (
-            <Link to={`/jobs/${job.id}/applications`} className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">
-              Manage Applications
-            </Link>
+            <Link to={`/jobs/${job.id}/applications`} className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">Manage Applications</Link>
           ) : (userRole === 'employer' && !isOwner) ? (
             !hideApplyForNonOwner ? (
               <button
@@ -357,7 +440,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
             <button
               onClick={() => { const url = href; if (!url) return; const ok = window.confirm("External listing. Clicking will take you to a page outside the Alumni portal. Continue?"); if (ok) window.open(url, '_blank', 'noopener'); }}
               aria-label="Apply Externally"
-              className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+              className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
             >
               Apply Externally
             </button>
@@ -366,7 +449,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           ) : canApply ? (
             <button
               onClick={() => setApplyOpen(true)}
-              className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+              className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
             >
               Apply
             </button>
@@ -397,9 +480,9 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
 
   const quick = isQuickLink(job);
   const ownerOrAdmin = isOwner || ['admin', 'super_admin'].includes(userRole);
-  const disableQuick = async () => {
-    if (!quick) return;
-    const ok = window.confirm('Disable this external job? Applicants will no longer see Apply on this listing.');
+  const pauseJob = async () => {
+    if (job?.is_active === false) return;
+    const ok = window.confirm('Pause this listing? Applicants will no longer see Apply on this listing.');
     if (!ok) return;
     try {
       const { error } = await supabase
@@ -407,10 +490,27 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
         .update({ is_active: false })
         .eq('id', job.id);
       if (error) throw error;
-      toast.success('Quick Link disabled');
+      toast.success('Listing paused');
     } catch (e) {
-      console.error('Disable Quick Link failed', e);
-      toast.error('Failed to disable. Please try again.');
+      console.error('Pause listing failed', e);
+      toast.error('Failed to pause listing. Please try again.');
+    }
+  };
+
+  const resumeJob = async () => {
+    if (job?.is_active === true || job?.is_active == null) return;
+    const ok = window.confirm('Resume this listing? It will become visible again to eligible candidates.');
+    if (!ok) return;
+    try {
+      const { error } = await supabase
+        .from('jobs')
+        .update({ is_active: true })
+        .eq('id', job.id);
+      if (error) throw error;
+      toast.success('Listing resumed');
+    } catch (e) {
+      console.error('Resume listing failed', e);
+      toast.error('Failed to resume listing. Please try again.');
     }
   };
   const [applyOpen, setApplyOpen] = useState(false);
@@ -427,12 +527,9 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
   const deadlinePassed = isDeadlinePassed(coalescedDeadline);
   const statusActive = job?.status ? String(job.status).toLowerCase() === 'active' : true;
   const activeFlag = job?.is_active !== false; // treat null/undefined as active
-
-  const renderStatusBadge = () => {
-    if (job.is_approved === true) return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-800">Approved</span>);
-    if (job.is_active === false) return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-800">Rejected</span>);
-    return (<span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-800">Pending</span>);
-  };
+  const rejected = job?.is_rejected === true;
+  const isPaused = job?.is_active === false && !rejected;
+  const canToggleVisibility = ownerOrAdmin && !rejected;
 
   if (!job) return null;
   return (
@@ -452,10 +549,15 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
             <Link to={`/jobs/${job.id}`} className="text-lg font-bold text-gray-900 hover:text-ocean-600 transition-colors duration-200 line-clamp-1" title={job.title}>
               {job.title}
             </Link>
-            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${quick ? 'bg-ocean-100 text-ocean-800' : 'bg-green-100 text-green-800'}`}>{quick ? 'Quick Link' : 'In-App'}</span>
-            {renderStatusBadge()}
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-slate-50 text-slate-600 border border-slate-200">
+              {quick ? 'Quick Link' : 'In-App'}
+            </span>
           </div>
-          <span />
+          <StatusBadge
+            job={job}
+            isAdmin={['admin', 'super_admin'].includes(userRole)}
+            isEmployer={userRole === 'employer'}
+          />
         </div>
         <div className="flex items-center gap-1 mb-2">
           {(() => { const cn = (job.companies?.name || job.company_name || '').trim(); return (cn && cn !== (job.title || '').trim()) ? (
@@ -463,6 +565,27 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
           ) : null; })()}
         </div>
         <p className="text-gray-600 text-sm mt-2 mb-2 line-clamp-2">{(() => { const d = (job.description || '').trim(); return d ? `${d.slice(0, 160)}...` : 'No description provided.'; })()}</p>
+        {(() => {
+          const raw = job.skills;
+          const arr = Array.isArray(raw)
+            ? raw
+            : typeof raw === 'string'
+              ? raw.split(',').map((s) => s.trim()).filter(Boolean)
+              : [];
+          if (!arr.length) return null;
+          return (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {arr.slice(0, 5).map((skill, idx) => (
+                <span
+                  key={idx}
+                  className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-ocean-50 text-ocean-700 border border-ocean-100"
+                >
+                  {skill}
+                </span>
+              ))}
+            </div>
+          );
+        })()}
         {quick && (
           <p className="text-xs text-gray-500 mb-3">External listing. Clicking will take you to a page outside the Alumni portal.</p>
         )}
@@ -487,18 +610,20 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
         </div>
       </div>
       <div className="flex flex-col items-end justify-between self-stretch pt-2 sm:pt-0">
-        <div className="flex items-center">
-          <button onClick={() => shareJob(job)} className="p-2 rounded-full hover:bg-gray-100" aria-label="Share job">
-            <ShareIcon className="w-5 h-5 text-gray-500" />
-          </button>
-          <BookmarkButton jobId={job.id} isBookmarked={isBookmarked} handleBookmark={handleBookmark} />
-          {quick && ownerOrAdmin && (
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center">
+            <button onClick={() => shareJob(job)} className="p-2 rounded-full hover:bg-gray-100" aria-label="Share job">
+              <ShareIcon className="w-5 h-5 text-gray-500" />
+            </button>
+            <BookmarkButton jobId={job.id} isBookmarked={isBookmarked} handleBookmark={handleBookmark} />
+          </div>
+          {canToggleVisibility && (
             <button
-              onClick={disableQuick}
-              className="ml-1 px-3 h-[36px] rounded-md border border-red-300 text-red-600 hover:bg-red-50 text-xs"
-              title="Disable external job"
+              onClick={isPaused ? resumeJob : pauseJob}
+              className="mt-0.5 inline-flex items-center justify-center h-8 px-2 rounded-full border border-slate-200 bg-slate-50 text-[11px] font-medium text-slate-700 hover:bg-slate-100 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+              title={isPaused ? 'Resume listing' : 'Pause listing'}
             >
-              Disable
+              {isPaused ? 'Resume listing' : 'Pause listing'}
             </button>
           )}
         </div>
@@ -654,10 +779,26 @@ const JobListingsPage = () => {
           .or(`posted_by.eq.${user?.id},user_id.eq.${user?.id},created_by.eq.${user?.id}`);
 
         if (approvalFilter === 'approved') {
-          q = q.eq('is_approved', true).eq('is_active', true);
+          // Explicitly approved and active
+          q = q.eq('is_approved', true).eq('is_active', true).neq('is_rejected', true);
         }
-        if (approvalFilter === 'pending') q = q.is('is_approved', null);
-        if (approvalFilter === 'rejected') q = q.eq('is_active', false);
+        if (approvalFilter === 'pending') {
+          // Not approved, not rejected, and active (awaiting review)
+          q = q
+            .neq('is_approved', true)
+            .or('is_rejected.is.null,is_rejected.eq.false')
+            .eq('is_active', true);
+        }
+        if (approvalFilter === 'disabled') {
+          // Manually disabled by owner/admin (inactive but not rejected)
+          q = q
+            .eq('is_active', false)
+            .or('is_rejected.is.null,is_rejected.eq.false');
+        }
+        if (approvalFilter === 'rejected') {
+          // Explicitly rejected by admin
+          q = q.eq('is_rejected', true);
+        }
 
         if (filters.department && filters.department !== 'all') q = q.eq('department', filters.department);
         if (filters.jobType && filters.jobType !== 'all') q = q.eq('job_type', filters.jobType);
@@ -719,7 +860,7 @@ const JobListingsPage = () => {
         }
       }
     } else if (isAdmin && approvalFilter && approvalFilter !== 'all') {
-      // Admin view with explicit approval filter
+      // Admin view with explicit approval / moderation filter
       if (approvalFilter === 'approved') {
         // Use public RPC for approved+active jobs to avoid RLS blocking and ensure consistent results
         const deptParam = (filters.department && filters.department !== 'all') ? filters.department : null;
@@ -751,13 +892,25 @@ const JobListingsPage = () => {
           p_posted_since_days: postedSince,
         }));
       } else {
-        // Pending/Rejected require base table access
+        // Pending/Disabled/Rejected require base table access
         let q = supabase
           .from('jobs')
           .select('*, companies(name, logo_url)', { count: 'exact' });
 
-        if (approvalFilter === 'pending') q = q.is('is_approved', null);
-        if (approvalFilter === 'rejected') q = q.eq('is_active', false);
+        if (approvalFilter === 'pending') {
+          q = q
+            .neq('is_approved', true)
+            .or('is_rejected.is.null,is_rejected.eq.false')
+            .eq('is_active', true);
+        }
+        if (approvalFilter === 'disabled') {
+          q = q
+            .eq('is_active', false)
+            .or('is_rejected.is.null,is_rejected.eq.false');
+        }
+        if (approvalFilter === 'rejected') {
+          q = q.eq('is_rejected', true);
+        }
 
         if (filters.department && filters.department !== 'all') q = q.eq('department', filters.department);
         if (filters.jobType && filters.jobType !== 'all') q = q.eq('job_type', filters.jobType);
@@ -906,16 +1059,27 @@ const JobListingsPage = () => {
 
     // Client filters (until server supports all)
     const matchesFilters = (j) => {
-      // Apply approval filter for all users
-      if (approvalFilter === 'approved' && j.is_approved !== true) return false;
-      if (approvalFilter === 'pending' && j.is_approved !== null) return false;
-      if (approvalFilter === 'rejected' && j.is_active !== false) return false;
+      const approved = j.is_approved === true;
+      const rejected = j.is_rejected === true;
+      const activeFlag = j.is_active !== false;
+      const statusActive = (j.status || '').toLowerCase() === 'active';
+
+      // Apply approval / moderation filter for all users
+      if (approvalFilter === 'approved') {
+        if (!(approved && activeFlag && !rejected)) return false;
+      }
+      if (approvalFilter === 'pending') {
+        if (!(activeFlag && !approved && !rejected)) return false;
+      }
+      if (approvalFilter === 'disabled') {
+        if (!(j.is_active === false && !rejected)) return false;
+      }
+      if (approvalFilter === 'rejected') {
+        if (!rejected) return false;
+      }
       
       // For non-employers, only show jobs whose status is 'active' and approved/active flags
       if (!isEmployer && approvalFilter === 'all') {
-        const approved = j.is_approved === true;
-        const activeFlag = j.is_active !== false;
-        const statusActive = (j.status || '').toLowerCase() === 'active';
         if (!(approved && activeFlag && statusActive)) return false;
       }
       // Hide expired jobs (deadline passed) for alumni/students (non-employer, non-admin)
@@ -1203,9 +1367,10 @@ const JobListingsPage = () => {
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
             aria-label="Approval filter"
           >
-            <option value="all">All Statuses</option>
-            <option value="approved">Approved</option>
-            <option value="pending">Pending</option>
+            <option value="all">All</option>
+            <option value="approved">Live</option>
+            <option value="pending">Pending approval</option>
+            <option value="disabled">Paused</option>
             <option value="rejected">Rejected</option>
           </select>
         )}
@@ -1223,6 +1388,15 @@ const JobListingsPage = () => {
         >
           Reset Filters
         </button>
+        {['admin', 'super_admin', 'employer'].includes(userRole) && (
+          <div className="col-span-full mt-1 text-xs text-gray-500">
+            <span className="font-semibold">Status legend:</span>{' '}
+            <span className="font-medium text-emerald-700">Live</span> – visible to students & alumni, accepting applications;{' '}
+            <span className="font-medium text-amber-700">Pending approval</span> – waiting for admin review;{' '}
+            <span className="font-medium text-slate-700">Paused</span> – hidden from students, you can resume anytime;{' '}
+            <span className="font-medium text-rose-700">Rejected</span> – not visible, contact admin to re‑submit.
+          </div>
+        )}
       </div>
       )}
 

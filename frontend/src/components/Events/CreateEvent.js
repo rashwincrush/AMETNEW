@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDate } from '../../utils/dateUtils';
 import { 
@@ -18,11 +18,15 @@ import { toast } from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
 import { saveEventImage } from '../../shared/utils/saveEventImage';
 import { useAuth } from '../../contexts/AuthContext';
+import AccessDenied from '../Auth/AccessDenied';
 
 const CreateEvent = () => {
   const navigate = useNavigate();
-  const { user, userRole } = useAuth();
+  const { user, userRole, profile } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, []);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -50,8 +54,45 @@ const CreateEvent = () => {
     amenities: ['']
   });
 
+  // Auto-prefill Organizer Information from the logged-in user's profile
+  useEffect(() => {
+    if (!user && !profile) return;
+
+    setFormData((prev) => {
+      // Do not overwrite if the user has already typed anything
+      if (prev.organizerName || prev.organizerEmail || prev.organizerPhone) {
+        return prev;
+      }
+
+      const fullName =
+        (profile?.full_name || `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim()) ||
+        profile?.name ||
+        user?.user_metadata?.full_name ||
+        user?.user_metadata?.name ||
+        '';
+
+      const email = (profile?.email || user?.email || '').toLowerCase();
+      const phone = profile?.phone || profile?.phone_number || '';
+
+      if (!fullName && !email && !phone) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        organizerName: prev.organizerName || fullName,
+        organizerEmail: prev.organizerEmail || email,
+        organizerPhone: prev.organizerPhone || phone,
+      };
+    });
+  }, [profile, user]);
+
   const [errors, setErrors] = useState({});
   const [previewImage, setPreviewImage] = useState(null);
+
+  if (userRole === 'student') {
+    return <AccessDenied />;
+  }
 
   const categories = [
     { value: 'networking', label: 'Networking' },

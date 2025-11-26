@@ -7,7 +7,7 @@ import { toast } from 'react-hot-toast';
 const JobApplication = () => {
   const { jobId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, userRole, getUserRole } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [job, setJob] = useState(null);
@@ -120,6 +120,12 @@ const JobApplication = () => {
   
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const role = userRole || (typeof getUserRole === 'function' ? getUserRole() : null);
+    if (role === 'employer') {
+      toast.error('Employers cannot apply to jobs from this portal.');
+      return;
+    }
 
     // Session guard
     const { data: { session } } = await supabase.auth.getSession();

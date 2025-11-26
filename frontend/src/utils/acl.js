@@ -29,5 +29,6 @@ export const canPostToGroup = (group = {}, isSiteAdminFlag = false, m) => {
 export const canCommentOnGroup = (group = {}, role, isMember) => {
   if (!role || role === 'employer') return false;
   if (role === 'admin' || role === 'super_admin') return true;
-  return group?.is_private ? !!isMember : role === 'alumni';
+  // For non-admin users, require group membership regardless of privacy
+  return !!isMember;
 };

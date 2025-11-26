@@ -882,23 +882,7 @@ const GroupDetail = () => {
                       />
                       <div className="flex items-center justify-between mt-2">
                         <div>
-                          <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={handlePostImageChange}
-                            disabled={!canPost}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => fileInputRef.current && fileInputRef.current.click()}
-                            className="flex items-center text-blue-500 hover:text-blue-700 mr-2"
-                            disabled={!canPost}
-                          >
-                            <ImageIcon size={18} className="mr-1" />
-                            Add Image
-                          </button>
+                          {/* Image upload for posts is temporarily disabled */}
                         </div>
                         <button
                           type="submit"

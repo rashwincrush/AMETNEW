@@ -50,8 +50,8 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const EventsList = ({ isAdmin = false }) => {
   const navigate = useNavigate();
-  const { hasPermission } = useAuth();
-  const canCreate = hasPermission('events:create');
+  const { hasPermission, userRole } = useAuth();
+  const canCreate = hasPermission('events:create') && userRole !== 'student';
   const [events, setEvents] = useState([]);
   const [featuredEvents, setFeaturedEvents] = useState([]);
   const [featuredLoading, setFeaturedLoading] = useState(true);
@@ -312,6 +312,22 @@ const EventsList = ({ isAdmin = false }) => {
     }
   };
 
+  const getApprovalChipProps = (approvalStatus, isPublished) => {
+    if (!isPublished) {
+      return { label: 'Draft', color: 'warning' };
+    }
+    switch ((approvalStatus || '').toLowerCase()) {
+      case 'approved':
+        return { label: 'Approved', color: 'success' };
+      case 'pending':
+        return { label: 'Pending', color: 'warning' };
+      case 'rejected':
+        return { label: 'Rejected', color: 'error' };
+      default:
+        return null;
+    }
+  };
+
   const formatLocation = (venue, address, eventType) => {
     // Check if the event is virtual first
     if (eventType === 'virtual') {
@@ -506,7 +522,15 @@ const EventsList = ({ isAdmin = false }) => {
                       <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                         <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Chip label={event.event_type || 'General'} size="small" sx={{ bgcolor: 'secondary.light', color: 'white' }} />
-                          <Chip label={status} color={statusColor} size="small" />
+                          <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                            <Chip label={status} color={statusColor} size="small" />
+                            {isAdmin && getApprovalChipProps(event.approval_status, event.is_published) && (
+                              <Chip
+                                size="small"
+                                {...getApprovalChipProps(event.approval_status, event.is_published)}
+                              />
+                            )}
+                          </Box>
                         </Box>
                         <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary', mb: 1 }}>
                           <CalendarIcon sx={{ mr: 1, fontSize: '1rem' }} />
@@ -577,7 +601,15 @@ const EventsList = ({ isAdmin = false }) => {
                         alignItems="flex-start"
                         secondaryAction={
                           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-                            <Chip label={status} color={statusColor} size="small" />
+                            <Box sx={{ display: 'flex', gap: 0.5 }}>
+                              <Chip label={status} color={statusColor} size="small" />
+                              {isAdmin && getApprovalChipProps(event.approval_status, event.is_published) && (
+                                <Chip
+                                  size="small"
+                                  {...getApprovalChipProps(event.approval_status, event.is_published)}
+                                />
+                              )}
+                            </Box>
                             <Box sx={{ mt: 1 }}>
                               <Button component={Link} to={`/events/${event.id}`} size="small">Details</Button>
                               {isAdmin && <Button component={Link} to={`/events/${event.id}/edit`} size="small" color="secondary">Edit</Button>}
