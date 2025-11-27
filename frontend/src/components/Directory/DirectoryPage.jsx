@@ -33,6 +33,32 @@ export default function DirectoryPage() {
   // Guard to avoid effect loop when rels arrive
   const [relsLoaded, setRelsLoaded] = useState(false);
 
+  // Ensure page starts at the top when navigating from dashboard/other routes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }
+    const main = document.getElementById('main-content');
+    if (main) {
+      try {
+        if (typeof main.scrollTo === 'function') {
+          main.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        } else {
+          main.scrollTop = 0;
+        }
+      } catch (_) {
+        // best-effort only; ignore failures
+      }
+    }
+  }, []);
+
+  // Always reset scroll to top when opening the directory
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }
+  }, []);
+
   // Load current user once
   useEffect(() => {
     (async () => {
@@ -425,6 +451,19 @@ export default function DirectoryPage() {
 
       </div>
 
+      {role === 'student' && (
+        <div className="mx-auto max-w-3xl px-2 sm:px-0">
+          <div className="rounded-xl border border-sky-100 bg-sky-50/80 px-4 py-3 text-sm text-sky-900 shadow-sm">
+            <p className="font-medium">
+              This directory shows approved alumni profiles.
+            </p>
+            <p className="mt-1 text-sky-800/90">
+              As a current student, your profile will appear here after you become an alumnus and your details are approved for the directory.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Active filter chips (batch/department) below the header */}
       {(filters.graduation_year || filters.department) && (
         <div className="flex flex-wrap items-center gap-2 px-2">
@@ -506,6 +545,10 @@ export default function DirectoryPage() {
           <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-700 text-center">
             {isAdmin ? (
               <p>No profiles match the current filters. Try adjusting your search or filters.</p>
+            ) : role === 'student' ? (
+              <p>
+                No matching alumni profiles found. As a current student, your profile will appear here after you become an alumnus and your details are approved for the directory.
+              </p>
             ) : (
               <p>No approved profiles found. Profiles appear here after admin approval and when they are visible in the directory.</p>
             )}

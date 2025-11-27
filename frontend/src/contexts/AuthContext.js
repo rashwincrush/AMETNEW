@@ -765,6 +765,15 @@ export const AuthProvider = ({ children }) => {
     return derivePermissions(userRole, approvalFlags);
   }, [userRole, approvalFlags]);
 
+  // Derived approval convenience flags for current user
+  const computedFromProfile = computeApprovalFlagsFromProfile(profile);
+  const approvalStatus =
+    (approvalFlags && approvalFlags.approvalStatus) ?? computedFromProfile.approvalStatus ?? null;
+  const isApproved = approvalStatus === 'approved';
+  const isRejectedFlag = approvalStatus === 'rejected' || !!rejectionStatus.isRejected;
+  const isPending = !isRejectedFlag && !isApproved;
+  const isAdminLike = isAdminFn();
+
   const hasPermission = useCallback((permission) => {
     if (!permission) return true;
     const perms = getEffectivePermissions();
@@ -826,7 +835,12 @@ export const AuthProvider = ({ children }) => {
     approvalFlags,
     // New helpers
     isAdminFn,
-    isSuperAdmin: isSuperAdminFn
+    isSuperAdmin: isSuperAdminFn,
+    approvalStatus,
+    isApproved,
+    isPending,
+    isRejected: isRejectedFlag,
+    isAdminLike,
   };
 
   return (

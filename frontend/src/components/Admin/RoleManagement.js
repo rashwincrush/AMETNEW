@@ -5,6 +5,7 @@ import PermissionGate from '../PermissionGate';
 import toast from 'react-hot-toast';
 import { getFriendlyErrorMessage } from '../../utils/errors';
 import { ROLE_OPTIONS, isRole } from '../../utils/roles';
+import { changeUserRole } from '../../utils/changeUserRole';
 import { 
   UsersIcon,
   MagnifyingGlassIcon,
@@ -124,15 +125,19 @@ const RoleManagement = () => {
     }
     
     try {
-      const { error } = await supabase.rpc('admin_set_user_role', {
-        p_user_id: selectedUser.id,
-        p_role: newRole,
+      const oldRole = selectedUser.role || 'alumni';
+
+      const { success } = await changeUserRole({
+        userId: selectedUser.id,
+        oldRole,
+        newRole,
       });
 
-      if (error) throw error;
+      if (!success) {
+        return;
+      }
 
       setUsers(users.map(u => u.id === selectedUser.id ? { ...u, role: newRole } : u));
-      toast.success(`Successfully updated ${selectedUser.email}'s role to ${newRole}.`);
       setIsRoleModalOpen(false);
       setSelectedUser(null);
     } catch (error) {

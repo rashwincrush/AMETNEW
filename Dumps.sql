@@ -886,13 +886,13 @@ CREATE OR REPLACE FUNCTION "public"."admin_purge_user_data"("target" "uuid") RET
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-begin
-  if not public.is_site_admin() then
-    raise exception 'forbidden';
-  end if;
+BEGIN
+  IF NOT public.is_super_admin() THEN
+    RAISE EXCEPTION 'forbidden';
+  END IF;
 
-  -- TODO: delete/anonymize dependent rows here
-end;
+  -- your purge logic here
+END;
 $$;
 
 
@@ -1107,6 +1107,36 @@ $$;
 ALTER FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "public"."profile_approval_status", "reason" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  UPDATE public.profiles
+  SET
+    approval_status = new_status,
+    is_approved     = (new_status = 'approved'),
+    approved_at     = CASE
+                        WHEN new_status = 'approved' THEN now()
+                        ELSE approved_at
+                      END,
+    alumni_verification_status = CASE new_status
+                                   WHEN 'approved' THEN 'approved'
+                                   WHEN 'rejected' THEN 'rejected'
+                                   ELSE 'pending'
+                                 END,
+    rejection_reason = CASE
+                         WHEN new_status = 'rejected' THEN reason
+                         ELSE NULL
+                       END
+  WHERE id = target;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "public"."profile_approval_status", "reason" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."admin_set_role"("p_user" "uuid", "p_role" "text") RETURNS "void"
     LANGUAGE "sql" SECURITY DEFINER
     AS $$
@@ -1170,16 +1200,17 @@ CREATE OR REPLACE FUNCTION "public"."admin_soft_delete_user"("target" "uuid") RE
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-begin
-  if not public.is_site_admin() then
-    raise exception 'forbidden';
-  end if;
+BEGIN
+  IF NOT public.is_super_admin() THEN
+    RAISE EXCEPTION 'forbidden';
+  END IF;
 
-  update public.profiles
-  set is_deleted = true,
-      is_active  = false
-  where id = target;
-end;
+  UPDATE public.profiles
+  SET
+    is_deleted = TRUE,
+    is_active  = FALSE
+  WHERE id = target;
+END;
 $$;
 
 
@@ -1843,6 +1874,25 @@ $$;
 
 
 ALTER FUNCTION "public"."check_bookmark_limit"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."check_bookmarked_jobs_limit"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  IF (
+    SELECT COUNT(*) FROM public.bookmarked_jobs
+    WHERE user_id = NEW.user_id
+  ) >= 3 THEN
+    RAISE EXCEPTION 'You can only bookmark up to 3 jobs';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."check_bookmarked_jobs_limit"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."check_event_completed"() RETURNS "trigger"
@@ -3679,18 +3729,54 @@ $$;
 ALTER FUNCTION "public"."get_directory_profiles"() OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."get_directory_profiles_search"("p_search" "text", "p_limit" integer, "p_offset" integer) RETURNS SETOF "public"."profiles"
+CREATE OR REPLACE FUNCTION "public"."get_directory_profiles_search"("p_search" "text", "p_limit" integer, "p_offset" integer) RETURNS SETOF "public"."directory_profiles_base"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
+DECLARE
+  v_role     text    := public.get_user_role();
+  v_is_admin boolean := public.app_is_admin();
 BEGIN
-  RETURN QUERY
-  SELECT *
-  FROM public.profiles
-  WHERE
-    (coalesce(p_search,'') = '' OR full_name ILIKE '%'||p_search||'%' OR email ILIKE '%'||p_search||'%')
-  ORDER BY last_name NULLS LAST, first_name NULLS LAST
-  LIMIT p_limit OFFSET p_offset;
+  -- Employers should not see the people directory at all
+  IF v_role = 'employer' THEN
+    RETURN;
+  END IF;
+
+  IF v_is_admin THEN
+    -- Admins / Super Admins: search across ALL profiles
+    RETURN QUERY
+      SELECT *
+      FROM public.directory_profiles_base dp
+      WHERE
+        (
+          COALESCE(p_search, '') = ''
+          OR dp.full_name ILIKE '%' || p_search || '%'
+          OR (COALESCE(dp.first_name, '') || ' ' || COALESCE(dp.last_name, ''))
+               ILIKE '%' || p_search || '%'
+        )
+      ORDER BY dp.last_name NULLS LAST, dp.first_name NULLS LAST
+      LIMIT p_limit OFFSET p_offset;
+  ELSE
+    -- Alumni / students / other non-admins:
+    -- only active, visible, approved, non-employer profiles
+    RETURN QUERY
+      SELECT *
+      FROM public.directory_profiles_base dp
+      WHERE
+        dp.is_employer = false
+        AND dp.show_in_directory = true
+        AND dp.is_deleted = false
+        AND dp.is_active = true
+        AND dp.approval_status = 'approved'::public.profile_approval_status
+        AND (
+          COALESCE(p_search, '') = ''
+          OR dp.full_name ILIKE '%' || p_search || '%'
+          OR (COALESCE(dp.first_name, '') || ' ' || COALESCE(dp.last_name, ''))
+               ILIKE '%' || p_search || '%'
+        )
+      ORDER BY dp.last_name NULLS LAST, dp.first_name NULLS LAST
+      LIMIT p_limit OFFSET p_offset;
+  END IF;
 END
 $$;
 
@@ -4003,55 +4089,6 @@ $_$;
 ALTER FUNCTION "public"."get_jobs_feed"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer, "p_department" "text") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."get_jobs_public_v4"("p_search_query" "text" DEFAULT NULL::"text", "p_sort_by" "text" DEFAULT 'created_at'::"text", "p_sort_order" "text" DEFAULT 'desc'::"text", "p_limit" integer DEFAULT 20, "p_offset" integer DEFAULT 0) RETURNS TABLE("id" "uuid", "title" "text", "company_id" "uuid", "company_name" "text", "company_logo_url" "text", "location" "text", "job_type" "text", "experience_level" "text", "salary_min" bigint, "salary_max" bigint, "description" "text", "created_at" timestamp with time zone, "updated_at" timestamp with time zone, "is_active" boolean, "is_approved" boolean, "application_url" "text", "source_type" "text", "total_count" bigint)
-    LANGUAGE "sql" STABLE SECURITY DEFINER
-    AS $$
-  with base as (
-    select
-      j.id,
-      j.title,
-      j.company_id,
-      coalesce(c.name, j.company_name) as company_name,
-      c.logo_url                      as company_logo_url,
-      j.location,
-      j.job_type,
-      j.experience_level,
-      j.salary_min,
-      j.salary_max,
-      j.description,
-      j.created_at,
-      j.updated_at,
-      j.is_active,
-      j.is_approved,
-      public.coalesce_application_url(j.apply_url, j.application_url, j.external_url) as application_url,
-      public.job_source_type(j.apply_url, j.application_url, j.external_url)          as source_type
-    from public.jobs j
-    left join public.companies c on c.id = j.company_id
-    where coalesce(j.is_active, true)
-      and coalesce(j.is_approved, false)
-      and (
-        p_search_query is null or p_search_query = '' or
-        j.title ilike '%'||p_search_query||'%' or
-        coalesce(j.description,'') ilike '%'||p_search_query||'%' or
-        coalesce(c.name, j.company_name, '') ilike '%'||p_search_query||'%'
-      )
-  )
-  select
-    *,
-    count(*) over() as total_count
-  from base
-  order by
-    case when p_sort_by='created_at' and p_sort_order='desc' then created_at end desc,
-    case when p_sort_by='created_at' and p_sort_order='asc'  then created_at end asc,
-    case when p_sort_by='title'      and p_sort_order='desc' then title      end desc,
-    case when p_sort_by='title'      and p_sort_order='asc'  then title      end asc
-  limit p_limit offset p_offset;
-$$;
-
-
-ALTER FUNCTION "public"."get_jobs_public_v4"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer) OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "public"."companies" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "name" "text" NOT NULL,
@@ -4103,7 +4140,7 @@ CREATE OR REPLACE VIEW "public"."v_jobs_feed_inr" AS
     NULL::"text" AS "source_type",
     "j"."company_id",
     "c"."name" AS "company_name",
-    "c"."logo_url" AS "company_logo_url",
+    COALESCE("j"."logo_url", "c"."logo_url") AS "company_logo_url",
     COALESCE("a"."applicant_count", (0)::bigint) AS "applicant_count",
         CASE
             WHEN (("j"."salary_min" IS NOT NULL) AND ("j"."salary_max" IS NOT NULL)) THEN (("to_char"("j"."salary_min", 'FM999,999,999'::"text") || ' - '::"text") || "to_char"("j"."salary_max", 'FM999,999,999'::"text"))
@@ -6369,11 +6406,14 @@ ALTER FUNCTION "public"."is_profile_verified"("uid" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."is_site_admin"() RETURNS boolean
-    LANGUAGE "sql" STABLE
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
-  select exists(
-    select 1 from public.profiles p
-    where p.id = auth.uid() and p.role in ('admin','super_admin')
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid()
+      AND p.role = 'super_admin'
   );
 $$;
 
@@ -6382,11 +6422,14 @@ ALTER FUNCTION "public"."is_site_admin"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."is_super_admin"() RETURNS boolean
-    LANGUAGE "sql" STABLE
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
-  select exists(
-    select 1 from public.profiles p
-    where p.id = auth.uid() and p.role = 'super_admin'
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = auth.uid()
+      AND p.role = 'super_admin'
   );
 $$;
 
@@ -6569,6 +6612,37 @@ end$$;
 
 
 ALTER FUNCTION "public"."jobs_set_creator"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."jobs_set_logo_url"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+  v_company_logo text;
+BEGIN
+  -- 1. If caller explicitly set logo_url, respect it
+  IF NEW.logo_url IS NOT NULL AND btrim(NEW.logo_url) <> '' THEN
+    RETURN NEW;
+  END IF;
+
+  -- 2. Otherwise, if company_id is present, copy company logo
+  IF NEW.company_id IS NOT NULL THEN
+    SELECT c.logo_url
+    INTO v_company_logo
+    FROM public.companies c
+    WHERE c.id = NEW.company_id;
+
+    IF v_company_logo IS NOT NULL AND btrim(v_company_logo) <> '' THEN
+      NEW.logo_url := v_company_logo;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."jobs_set_logo_url"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."jobs_set_owner"() RETURNS "trigger"
@@ -8692,12 +8766,31 @@ CREATE OR REPLACE FUNCTION "public"."set_application_status"("p_application_id" 
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-begin
-  update public.job_applications
-     set status = p_status,
-         updated_at = now()
-   where id = p_application_id;
-end;
+DECLARE
+  v_job_id uuid;
+BEGIN
+  -- Fetch job_id for this application
+  SELECT job_id
+  INTO v_job_id
+  FROM public.job_applications
+  WHERE id = p_application_id;
+
+  IF v_job_id IS NULL THEN
+    RAISE EXCEPTION 'Application not found for id: %', p_application_id;
+  END IF;
+
+  -- Use the existing helper to check if current user can view/manage applications for this job
+  IF NOT public.can_view_applications(v_job_id) THEN
+    RAISE EXCEPTION 'You are not allowed to update applications for this job';
+  END IF;
+
+  -- Proceed with the update
+  UPDATE public.job_applications
+  SET
+    status     = p_status,
+    updated_at = now()
+  WHERE id = p_application_id;
+END;
 $$;
 
 
@@ -13214,7 +13307,7 @@ CREATE OR REPLACE VIEW "public"."v_jobs_feed" AS
         END AS "source_type",
     "c"."id" AS "company_id",
     "c"."name" AS "company_name",
-    "c"."logo_url" AS "company_logo_url",
+    COALESCE("j"."logo_url", "c"."logo_url") AS "company_logo_url",
     ( SELECT "count"(*) AS "count"
            FROM "public"."job_applications" "a"
           WHERE ("a"."job_id" = "j"."id")) AS "applicant_count",
@@ -13254,7 +13347,7 @@ CREATE OR REPLACE VIEW "public"."v_jobs_feed_all" AS
         END AS "source_type",
     "c"."id" AS "company_id",
     COALESCE("c"."name", "j"."company_name") AS "company_name",
-    "c"."logo_url" AS "company_logo_url",
+    COALESCE("j"."logo_url", "c"."logo_url") AS "company_logo_url",
     ( SELECT "count"(*) AS "count"
            FROM "public"."job_applications" "a"
           WHERE ("a"."job_id" = "j"."id")) AS "applicant_count"
@@ -13310,7 +13403,7 @@ CREATE OR REPLACE VIEW "public"."v_jobs_public" AS
     "j"."status",
     "j"."open_at",
     "j"."close_at",
-    "c"."logo_url" AS "company_logo_url"
+    COALESCE("j"."logo_url", "c"."logo_url") AS "company_logo_url"
    FROM ("public"."jobs" "j"
      LEFT JOIN "public"."companies" "c" ON (("c"."id" = "j"."company_id")))
   WHERE ((COALESCE("j"."is_approved", false) = true) AND (COALESCE("j"."is_active", true) = true))
@@ -13365,7 +13458,7 @@ CREATE OR REPLACE VIEW "public"."v_jobs_public_left" AS
     "j"."open_at",
     "j"."close_at",
     COALESCE("c"."name", "j"."company_name") AS "company_name",
-    "c"."logo_url" AS "company_logo_url"
+    COALESCE("j"."logo_url", "c"."logo_url") AS "company_logo_url"
    FROM ("public"."jobs" "j"
      LEFT JOIN "public"."companies" "c" ON (("c"."id" = "j"."company_id")))
   WHERE ((COALESCE("j"."is_approved", false) = true) AND (COALESCE("j"."is_active", true) = true));
@@ -13644,21 +13737,6 @@ PARTITION BY RANGE ("inserted_at");
 ALTER TABLE "realtime"."messages" OWNER TO "supabase_realtime_admin";
 
 
-CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_11_23" (
-    "topic" "text" NOT NULL,
-    "extension" "text" NOT NULL,
-    "payload" "jsonb",
-    "event" "text",
-    "private" boolean DEFAULT false,
-    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
-);
-
-
-ALTER TABLE "realtime"."messages_2025_11_23" OWNER TO "supabase_admin";
-
-
 CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_11_24" (
     "topic" "text" NOT NULL,
     "extension" "text" NOT NULL,
@@ -13747,6 +13825,21 @@ CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_11_29" (
 
 
 ALTER TABLE "realtime"."messages_2025_11_29" OWNER TO "supabase_admin";
+
+
+CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_11_30" (
+    "topic" "text" NOT NULL,
+    "extension" "text" NOT NULL,
+    "payload" "jsonb",
+    "event" "text",
+    "private" boolean DEFAULT false,
+    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
+);
+
+
+ALTER TABLE "realtime"."messages_2025_11_30" OWNER TO "supabase_admin";
 
 
 CREATE TABLE IF NOT EXISTS "realtime"."schema_migrations" (
@@ -13926,10 +14019,6 @@ CREATE TABLE IF NOT EXISTS "storage"."vector_indexes" (
 ALTER TABLE "storage"."vector_indexes" OWNER TO "supabase_storage_admin";
 
 
-ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_11_23" FOR VALUES FROM ('2025-11-23 00:00:00') TO ('2025-11-24 00:00:00');
-
-
-
 ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_11_24" FOR VALUES FROM ('2025-11-24 00:00:00') TO ('2025-11-25 00:00:00');
 
 
@@ -13951,6 +14040,10 @@ ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_202
 
 
 ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_11_29" FOR VALUES FROM ('2025-11-29 00:00:00') TO ('2025-11-30 00:00:00');
+
+
+
+ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_11_30" FOR VALUES FROM ('2025-11-30 00:00:00') TO ('2025-12-01 00:00:00');
 
 
 
@@ -14482,11 +14575,6 @@ ALTER TABLE ONLY "realtime"."messages"
 
 
 
-ALTER TABLE ONLY "realtime"."messages_2025_11_23"
-    ADD CONSTRAINT "messages_2025_11_23_pkey" PRIMARY KEY ("id", "inserted_at");
-
-
-
 ALTER TABLE ONLY "realtime"."messages_2025_11_24"
     ADD CONSTRAINT "messages_2025_11_24_pkey" PRIMARY KEY ("id", "inserted_at");
 
@@ -14514,6 +14602,11 @@ ALTER TABLE ONLY "realtime"."messages_2025_11_28"
 
 ALTER TABLE ONLY "realtime"."messages_2025_11_29"
     ADD CONSTRAINT "messages_2025_11_29_pkey" PRIMARY KEY ("id", "inserted_at");
+
+
+
+ALTER TABLE ONLY "realtime"."messages_2025_11_30"
+    ADD CONSTRAINT "messages_2025_11_30_pkey" PRIMARY KEY ("id", "inserted_at");
 
 
 
@@ -15529,10 +15622,6 @@ CREATE INDEX "messages_inserted_at_topic_index" ON ONLY "realtime"."messages" US
 
 
 
-CREATE INDEX "messages_2025_11_23_inserted_at_topic_idx" ON "realtime"."messages_2025_11_23" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
-
-
-
 CREATE INDEX "messages_2025_11_24_inserted_at_topic_idx" ON "realtime"."messages_2025_11_24" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
 
 
@@ -15554,6 +15643,10 @@ CREATE INDEX "messages_2025_11_28_inserted_at_topic_idx" ON "realtime"."messages
 
 
 CREATE INDEX "messages_2025_11_29_inserted_at_topic_idx" ON "realtime"."messages_2025_11_29" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
+
+
+
+CREATE INDEX "messages_2025_11_30_inserted_at_topic_idx" ON "realtime"."messages_2025_11_30" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
 
 
 
@@ -15605,14 +15698,6 @@ CREATE UNIQUE INDEX "vector_indexes_name_bucket_id_idx" ON "storage"."vector_ind
 
 
 
-ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_11_23_inserted_at_topic_idx";
-
-
-
-ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_11_23_pkey";
-
-
-
 ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_11_24_inserted_at_topic_idx";
 
 
@@ -15661,6 +15746,14 @@ ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_202
 
 
 
+ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_11_30_inserted_at_topic_idx";
+
+
+
+ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_11_30_pkey";
+
+
+
 CREATE OR REPLACE VIEW "public"."event_stats" AS
  SELECT "e"."id" AS "event_id",
     "e"."title",
@@ -15692,6 +15785,10 @@ CREATE OR REPLACE VIEW "public"."profile_social_links" AS
 
 
 CREATE OR REPLACE TRIGGER "enforce_bookmark_limit" BEFORE INSERT ON "public"."job_bookmarks" FOR EACH ROW EXECUTE FUNCTION "public"."check_bookmark_limit"();
+
+
+
+CREATE OR REPLACE TRIGGER "enforce_bookmarked_jobs_limit" BEFORE INSERT ON "public"."bookmarked_jobs" FOR EACH ROW EXECUTE FUNCTION "public"."check_bookmarked_jobs_limit"();
 
 
 
@@ -15742,6 +15839,14 @@ CREATE OR REPLACE TRIGGER "handle_updated_at_profiles" BEFORE UPDATE ON "public"
 
 
 CREATE OR REPLACE TRIGGER "ja_fill_resume_path" BEFORE INSERT OR UPDATE ON "public"."job_applications" FOR EACH ROW EXECUTE FUNCTION "public"."_ja_fill_resume_path"();
+
+
+
+CREATE OR REPLACE TRIGGER "job_applications_block_quick_link" BEFORE INSERT ON "public"."job_applications" FOR EACH ROW EXECUTE FUNCTION "public"."block_applications_for_quick_link"();
+
+
+
+CREATE OR REPLACE TRIGGER "job_applications_fill_resume_path" BEFORE INSERT ON "public"."job_applications" FOR EACH ROW EXECUTE FUNCTION "public"."_ja_fill_resume_path"();
 
 
 
@@ -15964,6 +16069,10 @@ CREATE OR REPLACE TRIGGER "trg_jobs_normalize_external_targets" BEFORE INSERT OR
 
 
 CREATE OR REPLACE TRIGGER "trg_jobs_set_creator" BEFORE INSERT ON "public"."jobs" FOR EACH ROW EXECUTE FUNCTION "public"."jobs_set_creator"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_jobs_set_logo_url" BEFORE INSERT OR UPDATE OF "company_id", "logo_url" ON "public"."jobs" FOR EACH ROW EXECUTE FUNCTION "public"."jobs_set_logo_url"();
 
 
 
@@ -17229,10 +17338,6 @@ CREATE POLICY "Users can update read_at on their notifications" ON "public"."not
 
 
 
-CREATE POLICY "Users can update their RSVP" ON "public"."event_attendees" FOR UPDATE USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
-
-
-
 CREATE POLICY "Users can update their own achievements" ON "public"."achievements" USING (("auth"."uid"() = "profile_id"));
 
 
@@ -17254,10 +17359,6 @@ CREATE POLICY "Users can update their own resumes" ON "public"."resume_profiles"
 
 
 CREATE POLICY "Users can update their own resumes" ON "public"."user_resumes" FOR UPDATE USING (("auth"."uid"() = "user_id"));
-
-
-
-CREATE POLICY "Users can upsert their RSVP" ON "public"."event_attendees" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
 
 
 
@@ -17387,7 +17488,11 @@ CREATE POLICY "app can insert notifications" ON "public"."notifications" FOR INS
 
 
 
-CREATE POLICY "attendees_insert_self" ON "public"."event_attendees" FOR INSERT TO "authenticated" WITH CHECK (("user_id" = "auth"."uid"()));
+CREATE POLICY "attendees_insert_self" ON "public"."event_attendees" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND ("public"."fc_is_fully_approved"("auth"."uid"()) OR "public"."fc_is_admin"())));
+
+
+
+CREATE POLICY "attendees_update_self" ON "public"."event_attendees" FOR UPDATE TO "authenticated" USING ((("user_id" = "auth"."uid"()) AND ("public"."fc_is_fully_approved"("auth"."uid"()) OR "public"."fc_is_admin"()))) WITH CHECK ((("user_id" = "auth"."uid"()) AND ("public"."fc_is_fully_approved"("auth"."uid"()) OR "public"."fc_is_admin"())));
 
 
 
@@ -17735,7 +17840,7 @@ CREATE POLICY "gm_select" ON "public"."group_members" FOR SELECT TO "authenticat
 
 
 
-CREATE POLICY "gm_self_join_public" ON "public"."group_members" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND (EXISTS ( SELECT 1
+CREATE POLICY "gm_self_join_public" ON "public"."group_members" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND "public"."fc_is_fully_approved"("auth"."uid"()) AND (EXISTS ( SELECT 1
    FROM "public"."groups" "g"
   WHERE (("g"."id" = "group_members"."group_id") AND ("g"."is_approved" IS TRUE) AND ("g"."is_archived" IS FALSE) AND ("g"."is_private" IS FALSE))))));
 
@@ -17769,7 +17874,7 @@ CREATE POLICY "gp_delete_own" ON "public"."group_posts" FOR DELETE TO "authentic
 
 
 
-CREATE POLICY "gp_insert" ON "public"."group_posts" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND "public"."can_post_group"("group_id", "auth"."uid"())));
+CREATE POLICY "gp_insert" ON "public"."group_posts" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND "public"."fc_is_fully_approved"("auth"."uid"()) AND "public"."can_post_group"("group_id", "auth"."uid"())));
 
 
 
@@ -17808,10 +17913,10 @@ CREATE POLICY "group_comments_delete_own" ON "public"."group_comments" FOR DELET
 
 
 
-CREATE POLICY "group_comments_insert" ON "public"."group_comments" FOR INSERT TO "authenticated" WITH CHECK (("public"."is_admin_like"("auth"."uid"()) OR (EXISTS ( SELECT 1
+CREATE POLICY "group_comments_insert" ON "public"."group_comments" FOR INSERT TO "authenticated" WITH CHECK (("public"."fc_is_fully_approved"("auth"."uid"()) AND ("public"."is_admin_like"("auth"."uid"()) OR (EXISTS ( SELECT 1
    FROM ("public"."group_posts" "p"
      JOIN "public"."group_members" "m" ON ((("m"."group_id" = "p"."group_id") AND ("m"."user_id" = "auth"."uid"()) AND ("m"."status" = 'active'::"text"))))
-  WHERE ("p"."id" = "group_comments"."post_id")))));
+  WHERE ("p"."id" = "group_comments"."post_id"))))));
 
 
 
@@ -17920,7 +18025,7 @@ CREATE POLICY "ja_applicant_self_select" ON "public"."job_applications" FOR SELE
 
 
 
-CREATE POLICY "ja_insert_applicant" ON "public"."job_applications" FOR INSERT TO "authenticated" WITH CHECK (("applicant_id" = "auth"."uid"()));
+CREATE POLICY "ja_insert_applicant" ON "public"."job_applications" FOR INSERT TO "authenticated" WITH CHECK ((("applicant_id" = "auth"."uid"()) AND ("public"."fc_is_fully_approved"("auth"."uid"()) OR "public"."fc_is_admin"())));
 
 
 
@@ -17947,7 +18052,7 @@ CREATE POLICY "ja_select_visible" ON "public"."job_applications" FOR SELECT TO "
 
 
 
-CREATE POLICY "ja_update_applicant" ON "public"."job_applications" FOR UPDATE TO "authenticated" USING (("applicant_id" = "auth"."uid"())) WITH CHECK (("applicant_id" = "auth"."uid"()));
+CREATE POLICY "ja_update_applicant" ON "public"."job_applications" FOR UPDATE TO "authenticated" USING ((("applicant_id" = "auth"."uid"()) AND ("public"."fc_is_fully_approved"("auth"."uid"()) OR "public"."fc_is_admin"()))) WITH CHECK ((("applicant_id" = "auth"."uid"()) AND ("public"."fc_is_fully_approved"("auth"."uid"()) OR "public"."fc_is_admin"())));
 
 
 
@@ -17999,7 +18104,9 @@ ALTER TABLE "public"."job_bookmarks" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."jobs" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "jobs_insert_owner" ON "public"."jobs" FOR INSERT TO "authenticated" WITH CHECK ((("posted_by" = "auth"."uid"()) OR ("created_by" = "auth"."uid"()) OR "public"."fc_is_admin"()));
+CREATE POLICY "jobs_insert_owner" ON "public"."jobs" FOR INSERT TO "authenticated" WITH CHECK (("public"."fc_is_admin"() OR ("public"."fc_is_fully_approved"("auth"."uid"()) AND (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p"
+  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = 'employer'::"public"."app_role_enum")))) AND ("created_by" = "auth"."uid"()))));
 
 
 
@@ -18498,10 +18605,6 @@ CREATE POLICY "Allow authenticated to list" ON "storage"."buckets" FOR SELECT TO
 
 
 
-CREATE POLICY "Allow authenticated users to upload avatars" ON "storage"."objects" FOR INSERT TO "authenticated" WITH CHECK (("bucket_id" = 'avatars'::"text"));
-
-
-
 CREATE POLICY "Allow authenticated users to upload company logos" ON "storage"."objects" FOR INSERT TO "authenticated" WITH CHECK (("bucket_id" = 'company-logos'::"text"));
 
 
@@ -18530,10 +18633,6 @@ CREATE POLICY "Allow public test insert" ON "storage"."objects" FOR INSERT WITH 
 
 
 
-CREATE POLICY "Allow public to view avatars" ON "storage"."objects" FOR SELECT USING (("bucket_id" = 'avatars'::"text"));
-
-
-
 CREATE POLICY "Allow public to view post images" ON "storage"."objects" FOR SELECT USING (("bucket_id" = 'post_images'::"text"));
 
 
@@ -18551,22 +18650,6 @@ CREATE POLICY "Authenticated users can upload" ON "storage"."objects" FOR INSERT
 
 
 CREATE POLICY "Authenticated users can upload post images" ON "storage"."objects" FOR INSERT TO "authenticated" WITH CHECK (("bucket_id" = 'post_images'::"text"));
-
-
-
-CREATE POLICY "Avatar 1oj01fe_0" ON "storage"."objects" FOR INSERT WITH CHECK (("bucket_id" = 'avatars'::"text"));
-
-
-
-CREATE POLICY "Avatar 1oj01fe_1" ON "storage"."objects" FOR SELECT USING (("bucket_id" = 'avatars'::"text"));
-
-
-
-CREATE POLICY "Avatar 1oj01fe_2" ON "storage"."objects" FOR UPDATE USING (("bucket_id" = 'avatars'::"text"));
-
-
-
-CREATE POLICY "Avatar 1oj01fe_3" ON "storage"."objects" FOR DELETE USING (("bucket_id" = 'avatars'::"text"));
 
 
 
@@ -18639,6 +18722,10 @@ CREATE POLICY "Profile  vejz8c_3" ON "storage"."objects" FOR DELETE USING (("buc
 
 
 CREATE POLICY "Public read access" ON "storage"."objects" FOR SELECT USING (("bucket_id" = 'bucket-name'::"text"));
+
+
+
+CREATE POLICY "Public read company logos" ON "storage"."objects" FOR SELECT USING (("bucket_id" = 'company-logos'::"text"));
 
 
 
@@ -18922,6 +19009,12 @@ GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "ne
 
 
 
+GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "public"."profile_approval_status", "reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "public"."profile_approval_status", "reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "public"."profile_approval_status", "reason" "text") TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."admin_set_role"("p_user" "uuid", "p_role" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."admin_set_role"("p_user" "uuid", "p_role" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."admin_set_role"("p_user" "uuid", "p_role" "text") TO "authenticated";
@@ -19142,6 +19235,12 @@ GRANT ALL ON FUNCTION "public"."can_view_group"("p_group_id" "uuid", "p_user_id"
 GRANT ALL ON FUNCTION "public"."check_bookmark_limit"() TO "anon";
 GRANT ALL ON FUNCTION "public"."check_bookmark_limit"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."check_bookmark_limit"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."check_bookmarked_jobs_limit"() TO "anon";
+GRANT ALL ON FUNCTION "public"."check_bookmarked_jobs_limit"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."check_bookmarked_jobs_limit"() TO "service_role";
 
 
 
@@ -19610,13 +19709,6 @@ GRANT ALL ON FUNCTION "public"."get_job_for_edit"("p_job_id" "uuid") TO "service
 GRANT ALL ON FUNCTION "public"."get_jobs_feed"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer, "p_department" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_jobs_feed"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer, "p_department" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_jobs_feed"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer, "p_department" "text") TO "service_role";
-
-
-
-REVOKE ALL ON FUNCTION "public"."get_jobs_public_v4"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer) FROM PUBLIC;
-GRANT ALL ON FUNCTION "public"."get_jobs_public_v4"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer) TO "anon";
-GRANT ALL ON FUNCTION "public"."get_jobs_public_v4"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer) TO "authenticated";
-GRANT ALL ON FUNCTION "public"."get_jobs_public_v4"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer) TO "service_role";
 
 
 
@@ -20169,6 +20261,12 @@ GRANT ALL ON FUNCTION "public"."jobs_normalize_external_targets"() TO "service_r
 GRANT ALL ON FUNCTION "public"."jobs_set_creator"() TO "anon";
 GRANT ALL ON FUNCTION "public"."jobs_set_creator"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."jobs_set_creator"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."jobs_set_logo_url"() TO "anon";
+GRANT ALL ON FUNCTION "public"."jobs_set_logo_url"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."jobs_set_logo_url"() TO "service_role";
 
 
 
@@ -21750,11 +21848,6 @@ GRANT SELECT,INSERT,UPDATE ON TABLE "realtime"."messages" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "realtime"."messages_2025_11_23" TO "postgres";
-GRANT ALL ON TABLE "realtime"."messages_2025_11_23" TO "dashboard_user";
-
-
-
 GRANT ALL ON TABLE "realtime"."messages_2025_11_24" TO "postgres";
 GRANT ALL ON TABLE "realtime"."messages_2025_11_24" TO "dashboard_user";
 
@@ -21782,6 +21875,11 @@ GRANT ALL ON TABLE "realtime"."messages_2025_11_28" TO "dashboard_user";
 
 GRANT ALL ON TABLE "realtime"."messages_2025_11_29" TO "postgres";
 GRANT ALL ON TABLE "realtime"."messages_2025_11_29" TO "dashboard_user";
+
+
+
+GRANT ALL ON TABLE "realtime"."messages_2025_11_30" TO "postgres";
+GRANT ALL ON TABLE "realtime"."messages_2025_11_30" TO "dashboard_user";
 
 
 

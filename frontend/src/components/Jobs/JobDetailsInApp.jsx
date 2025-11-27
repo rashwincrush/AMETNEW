@@ -69,11 +69,12 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
       {/* Header */}
       <div className="bg-white rounded-2xl shadow-sm border p-6 mb-6">
         <div className="flex items-start gap-4">
-          <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden">
+          <div className="w-12 h-12 rounded-full bg-white border border-gray-200 flex items-center justify-center overflow-hidden">
             <ImageWithFallback
               src={companyLogo}
               alt={companyName || 'Company'}
-              className="w-14 h-14"
+              className="w-12 h-12"
+              imgClassName="w-full h-full object-contain"
               placeholderSrc="/default-avatar.svg"
               emptyMessage="Employer logo to be uploaded"
             />

@@ -5,11 +5,14 @@ function normalizeJob(raw) {
   if (!raw) return raw;
 
   const company = normalizeJobCompany(raw);
+  const effectiveLogo = company.logo_url || raw.company_logo_url || null;
 
   return {
     ...raw,
     company_name: company.name || raw.company_name || '',
-    company_logo_url: company.logo_url || raw.company_logo_url || '',
+    company_logo_url: effectiveLogo || '',
+    logoUrl: effectiveLogo,
+    companyLogoUrl: effectiveLogo,
   };
 }
 

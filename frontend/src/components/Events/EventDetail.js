@@ -16,7 +16,8 @@ const EventDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, getUserRole } = useAuth();
+  const userRole = typeof getUserRole === 'function' ? getUserRole() : null;
   const { isApproved } = useApproval();
   
   // Data fetching with React Query
@@ -205,6 +206,12 @@ const EventDetail = () => {
     
     if (!isApproved && status === 'going') {
       setError('Your account is pending approval. You can browse events but cannot RSVP until approved.');
+      return;
+    }
+    
+    // Check employer eligibility for non-recruitment events
+    if (userRole === 'employer' && event?.category !== 'recruitment' && status === 'going') {
+      setError('Employers can only join recruitment events.');
       return;
     }
     

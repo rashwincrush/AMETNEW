@@ -84,7 +84,8 @@ const JobDetails = () => {
               ...row.companyInfo,
               values: row.companyInfo?.values ? convertToArray(row.companyInfo.values) : []
             } : null,
-            similarJobs: Array.isArray(row.similarJobs) ? row.similarJobs : []
+            similarJobs: Array.isArray(row.similarJobs) ? row.similarJobs : [],
+            logoUrl: row.company_logo_url ?? row.logo_url ?? null,
           };
 
           setJob(processedData);

@@ -71,7 +71,16 @@ const MentorshipProfile = () => {
       setSuccess('Mentorship request sent!');
       setAlreadyRequested(true);
     } catch (err) {
-      setError('Failed to send request.');
+      console.error('Failed to send mentorship request:', err);
+      const code = err?.code || '';
+      const msg = String(err?.message || '').toLowerCase();
+      if (code === '42501' || /rls/i.test(msg) || /not allowed/i.test(msg) || /fc_is_fully_approved/i.test(msg)) {
+        setError('You need an approved profile to request mentorship.');
+      } else if (/not accepting/i.test(msg) || /mentor.*not.*accept/i.test(msg)) {
+        setError('This mentor is not currently accepting mentorship requests.');
+      } else {
+        setError('Failed to send request. Please try again later.');
+      }
     } finally {
       setRequesting(false);
     }

@@ -20,6 +20,8 @@ import { downloadCSV } from '../../utils/csv';
 const Analytics = () => {
   const [selectedPeriod, setSelectedPeriod] = useState('30d');
   const [selectedTab, setSelectedTab] = useState('overview');
+  const [alumniCount, setAlumniCount] = useState(null);
+  const [alumniCountLoading, setAlumniCountLoading] = useState(true);
   // Live analytics from RPCs
   const [overviewRpc, setOverviewRpc] = useState(null);
   const [recentRpc, setRecentRpc] = useState([]);
@@ -28,7 +30,7 @@ const Analytics = () => {
   const overviewStats = [
     {
       title: 'Total Alumni',
-      value: '2,847',
+      value: '—',
       change: '+12%',
       trend: 'up',
       icon: UsersIcon,
@@ -64,6 +66,14 @@ const Analytics = () => {
     }
   ];
 
+  const resolvedOverviewStats = overviewStats.map((stat) => {
+    if (stat.title !== 'Total Alumni') return stat;
+    const value = alumniCountLoading
+      ? '—'
+      : (alumniCount ?? 0).toLocaleString();
+    return { ...stat, value };
+  });
+
   const userEngagementData = [
     { month: 'Jan', logins: 1200, profileViews: 3400, messages: 890 },
     { month: 'Feb', logins: 1350, profileViews: 3800, messages: 1020 },
@@ -97,6 +107,36 @@ const Analytics = () => {
       description: 'Average rating'
     }
   ]);
+
+  // Fetch canonical approved alumni count once using backend RPC
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setAlumniCountLoading(true);
+        const { data, error } = await supabase.rpc('get_alumni_approved_count');
+        if (!mounted) return;
+        if (error) {
+          console.error('Error fetching alumni count:', error);
+          setAlumniCount(null);
+          return;
+        }
+        const count = typeof data === 'number' ? data : 0;
+        setAlumniCount(count);
+      } catch (e) {
+        if (!mounted) return;
+        console.error('Alumni count RPC error:', e);
+        setAlumniCount(null);
+      } finally {
+        if (mounted) {
+          setAlumniCountLoading(false);
+        }
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Fetch stable Total Attendees KPI: rows where status IN ('going','attended'); avoid joins
   useEffect(() => {
@@ -378,14 +418,18 @@ const Analytics = () => {
             <div className="space-y-6">
               {/* Key Metrics */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {overviewStats.map((stat, index) => {
+                {resolvedOverviewStats.map((stat, index) => {
                   const Icon = stat.icon;
+                  const isTotalAlumni = stat.title === 'Total Alumni';
+                  const displayedValue = isTotalAlumni
+                    ? (alumniCountLoading ? '–' : (alumniCount ?? 0).toLocaleString())
+                    : stat.value;
                   return (
                     <div key={index} className="glass-card rounded-lg p-6">
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                          <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+                          <p className="text-2xl font-bold text-gray-900">{displayedValue}</p>
                         </div>
                         <div className={`p-3 rounded-lg ${stat.bgColor}`}>
                           <Icon className={`w-6 h-6 ${stat.color}`} />
@@ -559,7 +603,7 @@ const Analytics = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-gray-600">Total Alumni</span>
-                      <span className="text-sm font-medium">2,847</span>
+                      <span className="text-sm font-medium">{alumniCountLoading ? '–' : (alumniCount ?? 0).toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-gray-600">Active Users</span>
@@ -598,8 +642,8 @@ const Analytics = () => {
                       <span className="text-sm font-medium">35%</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">Chennai</span>
-                      <span className="text-sm font-medium">28%</span>
+                      <span className="text-sm text-gray-600">Total Alumni</span>
+                      <span className="text-sm font-medium">{alumniCountLoading ? '–' : (alumniCount ?? 0).toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-gray-600">Kochi</span>

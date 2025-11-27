@@ -37,9 +37,17 @@ export default function RequestMentorshipButton({ mentorId, disabled = false, re
         });
 
       if (error) {
-        const msg = String(error?.message || '');
-        if (msg.includes('mentorship_requests_no_self_mentee')) {
-          toast.error("You can’t join your own mentorship as a mentee.");
+        const code = error?.code || '';
+        const msg = String(error?.message || '').toLowerCase();
+        
+        if (code === '23505' || msg.includes('duplicate') || msg.includes('already exists')) {
+          toast.error('You have already sent a request to this mentor.');
+        } else if (code === '42501' || msg.includes('permission denied') || msg.includes('rls')) {
+          toast.error('You do not have permission to send this request. Please ensure your profile is approved.');
+        } else if (code === '23503' || msg.includes('foreign key') || msg.includes('not found')) {
+          toast.error('Mentor not found or no longer available.');
+        } else if (msg.includes('not accepting') || msg.includes('unavailable')) {
+          toast.error('This mentor is not currently accepting new mentees.');
         } else {
           handleSupabaseGuardError(error);
         }

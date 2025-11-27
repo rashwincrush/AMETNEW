@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '../../utils/supabase';
 import { Link } from 'react-router-dom';
 import { 
@@ -13,8 +13,41 @@ import {
 } from '@heroicons/react/24/outline';
 
 const AdminDashboard = ({ user }) => {
+  const [alumniCount, setAlumniCount] = useState(null);
+  const [alumniCountLoading, setAlumniCountLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchAlumniCount = async () => {
+      setAlumniCountLoading(true);
+      try {
+        const { data, error } = await supabase.rpc('get_alumni_approved_count');
+        if (error) throw error;
+        if (!mounted) return;
+        const count = typeof data === 'number' ? data : 0;
+        setAlumniCount(count);
+      } catch (err) {
+        console.error('Failed to load alumni count for admin dashboard:', err);
+        if (mounted) {
+          // Safe fallback
+          setAlumniCount(0);
+        }
+      } finally {
+        if (mounted) setAlumniCountLoading(false);
+      }
+    };
+    fetchAlumniCount();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const totalAlumniValue = alumniCountLoading
+    ? '…'
+    : (alumniCount?.toLocaleString?.() || String(alumniCount ?? 0));
+
   const systemStats = [
-    { title: 'Total Alumni', value: '2,847', change: '+12%', icon: UsersIcon, color: 'bg-blue-500' },
+    { title: 'Total Alumni', value: totalAlumniValue, change: '', icon: UsersIcon, color: 'bg-blue-500' },
     { title: 'Active Events', value: '15', change: '+3', icon: CalendarIcon, color: 'bg-green-500' },
     { title: 'Job Postings', value: '89', change: '+8%', icon: BriefcaseIcon, color: 'bg-purple-500' },
     { title: 'System Alerts', value: '3', change: '-2', icon: ExclamationTriangleIcon, color: 'bg-red-500' }

@@ -35,11 +35,14 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
   const isApproved = group.is_approved === true || group.approval_status === 'approved';
   const isPrivate = group.is_private === true;
   const isSiteAdmin = !!canManageAllGroups;
+  const isStudentRole = userRole === 'student';
+  const isAlumniOnlyGroup = Array.isArray(group.tags) && group.tags.some((tag) => String(tag).toLowerCase() === 'alumni-only');
+  const blockedForStudent = isStudentRole && isAlumniOnlyGroup;
   const showManage = (isGroupAdmin || isSiteAdmin) && !group.is_archived;
   const employer = userRole === 'employer';
-  const showJoin = !employer && isUserApproved && !group.is_archived && !isMember && isApproved && !isPrivate;
+  const showJoin = !employer && !blockedForStudent && isUserApproved && !group.is_archived && !isMember && isApproved && !isPrivate;
   const showLeave = !group.is_archived && isMember && !(isGroupAdmin || isSiteAdmin);
-  const showRequest = !employer && isUserApproved && !group.is_archived && !isMember && isPrivate;
+  const showRequest = !employer && !blockedForStudent && isUserApproved && !group.is_archived && !isMember && isPrivate;
   
   // Build avatar image src: prefer stored public URL; otherwise fetch a signed URL
   useEffect(() => {
@@ -107,6 +110,11 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
             {group.is_archived && (
               <span className="px-2 py-1 rounded-full bg-red-100 text-red-700">Archived</span>
             )}
+            {isAlumniOnlyGroup && (
+              <span className="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700" title="Alumni-only group">
+                Alumni only
+              </span>
+            )}
             <span className={`px-2 py-1 rounded-full ${isPrivate ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
               {isPrivate ? 'Private' : 'Public'}
             </span>
@@ -143,6 +151,24 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
             >
               Leave
             </button>
+          )}
+          {!isMember && !employer && !group.is_archived && (
+            blockedForStudent ? (
+              <button
+                disabled
+                className="px-4 py-2 bg-gray-300 text-gray-600 rounded-lg cursor-not-allowed"
+                title="This is an alumni-only group"
+              >
+                Alumni Only
+              </button>
+            ) : (
+              <button
+                onClick={() => onJoinLeave(group.id, false)}
+                className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700"
+              >
+                Join
+              </button>
+            )
           )}
           {!showJoin && !showLeave && showRequest && !isSiteAdmin && !isCreator && (
             <button
@@ -181,7 +207,6 @@ const GroupsList = () => {
   const [selectedTags, setSelectedTags] = useState([]);
   const [filter, setFilter] = useState('all'); // 'all', 'joined', 'created'
   const [privacyFilter, setPrivacyFilter] = useState('all'); // 'all', 'public', 'private'
-  
   // Check if user can manage all groups (admin privilege)
   const canManageAllGroups = isAdmin || hasPermission('manage:all_groups');
   
@@ -190,6 +215,14 @@ const GroupsList = () => {
 
   useEffect(() => {
     const getGroups = async () => {
+      // Employers should not see or fetch groups; keep loading false and list empty
+      if (userRole === 'employer') {
+        setGroups([]);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+
       setLoading(true);
       setError(null);
       try {
@@ -256,7 +289,7 @@ const GroupsList = () => {
     };
 
     getGroups();
-  }, [user, searchQuery, selectedTags, filter, privacyFilter, canManageAllGroups]);
+  }, [user, userRole, searchQuery, selectedTags, filter, privacyFilter, canManageAllGroups]);
 
   const handleJoinLeave = async (groupId, isMember, isPrivate) => {
     if (!user) {
@@ -311,6 +344,13 @@ const GroupsList = () => {
         if (error) throw error;
         
         setUserMemberships(prev => prev.filter(id => id !== groupId));
+        setMembershipMap(prev => {
+          const next = { ...prev };
+          if (next[groupId]) {
+            next[groupId] = { ...next[groupId], isMember: false };
+          }
+          return next;
+        });
         console.log(`User left group ${groupId}`);
       } else {
         // Join public approved group - backend handles current user assignment
@@ -323,6 +363,12 @@ const GroupsList = () => {
         }
         
         setUserMemberships(prev => [...prev, groupId]);
+        setMembershipMap(prev => {
+          const next = { ...prev };
+          const current = next[groupId] || {};
+          next[groupId] = { ...current, isMember: true };
+          return next;
+        });
         console.log(`User joined group ${groupId}`);
       }
     } catch (err) {
@@ -339,6 +385,19 @@ const GroupsList = () => {
         : [...prev, tag]
     );
   };
+
+  if (userRole === 'employer') {
+    return (
+      <div className="container mx-auto p-4 md:p-6">
+        <div className="bg-white rounded-lg shadow-md p-6 text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h1>
+          <p className="text-gray-600">
+            This feature is only available for alumni, students, or administrators.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (error) return <div className="text-red-500 text-center p-4">Error: {error}</div>;
 

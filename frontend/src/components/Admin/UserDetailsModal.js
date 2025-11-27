@@ -1,10 +1,43 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon, EnvelopeIcon, MapPinIcon, BriefcaseIcon, AcademicCapIcon, ShieldCheckIcon, ClockIcon } from '@heroicons/react/24/outline';
 import { Link } from 'react-router-dom';
 import Avatar from '../common/Avatar';
+import { adminGetProfileApprovalAudit } from '../../api/admin';
+import { useProfileById } from '../../hooks/useProfileById';
+import { getDisplayName } from '../../utils/displayName';
 
 const UserDetailsModal = ({ user, isOpen, onClose }) => {
+  const [audit, setAudit] = useState([]);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+  const [auditError, setAuditError] = useState(null);
+
+  useEffect(() => {
+    if (!isOpen || !user?.id) return;
+    let cancelled = false;
+    setLoadingAudit(true);
+    setAuditError(null);
+
+    adminGetProfileApprovalAudit({ profileId: user.id, limit: 20, offset: 0 })
+      .then((rows) => {
+        if (cancelled) return;
+        setAudit(Array.isArray(rows) ? rows : []);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to load approval history', err);
+        setAuditError('Failed to load approval history');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoadingAudit(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, user?.id]);
+
   if (!user) return null;
 
   const getRoleName = (user) => {
@@ -79,13 +112,35 @@ const UserDetailsModal = ({ user, isOpen, onClose }) => {
                       <div className="flex items-center">
                         <ShieldCheckIcon className="h-5 w-5 text-gray-400 mr-3" />
                         {(() => {
-                          const status = user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending');
+                          const status = (() => {
+                            if (user.is_deleted) return 'deleted';
+                            if (user.is_active === false) return 'blocked';
+                            const approval = user.approval_status;
+                            if (approval === 'pending') return 'pending';
+                            if (approval === 'rejected') return 'rejected';
+                            if (approval === 'approved' && user.is_active === true) return 'approved';
+                            return approval || 'unknown';
+                          })();
                           const cls = status === 'approved'
                             ? 'bg-green-100 text-green-800'
-                            : status === 'rejected'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-yellow-100 text-yellow-800';
-                          const label = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending';
+                            : status === 'pending'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : status === 'rejected'
+                                ? 'bg-red-100 text-red-800'
+                                : status === 'blocked'
+                                  ? 'bg-orange-100 text-orange-800'
+                                  : 'bg-gray-100 text-gray-600';
+                          const label = status === 'approved'
+                            ? 'Approved'
+                            : status === 'pending'
+                              ? 'Pending'
+                              : status === 'rejected'
+                                ? 'Rejected'
+                                : status === 'blocked'
+                                  ? 'Blocked'
+                                  : status === 'deleted'
+                                    ? 'Deleted'
+                                    : status || 'N/A';
                           return (
                             <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${cls}`}>
                               {label}
@@ -96,6 +151,54 @@ const UserDetailsModal = ({ user, isOpen, onClose }) => {
                       <div className="flex items-center">
                         <ClockIcon className="h-5 w-5 text-gray-400 mr-3" />
                         <span className="text-sm text-gray-700">Last seen: {user.last_seen ? new Date(user.last_seen).toLocaleString() : 'N/A'}</span>
+                      </div>
+                      <div className="mt-2">
+                        <p className="text-xs font-semibold text-gray-600 mb-1">Approval history</p>
+                        {loadingAudit && (
+                          <p className="text-xs text-gray-500">Loading history...</p>
+                        )}
+                        {auditError && !loadingAudit && (
+                          <p className="text-xs text-red-500">{auditError}</p>
+                        )}
+                        {!loadingAudit && !auditError && audit && audit.length === 0 && (
+                          <p className="text-xs text-gray-500">No approval changes recorded.</p>
+                        )}
+                        {!loadingAudit && !auditError && audit && audit.length > 0 && (
+                          <ul className="mt-1 space-y-1 max-h-32 overflow-y-auto text-xs text-gray-700">
+                            {audit.map((entry) => (
+                              <li
+                                key={entry.id ?? `${entry.changed_at}-${entry.new_approval_status ?? ''}-${entry.new_is_active ?? ''}`}
+                              >
+                                {(() => {
+                                  const decision = entry.decision || entry.new_approval_status || 'Updated';
+                                  const ts = entry.created_at || entry.changed_at;
+                                  const when = ts ? new Date(ts).toLocaleString() : 'Unknown time';
+                                  return (
+                                    <>
+                                      <span className="font-medium">{decision}</span>
+                                      {' · '}
+                                      <span>{when}</span>
+                                      {entry.admin_id && (
+                                        <>
+                                          {' · '}
+                                          <span>
+                                            by <AuditAdminName adminId={entry.admin_id} />
+                                          </span>
+                                        </>
+                                      )}
+                                      {entry.notes && (
+                                        <>
+                                          {' · '}
+                                          <span className="italic">{entry.notes}</span>
+                                        </>
+                                      )}
+                                    </>
+                                  );
+                                })()}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                     </dl>
                   </div>
@@ -120,6 +223,20 @@ const UserDetailsModal = ({ user, isOpen, onClose }) => {
       </Dialog>
     </Transition>
   );
+};
+
+const AuditAdminName = ({ adminId }) => {
+  const { profile } = useProfileById(adminId);
+
+  if (!adminId) {
+    return <span className="text-gray-500">System</span>;
+  }
+
+  if (!profile) {
+    return <span className="text-gray-400">Loading...</span>;
+  }
+
+  return <span className="text-gray-700">{getDisplayName(profile)}</span>;
 };
 
 export default UserDetailsModal;

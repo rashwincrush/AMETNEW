@@ -562,8 +562,8 @@ const Profile = () => {
       // Required field checks
       const missing = [];
       if (!formData.location || !String(formData.location).trim()) missing.push('Location');
-      if (!formData.company || !String(formData.company).trim()) missing.push('Company');
-      if (!formData.position || !String(formData.position).trim()) missing.push('Position');
+      if (!isStudent && (!formData.company || !String(formData.company).trim())) missing.push('Company');
+      if (!isStudent && (!formData.position || !String(formData.position).trim())) missing.push('Position');
       if (!isEmployer) {
         if (!isValidDegree(formData.degree_code)) missing.push('Degree');
         if (!isValidDepartmentFor(formData.degree_code, formData.department_id)) missing.push('Department');

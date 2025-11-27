@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
-import { adminSetProfileApproval } from '../../api/admin';
+import { adminUpdateProfileApproval, adminListProfilesForApproval } from '../../api/admin';
 import { 
   CheckIcon, 
   XMarkIcon
@@ -21,22 +20,25 @@ const UserApprovalDashboard = () => {
     setFetchLoading(true);
     setFetchError(null);
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('role', 'employer')
-        .eq('approval_status', 'pending')
-        .eq('is_deleted', false)
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      
+      const rows = await adminListProfilesForApproval({
+        status: 'pending',
+        role: 'employer',
+        search: null,
+        limit: 50,
+        offset: 0,
+      });
+
+      const data = Array.isArray(rows) ? rows : [];
+
       const formattedData = data.map(user => ({
         ...user,
-        name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Unknown',
-        registeredAt: user.created_at,
+        name:
+          (user.full_name && String(user.full_name).trim()) ||
+          `${user.first_name || ''} ${user.last_name || ''}`.trim() ||
+          'Unknown',
+        registeredAt: user.created_at || user.registered_at || user.inserted_at || user.createdAt,
       }));
-      
+
       setUsers(formattedData);
     } catch (error) {
       console.error('Error fetching pending employers:', error);
@@ -59,10 +61,14 @@ const UserApprovalDashboard = () => {
   const handleApprovalAction = async (userId, newStatus) => {
     setLoading(true);
     try {
-      const { error } = await adminSetProfileApproval(userId, newStatus === 'approved' ? 'approved' : 'rejected');
-      if (error) throw error;
+      await adminUpdateProfileApproval({
+        profileId: userId,
+        decision: newStatus === 'approved' ? 'approve' : 'reject',
+        notes: null,
+      });
 
-      setUsers(prevUsers => prevUsers.filter(user => user.id !== userId));
+      // Refetch the list so we respect server-side filters and audit logic
+      await fetchPendingEmployers();
       toast.success(`Employer has been ${newStatus}.`);
       setShowModal(false);
       setSelectedUser(null);

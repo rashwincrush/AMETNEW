@@ -254,11 +254,12 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
     <div className="group relative bg-white rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-[2px] transition-all duration-200 border border-gray-200/80 hover:border-ocean-200 h-full flex flex-col">
       <div className="flex items-start justify-between mb-3 px-5 pt-5 pb-3">
         <div className="flex items-center flex-1">
-          <div className="w-12 h-12 rounded-xl mr-4 flex-shrink-0 overflow-hidden bg-gray-100 shadow-sm">
+          <div className="w-12 h-12 rounded-full mr-4 flex-shrink-0 overflow-hidden bg-white border border-gray-200 shadow-sm">
             <ImageWithFallback
               src={getJobLogoUrl(job)}
               alt={getJobCompanyName(job) || 'Company'}
               className="w-12 h-12"
+              imgClassName="w-full h-full object-contain"
               placeholderSrc="/default-avatar.svg"
               emptyMessage="Employer logo to be uploaded"
             />
@@ -525,11 +526,12 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
   if (!job) return null;
   return (
     <div className="glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border border-transparent min-h-[140px]">
-      <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100">
+      <div className="w-12 h-12 rounded-full overflow-hidden bg-white border border-gray-200">
         <ImageWithFallback
           src={getJobLogoUrl(job)}
           alt={getJobCompanyName(job) || 'Company'}
-          className="w-16 h-16"
+          className="w-12 h-12"
+          imgClassName="w-full h-full object-contain"
           placeholderSrc="/default-avatar.svg"
           emptyMessage="Employer logo to be uploaded"
         />

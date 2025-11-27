@@ -94,6 +94,9 @@ export function buildJobPayload(form, companyId, mode) {
     description: form.summary?.trim() || null,
     requirements: form.responsibilities?.trim() || form.qualifications?.trim() || null,
 
+    // Optional job-level logo URL (backend will coalesce with company logo)
+    logo_url: (form.logo_url && String(form.logo_url).trim()) || null,
+
     // Map skills to the `skills` array column
     skills,
 

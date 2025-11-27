@@ -16,6 +16,25 @@ export const getSourceType = (j) => {
 export const isQuickLink = (j) => !!(j?.application_url || j?.external_url);
 export const isInternal = (j) => getSourceType(j) === 'in_app';
 
+// Resolve the effective logo URL for a job, preferring any explicit
+// job-level logo field before falling back to company-level logos.
+const resolveJobLogoUrl = (job) => {
+  if (!job) return '';
+
+  return (
+    // Normalized/camelCase job-level field (frontend model)
+    job.logoUrl ||
+    // Raw DB column on jobs table, if present
+    job.logo_url ||
+    // Effective logo from views/RPCs (COALESCE(jobs.logo_url, companies.logo_url))
+    job.company_logo_url ||
+    // Joined company shapes
+    job.companies?.logo_url ||
+    job.company?.logo_url ||
+    ''
+  );
+};
+
 export const normalizeJobCompany = (job) => {
   if (!job) return { name: '', logo_url: '' };
 
@@ -25,16 +44,12 @@ export const normalizeJobCompany = (job) => {
     job.company?.name ||
     '';
 
-  const logo_url =
-    job.company_logo_url ||
-    job.companies?.logo_url ||
-    job.company?.logo_url ||
-    '';
+  const logo_url = resolveJobLogoUrl(job);
 
   return { name, logo_url };
 };
 
-export const getJobLogoUrl = (job) => normalizeJobCompany(job).logo_url;
+export const getJobLogoUrl = (job) => resolveJobLogoUrl(job);
 export const getJobCompanyName = (job) => normalizeJobCompany(job).name;
 
 export const companyDisplay = (j) => normalizeJobCompany(j);

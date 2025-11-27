@@ -215,6 +215,13 @@ const GroupDetail = () => {
         setError('Employers cannot perform this action.');
         return;
       }
+      // Check for alumni-only restriction for students
+      const isAlumniOnlyGroup = Array.isArray(group?.tags) && group.tags.some((tag) => String(tag).toLowerCase() === 'alumni-only');
+      if (userRole === 'student' && isAlumniOnlyGroup && !isMember) {
+        setError('This is an alumni-only group. Students cannot join.');
+        toast.error('This is an alumni-only group. Students cannot join.');
+        return;
+      }
       if (!isUserApproved && !isMember) {
         setError('Your account is pending approval. You can browse groups but cannot join until approved.');
         return;

@@ -1,29 +1,57 @@
 import { useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
-// Centralized approval/role status using AuthContext profile + approvalFlags
+// Unified frontend approval engine
+// Derives approval + profile completeness state from the current user's profile
 export function useApproval() {
-  const { user, profile, getUserRole, hasPermission, approvalFlags } = useAuth();
+  const {
+    user,
+    profile,
+    loading,
+    getUserRole,
+    hasPermission,
+    approvalStatus: ctxApprovalStatus,
+    isApproved: ctxIsApproved,
+    isPending: ctxIsPending,
+    isRejected: ctxIsRejected,
+    isAdminLike: isAdminLikeFlag,
+  } = useAuth();
 
   const state = useMemo(() => {
-    const role = (getUserRole ? getUserRole() : profile?.role || '').toLowerCase();
+    const baseProfile = profile || null;
+    const role = (getUserRole ? getUserRole() : baseProfile?.role || '').toLowerCase();
 
-    // Fallback status from profile for resilience
-    const fallbackApprovalStatus =
-      profile?.alumni_verification_status ||
-      profile?.approval_status ||
-      (profile?.is_approved ? 'approved' : 'pending');
+    // Treat admin / super_admin as always approved in the UI
+    const isAdminLikeRole = isAdminLikeFlag || role === 'admin' || role === 'super_admin';
 
-    const approvalStatus = approvalFlags?.approvalStatus || fallbackApprovalStatus || 'pending';
+    // Prefer AuthContext's canonical approval status, fall back to profile
+    const approvalStatus =
+      ctxApprovalStatus ??
+      baseProfile?.approval_status ??
+      null;
 
-    const fallbackIsApproved =
-      profile?.alumni_verification_status === 'approved' ||
-      profile?.approval_status === 'approved' ||
-      profile?.is_approved === true;
+    // Use AuthContext booleans when available, but enforce admin bypass
+    const isApproved = isAdminLikeRole
+      ? true
+      : (ctxIsApproved ?? (approvalStatus === 'approved'));
 
-    // Global full-approval flag is the primary source of truth
-    const isGloballyApproved = approvalFlags?.isFullyApproved ?? fallbackIsApproved;
+    const isRejected = isAdminLikeRole
+      ? false
+      : (ctxIsRejected ?? (approvalStatus === 'rejected'));
 
+    const isPending = isAdminLikeRole
+      ? false
+      : (ctxIsPending ?? (!isRejected && !isApproved));
+
+    // Profile completeness
+    const isProfileComplete =
+      !!baseProfile?.degree_code &&
+      !!baseProfile?.department_id &&
+      !!baseProfile?.expected_graduation_year;
+
+    const isFullyApproved = !!isApproved && isProfileComplete;
+
+    // Legacy convenience flags (preserved for existing callers)
     const isMentor = role === 'mentor' || (hasPermission ? hasPermission('manage:mentor_profile') : false);
     const isMentee =
       role === 'mentee' ||
@@ -32,26 +60,36 @@ export function useApproval() {
       (hasPermission ? hasPermission('request:mentorship') : false);
     const isEmployer = role === 'employer' || (hasPermission ? hasPermission('post:jobs') : false);
 
-    // Prefer granular statuses when present, otherwise fall back to global status
-    const menteeStatus = profile?.mentee_status || (isMentee ? approvalStatus : undefined);
-    const mentorStatus = profile?.mentor_status || (isMentor ? approvalStatus : undefined);
-    const employerStatus = profile?.employer_status || (isEmployer ? approvalStatus : undefined);
-
     return {
-      loading: !user && !profile, // basic heuristic; our app mounts profile early
-      profile: profile || null,
-      isApproved: !!isGloballyApproved,
+      // Core unified shape
+      loading: loading || (!user && !baseProfile),
+      profile: baseProfile,
+      approvalStatus,
+      isPending,
+      isApproved,
+      isRejected,
+      isProfileComplete,
+      isFullyApproved,
+      // Backwards-compatible fields
       isMentor,
       isMentee,
       isEmployer,
-      // Mentor must be globally approved and (optionally) have mentor_status === 'approved'
-      isApprovedMentor: isMentor && !!isGloballyApproved && (mentorStatus ? mentorStatus === 'approved' : true),
-      // Mentee must be globally approved (students/alumni included) and (optionally) mentee_status === 'approved'
-      isApprovedMentee: isMentee && !!isGloballyApproved && (menteeStatus ? menteeStatus === 'approved' : true),
-      // Employer must be globally approved and (optionally) employer_status === 'approved'
-      isApprovedEmployer: isEmployer && !!isGloballyApproved && (employerStatus ? employerStatus === 'approved' : true),
+      isApprovedMentor: isMentor && isFullyApproved,
+      isApprovedMentee: isMentee && isFullyApproved,
+      isApprovedEmployer: isEmployer && isFullyApproved,
     };
-  }, [user, profile, getUserRole, approvalFlags, hasPermission]);
+  }, [
+    user,
+    profile,
+    loading,
+    getUserRole,
+    hasPermission,
+    ctxApprovalStatus,
+    ctxIsApproved,
+    ctxIsPending,
+    ctxIsRejected,
+    isAdminLikeFlag,
+  ]);
 
   return state;
 }

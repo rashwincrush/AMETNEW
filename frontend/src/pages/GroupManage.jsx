@@ -301,9 +301,10 @@ export default function GroupManage() {
   if (!authorized) {
     return (
       <div className="container mx-auto p-4">
-        <div className="flex items-center mb-4">
+        <div className="flex items-center justify-between mb-4">
           <Link to={`/groups/${id}`} className="text-gray-600 hover:text-gray-900 flex items-center"><ArrowLeft size={16} className="mr-2" />Back</Link>
-          <h1 className="text-2xl font-bold ml-4">Manage Group</h1>
+          <h1 className="text-2xl font-bold text-center flex-1">Manage Group</h1>
+          <span className="w-10" aria-hidden="true"></span>
         </div>
         <div className="bg-white rounded shadow p-6">
           <p className="text-gray-700">{authMessage}</p>
@@ -314,9 +315,10 @@ export default function GroupManage() {
 
   return (
     <div className="container mx-auto p-4">
-      <div className="flex items-center mb-4">
+      <div className="flex items-center justify-between mb-4">
         <Link to={`/groups/${id}`} className="text-gray-600 hover:text-gray-900 flex items-center"><ArrowLeft size={16} className="mr-2" />Back</Link>
-        <h1 className="text-2xl font-bold ml-4">Manage Group</h1>
+        <h1 className="text-2xl font-bold text-center flex-1">Manage Group</h1>
+        <span className="w-10" aria-hidden="true"></span>
       </div>
 
       {/* Basics */}

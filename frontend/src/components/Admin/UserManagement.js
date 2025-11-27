@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import Avatar from '../common/Avatar';
-import { adminSetProfileApproval } from '../../api/admin';
+import { adminUpdateProfileApproval, adminListProfilesForApproval } from '../../api/admin';
 import { isRole } from '../../utils/roles';
+import { changeUserRole } from '../../utils/changeUserRole';
 import { 
   UsersIcon,
   MagnifyingGlassIcon,
@@ -33,7 +34,7 @@ import RejectUserModal from './RejectUserModal';
 import MentorsTab from './MentorsTab';
 
 const UserManagement = () => {
-  const { hasPermission, user: currentUser, getUserRole } = useAuth();
+  const { hasPermission, user: currentUser, getUserRole, role } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -51,6 +52,8 @@ const UserManagement = () => {
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const canHardDelete = role === 'super_admin';
+  const canPurge = role === 'super_admin';
   
   const softDeleteUser = async (userId) => {
     setDeletingId(userId);
@@ -169,76 +172,55 @@ const UserManagement = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      // If search text entered, fetch a narrowed set server-side to ensure fresh results include recent users
-      const base = supabase.from('profiles').select('*');
       const q = debouncedQuery && debouncedQuery.trim();
-      let profilesQuery = q
-        ? base.or(`email.ilike.%${q}%,full_name.ilike.%${q}%`)
-        : base;
 
-      // Apply server-side filters to align with selected tab and dropdown filters
-      // Selected tab filters
-      if (selectedTab === 'employers') {
-        profilesQuery = profilesQuery.or('role.eq.employer,is_employer.eq.true');
-      } else if (selectedTab === 'deleted') {
-        profilesQuery = profilesQuery.eq('is_deleted', true);
-      } else if (selectedTab === 'pending') {
-        profilesQuery = profilesQuery.or('approval_status.eq.pending,alumni_verification_status.eq.pending');
+      let activeStatusFilter = null;
+      let activeRoleFilter = null;
+
+      // Map selectedTab to server-side filters
+      if (selectedTab === 'pending') {
+        activeStatusFilter = 'pending';
       } else if (selectedTab === 'rejected') {
-        profilesQuery = profilesQuery.or('approval_status.eq.rejected,alumni_verification_status.eq.rejected');
+        activeStatusFilter = 'rejected';
       }
 
-      // Role dropdown filter
+      if (selectedTab === 'employers') {
+        activeRoleFilter = 'employer';
+      }
+
+      // Map dropdown role filter (overrides tab role when specific)
       if (filters.role && filters.role !== 'all') {
-        if (filters.role === 'admin') {
-          profilesQuery = profilesQuery.or('role.eq.admin,role.eq.super_admin');
-        } else if (filters.role === 'mentor') {
-          profilesQuery = profilesQuery.or('role.eq.mentor,is_mentor.eq.true');
+        if (filters.role === 'alumni') {
+          activeRoleFilter = 'alumni';
         } else if (filters.role === 'employer') {
-          profilesQuery = profilesQuery.or('role.eq.employer,is_employer.eq.true');
-        } else if (filters.role === 'alumni') {
-          profilesQuery = profilesQuery.eq('role', 'alumni');
+          activeRoleFilter = 'employer';
+        } else if (filters.role === 'admin') {
+          activeRoleFilter = 'admin';
         }
       }
 
-      // Status dropdown filter
-      if (filters.alumni_verification_status && filters.alumni_verification_status !== 'all') {
-        if (filters.alumni_verification_status === 'deleted') {
-          profilesQuery = profilesQuery.eq('is_deleted', true);
-        } else {
-          const s = filters.alumni_verification_status;
-          profilesQuery = profilesQuery.or(`approval_status.eq.${s},alumni_verification_status.eq.${s}`);
-        }
+      // Map dropdown status filter (excluding deleted which is handled client-side)
+      if (
+        filters.alumni_verification_status &&
+        filters.alumni_verification_status !== 'all' &&
+        filters.alumni_verification_status !== 'deleted'
+      ) {
+        activeStatusFilter = filters.alumni_verification_status;
       }
 
-      // Apply a stable ordering and pagination
-      const from = (page - 1) * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
-      profilesQuery = profilesQuery
-        .order('updated_at', { ascending: false })
-        .range(from, to);
-      const [profilesRes, rpcRes] = await Promise.all([
-        profilesQuery,
-        // Prefer the new function exposed in migrations: public.get_admin_users()
-        supabase.rpc('get_admin_users')
-      ]);
+      const limit = PAGE_SIZE;
+      const offset = (page - 1) * PAGE_SIZE;
 
-      if (profilesRes.error) throw profilesRes.error;
+      const rows = await adminListProfilesForApproval({
+        status: activeStatusFilter || null,
+        role: activeRoleFilter || null,
+        search: q || null,
+        limit,
+        offset,
+      });
 
-      const lastMap = new Map();
-      if (!rpcRes.error && Array.isArray(rpcRes.data)) {
-        rpcRes.data.forEach(row => {
-          lastMap.set(row.id, row.last_sign_in_at || null);
-        });
-      } else if (rpcRes.error) {
-        console.warn('get_admin_users RPC not available or failed:', rpcRes.error.message);
-      }
-
-      const merged = (profilesRes.data || []).map(p => ({
-        ...p,
-        last_sign_in_at: lastMap.get(p.id) || null,
-      }));
-      setUsers(merged);
+      const data = Array.isArray(rows) ? rows : [];
+      setUsers(data);
     } catch (error) {
       console.error('Error fetching users:', error);
       toast.error('Could not fetch users.');
@@ -247,6 +229,16 @@ const UserManagement = () => {
       setLoading(false);
       if (initialLoading) setInitialLoading(false);
     }
+  };
+
+  const getEffectiveStatus = (user) => {
+    if (user.is_deleted) return 'deleted';
+    if (user.is_active === false) return 'blocked';
+    const approval = user.approval_status;
+    if (approval === 'pending') return 'pending';
+    if (approval === 'rejected') return 'rejected';
+    if (approval === 'approved' && user.is_active === true) return 'approved';
+    return approval || 'unknown';
   };
 
   const filteredUsers = useMemo(() => {
@@ -262,26 +254,26 @@ const UserManagement = () => {
         (filters.role === 'employer' && (user.role === 'employer' || user.is_employer)) ||
         (filters.role === 'admin' && (user.role === 'admin' || user.role === 'super_admin' || user.is_admin));
 
-      const effectiveApproval = user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending');
+      const status = getEffectiveStatus(user);
       const statusMatch =
-        filters.alumni_verification_status === 'all' ? true :
-        (filters.alumni_verification_status === 'deleted'
-          ? user.is_deleted === true
-          : String(effectiveApproval) === filters.alumni_verification_status);
+        filters.alumni_verification_status === 'all'
+          ? true
+          : (filters.alumni_verification_status === 'deleted'
+            ? status === 'deleted'
+            : String(status) === filters.alumni_verification_status);
 
       let tabMatch = true;
       if (selectedTab === 'pending') {
-        // Only include users whose PROFILE approval is pending (source of truth: alumni_verification_status)
-        tabMatch = (effectiveApproval === 'pending');
+        tabMatch = (status === 'pending');
       } else if (selectedTab === 'rejected') {
-        tabMatch = (effectiveApproval === 'rejected');
+        tabMatch = (status === 'rejected');
       } else if (selectedTab === 'mentors') {
         // Delegated to MentorsTab component; this filter is not used when rendering MentorsTab
         tabMatch = false;
       } else if (selectedTab === 'employers') {
         tabMatch = (user.role === 'employer' || user.is_employer);
       } else if (selectedTab === 'deleted') {
-        tabMatch = user.is_deleted === true;
+        tabMatch = status === 'deleted';
       }
 
       return searchMatch && roleMatch && statusMatch && tabMatch;
@@ -296,6 +288,8 @@ const UserManagement = () => {
         return 'bg-yellow-100 text-yellow-800';
       case 'rejected':
         return 'bg-red-100 text-red-800';
+      case 'blocked':
+        return 'bg-orange-100 text-orange-800';
       case 'deleted':
         return 'bg-gray-100 text-gray-600';
       default:
@@ -311,6 +305,8 @@ const UserManagement = () => {
         return 'Pending';
       case 'rejected':
         return 'Rejected';
+      case 'blocked':
+        return 'Blocked';
       case 'deleted':
         return 'Deleted';
       default:
@@ -358,10 +354,11 @@ const UserManagement = () => {
     { name: 'Employers', id: 'employers' },
     { name: 'Deleted Users', id: 'deleted' },
   ];
-
+  
   const handleUserAction = async (action, userId) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
+    const status = getEffectiveStatus(user);
 
     switch (action) {
       case 'view':
@@ -373,29 +370,23 @@ const UserManagement = () => {
         setIsEditModalOpen(true);
         break;
       case 'reject':
-        if (user.alumni_verification_status === 'rejected') return;
+        if (status === 'rejected') return;
         setSelectedUser(user);
         setIsRejectModalOpen(true);
         break;
       case 'approve':
-        if (user.alumni_verification_status === 'approved') return;
+        if (status === 'approved') return;
         try {
-          const { error } = await adminSetProfileApproval(userId, 'approved');
-          if (error) throw error;
-          setUsers(currentUsers => currentUsers.map(u => u.id === userId ? { 
-            ...u, 
-            alumni_verification_status: 'approved',
-            approval_status: 'approved',
-            rejection_reason: null 
-          } : u));
+          await adminUpdateProfileApproval({
+            profileId: userId,
+            decision: 'approve',
+            notes: null,
+          });
+          await fetchUsers();
           toast.success(`${user.full_name || user.email} has been approved.`);
         } catch (error) {
-          const msg = error?.message || String(error);
-          if (/404/.test(msg) || /schema cache/i.test(msg) || /could not find the function/i.test(msg)) {
-            toast.error('Approval failed: ensure RPC exists and matches (target uuid, new_status text). Reload PostgREST schema if needed.');
-          } else {
-            toast.error(`Failed to approve user: ${msg}`);
-          }
+          console.error('Error approving user:', error);
+          toast.error(`Failed to approve user: ${getFriendlyErrorMessage(error, 'Unable to approve user.')}`);
         }
         break;
       case 'delete':
@@ -454,51 +445,25 @@ const UserManagement = () => {
   };
 
   const handleSaveUser = async (userId, newRole) => {
-    try {
-      if (!isRole(newRole)) {
-        toast.error('Invalid role');
-        return;
-      }
-      // Guard: prevent demoting the last super_admin
-      if (selectedUser?.id === userId && selectedUser?.role === 'super_admin' && newRole !== 'super_admin') {
-        const { count, error: cntErr } = await supabase
-          .from('profiles')
-          .select('*', { count: 'exact', head: true })
-          .eq('role', 'super_admin');
-        if (!cntErr && (count || 0) <= 1) {
-          toast.error('Cannot demote the last Super Admin. Please assign another Super Admin first.');
-          return;
-        }
-      }
-      const { error } = await supabase.rpc('admin_set_user_role', {
-        p_user_id: userId,
-        p_role: newRole,
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      toast.success('User role updated successfully!');
-      fetchUsers(); // Refresh the user list
-      setIsEditModalOpen(false);
-      setSelectedUser(null);
-
-      // If the current actor changed their own role away from super_admin, refresh session & reload
-      if (userId === currentUser?.id && newRole !== 'super_admin') {
-        try {
-          await supabase.auth.refreshSession();
-        } catch (e) {
-          console.warn('refreshSession failed, proceeding to hard reload');
-        }
-        // Hard reload to ensure guards and context re-evaluate permissions
-        setTimeout(() => window.location.reload(), 300);
-      }
-
-    } catch (error) {
-      console.error('Error updating user role:', error);
-      toast.error(`Failed to update user role: ${getFriendlyErrorMessage(error, 'Unable to update user role.')}`);
+    const user = users.find((u) => u.id === userId);
+    if (!user) {
+      toast.error('User not found');
+      return;
     }
+
+    const oldRole = user.role;
+    const { success, error } = await changeUserRole({ userId, oldRole, newRole });
+
+    if (!success) {
+      // changeUserRole already surfaced a toast; just log for debugging
+      if (error) {
+        console.error('Failed to change user role:', error);
+      }
+      return;
+    }
+
+    // Refresh users so the table reflects the updated role
+    await fetchUsers();
   };
 
   const handleBulkAction = async (action) => {
@@ -508,17 +473,18 @@ const UserManagement = () => {
       const newStatus = action === 'approve' ? 'approved' : 'rejected';
       setLoading(true);
       const results = await Promise.allSettled(
-        selectedUsers.map(id => adminSetProfileApproval(id, newStatus))
+        selectedUsers.map(id =>
+          adminUpdateProfileApproval({
+            profileId: id,
+            decision: action === 'approve' ? 'approve' : 'reject',
+            notes: null,
+          })
+        )
       );
-      const ok = results.filter(r => r.status === 'fulfilled' && !r.value?.error).length;
+      const ok = results.filter(r => r.status === 'fulfilled').length;
       const failed = results.length - ok;
       if (ok) {
-        setUsers(prev => prev.map(u => selectedUsers.includes(u.id) ? {
-          ...u,
-          approval_status: newStatus,
-          alumni_verification_status: newStatus,
-          rejection_reason: newStatus === 'approved' ? null : u.rejection_reason
-        } : u));
+        await fetchUsers();
       }
       setSelectedUsers([]);
       setLoading(false);
@@ -565,16 +531,13 @@ const UserManagement = () => {
 
   const handleRejectUser = async (userId, rejectionComment) => {
     try {
-      const { error } = await adminSetProfileApproval(userId, 'rejected');
-      if (error) throw error;
-      
+      await adminUpdateProfileApproval({
+        profileId: userId,
+        decision: 'reject',
+        notes: rejectionComment || null,
+      });
       // Update local UI immediately
-      setUsers(prev => prev.map(u => u.id === userId ? {
-        ...u,
-        alumni_verification_status: 'rejected',
-        approval_status: 'rejected',
-        rejection_reason: rejectionComment || null
-      } : u));
+      await fetchUsers();
 
       // Remove any stored rejection comments from localStorage if they exist
       // This is to clean up any legacy localStorage items
@@ -816,8 +779,8 @@ const UserManagement = () => {
                       </span>
                     </td>
                     <td className="py-4 px-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(user.is_deleted ? 'deleted' : (user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')))}`}>
-                        {getStatusLabel(user.is_deleted ? 'deleted' : (user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')))}
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(getEffectiveStatus(user))}`}>
+                        {getStatusLabel(getEffectiveStatus(user))}
                       </span>
                     </td>
                     <td className="py-4 px-4">
@@ -850,18 +813,18 @@ const UserManagement = () => {
                         {hasPermission('manage:users') && (
                           <>
                             <button 
-                              title={(user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')) === 'approved' ? 'Already approved' : 'Approve User'}
-                              disabled={(user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')) === 'approved'}
+                              title={getEffectiveStatus(user) === 'approved' ? 'Already approved' : 'Approve User'}
+                              disabled={getEffectiveStatus(user) === 'approved'}
                               onClick={() => handleUserAction('approve', user.id)}
-                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${(user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')) === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
+                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${getEffectiveStatus(user) === 'approved' ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
                             >
                               <CheckCircleIcon className="w-4 h-4" />
                             </button>
                             <button 
-                              title={(user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')) === 'rejected' ? 'Already rejected' : 'Reject User'}
-                              disabled={(user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')) === 'rejected'}
+                              title={getEffectiveStatus(user) === 'rejected' ? 'Already rejected' : 'Reject User'}
+                              disabled={getEffectiveStatus(user) === 'rejected'}
                               onClick={() => handleUserAction('reject', user.id)}
-                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${(user.approval_status || user.alumni_verification_status || (user.is_approved ? 'approved' : 'pending')) === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
+                              className={`inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg ${getEffectiveStatus(user) === 'rejected' ? 'text-red-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
                             >
                               <XCircleIcon className="w-4 h-4" />
                             </button>
@@ -869,7 +832,7 @@ const UserManagement = () => {
                         )}
                         {hasPermission('delete:users') && user.id !== currentUser?.id && (
                           <>
-                            {user.is_deleted ? (
+                            {user.is_deleted && canPurge && (
                               <button 
                                 title="Purge User Data"
                                 onClick={() => handleUserAction('purge', user.id)}
@@ -883,8 +846,8 @@ const UserManagement = () => {
                                   <DocumentArrowDownIcon className="w-4 h-4" />
                                 )}
                               </button>
-                              ) : null}
-                              {user.is_deleted ? (
+                            )}
+                            {user.is_deleted && canHardDelete && (
                               <button 
                                 title="Delete Auth User"
                                 onClick={() => handleUserAction('delete-auth', user.id)}
@@ -898,7 +861,8 @@ const UserManagement = () => {
                                   <DocumentArrowUpIcon className="w-4 h-4" />
                                 )}
                               </button>
-                            ) : (
+                            )}
+                            {!user.is_deleted && (
                               <button 
                                 title="Soft Delete User"
                                 onClick={() => handleUserAction('delete', user.id)}

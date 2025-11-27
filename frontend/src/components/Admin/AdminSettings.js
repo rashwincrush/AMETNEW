@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { toFriendlyToast } from '../../utils/errors';
+import { changeUserRole } from '../../utils/changeUserRole';
 import { Link } from 'react-router-dom';
 import ContentApproval from './ContentApproval';
 import UserManagement from './UserManagement';
@@ -94,17 +95,23 @@ const SystemAdministration = () => {
   const handleSuperAdminAssignment = async (userIdToUpdate, makeSuperAdmin) => {
     setLoading(true);
     try {
+      const target =
+        adminUsers.find((u) => u.id === userIdToUpdate) || selectedUserForRoleChange;
+
+      const oldRole = target?.role || 'admin';
       const newRole = makeSuperAdmin ? 'super_admin' : 'admin';
-      
-      const { error } = await supabase
-        .from('profiles')
-        .update({ role: newRole })
-        .eq('id', userIdToUpdate);
-        
-      if (error) throw error;
-      
-      toast.success(`User role updated to ${newRole}`);
-      fetchAdminUsers(); // Refresh the list
+
+      const { success } = await changeUserRole({
+        userId: userIdToUpdate,
+        oldRole,
+        newRole,
+      });
+
+      if (!success) {
+        return;
+      }
+
+      await fetchAdminUsers(); // Refresh the list
     } catch (err) {
       console.error('Error updating user role:', err);
       toFriendlyToast(toast, err, 'Failed to update role. Please try again.');

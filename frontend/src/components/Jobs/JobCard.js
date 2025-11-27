@@ -69,11 +69,12 @@ export default function JobCard({ job }) {
       {/* Header row with top-right actions */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-lg bg-gray-100 overflow-hidden flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-white border border-gray-200 overflow-hidden flex items-center justify-center">
             <ImageWithFallback
               src={companyLogo}
               alt={companyName || 'Company'}
-              className="w-10 h-10"
+              className="w-12 h-12"
+              imgClassName="w-full h-full object-contain"
               placeholderSrc="/default-avatar.svg"
               emptyMessage="Employer logo to be uploaded"
             />

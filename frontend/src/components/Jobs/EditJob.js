@@ -74,7 +74,7 @@ const EditJob = () => {
           .select(`
             id, title, company_name, location, job_type,
             description, requirements, skills, salary_range, application_url,
-            contact_email, external_url, apply_url, company_id,
+            contact_email, external_url, apply_url, company_id, logo_url,
             posted_by, user_id, created_by, deadline, application_deadline,
             is_active, is_approved,
             company:companies(name, logo_url)
@@ -264,12 +264,12 @@ const EditJob = () => {
         description: (description || '').trim() || null,
       };
     } else {
-      // Legacy in-app update
+      // Legacy in-app update (logo is handled via companies.logo_url only)
       updateData = {
         title, company_name, location, job_type, description, requirements, skills,
         salary_range, application_url: norm_application_url, contact_email,
         external_url: norm_external_url, apply_url: norm_apply_url,
-        company_id, deadline, is_active
+        company_id, deadline, is_active,
       };
     }
 

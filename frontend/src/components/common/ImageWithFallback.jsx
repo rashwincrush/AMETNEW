@@ -8,6 +8,7 @@ export default function ImageWithFallback({
   placeholderSrc = '/default-avatar.svg',
   emptyMessage = 'Image to be uploaded',
   imgProps = {},
+  imgClassName,
 }) {
   const [currentSrc, setCurrentSrc] = useState(src || '');
   const [errored, setErrored] = useState(!src);
@@ -31,7 +32,7 @@ export default function ImageWithFallback({
           src={currentSrc}
           alt={alt}
           onError={onError}
-          className="w-full h-full object-cover"
+          className={imgClassName || 'w-full h-full object-cover'}
           {...imgProps}
         />
       ) : (

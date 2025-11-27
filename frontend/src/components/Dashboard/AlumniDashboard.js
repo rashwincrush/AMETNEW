@@ -205,41 +205,36 @@ const AlumniDashboard = () => {
       let dashboardUpdates = {};
       
       try {
-        // Fetch profile count with explicit promise creation and better error handling
-        // This avoids issues with the promiseWithTimeout function
-        const fetchProfileCount = async () => {
+        // Fetch approved, non-deleted alumni count from canonical RPC
+        const fetchAlumniCount = async () => {
           try {
-            // Use explicit promise that will be properly caught if it fails
-            const { count, error } = await supabase
-              .from('public_profiles_view')
-              .select('id', { count: 'exact', head: true });
-            
+            const { data, error } = await supabase.rpc('get_alumni_approved_count');
             if (error) throw error;
+            const count = typeof data === 'number' ? data : 0;
             return { count, error: null };
           } catch (err) {
-            console.warn('Profile count query failed, will retry:', err);
+            console.warn('Alumni count RPC failed, will retry:', err);
             throw err;
           }
         };
-        
-        // Use the promiseWithTimeout with our explicit promise function
-        const profilesResult = await promiseWithTimeout(
-          fetchProfileCount(), 
-          20000, // Increased to 20 seconds
-          3     // Increased to 3 retries
+
+        const alumniResult = await promiseWithTimeout(
+          fetchAlumniCount(),
+          20000,
+          3
         );
-        
-        if (profilesResult && !profilesResult.error) {
-          dashboardUpdates.totalAlumni = profilesResult.count || 0;
+
+        if (alumniResult && !alumniResult.error) {
+          dashboardUpdates.totalAlumni = alumniResult.count || 0;
           dataStatus.alumni = true;
-        } else if (profilesResult && profilesResult.error) {
-          console.error('Error in profiles query response:', profilesResult.error);
+        } else if (alumniResult && alumniResult.error) {
+          console.error('Error in alumni count RPC response:', alumniResult.error);
         }
       } catch (error) {
-        console.error('Error fetching profiles count:', error);
+        console.error('Error fetching alumni count:', error);
         // Set a fallback value so the UI doesn't break
         dashboardUpdates.totalAlumni = 0;
-        dataStatus.alumni = true; // Mark as done to avoid blocking other components
+        dataStatus.alumni = true;
       }
       
       // Then fetch connections count
