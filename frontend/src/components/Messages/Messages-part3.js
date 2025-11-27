@@ -1,3 +1,7 @@
+// DEPRECATED: legacy messaging UI. Do not use for new features.
+// The canonical messaging UI is MessagingSystem + ConversationList + ChatWindow.
+// This file attempted to show a green "isOnline" dot but it was never wired up.
+
   // Get selected conversation data
   const selectedConversationData = selectedConversation 
     ? conversations.find(c => c.id === selectedConversation) 

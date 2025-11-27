@@ -37,16 +37,24 @@ export default function Bell() {
         onClick={() => setOpen((v) => !v)}
       >
         <BellIcon className="w-6 h-6 text-gray-700" />
-        {badgeCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] leading-[18px] text-center">
-            {badgeCount}
+        {badgeCount > 0 && badgeCount <= 9 && (
+          <span
+            className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-ocean-500 border-2 border-white shadow-sm"
+            aria-hidden
+          />
+        )}
+        {badgeCount >= 10 && (
+          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-ocean-500 text-white text-[10px] leading-[18px] text-center shadow-sm">
+            9+
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 z-50 w-[360px] max-w-[90vw]">
-          <NotificationsPanel onClose={() => setOpen(false)} />
+        <div className="fixed inset-x-0 bottom-0 px-3 z-50 sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:px-0">
+          <div className="mx-auto w-full max-w-md sm:ml-auto sm:mr-0 sm:max-w-[360px]">
+            <NotificationsPanel onClose={() => setOpen(false)} />
+          </div>
         </div>
       )}
     </div>

@@ -41,7 +41,13 @@ const PostJobWithLink = () => {
       showSuccess('Job posted successfully!');
       navigate('/jobs');
     } catch (error) {
-      showError(error.message || 'Failed to post job.');
+      const code = error?.code;
+      const msg = String(error?.message || error?.details || '');
+      if (code === '42501' || /row-level security/i.test(msg) || /fc_is_fully_approved/i.test(msg)) {
+        showError('Your account must be an approved Employer to post jobs. Please wait for admin approval or contact the administrator for assistance.');
+      } else {
+        showError(error.message || 'Failed to post job.');
+      }
     } finally {
       setLoading(false);
     }

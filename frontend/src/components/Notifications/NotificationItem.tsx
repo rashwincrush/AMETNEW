@@ -1,16 +1,39 @@
 import React from 'react';
-import dayjs from 'dayjs';
+import { formatDistanceToNow } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
+import { CheckCircleIcon } from '@heroicons/react/24/outline';
 import { iconForType } from './NotificationIcons';
 import type { Notification } from '../../api/notifications';
 
-type Props = { n: Notification; onToggleRead?: (id: string, toRead?: boolean) => void };
+const labelForType = (type?: string): string => {
+  const t = (type || '').toLowerCase();
 
-export default function NotificationItem({ n, onToggleRead }: Props) {
+  if (['connection', 'connection_request'].includes(t)) return 'Connections';
+  if (['message', 'chat_message'].includes(t)) return 'Messages';
+  if (['job', 'job_posted', 'job_approved', 'job_applied'].includes(t)) return 'Jobs';
+  if (['application', 'application_status'].includes(t)) return 'Applications';
+  if (t === 'mentorship') return 'Mentorship';
+  if (t.startsWith('event')) return 'Events';
+  if (t === 'group') return 'Groups';
+  if (['alert'].includes(t)) return 'Alerts';
+  if (t === 'system') return 'System';
+
+  return 'Notification';
+};
+
+type Props = { n: Notification; onToggleRead?: (id: string, toRead?: boolean) => void; onNavigate?: () => void };
+
+export default function NotificationItem({ n, onToggleRead, onNavigate }: Props) {
   const navigate = useNavigate();
   const Icon = iconForType(n.type, n.metadata || undefined);
+  const unread = !n.is_read;
+  const title = n.title || 'New activity';
+  const message = n.message || '';
   const open = () => {
-    if (n.link) navigate(n.link);
+    if (n.link) {
+      navigate(n.link);
+      if (onNavigate) onNavigate();
+    }
   };
 
   return (
@@ -19,36 +42,43 @@ export default function NotificationItem({ n, onToggleRead }: Props) {
       tabIndex={0}
       onClick={open}
       onKeyDown={(e) => e.key === 'Enter' && open()}
-      className={`flex items-start gap-3 px-3 py-2 rounded-md cursor-pointer ${!n.is_read ? 'bg-ocean-50' : 'hover:bg-gray-50'}`}
-      aria-label={n.title}
+      className={`group flex items-start gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors ${unread ? 'bg-ocean-50' : 'hover:bg-gray-50'}`}
+      aria-label={title}
     >
       <div className="mt-1">
         <Icon className="w-5 h-5 text-gray-600" />
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between">
-          <p className={`text-sm ${!n.is_read ? 'font-semibold text-gray-900' : 'text-gray-800'}`}>{n.title}</p>
-          <span className="ml-2 shrink-0 text-xs text-gray-500">{dayjs(n.created_at).fromNow()}</span>
+      <div className="flex-1 min-w-0 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="mb-0.5">
+            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-slate-50 text-slate-500">
+              {labelForType(n.type)}
+            </span>
+          </div>
+          <p className={`text-sm truncate ${unread ? 'font-semibold text-gray-900' : 'text-gray-800'}`}>{title}</p>
+          {message && (
+            <p className="mt-0.5 text-xs text-gray-600 line-clamp-1">{message}</p>
+          )}
         </div>
-        {n.message && <p className="text-sm text-gray-600 line-clamp-2">{n.message}</p>}
-      </div>
-      <div className="flex items-center gap-2">
-        {!n.is_read && <span className="w-2 h-2 rounded-full bg-ocean-500" aria-hidden />}
-        <div className="relative">
-          <button
-            type="button"
-            className="p-1 text-gray-500 hover:text-gray-700"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleRead?.(n.id, !n.is_read);
-            }}
-            aria-label={n.is_read ? 'Mark as unread' : 'Mark as read'}
-            title={n.is_read ? 'Mark as unread' : 'Mark as read'}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12a.75.75 0 01.75-.75h9a.75.75 0 010 1.5h-9a.75.75 0 01-.75-.75z" />
-            </svg>
-          </button>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <span className="text-xs text-gray-500">{formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}</span>
+          <div className="flex items-center gap-1">
+            {unread && <span className="w-1.5 h-1.5 rounded-full bg-ocean-500" aria-hidden />}
+            {onToggleRead && (
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-full p-1 text-gray-400 hover:text-ocean-600 hover:bg-ocean-50 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleRead(n.id, !n.is_read);
+                }}
+                aria-label={n.is_read ? 'Mark as unread' : 'Mark as read'}
+                title={n.is_read ? 'Mark as unread' : 'Mark as read'}
+              >
+                <CheckCircleIcon className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

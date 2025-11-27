@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { isQuickLink, coalesceAppUrl, companyDisplay } from '../../utils/jobs';
+import { isQuickLink, coalesceAppUrl, getJobLogoUrl, getJobCompanyName } from '../../utils/jobs';
 import { getApplicantsCount } from '../../utils/applicants';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -20,7 +20,8 @@ export default function JobCard({ job }) {
   const isOwner = user?.id === employerId;
 
   // Normalize company for display
-  const { name: companyName, logo_url: companyLogo } = useMemo(() => companyDisplay(job), [job]);
+  const companyName = useMemo(() => getJobCompanyName(job), [job]);
+  const companyLogo = useMemo(() => getJobLogoUrl(job), [job]);
   const isQuick = isQuickLink(job);
   const externalUrl = useMemo(() => coalesceAppUrl(job), [job]);
   const [isBookmarked, setIsBookmarked] = useState(Boolean(job?.is_bookmarked));

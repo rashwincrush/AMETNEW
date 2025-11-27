@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { UserPlusIcon, ClockIcon } from '@heroicons/react/24/outline';
+import Avatar from '../common/Avatar';
 
 const ConnectionManager = ({ currentUser }) => {
   const [incomingRequests, setIncomingRequests] = useState([]);
@@ -138,7 +139,12 @@ const ConnectionManager = ({ currentUser }) => {
             {incomingRequests.map(req => (
               <li key={req.id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
                 <div className="flex items-center space-x-3">
-                  <img src={req.requester.avatar_url || `https://ui-avatars.com/api/?name=${req.requester.full_name}&background=random`} alt={req.requester.full_name} className="h-10 w-10 rounded-full" />
+                  <Avatar
+                    src={req.requester.avatar_url ?? null}
+                    alt={req.requester.full_name || 'User'}
+                    size={40}
+                    rounded="full"
+                  />
                   <div>
                     <p className="font-semibold text-gray-800">{req.requester.full_name}</p>
                     <p className="text-sm text-gray-500">{req.requester.job_title || 'No title specified'}</p>
@@ -167,7 +173,12 @@ const ConnectionManager = ({ currentUser }) => {
             {outgoingRequests.map(req => (
               <li key={req.id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
                 <div className="flex items-center space-x-3">
-                  <img src={req.recipient.avatar_url || `https://ui-avatars.com/api/?name=${req.recipient.full_name}&background=random`} alt={req.recipient.full_name} className="h-10 w-10 rounded-full" />
+                  <Avatar
+                    src={req.recipient.avatar_url ?? null}
+                    alt={req.recipient.full_name || 'User'}
+                    size={40}
+                    rounded="full"
+                  />
                   <div>
                     <p className="font-semibold text-gray-800">{req.recipient.full_name}</p>
                     <p className="text-sm text-gray-500">{req.recipient.job_title || 'No title specified'}</p>

@@ -216,7 +216,13 @@ const PostJob = () => {
 
     } catch (err) {
       console.error('Error submitting Quick Link job:', err);
-      mapSupabaseErrorToToast(err);
+      const code = err?.code;
+      const msg = String(err?.message || err?.details || '');
+      if (code === '42501' || /row-level security/i.test(msg) || /fc_is_fully_approved/i.test(msg)) {
+        toast.error('Your account must be an approved Employer to post jobs. Please wait for admin approval or contact the administrator for assistance.');
+      } else {
+        mapSupabaseErrorToToast(err);
+      }
     } finally {
       setPublishIntent(false);
       setIsSubmitting(false);
@@ -423,7 +429,13 @@ const PostJob = () => {
       }
     } catch (err) {
       console.error('Error submitting job:', err);
-      mapSupabaseErrorToToast(err);
+      const code = err?.code;
+      const msg = String(err?.message || err?.details || '');
+      if (code === '42501' || /row-level security/i.test(msg) || /fc_is_fully_approved/i.test(msg)) {
+        toast.error('Your account must be an approved Employer to post jobs. Please wait for admin approval or contact the administrator for assistance.');
+      } else {
+        mapSupabaseErrorToToast(err);
+      }
     } finally {
       setIsSubmitting(false);
     }

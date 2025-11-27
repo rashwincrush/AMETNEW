@@ -1,8 +1,43 @@
 import React from 'react';
+import dayjs from 'dayjs';
+import { CheckCircleIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import NotificationItem from './NotificationItem';
 import { useNotifications } from '../../hooks/useNotifications';
 
-const TYPES = ['system','connection','message','event','job','application','mentorship','group','alert'];
+function NotificationsSkeleton() {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: 4 }).map((_, idx) => (
+        <div
+          key={idx}
+          className="flex items-center space-x-3 rounded-lg border border-slate-100 p-3 animate-pulse"
+        >
+          <div className="h-8 w-8 rounded-full bg-slate-100" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-24 rounded bg-slate-100" />
+            <div className="h-3 w-40 rounded bg-slate-100" />
+          </div>
+          <div className="h-3 w-10 rounded bg-slate-100" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const groupByTime = (items) => {
+  const groups = { today: [], yesterday: [], earlier: [] };
+  const startOfToday = dayjs().startOf('day');
+
+  items.forEach((n) => {
+    const createdDay = dayjs(n.created_at).startOf('day');
+    const diffDays = startOfToday.diff(createdDay, 'day');
+    if (diffDays === 0) groups.today.push(n);
+    else if (diffDays === 1) groups.yesterday.push(n);
+    else groups.earlier.push(n);
+  });
+
+  return groups;
+};
 
 export default function NotificationsPanel({ onClose }) {
   const {
@@ -20,48 +55,60 @@ export default function NotificationsPanel({ onClose }) {
     markAll,
   } = useNotifications();
 
+  const hasUnread = unreadCount > 0;
+  const hasItems = items && items.length > 0;
+  const groups = groupByTime(items || []);
+
   return (
-    <div className="w-full max-w-md bg-white shadow-xl rounded-lg overflow-hidden flex flex-col" role="dialog" aria-label="Notifications">
+    <div className="w-full sm:max-w-md bg-white shadow-xl rounded-t-2xl sm:rounded-lg overflow-hidden flex flex-col" role="dialog" aria-label="Notifications">
       <div className="flex items-center justify-between px-4 py-3 border-b">
-        <h3 className="font-semibold">Notifications</h3>
-        <div className="flex items-center gap-2">
-          <button className="text-sm text-ocean-600 hover:underline" onClick={markAll} aria-label="Mark all as read">Mark all as read</button>
-          <button className="text-gray-500" onClick={onClose} aria-label="Close">✕</button>
+        <h3 className="font-semibold text-gray-900">Notifications</h3>
+        <div className="flex items-center gap-1">
+          {hasUnread && (
+            <button
+              type="button"
+              onClick={markAll}
+              className="inline-flex items-center justify-center rounded-full p-1.5 text-gray-500 hover:text-ocean-600 hover:bg-ocean-50 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-gray-400"
+              aria-label="Mark all as read"
+              disabled={isLoading || isFetching}
+            >
+              <CheckCircleIcon className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center justify-center rounded-full p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+            aria-label="Close notifications"
+          >
+            <XMarkIcon className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
       <div className="px-3 pt-2">
-        <div className="flex gap-2 text-sm">
+        <div className="inline-flex items-center gap-1 text-xs bg-gray-50 rounded-full p-0.5">
           {['all','unread','read'].map((t) => (
             <button
               key={t}
               onClick={() => setFilterTab(t)}
-              className={`px-3 py-1 rounded-full border ${filterTab===t?'bg-ocean-600 text-white border-ocean-600':'border-gray-300 text-gray-700'}`}
+              className={`px-2 py-1 rounded-full transition-colors ${filterTab===t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}
               aria-pressed={filterTab===t}
             >
               {t[0].toUpperCase()+t.slice(1)}
             </button>
           ))}
         </div>
-
-        <div className="flex flex-wrap gap-2 mt-3">
-          {TYPES.map((t) => (
-            <button
-              key={t}
-              onClick={() => toggleType(t)}
-              className={`px-2 py-1 rounded-full text-xs border ${typeFilter.has(t)?'bg-gray-800 text-white border-gray-800':'border-gray-300 text-gray-700'}`}
-              aria-pressed={typeFilter.has(t)}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
       </div>
 
-      <div className="max-h-[70vh] overflow-auto divide-y mt-2" role="list">
-        {isLoading && <div className="p-4 text-sm text-gray-500">Loading...</div>}
+      <div className="max-h-[70vh] overflow-auto mt-2" role="list">
+        {isLoading && (
+          <div className="p-3">
+            <NotificationsSkeleton />
+          </div>
+        )}
         {error && <div className="p-4 text-sm text-red-600">Failed to load</div>}
-        {!isLoading && items.length === 0 && (
+        {!isLoading && !hasItems && (
           <div className="p-8 text-center text-sm text-gray-500">
             {(() => {
               const hasTypeFilters = typeFilter && typeFilter.size > 0;
@@ -71,15 +118,39 @@ export default function NotificationsPanel({ onClose }) {
             })()}
           </div>
         )}
-        {items.map((n) => (
-          <div key={n.id} role="listitem">
-            <NotificationItem n={n} onToggleRead={markOne} />
-          </div>
-        ))}
-        {items.length > 0 && (
-          <div className="p-3">
-            <button onClick={loadMore} className="w-full text-sm border rounded-md py-2 hover:bg-gray-50">Load more</button>
-          </div>
+
+        {!isLoading && hasItems && (
+          <>
+            {['today','yesterday','earlier'].map((key) => {
+              const groupItems = groups[key];
+              if (!groupItems || groupItems.length === 0) return null;
+              const label = key === 'today' ? 'Today' : key === 'yesterday' ? 'Yesterday' : 'Earlier';
+              return (
+                <div key={key} className="pb-2">
+                  <div className="px-3 pt-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    {label}
+                  </div>
+                  {groupItems.map((n) => (
+                    <div key={n.id} role="listitem">
+                      <NotificationItem n={n} onToggleRead={markOne} onNavigate={onClose} />
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+
+            {hasItems && (
+              <div className="p-3 pt-1">
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  className="w-full text-sm border rounded-md py-2 hover:bg-gray-50"
+                >
+                  Load more
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

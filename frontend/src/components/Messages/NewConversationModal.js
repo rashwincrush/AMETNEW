@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { supabase, createThread } from '../../utils/supabase';
 import { XMarkIcon } from '@heroicons/react/24/outline';
+import Avatar from '../common/Avatar';
 
 const NewConversationModal = ({ isOpen, onClose, onConversationStarted }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -115,7 +116,13 @@ const NewConversationModal = ({ isOpen, onClose, onConversationStarted }) => {
                         onClick={() => handleStartConversation(user.id)}
                         className="flex items-center p-2 rounded-md hover:bg-gray-100 cursor-pointer"
                       >
-                        <img src={user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.full_name || 'A')}`} alt={user.full_name || 'avatar'} className="h-10 w-10 rounded-full object-cover mr-3" />
+                        <Avatar
+                          src={user.avatar_url ?? null}
+                          alt={user.full_name || 'User'}
+                          size={40}
+                          rounded="full"
+                          className="mr-3"
+                        />
                         <div>
                           <p className="font-semibold">{user.full_name}</p>
                           <p className="text-sm text-gray-500">&nbsp;</p>

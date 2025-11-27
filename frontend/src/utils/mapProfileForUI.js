@@ -53,9 +53,8 @@ export function mapProfileForUI(row) {
     ? `${locationCity}, ${locationCountry}`
     : (locationCity || locationCountry || location);
 
-  const avatar = row.avatar_url || (fullName || email
-    ? `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName || email)}&background=3B82F6&color=fff`
-    : null);
+  // Avatar: rely solely on stored avatar_url (or photo_url fallback) and let the Avatar component handle fallbacks
+  const avatar_url = row.avatar_url ?? row.photo_url ?? null;
 
   const about = row.about || row.bio || row.brief || '';
 
@@ -115,7 +114,9 @@ export function mapProfileForUI(row) {
     company,
     location,
     locationDisplay,
-    avatar,
+    avatar_url,
+    // Backwards-compatible alias for existing UI that still expects `avatar`
+    avatar: avatar_url,
     coverImage: row.cover_image || 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
     verified: !!row.is_verified,
     joinedDate: row.created_at ? new Date(row.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '',

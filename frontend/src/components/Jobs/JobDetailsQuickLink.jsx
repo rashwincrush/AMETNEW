@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
-import { coalesceAppUrl, isQuickLink } from '../../utils/jobs';
+import { coalesceAppUrl, isQuickLink, computeJobApplyState } from '../../utils/jobs';
 import { requestConnectionForJob } from '../../utils/connections';
 import ImageWithFallback from '../common/ImageWithFallback';
 import { supabase } from '../../utils/supabase';
@@ -21,6 +21,9 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
     : typeof job?.skills === 'string'
       ? job.skills.split(',').map((s) => s.trim()).filter(Boolean)
       : [];
+
+  const applyState = computeJobApplyState(job);
+  const { canApplyExternally, isClosed } = applyState;
 
   // Guards
   if (!job || !isQuickLink(job)) return null;
@@ -73,9 +76,9 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed"
               aria-disabled="true"
             >
-              Accepting Applications
+              {isClosed ? 'Applications Closed' : 'Accepting Applications'}
             </button>
-          ) : (
+          ) : canApplyExternally ? (
             <button
               onClick={() => {
                 if (!externalUrl) return;
@@ -85,6 +88,14 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ocean-600 text-white hover:bg-ocean-700"
             >
               Apply Externally
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed"
+              aria-disabled="true"
+            >
+              Applications Closed
             </button>
           )}
 

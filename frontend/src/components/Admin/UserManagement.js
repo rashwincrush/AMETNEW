@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
+import Avatar from '../common/Avatar';
 import { adminSetProfileApproval } from '../../api/admin';
 import { isRole } from '../../utils/roles';
 import { 
@@ -792,8 +793,13 @@ const UserManagement = () => {
                     </td>
                     <td className="py-4 pl-4 pr-3 text-sm sm:pl-6">
                       <div className="flex items-center">
-                        <div className="h-10 w-10 flex-shrink-0">
-                          <img className="h-10 w-10 rounded-full object-cover" src={user.avatar_url || `https://ui-avatars.com/api/?name=${user.full_name}&background=random`} alt="" />
+                        <div className="h-10 w-10 flex-shrink-0 flex items-center justify-center">
+                          <Avatar
+                            src={user.avatar_url ?? null}
+                            alt={user.full_name || 'User'}
+                            size={40}
+                            rounded="full"
+                          />
                         </div>
                         <div className="ml-4">
                           <div className="font-medium text-gray-900">{user.full_name || 'N/A'}</div>

@@ -27,6 +27,7 @@ import Header from './components/Layout/Header';
 import EditEvent from './components/Events/EditEvent';
 import CreateEvent from './components/Events/CreateEvent';
 import EventFeedbackReport from './components/Admin/EventFeedbackReport';
+import MyRegistrationsList from './components/Events/MyRegistrationsList';
 
 import AuthListener from './components/Auth/AuthListener';
 import Login from './components/Auth/Login';
@@ -204,10 +205,10 @@ function AppContent() {
             <Route path="/companies/:id" element={<PublicCompanyProfile />} />
             <Route path="/company/edit" element={<ProtectedRoute requiredPermission="manage:company_profile"><EditCompanyProfile user={profile || user} /></ProtectedRoute>} />
             <Route path="/events/*" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="access:events"><EventsPage /></ProtectedRoute></RequireCompleteProfile>} />
-            <Route path="/events/my-registrations" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="access:events"><EventsPage /></ProtectedRoute></RequireCompleteProfile>} />
-            <Route path="/events/edit/:id" element={<ProtectedRoute requiredPermission="access:events"><EditEvent /></ProtectedRoute>} />
-            <Route path="/events/create" element={<ProtectedRoute requiredPermission="access:events"><CreateEvent /></ProtectedRoute>} />
-            <Route path="/events/new" element={<ProtectedRoute requiredPermission="access:events"><CreateEvent /></ProtectedRoute>} />
+            <Route path="/events/my-registrations" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="access:events"><MyRegistrationsList /></ProtectedRoute></RequireCompleteProfile>} />
+            <Route path="/events/edit/:id" element={<ProtectedRoute requiredPermission="events:create"><EditEvent /></ProtectedRoute>} />
+            <Route path="/events/create" element={<ProtectedRoute requiredPermission="events:create"><CreateEvent /></ProtectedRoute>} />
+            <Route path="/events/new" element={<ProtectedRoute requiredPermission="events:create"><CreateEvent /></ProtectedRoute>} />
             <Route path="/admin/events/:id/feedback" element={<ProtectedRoute requiredPermission="access:all"><EventFeedbackReport /></ProtectedRoute>} />
             <Route path="/admin/events/moderation" element={<ProtectedRoute requiredPermission="access:all"><EventModerationPanel /></ProtectedRoute>} />
             <Route path="/jobs" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:jobs"><JobListingsPage /></ProtectedRoute></RequireCompleteProfile>} />

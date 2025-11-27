@@ -16,8 +16,9 @@ import { getDisconnectCooldown, clearDisconnectCooldown, formatCooldownTime } fr
 import AvatarComponent from '../common/Avatar';
 import { useDmRealtime } from '../../hooks/useDmRealtime';
 import { ensureDmThreadWith, sendDmMessage } from '../../api/dm';
+import { useProfileById } from '../../hooks/useProfileById';
 
-const ChatWindow = ({ thread, currentUser, onMessageSent, onBack }) => {
+const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, onBack }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -27,6 +28,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onBack }) => {
   const messagesEndRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const { profile: otherUserProfile } = useProfileById(activeThread?.other_user_id);
 
   // Context from query string (job/event)
   const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
@@ -38,7 +40,6 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onBack }) => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const canSend = !!(activeThread && activeThread.can_send);
   const [edge, setEdge] = useState(null);
   const [localAccepted, setLocalAccepted] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -47,7 +48,14 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onBack }) => {
   const [cooldownEnd, setCooldownEnd] = useState(null);
   const [cooldownTimer, setCooldownTimer] = useState(null);
   const sendingMessageRef = useRef(false);
-  const canSendDerived = (canSend || localAccepted || (edge && (edge.status === 'accepted' || edge.status === 'connected'))) && isConnected;
+
+  // canSendDerived = expanded/optimistic version of activeThread.can_send.
+  // Backend still enforces public.are_connected, so this only affects UX, not security.
+  const fromThread = !!(activeThread && activeThread.can_send);  // view / green-dot source
+  const fromLocalAccept = !!localAccepted;                        // optimistic, after accept click
+  const edgeAccepted = edge && edge.status === 'accepted';        // latest connection row
+  const fromRPC = !!isConnected;                                  // result of RPC-based status check
+  const canSendDerived = fromThread || fromLocalAccept || !!edgeAccepted || fromRPC;
 
   // Keep local activeThread in sync and ensure dm_threads exists
   useEffect(() => {
@@ -327,7 +335,13 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onBack }) => {
     }
   };
 
-  const displayName = (otherProfile?.full_name || activeThread?.other_user_name || '').trim();
+  const displayName = (
+    otherProfile?.full_name ||
+    otherUserProfile?.full_name ||
+    activeThread?.other_user_name ||
+    ''
+  ).trim();
+  const headerAvatarUrl = otherUserProfile?.avatar_url || otherProfile?.avatar_url || null;
 
   if (!activeThread?.thread_id && activeThread?.other_user_id) {
     // Show header for the selected peer even if the DM thread is not created yet
@@ -345,7 +359,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onBack }) => {
               >
                 <ArrowLeftIcon className="w-5 h-5 text-gray-700" />
               </button>
-              <AvatarComponent src={otherProfile?.avatar_url} alt={displayName || 'Contact'} size={40} />
+              <AvatarComponent src={headerAvatarUrl} alt={displayName || 'Contact'} size={40} />
               <div>
                 <h3 className="text-lg font-medium text-gray-900">{displayName || 'Conversation'}</h3>
                 {(otherProfile?.job_title || otherProfile?.company) && (
@@ -391,7 +405,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onBack }) => {
             >
               <ArrowLeftIcon className="w-5 h-5 text-gray-700" />
             </button>
-            <AvatarComponent src={otherProfile?.avatar_url} alt={displayName || 'Contact'} size={40} />
+            <AvatarComponent src={headerAvatarUrl} alt={displayName || 'Contact'} size={40} />
             <div>
               <h3 className="text-lg font-medium text-gray-900">
                 {displayName || 'Conversation'}
@@ -487,6 +501,10 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onBack }) => {
                         try {
                           await acceptPending(currentUser.id, activeThread.other_user_id);
                           setLocalAccepted(true);
+                          // Optimistically update parent's threads state for instant green dot
+                          if (onConnectionAccepted) {
+                            onConnectionAccepted(activeThread.other_user_id);
+                          }
                           await checkConnection();
                           toast.success('Connection accepted');
                         } catch (err) {

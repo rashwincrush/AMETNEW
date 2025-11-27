@@ -2,20 +2,22 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../utils/supabase';
-import { format, parseISO, isPast, isFuture } from 'date-fns';
-import { formatInTimeZone, utcToZonedTime } from 'date-fns-tz';
+import { format, parseISO } from 'date-fns';
+import { utcToZonedTime } from 'date-fns-tz';
 import { ArrowLeft, Edit, Trash2, Calendar, Clock, MapPin, Tag, Users, CheckCircle, BarChart2, Star } from 'lucide-react';
 import SocialShareButtons from '../common/SocialShareButtons';
 import ImageWithFallback from '../common/ImageWithFallback';
 import dayjs from 'dayjs';
 import { useEvent, useMyRsvp, useMyFeedback, useOrganizer, useEventComputedFlags } from '../../hooks/useEventData';
 import { useAuth } from '../../contexts/AuthContext';
+import { useApproval } from '../../hooks/useApproval';
 
 const EventDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, isAdmin } = useAuth();
+  const { isApproved } = useApproval();
   
   // Data fetching with React Query
   const { data: event, isLoading } = useEvent(id);
@@ -201,6 +203,11 @@ const EventDetail = () => {
   const updateRsvpStatus = async (status) => {
     if (!user) return setShowLoginPrompt(true);
     
+    if (!isApproved && status === 'going') {
+      setError('Your account is pending approval. You can browse events but cannot RSVP until approved.');
+      return;
+    }
+    
     setRsvpLoading(true);
     try {
       if (status === 'going') {
@@ -241,13 +248,18 @@ const EventDetail = () => {
     return () => updateRsvpStatus(status);
   };
 
-  const getEventStatus = (startDate, endDate) => {
-    if (!startDate || !endDate) return { text: 'Date TBD', color: 'bg-gray-400' };
-    const now = new Date();
-    if (isPast(parseISO(endDate))) return { text: 'Past', color: 'bg-red-500' };
-    if (isFuture(parseISO(startDate))) return { text: 'Upcoming', color: 'bg-blue-500' };
-    return { text: 'Ongoing', color: 'bg-green-500' };
-  };
+  const eventStatus = (() => {
+    if (!startISO || !endISO) {
+      return { text: 'Date TBD', color: 'bg-gray-400' };
+    }
+    if (eventEnded) {
+      return { text: 'Past', color: 'bg-red-500' };
+    }
+    if (eventStarted) {
+      return { text: 'Ongoing', color: 'bg-green-500' };
+    }
+    return { text: 'Upcoming', color: 'bg-blue-500' };
+  })();
 
   const handleFeedbackSubmit = async (e) => {
     e.preventDefault();
@@ -389,7 +401,6 @@ const EventDetail = () => {
   if (error) return <div className="text-center p-4 text-red-500 bg-red-100 rounded-md">Error: {error}</div>;
   if (!event) return <div className="text-center p-4">Event not found.</div>;
 
-  const eventStatus = getEventStatus(event.start_date, event.end_date);
   const canViewFeedback = eventEnded || event.status === 'completed';
 
   return (

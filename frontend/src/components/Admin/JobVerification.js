@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { CheckCircleIcon, XCircleIcon, ClockIcon } from '@heroicons/react/24/solid';
+import { getJobLogoUrl, getJobCompanyName } from '../../utils/jobs';
 
 const JobVerification = () => {
   const [pendingJobs, setPendingJobs] = useState([]);
@@ -13,7 +14,7 @@ const JobVerification = () => {
       setLoading(true);
       const { data, error } = await supabase
         .from('jobs')
-        .select('*, companies(name, logo_url))')
+        .select('*, companies(name, logo_url)')
         .eq('is_approved', false)
         .order('created_at', { ascending: true });
 
@@ -63,14 +64,17 @@ const JobVerification = () => {
       {pendingJobs.length > 0 ? (
         <div className="glass-card rounded-lg p-6">
           <ul className="divide-y divide-gray-200">
-            {pendingJobs.map(job => (
+            {pendingJobs.map(job => {
+              const logoSrc = getJobLogoUrl(job) || '/default-company-logo.svg';
+              const companyName = getJobCompanyName(job) || 'N/A';
+              return (
               <li key={job.id} className="py-4 flex flex-col sm:flex-row items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-4">
-                    <img src={job.companies?.logo_url || '/default-company-logo.svg'} alt="" className="w-12 h-12 rounded-lg object-contain bg-white" />
+                    <img src={logoSrc} alt="" className="w-12 h-12 rounded-lg object-contain bg-white" />
                     <div>
                       <p className="font-semibold text-ocean-700">{job.title}</p>
-                      <p className="text-sm text-gray-600">{job.companies?.name || 'N/A'}</p>
+                      <p className="text-sm text-gray-600">{companyName}</p>
                       <p className="text-xs text-gray-500">Posted on: {new Date(job.created_at).toLocaleDateString()}</p>
                     </div>
                   </div>
@@ -92,7 +96,7 @@ const JobVerification = () => {
                   </button>
                 </div>
               </li>
-            ))}
+            ); })}
           </ul>
         </div>
       ) : (

@@ -86,45 +86,62 @@ export default function DirectoryPage() {
     page: currentPage,
     pageSize: itemsPerPage,
     source,
-    adminFallback: true
+    // Only admins should fall back to the public view if the RPC fails or returns empty.
+    // Alumni/students must always use the RPC, which enforces approval/visibility rules.
+    adminFallback: isAdmin
   });
 
   // Use hook loading directly
   const loading = dirLoading;
 
-  // Auth context for admin flag (already destructured above)
+  // Helper predicates that categorize profiles by role; backend RPC enforces visibility/approval rules
+  const isAlumniProfile = useCallback((raw = {}) => {
+    if (raw.is_employer || raw.role === 'employer') return false;
+    if (raw.role === 'student') return false;
+    return true;
+  }, []);
 
-  // Normalize dataset for consistent fields
-  const base = useMemo(() => (dataset || []).map(normalizeProfile), [dataset]);
+  const isStudentProfile = useCallback((raw = {}) => {
+    return raw.role === 'student';
+  }, []);
 
-  // Build counts for Alumni, Students, and Employers
+  const isEmployerProfile = useCallback((raw = {}) => {
+    return !!(raw.is_employer || raw.role === 'employer');
+  }, []);
+
+  // Normalize dataset for consistent fields while preserving the raw row
+  const base = useMemo(
+    () => (dataset || []).map((row) => {
+      const normalized = normalizeProfile(row);
+      return { ...normalized, _raw: row };
+    }),
+    [dataset]
+  );
+
+  // Build counts for Alumni, Students, and Employers using canonical rules
   const alumniCount = useMemo(
     () =>
       base.filter(p => {
-        if (p.is_employer || p.role === 'employer' || p.role === 'student') return false;
-        const raw = p._raw || {};
-        const hasApprovalFields =
-          raw.approval_status !== undefined ||
-          raw.alumni_verification_status !== undefined ||
-          raw.is_approved !== undefined ||
-          raw.is_deleted !== undefined;
-        if (raw.is_deleted === true) return false;
-        if (!hasApprovalFields) return true;
-        const effectiveApproval =
-          raw.approval_status ||
-          raw.alumni_verification_status ||
-          (raw.is_approved ? 'approved' : 'pending');
-        return effectiveApproval === 'approved';
+        const raw = p._raw || p;
+        return isAlumniProfile(raw);
       }).length,
-    [base]
+    [base, isAlumniProfile]
   );
   const studentsCount = useMemo(
-    () => base.filter(p => p.role === 'student').length,
-    [base]
+    () =>
+      base.filter(p => {
+        const raw = p._raw || p;
+        return isStudentProfile(raw);
+      }).length,
+    [base, isStudentProfile]
   );
   const employersCount = useMemo(
-    () => base.filter(p => (p.is_employer || p.role === 'employer')).length,
-    [base]
+    () =>
+      base.filter(p => {
+        const raw = p._raw || p;
+        return isEmployerProfile(raw);
+      }).length,
+    [base, isEmployerProfile]
   );
 
   // Counts passed to ChipBar; hide certain counts for non-admin roles per requirements
@@ -228,6 +245,10 @@ export default function DirectoryPage() {
     setCurrentPage(1);
   }, [activeFilter]);
 
+  const handleFilterChange = useCallback((nextFilter) => {
+    setActiveFilter(nextFilter);
+  }, []);
+
   // Merge profiles with relationship state
   const withRel = useMemo(() => {
     const parseDegreeDept = (label) => {
@@ -299,9 +320,9 @@ export default function DirectoryPage() {
   const rest = useMemo(() => withRel.filter(p => !topIds.has(p.id)), [withRel, topIds]);
 
   const applyFilter = useCallback((list, filter) => {
-    if (filter === 'employers') return list.filter(p => (p.is_employer || p.role === 'employer'));
-    if (filter === 'alumni') return list.filter(p => !(p.is_employer || p.role === 'employer') && p.role !== 'student');
-    if (filter === 'students') return list.filter(p => p.role === 'student');
+    if (filter === 'employers') return list.filter(p => isEmployerProfile(p._raw || p));
+    if (filter === 'alumni') return list.filter(p => isAlumniProfile(p._raw || p));
+    if (filter === 'students') return list.filter(p => isStudentProfile(p._raw || p));
     if (filter === 'received') return list.filter(p => p.rel.status === 'pending' && p.rel.pending_side === 'received');
     if (filter === 'sent') return list.filter(p => p.rel.status === 'pending' && p.rel.pending_side === 'sent');
     if (filter === 'connected') return list.filter(p => p.rel.status === 'accepted');
@@ -318,67 +339,79 @@ export default function DirectoryPage() {
   const pageStart = Math.max(0, (currentPage - 1) * itemsPerPage);
   const pageItems = filtered.slice(pageStart, pageStart + itemsPerPage);
 
+  if (role === 'employer') {
+    return (
+      <div className="mx-auto max-w-[1600px] px-4 py-6">
+        <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-700 text-center">
+          Access denied. Employers do not have access to the people directory.
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto max-w-[1600px] px-4 py-6 space-y-6">
-      {/* Header and search controls */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30">
+      <div className="mx-auto max-w-[1800px] px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      {/* Hero Header */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-ocean-600 via-indigo-600 to-purple-700 shadow-2xl">
+        {/* Decorative background pattern */}
+        <div className="absolute inset-0 bg-grid-white/[0.05] bg-[size:20px_20px]" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
+        
+        <div className="relative p-8 sm:p-12">
         {/* Centered title */}
-        <div className="flex flex-col items-center text-center">
-          <h1 className="text-2xl font-bold text-slate-900">Alumni Directory</h1>
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
+          <div className="flex-1">
+            <h1 className="text-4xl sm:text-5xl font-bold text-white mb-3 tracking-tight">
+              Alumni Directory
+            </h1>
+            <p className="text-lg text-indigo-100 max-w-2xl">
+              Connect with fellow alumni, expand your network, and discover opportunities
+            </p>
+          </div>
+          {/* ChipBar with modern styling */}
+        <div className="mb-6">
+          <ChipBar counts={countsForChips} active={activeFilter} onChange={handleFilterChange} showEmployers={isAdmin} showConnections={isAdmin} />
+        </div>
         </div>
 
-        {/* Row with ChipBar + search + filter + sort */}
-        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          {/* ChipBar on the left */}
-          <div className="order-2 w-full lg:order-1 lg:w-auto">
-            <ChipBar
-              counts={countsForChips}
-              active={activeFilter}
-              onChange={setActiveFilter}
-              showEmployers={isAdmin}
-              showConnections={!!me?.id}
-            />
-          </div>
-
-          {/* Search + Filter controls on the right */}
-          <div className="order-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 w-full lg:order-2 lg:w-auto">
-            <div className="relative flex-1 sm:max-w-xs">
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                placeholder="Search by name, degree, company, city, or country"
-                aria-label="Search alumni"
-                className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white py-2.5 pl-3 pr-10 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
-              />
-              {searchTerm ? (
-                <button
-                  type="button"
-                  onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1"
-                  aria-label="Clear search"
-                >
-                  <XMarkIcon className="h-4 w-4" />
-                </button>
-              ) : null}
+        {/* Search and controls */}
+        <div className="space-y-4">
+          <div className="flex flex-col lg:flex-row gap-4">
+            <div className="flex-1">
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+                <input
+                  type="search"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search by name, company, or designation..."
+                  aria-label="Search alumni"
+                  className="w-full min-h-[52px] rounded-xl border-2 border-white/40 bg-white/95 backdrop-blur-sm py-3 pl-12 pr-4 text-sm font-medium text-slate-900 placeholder:text-slate-500 shadow-lg transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-ocean-600 focus-visible:border-white focus-visible:bg-white hover:bg-white"
+                />
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setShowFilters(true)}
-                className="inline-flex items-center gap-1.5 min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                className="inline-flex items-center justify-center gap-2 min-h-[52px] rounded-xl border-2 border-white/40 bg-white/95 backdrop-blur-sm px-5 py-3 text-sm font-semibold text-slate-700 shadow-lg hover:bg-white hover:border-white transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-ocean-600"
                 aria-label="Open filters"
               >
-                <FunnelIcon className="h-4 w-4 text-slate-500" aria-hidden="true" />
-                Filters
+                <FunnelIcon className="h-5 w-5 text-slate-600" aria-hidden="true" />
+                <span className="hidden sm:inline">Filters</span>
               </button>
 
               <select
                 value={sortBy}
                 onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
                 aria-label="Sort alumni"
-                className="min-h-[44px] rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-8 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                className="min-h-[52px] rounded-xl border-2 border-white/40 bg-white/95 backdrop-blur-sm py-3 pl-4 pr-10 text-sm font-semibold text-slate-700 shadow-lg hover:bg-white hover:border-white transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-ocean-600"
               >
                 <option value="full_name,asc">Name (A–Z)</option>
                 <option value="full_name,desc">Name (Z–A)</option>
@@ -388,100 +421,117 @@ export default function DirectoryPage() {
             </div>
           </div>
         </div>
+        </div>
 
-        {/* Active filter chips (batch/department) below the controls */}
-        {(filters.graduation_year || filters.department) && (
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {filters.graduation_year && (
-              <span className="flex items-center gap-1 rounded-full border border-ocean-200 bg-ocean-50 pl-2.5 pr-1 py-1 text-xs font-medium text-ocean-700">
-                Batch: <span className="font-semibold">{filters.graduation_year}</span>
-                <button
-                  type="button"
-                  onClick={() => { setFilters(f => ({ ...f, graduation_year: '' })); setCurrentPage(1); }}
-                  className="ml-1 rounded-full bg-ocean-100 hover:bg-ocean-200 p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1"
-                  aria-label="Remove batch filter"
-                >
-                  <XMarkIcon className="h-3 w-3 text-ocean-600" aria-hidden="true" />
-                </button>
-              </span>
-            )}
-            {filters.department && (
-              <span className="flex items-center gap-1 rounded-full border border-ocean-200 bg-ocean-50 pl-2.5 pr-1 py-1 text-xs font-medium text-ocean-700">
-                Department: <span className="font-semibold">{filters.department}</span>
-                <button
-                  type="button"
-                  onClick={() => { setFilters(f => ({ ...f, department: '' })); setCurrentPage(1); }}
-                  className="ml-1 rounded-full bg-ocean-100 hover:bg-ocean-200 p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1"
-                  aria-label="Remove department filter"
-                >
-                  <XMarkIcon className="h-3 w-3 text-ocean-600" aria-hidden="true" />
-                </button>
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => { setFilters({ graduation_year: '', department: '' }); setCurrentPage(1); }}
-              className="inline-flex items-center justify-center min-h-[32px] px-2 text-xs font-medium text-ocean-600 underline-offset-2 hover:underline rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
-              aria-label="Clear all filters"
-            >
-              Clear all
-            </button>
-          </div>
-        )}
       </div>
+
+      {/* Active filter chips (batch/department) below the header */}
+      {(filters.graduation_year || filters.department) && (
+        <div className="flex flex-wrap items-center gap-2 px-2">
+          {filters.graduation_year && (
+            <span className="flex items-center gap-1.5 rounded-xl border border-ocean-300 bg-ocean-100 pl-3 pr-1.5 py-1.5 text-xs font-semibold text-ocean-800 shadow-sm">
+              Batch: <span className="font-bold">{filters.graduation_year}</span>
+              <button
+                type="button"
+                onClick={() => { setFilters(f => ({ ...f, graduation_year: '' })); setCurrentPage(1); }}
+                className="ml-1 rounded-full bg-ocean-200 hover:bg-ocean-300 p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1"
+                aria-label="Remove batch filter"
+              >
+                <XMarkIcon className="h-3.5 w-3.5 text-ocean-700" aria-hidden="true" />
+              </button>
+            </span>
+          )}
+          {filters.department && (
+            <span className="flex items-center gap-1.5 rounded-xl border border-ocean-300 bg-ocean-100 pl-3 pr-1.5 py-1.5 text-xs font-semibold text-ocean-800 shadow-sm">
+              Department: <span className="font-bold">{filters.department}</span>
+              <button
+                type="button"
+                onClick={() => { setFilters(f => ({ ...f, department: '' })); setCurrentPage(1); }}
+                className="ml-1 rounded-full bg-ocean-200 hover:bg-ocean-300 p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1"
+                aria-label="Remove department filter"
+              >
+                <XMarkIcon className="h-3.5 w-3.5 text-ocean-700" aria-hidden="true" />
+              </button>
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => { setFilters({ graduation_year: '', department: '' }); setCurrentPage(1); }}
+            className="inline-flex items-center justify-center min-h-[36px] px-3 text-xs font-semibold text-ocean-700 underline-offset-2 hover:underline rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+            aria-label="Clear all filters"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
       
       {/* Priority strip */}
       {priority.length > 0 && activeFilter === 'alumni' && (
-        <div className="bg-gradient-to-r from-sky-50 to-indigo-50 rounded-xl border border-sky-200 shadow-sm p-4 sm:p-6" role="region" aria-label="Priority Connections">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800 mb-4">
-            <span className="inline-block h-2 w-2 rounded-full bg-sky-500" aria-hidden="true"></span>
-            Priority Connections
-          </h2>
+        <div className="bg-gradient-to-br from-sky-50 via-indigo-50 to-purple-50 rounded-2xl border border-sky-200/60 shadow-lg p-6 sm:p-8" role="region" aria-label="Priority Connections">
+          <div className="mb-6">
+            <h2 className="flex items-center gap-3 text-lg font-bold text-slate-900 mb-2">
+              <span className="inline-flex h-3 w-3 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 shadow-sm" aria-hidden="true"></span>
+              Priority Connections
+            </h2>
+            <p className="text-sm text-slate-600 pl-6">
+              Highlighted profiles share your batch, department, or have recent interactions with you
+            </p>
+          </div>
           <DirectoryGrid items={priority} meId={me?.id} currentTab={activeFilter} onChanged={reloadRelsAndCounts} compact loading={loading} />
         </div>
       )}
 
       {/* Main grid */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800">
+      <div className="space-y-6">
+        <div className="flex items-center justify-between px-2">
+          <h2 className="flex items-center gap-3 text-xl font-bold text-slate-900">
             {activeFilter === 'alumni' ? 'Alumni' :
              activeFilter === 'students' ? 'Students' :
              activeFilter === 'connected' ? 'My Connections' :
              activeFilter === 'received' ? 'Received Requests' : 'Sent Requests'}
           </h2>
           {loading && (
-            <div className="flex items-center gap-2 text-slate-500">
-              <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <div className="flex items-center gap-2.5 text-slate-600">
+              <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              <span className="text-xs">Loading...</span>
+              <span className="text-sm font-medium">Loading...</span>
             </div>
           )}
         </div>
         
         {/* Directory grid */}
-        <DirectoryGrid items={pageItems} meId={me?.id} currentTab={activeFilter} onChanged={reloadRelsAndCounts} loading={loading} />
+        {!loading && !dirError && pageItems.length === 0 ? (
+          <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-700 text-center">
+            {isAdmin ? (
+              <p>No profiles match the current filters. Try adjusting your search or filters.</p>
+            ) : (
+              <p>No approved profiles found. Profiles appear here after admin approval and when they are visible in the directory.</p>
+            )}
+          </div>
+        ) : (
+          <DirectoryGrid items={pageItems} meId={me?.id} currentTab={activeFilter} onChanged={reloadRelsAndCounts} loading={loading} />
+        )}
         
         {/* Pagination */}
-        {totalAlumni > itemsPerPage && (
-          <div className="mt-8 flex items-center justify-between border-t border-slate-200 pt-4">
+        {totalAlumni > itemsPerPage && pageItems.length > 0 && (
+          <div className="mt-10 flex items-center justify-between border-t border-slate-200/60 pt-6 px-2">
             <button
               type="button"
-              className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+              className="min-h-[48px] rounded-xl border-2 border-slate-200 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 shadow-md hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={currentPage === 1}
               aria-label="Previous page"
             >
               Previous
             </button>
-            <div className="text-sm font-medium text-slate-700">
-              Page <span className="text-indigo-600">{currentPage}</span> of <span>{Math.ceil((totalAlumni || 0) / itemsPerPage)}</span>
+            <div className="text-sm font-semibold text-slate-700">
+              Page <span className="text-lg text-indigo-600 font-bold">{currentPage}</span> of <span className="font-bold">{Math.ceil((totalAlumni || 0) / itemsPerPage)}</span>
             </div>
             <button
               type="button"
-              className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+              className="min-h-[48px] rounded-xl border-2 border-slate-200 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 shadow-md hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
               onClick={() => setCurrentPage(p => p + 1)}
               disabled={currentPage >= Math.ceil((totalAlumni || 0) / itemsPerPage)}
               aria-label="Next page"
@@ -599,6 +649,7 @@ export default function DirectoryPage() {
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }

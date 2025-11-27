@@ -25,7 +25,8 @@ import { BookmarkIcon as BookmarkIconSolid } from '@heroicons/react/24/solid';
 import JobApplicationForm from './JobApplicationForm';
 import { useAuth } from '../../contexts/AuthContext';
 import EmployerGuard from '../Auth/EmployerGuard';
-import { coalesceAppUrl, isQuickLink, companyDisplay } from '../../utils/jobs';
+import { coalesceAppUrl, isQuickLink, getJobLogoUrl, getJobCompanyName } from '../../utils/jobs';
+import { toggleBookmarkRPC } from '../../utils/bookmarks';
 import JobDetailsQuickLink from './JobDetailsQuickLink';
 import JobDetailsInApp from './JobDetailsInApp';
 
@@ -60,33 +61,32 @@ const JobDetails = () => {
     const fetchJobDetails = async () => {
       setLoading(true);
       setError(null);
-      
+
       try {
         const { data, error } = await supabase
-          .from('jobs')
-          .select('*, companies (name, logo_url)')
-          .eq('id', id)
-          .single();
-          
+          .rpc('get_job_details', { p_id: id });
+
         if (error) throw error;
-        
-        if (data) {
+
+        const row = Array.isArray(data) ? data[0] : data;
+
+        if (row) {
           // Process data to ensure arrays are handled properly
           const processedData = {
-            ...data,
-            requirements: convertToArray(data.requirements),
-            responsibilities: convertToArray(data.responsibilities),
-            preferredQualifications: convertToArray(data.preferredQualifications),
-            benefits: convertToArray(data.benefits),
-            applicationProcess: convertToArray(data.applicationProcess),
-            skills: convertToArray(data.skills),
-            companyInfo: data.companyInfo ? {
-              ...data.companyInfo,
-              values: data.companyInfo?.values ? convertToArray(data.companyInfo.values) : []
+            ...row,
+            requirements: convertToArray(row.requirements),
+            responsibilities: convertToArray(row.responsibilities),
+            preferredQualifications: convertToArray(row.preferredQualifications),
+            benefits: convertToArray(row.benefits),
+            applicationProcess: convertToArray(row.applicationProcess),
+            skills: convertToArray(row.skills),
+            companyInfo: row.companyInfo ? {
+              ...row.companyInfo,
+              values: row.companyInfo?.values ? convertToArray(row.companyInfo.values) : []
             } : null,
-            similarJobs: Array.isArray(data.similarJobs) ? data.similarJobs : []
+            similarJobs: Array.isArray(row.similarJobs) ? row.similarJobs : []
           };
-          
+
           setJob(processedData);
           console.log('Fetched job data:', processedData);
         } else {
@@ -101,36 +101,9 @@ const JobDetails = () => {
         setLoading(false);
       }
     };
-    
-    const fetchBookmarkStatus = async (currentJobId, currentUserId) => {
-      if (!currentJobId || !currentUserId) return;
-      try {
-        const { data: bookmark, error } = await supabase
-          .from('bookmarked_jobs')
-          .select('id')
-          .eq('job_id', currentJobId)
-          .eq('user_id', currentUserId)
-          .maybeSingle(); // Use maybeSingle as a bookmark might not exist
-
-        if (error) {
-          console.error('Error fetching bookmark status:', error.message);
-          // Don't set error state here, as it's not critical for job view
-          // toast.error('Could not check bookmark status.');
-          return;
-        }
-        setIsBookmarked(!!bookmark); // Set to true if bookmark exists, false otherwise
-        // console.log('Bookmark status:', !!bookmark, 'for job:', currentJobId, 'user:', currentUserId); // For debugging
-      } catch (err) {
-        console.error('Exception fetching bookmark status:', err.message);
-      }
-    };
 
     if (id) {
-      fetchJobDetails().then(() => {
-        // After job details are fetched (or attempted), check user and then bookmark status
-        // This 'then' block might need adjustment if fetchJobDetails doesn't directly reflect when 'job' state is set
-        // A more robust way would be another useEffect dependent on 'job' and 'user'
-      });
+      fetchJobDetails();
     }
   }, [id]); // Initial fetchJobDetails trigger
 
@@ -141,7 +114,7 @@ const JobDetails = () => {
         // console.log(`Fetching bookmark status for job ${job.id} and user ${user.id}`); // For debugging
         try {
           const { data: bookmark, error } = await supabase
-            .from('bookmarked_jobs')
+            .from('job_bookmarks')
             .select('id')
             .eq('job_id', job.id)
             .eq('user_id', user.id)
@@ -177,30 +150,12 @@ const JobDetails = () => {
 
     setBookmarking(true);
     try {
-      if (isBookmarked) {
-        // User wants to unbookmark
-        const { error } = await supabase
-          .from('bookmarked_jobs')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('job_id', job.id);
-
-        if (error) throw error;
-        setIsBookmarked(false);
-        toast.success('Bookmark removed!');
-      } else {
-        // User wants to bookmark
-        const { error } = await supabase
-          .from('bookmarked_jobs')
-          .insert([{ user_id: user.id, job_id: job.id }]);
-        
-        if (error) throw error;
-        setIsBookmarked(true);
-        toast.success('Job bookmarked!');
-      }
+      const nowBookmarked = await toggleBookmarkRPC(supabase, job.id);
+      setIsBookmarked(nowBookmarked);
+      toast.success(nowBookmarked ? 'Job bookmarked!' : 'Bookmark removed!');
     } catch (error) {
-      console.error('Error handling bookmark:', error.message);
-      toast.error('Failed to update bookmark. Please try again.');
+      console.error('Error handling bookmark:', error.message || error);
+      toast.error(error.message || 'Failed to update bookmark. Please try again.');
     } finally {
       setBookmarking(false);
     }
@@ -211,12 +166,13 @@ const JobDetails = () => {
       toast.error('Job details not available to share.');
       return;
     }
+    const companyName = getJobCompanyName(job) || job.company || 'our company';
     if (navigator.share) {
       setSharing(true);
       try {
         await navigator.share({
-          title: `${job.title} at ${job.company || 'our company'}`, // Ensure job.company has a fallback
-          text: `Check out this job opportunity: ${job.title} at ${job.company || 'our company'}`,
+          title: `${job.title} at ${companyName}`,
+          text: `Check out this job opportunity: ${job.title} at ${companyName}`,
           url: window.location.href
         });
         // console.log('Shared successfully'); // Optional: log success
@@ -271,9 +227,15 @@ const JobDetails = () => {
 
   // Compute props and delegate to minimal views
   const userRole = getUserRole();
-  const isOwner = user?.id && (job?.posted_by === user.id || job?.user_id === user.id);
+  const isOwner = !!(
+    user?.id &&
+    [job?.posted_by, job?.user_id, job?.created_by, job?.employer_id]
+      .filter(Boolean)
+      .some((ownerId) => ownerId === user.id)
+  );
   const isAdminFlag = userRole === 'admin' || userRole === 'super_admin';
-  const { name: companyName, logo_url: companyLogo } = companyDisplay(job);
+  const companyName = getJobCompanyName(job);
+  const companyLogo = getJobLogoUrl(job);
 
   const viewProps = { job, companyName, companyLogo, isOwner, isAdmin: isAdminFlag };
   if (isQuickLink(job)) return <JobDetailsQuickLink {...viewProps} />;

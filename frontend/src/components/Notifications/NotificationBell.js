@@ -251,60 +251,62 @@ const NotificationBell = ({ currentUser }) => {
 
       {/* Notifications Dropdown */}
       {showDropdown && (
-        <div className="absolute right-0 mt-2 w-80 bg-white rounded-md shadow-lg z-50 max-h-96 overflow-auto">
-          <div className="p-3 border-b border-gray-200 flex justify-between items-center">
-            <h3 className="text-lg font-semibold text-gray-800">Notifications</h3>
-            {unreadCount > 0 && (
-              <button 
-                onClick={markAllAsRead}
-                className="text-xs text-ocean-600 hover:text-ocean-800"
-              >
-                Mark all as read
-              </button>
-            )}
-          </div>
+        <div className="fixed inset-x-0 top-16 px-3 z-50 sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:px-0">
+          <div className="ml-auto w-full max-w-md sm:max-w-none sm:w-80 bg-white rounded-md shadow-lg max-h-[70vh] sm:max-h-96 overflow-auto">
+            <div className="p-3 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-800">Notifications</h3>
+              {unreadCount > 0 && (
+                <button 
+                  onClick={markAllAsRead}
+                  className="text-xs text-ocean-600 hover:text-ocean-800"
+                >
+                  Mark all as read
+                </button>
+              )}
+            </div>
 
-          <div className="overflow-y-auto max-h-72">
-            {loading ? (
-              <div className="p-4 text-center">
-                <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-ocean-500 mx-auto"></div>
-              </div>
-            ) : notifications.length > 0 ? (
-              <div>
-                {notifications.map((notification) => (
-                  <Link 
-                    key={notification.id} 
-                    to={notification.link || deriveLink(notification) || '#'} 
-                    className="block"
-                    onClick={() => handleNotificationClick(notification)}
-                  >
-                    <div className={`p-3 border-b hover:bg-gray-50 ${!notification.is_read ? 'bg-blue-50' : ''}`}>
-                      <div className="flex justify-between items-start">
-                        <p className="font-medium text-sm text-gray-800">{notification.title}</p>
-                        <span className="text-xs text-gray-500">
-                          {formatNotificationDate(notification.created_at)}
-                        </span>
+            <div className="overflow-y-auto max-h-72">
+              {loading ? (
+                <div className="p-4 text-center">
+                  <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-ocean-500 mx-auto"></div>
+                </div>
+              ) : notifications.length > 0 ? (
+                <div>
+                  {notifications.map((notification) => (
+                    <Link 
+                      key={notification.id} 
+                      to={notification.link || deriveLink(notification) || '#'} 
+                      className="block"
+                      onClick={() => handleNotificationClick(notification)}
+                    >
+                      <div className={`p-3 border-b hover:bg-gray-50 ${!notification.is_read ? 'bg-blue-50' : ''}`}>
+                        <div className="flex justify-between items-start">
+                          <p className="font-medium text-sm text-gray-800">{notification.title}</p>
+                          <span className="text-xs text-gray-500">
+                            {formatNotificationDate(notification.created_at)}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600 mt-1">{notification.message}</p>
                       </div>
-                      <p className="text-sm text-gray-600 mt-1">{notification.message}</p>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4 text-center text-gray-500">
-                No notifications found
-              </div>
-            )}
-          </div>
-          
-          <div className="p-2 border-t border-gray-200 bg-gray-50">
-            <Link 
-              to="/notifications" 
-              className="block w-full text-center text-sm text-ocean-600 hover:text-ocean-800 py-1"
-              onClick={() => setShowDropdown(false)}
-            >
-              View all notifications
-            </Link>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 text-center text-gray-500">
+                  No notifications found
+                </div>
+              )}
+            </div>
+            
+            <div className="p-2 border-t border-gray-200 bg-gray-50">
+              <Link 
+                to="/notifications" 
+                className="block w-full text-center text-sm text-ocean-600 hover:text-ocean-800 py-1"
+                onClick={() => setShowDropdown(false)}
+              >
+                View all notifications
+              </Link>
+            </div>
           </div>
         </div>
       )}

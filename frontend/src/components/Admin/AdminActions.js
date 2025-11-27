@@ -49,7 +49,7 @@ const AdminActions = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Event Management Section */}
         <PermissionGate 
-          permissions={['manage_events', 'create_events', 'edit_events']} 
+          permissions={['events:create', 'access:all']} 
           fallback={<div className="hidden"></div>}
         >
           <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-5 shadow-sm border border-blue-200 relative overflow-hidden hover:shadow-md transition-shadow">
@@ -61,24 +61,10 @@ const AdminActions = () => {
               <h3 className="text-lg font-semibold text-blue-900 mb-3">Event Management</h3>
               
               <div className="flex flex-wrap gap-2">
-                <PermissionGate permissions="create_events">
+                <PermissionGate permissions={['events:create', 'access:all']}>
                   <Link to="/events/create" className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md bg-white text-blue-700 shadow-sm hover:shadow-md border border-blue-200 transition-all">
                     <PlusIcon className="h-3.5 w-3.5 mr-1" />
                     Create Event
-                  </Link>
-                </PermissionGate>
-                
-                <PermissionGate permissions="edit_events">
-                  <Link to="/events/edit" className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md bg-white text-blue-700 shadow-sm hover:shadow-md border border-blue-200 transition-all">
-                    <PencilIcon className="h-3.5 w-3.5 mr-1" />
-                    Edit Events
-                  </Link>
-                </PermissionGate>
-                
-                <PermissionGate permissions="manage_events">
-                  <Link to="/events/manage" className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md bg-white text-blue-700 shadow-sm hover:shadow-md border border-blue-200 transition-all">
-                    <CalendarIcon className="h-3.5 w-3.5 mr-1" />
-                    Manage All Events
                   </Link>
                 </PermissionGate>
               </div>

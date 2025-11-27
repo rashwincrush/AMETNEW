@@ -5,3 +5,13 @@ export async function toggleBookmarkRPC(supabase, jobId) {
   // RPC returns boolean: true => bookmarked, false => unbookmarked
   return data === true;
 }
+
+// Helper for fetching all bookmarked job IDs for a user
+export async function fetchJobBookmarks(supabase, userId) {
+  const { data, error } = await supabase
+    .from('job_bookmarks')
+    .select('job_id')
+    .eq('user_id', userId);
+
+  return { data, error };
+}

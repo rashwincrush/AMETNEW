@@ -23,7 +23,8 @@ const Avatar = ({
   badge = null, 
   square = false, 
   className = '',
-  version = null
+  version = null,
+  loading: loadingStrategy = 'lazy'
 }) => {
   const [imageState, setImageState] = useState('loading'); // 'loading' | 'loaded' | 'error'
   const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false);
@@ -89,7 +90,7 @@ const Avatar = ({
         <img
           src={imageUrl}
           alt={alt}
-          loading="lazy"
+          loading={loadingStrategy}
           width={size}
           height={size}
           className={`
@@ -106,7 +107,7 @@ const Avatar = ({
       )}
       
       {/* Initials fallback */}
-      {(!src || imageState === 'error') && (
+      {(!src || imageState === 'error' || imageState === 'loading') && (
         <div 
           className={`
             ${sizeClasses.container}

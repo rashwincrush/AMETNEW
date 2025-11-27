@@ -3,6 +3,7 @@ import { addComment, editComment, fetchComments } from '../../api/comments'
 import { onPostgresChangesOnce, waitForRealtimeReady } from '../../utils/supabase'
 import { canCommentOnGroup } from '../../utils/acl'
 import { useAuth } from '../../contexts/AuthContext'
+import { useApproval } from '../../hooks/useApproval'
 import toast from 'react-hot-toast'
 
 function timeAgo(ts) {
@@ -15,10 +16,11 @@ function timeAgo(ts) {
 
 export default function CommentsThread({ postId, group, isMember }) {
   const { user, userRole } = useAuth()
+  const { isApproved } = useApproval()
   const [comments, setComments] = useState([])
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState('')
-  const canComment = isMember && canCommentOnGroup(group, userRole, isMember) && !group?.is_archived
+  const canComment = isMember && isApproved && canCommentOnGroup(group, userRole, isMember) && !group?.is_archived
   const channelRef = useRef(null)
 
   useEffect(() => {

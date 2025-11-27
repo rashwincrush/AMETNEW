@@ -1,20 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { 
   Box, 
   Button, 
-  Card,
-  CardMedia,
-  CardContent, 
-  CardActions, 
   Typography, 
   Grid, 
-  Chip,
   Container,
   Paper,
   Divider,
-  IconButton,
   TextField,
   InputAdornment,
   MenuItem,
@@ -24,34 +18,44 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   List,
-  ListItem,
-  ListItemText,
-  ListItemAvatar,
-  Avatar
+  Chip,
 } from '@mui/material';
 import LoadingSpinner from '../common/LoadingSpinner';
-import ImageWithFallback from '../common/ImageWithFallback';
 import { 
   Event as EventIcon, 
-  LocationOn as LocationIcon, 
   CalendarToday as CalendarIcon,
   Search as SearchIcon,
-  FilterList as FilterListIcon,
   Add as AddIcon,
   ViewModule as ViewModuleIcon,
-  ViewList as ViewListIcon,
-  People as PeopleIcon
+  ViewList as ViewListIcon
 } from '@mui/icons-material';
 import EventCalendar from './EventCalendar';
 import PriorityStrip from './PriorityStrip';
-import { parseISO, isPast, isToday, isFuture, isThisWeek, format } from 'date-fns';
-import { formatInTimeZone, utcToZonedTime } from 'date-fns-tz';
+import EventCard from './EventCard';
+import EventRow from './EventRow';
+import { utcToZonedTime } from 'date-fns-tz';
 import { useAuth } from '../../contexts/AuthContext';
 
-const EventsList = ({ isAdmin = false }) => {
+// Category options for calendar view; values must align with EventCalendar filtering.
+// TODO: DRY with EventCalendar category map if we move this to a shared config.
+const CALENDAR_CATEGORY_OPTIONS = [
+  { label: 'All', value: 'all' },
+  { label: 'Virtual', value: 'virtual' },
+  { label: 'In-Person', value: 'in-person' },
+  { label: 'Workshop', value: 'workshop' },
+  { label: 'Conference', value: 'conference' },
+  { label: 'Networking', value: 'networking' },
+  { label: 'Seminar', value: 'seminar' },
+  { label: 'Webinar', value: 'webinar' },
+  { label: 'Social', value: 'social' },
+  { label: 'Other', value: 'other' },
+];
+
+const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreateButton = false }) => {
   const navigate = useNavigate();
   const { hasPermission, userRole } = useAuth();
   const canCreate = hasPermission('events:create') && userRole !== 'student';
+  const showCreateButton = canCreate && !hideCreateButton;
   const [events, setEvents] = useState([]);
   const [featuredEvents, setFeaturedEvents] = useState([]);
   const [featuredLoading, setFeaturedLoading] = useState(true);
@@ -61,6 +65,8 @@ const EventsList = ({ isAdmin = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('upcoming');
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list' or 'calendar'
+  // Calendar view category filter, shared with EventCalendar
+  const [activeCategory, setActiveCategory] = useState('all');
   const subscriptionRef = useRef(null);
 
   // Removed event-type and extra filters as per requirements
@@ -110,6 +116,55 @@ const EventsList = ({ isAdmin = false }) => {
   
   useEffect(() => {
     isMountedRef.current = true;
+
+    // If a fixed events list is provided, skip Supabase fetching/subscriptions here
+    if (Array.isArray(eventsOverride)) {
+      const base = eventsOverride || [];
+      setEvents(base);
+
+      const istZone = 'Asia/Kolkata';
+      const toIST = (iso) => utcToZonedTime(new Date(iso), istZone);
+      const normalizeType = (et) => {
+        const v = (et || '').toLowerCase();
+        const buckets = ['workshop','conference','networking','seminar','webinar','social'];
+        return buckets.includes(v) ? v : 'other';
+      };
+      const buildLocation = (ev) => {
+        const isVirtual = ev.is_virtual || (ev.event_type && ev.event_type.toLowerCase() === 'virtual');
+        if (isVirtual) return 'Online Event';
+        const parts = [ev.venue, ev.address].filter(Boolean);
+        return parts.length ? parts.join(', ') : (ev.location || 'Location not specified');
+      };
+
+      const normalizedForCalendar = base.map(ev => {
+        const isVirtual = !!(ev.is_virtual || (ev.event_type && ev.event_type.toLowerCase() === 'virtual'));
+        const category = normalizeType(ev.event_type);
+        const start = ev.start_date ? toIST(ev.start_date) : new Date();
+        const end = ev.end_date ? toIST(ev.end_date) : start;
+        return {
+          id: ev.id,
+          title: ev.title,
+          start,
+          end,
+          allDay: false,
+          resource: {
+            ...ev,
+            type: isVirtual ? 'virtual' : 'in-person',
+            category,
+            location: buildLocation(ev),
+            attendees: ev.attendees_count || 0,
+          }
+        };
+      });
+
+      setCalendarEvents(normalizedForCalendar);
+      setLoading(false);
+
+      return () => {
+        isMountedRef.current = false;
+      };
+    }
+
     fetchEvents();
     fetchFeaturedEvents();
 
@@ -137,12 +192,13 @@ const EventsList = ({ isAdmin = false }) => {
     return () => {
       isMountedRef.current = false;
     };
-  }, [handleEventsUpdate, handleAttendanceUpdate]);
+  }, [handleEventsUpdate, handleAttendanceUpdate, eventsOverride]);
 
-  // Refetch when sort selection or admin status changes
+  // Refetch when sort selection or admin status changes (only when not using overrides)
   useEffect(() => {
+    if (Array.isArray(eventsOverride)) return;
     fetchEvents();
-  }, [sortBy, isAdmin]);
+  }, [sortBy, isAdmin, eventsOverride]);
 
   const fetchEvents = async () => {
     try {
@@ -290,68 +346,18 @@ const EventsList = ({ isAdmin = false }) => {
     }
   };
 
-  const getEventStatus = (startDate, endDate) => {
-    const now = new Date();
-    const start = new Date(startDate);
-    const end = endDate ? new Date(endDate) : start; // fallback
-    if (now > end) return 'Past';
-    if (now < start) return 'Upcoming';
-    return 'Happening Now';
+  // Process events with attendee counts for rendering
+  const processEventsWithCounts = (eventsData) => {
+    return eventsData.map(ev => ({
+      ...ev,
+      attendeesCount: ev.attendees_count || 0
+    }));
   };
 
-  const getStatusColor = (status) => {
-    switch (status.toLowerCase()) {
-      case 'happening now':
-        return 'success';
-      case 'upcoming':
-        return 'info';
-      case 'past':
-        return 'default';
-      default:
-        return 'primary';
-    }
-  };
-
-  const getApprovalChipProps = (approvalStatus, isPublished) => {
-    if (!isPublished) {
-      return { label: 'Draft', color: 'warning' };
-    }
-    switch ((approvalStatus || '').toLowerCase()) {
-      case 'approved':
-        return { label: 'Approved', color: 'success' };
-      case 'pending':
-        return { label: 'Pending', color: 'warning' };
-      case 'rejected':
-        return { label: 'Rejected', color: 'error' };
-      default:
-        return null;
-    }
-  };
-
-  const formatLocation = (venue, address, eventType) => {
-    // Check if the event is virtual first
-    if (eventType === 'virtual') {
-      return 'Online Event';
-    }
-    
-    // Then check venue name
-    if (venue && venue.toLowerCase() === 'online') {
-      return 'Online Event';
-    }
-    
-    // For in-person or hybrid with venue and address
-    if (venue && address) {
-      return `${venue}, ${address}`;
-    }
-    
-    // Return whatever is available
-    return venue || address || (eventType === 'hybrid' ? 'Hybrid Event' : 'Location not specified');
-  };
-
-  const now = new Date();
+  // Filter and sort events for display
   const processedEvents = events
     .filter(ev => {
-      // text search only within the server-filtered set
+      // Text search within the server-filtered set
       const q = searchTerm.toLowerCase();
       if (!q) return true;
       return (
@@ -365,11 +371,12 @@ const EventsList = ({ isAdmin = false }) => {
       if (sortBy === 'upcoming' || sortBy === 'oldest') {
         return new Date(a.start_date) - new Date(b.start_date);
       }
-      // closed: newest closed first; use end_date || start_date as the effective end
+      // Closed: newest closed first; use end_date || start_date as the effective end
       const aEnd = new Date(a.end_date || a.start_date);
       const bEnd = new Date(b.end_date || b.start_date);
       return bEnd - aEnd;
-    });
+    })
+    .map(ev => processEventsWithCounts([ev])[0]);
 
   if (loading) {
     return <LoadingSpinner message="Loading events..." />;
@@ -390,7 +397,7 @@ const EventsList = ({ isAdmin = false }) => {
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
         <Typography variant="h4" component="h1">
-          Events
+          {titleOverride || 'Events'}
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <ToggleButtonGroup
@@ -413,7 +420,7 @@ const EventsList = ({ isAdmin = false }) => {
               <CalendarIcon />
             </ToggleButton>
           </ToggleButtonGroup>
-          {canCreate && (
+          {showCreateButton && (
             <Button
               onClick={() => navigate('/events/new')}
               variant="contained"
@@ -463,6 +470,46 @@ const EventsList = ({ isAdmin = false }) => {
             </FormControl>
           </Grid>
         </Grid>
+
+        {/* Calendar-only: category chips for event type/filter */}
+        {viewMode === 'calendar' && (
+          <Box sx={{ mt: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, flexWrap: 'wrap', gap: 1 }}>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mr: 1 }}>
+                Filter by category
+              </Typography>
+              <Button
+                size="small"
+                variant="text"
+                color="primary"
+                onClick={() => setActiveCategory('all')}
+              >
+                Reset filters
+              </Button>
+            </Box>
+            <Box
+              sx={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 1,
+                maxHeight: { xs: '120px', sm: 'none' },
+                overflowY: { xs: 'auto', sm: 'visible' },
+                pb: 0.5,
+              }}
+            >
+              {CALENDAR_CATEGORY_OPTIONS.map((category) => (
+                <Chip
+                  key={category.value}
+                  label={category.label}
+                  size="small"
+                  onClick={() => setActiveCategory(category.value)}
+                  color={activeCategory === category.value ? 'primary' : 'default'}
+                  variant={activeCategory === category.value ? 'filled' : 'outlined'}
+                />
+              ))}
+            </Box>
+          </Box>
+        )}
       </Paper>
 
       {processedEvents.length === 0 ? (
@@ -479,9 +526,7 @@ const EventsList = ({ isAdmin = false }) => {
             <Button 
               variant="outlined" 
               color="primary"
-              onClick={() => {
-                setSearchTerm('');
-              }}
+              onClick={() => setSearchTerm('')}
             >
               Clear all filters
             </Button>
@@ -489,165 +534,50 @@ const EventsList = ({ isAdmin = false }) => {
         </Paper>
       ) : (
         <Box>
-          {viewMode === 'grid' ? (
+          {/* Grid View */}
+          {viewMode === 'grid' && (
             <Grid container spacing={3}>
-              {processedEvents.map((event) => {
-                const status = getEventStatus(event.start_date, event.end_date);
-                const statusColor = getStatusColor(status);
-                return (
-                  <Grid item xs={12} sm={6} md={4} key={event.id}>
-                    <Card 
-                      elevation={2} 
-                      sx={{ 
-                        height: '100%',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        overflow: 'hidden',
-                        transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                        '&:hover': {
-                          transform: 'translateY(-4px)',
-                          boxShadow: 6,
-                        },
-                      }}
-                    >
-                      <div style={{ height: 140 }}>
-                        <ImageWithFallback
-                          src={event.featured_image_url}
-                          alt={event.title}
-                          className="w-full h-full"
-                          placeholderSrc="/default-avatar.svg"
-                          emptyMessage="Event image to be uploaded"
-                        />
-                      </div>
-                      <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                        <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Chip label={event.event_type || 'General'} size="small" sx={{ bgcolor: 'secondary.light', color: 'white' }} />
-                          <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                            <Chip label={status} color={statusColor} size="small" />
-                            {isAdmin && getApprovalChipProps(event.approval_status, event.is_published) && (
-                              <Chip
-                                size="small"
-                                {...getApprovalChipProps(event.approval_status, event.is_published)}
-                              />
-                            )}
-                          </Box>
-                        </Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary', mb: 1 }}>
-                          <CalendarIcon sx={{ mr: 1, fontSize: '1rem' }} />
-                          <Typography variant="body2">
-                            {(() => {
-                              const istZone = 'Asia/Kolkata';
-                              const startDateIST = utcToZonedTime(parseISO(event.start_date), istZone);
-                              return `${format(startDateIST, 'MMM d, yyyy')} at ${format(startDateIST, 'h:mm a')}`;
-                            })()}
-                          </Typography>
-                        </Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary', mb: 1 }}>
-                          <LocationIcon sx={{ mr: 1, fontSize: '1rem' }} />
-                          <Typography variant="body2" noWrap title={formatLocation(event.venue, event.address, event.event_type)}>
-                            {formatLocation(event.venue, event.address, event.event_type)}
-                          </Typography>
-                        </Box>
-                        <Typography variant="h5" component="div" sx={{ fontWeight: 'bold', mb: 1, flexGrow: 1 }}>
-                          {event.title}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, flexGrow: 1 }}>
-                          {event.description ? `${event.description.substring(0, 100)}...` : 'No description available.'}
-                        </Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary' }}>
-                          <PeopleIcon sx={{ mr: 1, fontSize: '1rem' }} />
-                          <Typography variant="body2">
-                            {event.attendees_count || 0} Attendees
-                          </Typography>
-                        </Box>
-                      </CardContent>
-                      
-                      <CardActions sx={{ justifyContent: 'space-between', borderTop: '1px solid', borderColor: 'divider', p: 2 }}>
-                        <Button 
-                          component={Link} 
-                          to={`/events/${event.id}`} 
-                          size="small" 
-                          variant="contained" 
-                          color="primary"
-                        >
-                          View Details
-                        </Button>
-                        {isAdmin && (
-                          <Button 
-                            component={Link} 
-                            to={`/events/${event.id}/edit`} 
-                            size="small" 
-                            variant="outlined" 
-                            color="secondary"
-                          >
-                            Edit
-                          </Button>
-                        )}
-                      </CardActions>
-                    </Card>
-                  </Grid>
-                );
-              })}
+              {processedEvents.map((event) => (
+                <Grid item xs={12} sm={6} md={4} key={event.id}>
+                  <EventCard
+                    event={event}
+                    isAdmin={isAdmin}
+                    attendeesCount={event.attendeesCount}
+                    onNavigateToDetail={(id) => navigate(`/events/${id}`)}
+                    onNavigateToEdit={(id) => navigate(`/events/${id}/edit`)}
+                  />
+                </Grid>
+              ))}
             </Grid>
-          ) : viewMode === 'list' ? (
+          )}
+
+          {/* List View */}
+          {viewMode === 'list' && (
             <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
               <List disablePadding>
-                {processedEvents.map((event, index) => { 
-                  const status = getEventStatus(event.start_date, event.end_date);
-                  const statusColor = getStatusColor(status);
-                  return (
-                    <React.Fragment key={event.id}>
-                      <ListItem 
-                        alignItems="flex-start"
-                        secondaryAction={
-                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-                            <Box sx={{ display: 'flex', gap: 0.5 }}>
-                              <Chip label={status} color={statusColor} size="small" />
-                              {isAdmin && getApprovalChipProps(event.approval_status, event.is_published) && (
-                                <Chip
-                                  size="small"
-                                  {...getApprovalChipProps(event.approval_status, event.is_published)}
-                                />
-                              )}
-                            </Box>
-                            <Box sx={{ mt: 1 }}>
-                              <Button component={Link} to={`/events/${event.id}`} size="small">Details</Button>
-                              {isAdmin && <Button component={Link} to={`/events/${event.id}/edit`} size="small" color="secondary">Edit</Button>}
-                            </Box>
-                          </Box>
-                        }
-                        sx={{ 
-                          py: 2,
-                          '&:hover': { bgcolor: 'action.hover' }
-                        }}
-                      >
-                        <ListItemAvatar>
-                          <Avatar sx={{ bgcolor: 'primary.main' }}>
-                            <CalendarIcon />
-                          </Avatar>
-                        </ListItemAvatar>
-                        <ListItemText
-                          primary={<Typography variant="h6" component="span">{event.title}</Typography>}
-                          secondary={
-                            <React.Fragment>
-                              <Typography component="span" variant="body2" color="text.primary">
-                                {format(parseISO(event.start_date), 'EEEE, MMM d, yyyy')} at {format(parseISO(event.start_date), 'h:mm a')}
-                              </Typography>
-                              <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', mt: 0.5 }}>
-                                <LocationIcon fontSize="small" sx={{ mr: 0.5 }} /> {formatLocation(event.venue, event.address, event.event_type)}
-                              </Typography>
-                            </React.Fragment>
-                          }
-                        />
-                      </ListItem>
-                      {index < processedEvents.length - 1 && <Divider component="li" />}
-                    </React.Fragment>
-                  );
-                })}
+                {processedEvents.map((event, index) => (
+                  <React.Fragment key={event.id}>
+                    <EventRow
+                      event={event}
+                      isAdmin={isAdmin}
+                      attendeesCount={event.attendeesCount}
+                      onNavigateToDetail={(id) => navigate(`/events/${id}`)}
+                      onNavigateToEdit={(id) => navigate(`/events/${id}/edit`)}
+                    />
+                    {index < processedEvents.length - 1 && <Divider component="li" />}
+                  </React.Fragment>
+                ))}
               </List>
             </Paper>
-          ) : (
-            <EventCalendar events={calendarEvents} />
+          )}
+
+          {/* Calendar View */}
+          {viewMode === 'calendar' && (
+            <EventCalendar 
+              events={calendarEvents} 
+              activeCategory={activeCategory}
+              onCategoryChange={setActiveCategory}
+            />
           )}
         </Box>
       )}

@@ -1,31 +1,30 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import format from 'date-fns/format';
 import parse from 'date-fns/parse';
 import startOfWeek from 'date-fns/startOfWeek';
 import getDay from 'date-fns/getDay';
 import enUS from 'date-fns/locale/en-US';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
+// Calendar-specific overrides to align react-big-calendar overlay with MUI Paper look
+import './EventCalendarOverrides.css';
 import { 
   Paper, 
   Box, 
   Typography, 
   Button, 
-  Chip, 
   Grid,
   ButtonGroup,
   IconButton,
   Tooltip,
+  Collapse,
   useTheme
 } from '@mui/material';
 import {
   CalendarToday as CalendarIcon,
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
-  Add as AddIcon,
-  FilterList as FilterListIcon,
-  Event as EventIcon,
   LocationOn as LocationOnIcon,
   People as PeopleIcon,
   Public as PublicIcon
@@ -43,13 +42,13 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
-const EventCalendar = ({ events }) => {
+const EventCalendar = ({ events, activeCategory = 'all', onCategoryChange }) => {
   const navigate = useNavigate();
   const theme = useTheme();
   const [filteredEvents, setFilteredEvents] = useState([]);
-  const [activeCategory, setActiveCategory] = useState('all');
   const [date, setDate] = useState(new Date());
   const [view, setView] = useState('month');
+  const [legendOpen, setLegendOpen] = useState(false);
 
   const formatLocation = (venue, address) => {
     if (venue && venue.toLowerCase() === 'online') return 'Online Event';
@@ -81,7 +80,7 @@ const EventCalendar = ({ events }) => {
   // Accept pre-normalized calendar events from container
   const baseEvents = useMemo(() => Array.isArray(events) ? events : [], [events]);
 
-  // Filter events based on active category
+  // Filter events based on active category from parent (EventsList)
   useEffect(() => {
     if (activeCategory === 'all') {
       setFilteredEvents(baseEvents);
@@ -91,10 +90,6 @@ const EventCalendar = ({ events }) => {
       setFilteredEvents(baseEvents.filter(e => e.resource?.category === activeCategory));
     }
   }, [baseEvents, activeCategory]);
-
-  const handleCategoryFilter = (category) => {
-    setActiveCategory(category);
-  };
 
   const handleNavigate = (newDate) => {
     setDate(newDate);
@@ -275,53 +270,17 @@ const EventCalendar = ({ events }) => {
   );
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      {/* Category Filters */}
-      <Paper elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, flexWrap: 'wrap' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-            <FilterListIcon sx={{ mr: 1 }} />
-            <Typography variant="subtitle1">Filter by Category</Typography>
-          </Box>
-          <Button 
-            size="small" 
-            variant="outlined" 
-            onClick={() => handleCategoryFilter('all')}
-            sx={{ height: 'fit-content', mt: { xs: 1, sm: 0 }, mr: 1 }}
-          >
-            Reset Filters
-          </Button>
-        </Box>
-        <Box sx={{ 
-          display: 'flex', 
-          flexWrap: 'wrap', 
-          gap: 1,
-          maxHeight: { xs: '120px', sm: 'none' },
-          overflowY: { xs: 'auto', sm: 'visible' },
-          pb: 1
-        }}>
-          {categories.map(category => (
-            <Chip 
-              key={category.value}
-              label={category.label}
-              onClick={() => handleCategoryFilter(category.value)}
-              color={activeCategory === category.value ? 'primary' : 'default'}
-              variant={activeCategory === category.value ? 'filled' : 'outlined'}
-              sx={{
-                bgcolor: activeCategory === category.value ? category.color : 'transparent',
-                color: activeCategory === category.value ? 'white' : 'inherit',
-                '&:hover': { opacity: 0.9 },
-                mb: 0.5
-              }}
-          />
-          ))}
-        </Box>
-      </Paper>
-
-      {/* Calendar */}
-      <Paper elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-        <Box sx={{ position: 'relative', pointerEvents: 'auto' }}>
-          <Calendar
+    <Paper
+      elevation={0}
+      sx={{
+        p: { xs: 1.5, md: 2 },
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
+      }}
+    >
+      <Box sx={{ position: 'relative', pointerEvents: 'auto' }}>
+        <Calendar
             localizer={localizer}
             events={filteredEvents}
             startAccessor="start"
@@ -365,54 +324,66 @@ const EventCalendar = ({ events }) => {
               event: 'Event',
               noEventsInRange: 'No events in this range.'
             }}
-          />
-        </Box>
-      </Paper>
+        />
+      </Box>
 
-      {/* Stats */}
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={4}>
-          <Paper elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, textAlign: 'center' }}>
-            <CalendarIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
-            <Typography variant="h4" color="primary.main">{filteredEvents.length}</Typography>
-            <Typography variant="body2" color="text.secondary">Total Events</Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Paper elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, textAlign: 'center' }}>
-            <PeopleIcon sx={{ fontSize: 40, color: 'success.main', mb: 1 }} />
-            <Typography variant="h4" color="success.main">
-              {filteredEvents.reduce((sum, event) => sum + (event.resource?.attendees || 0), 0)}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">Total Attendees</Typography>
-          </Paper>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Paper elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, textAlign: 'center' }}>
-            <PublicIcon sx={{ fontSize: 40, color: 'info.main', mb: 1 }} />
-            <Typography variant="h4" color="info.main">
-              {filteredEvents.filter(e => e.resource?.type === 'virtual').length}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">Virtual Events</Typography>
-          </Paper>
-        </Grid>
-      </Grid>
-
-      {/* Legend */}
-      <Paper elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-        <Typography variant="subtitle1" sx={{ mb: 2 }}>Event Categories</Typography>
+      {/* Compact stats row below calendar */}
+      <Box sx={{ mt: 2 }}>
         <Grid container spacing={2}>
-          {categories.filter(c => c.value !== 'all').map((category) => (
-            <Grid item xs={6} sm={4} md={3} lg={2} key={category.value}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Box sx={{ width: 16, height: 16, borderRadius: 1, bgcolor: category.color }} />
-                <Typography variant="body2">{category.label}</Typography>
-              </Box>
-            </Grid>
-          ))}
+          <Grid item xs={12} md={4}>
+            <Box sx={{ p: 1.5, borderRadius: 2, textAlign: 'center' }}>
+              <CalendarIcon sx={{ fontSize: 32, color: 'primary.main', mb: 0.5 }} />
+              <Typography variant="h5" color="primary.main">{filteredEvents.length}</Typography>
+              <Typography variant="body2" color="text.secondary">Total Events</Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Box sx={{ p: 1.5, borderRadius: 2, textAlign: 'center' }}>
+              <PeopleIcon sx={{ fontSize: 32, color: 'success.main', mb: 0.5 }} />
+              <Typography variant="h5" color="success.main">
+                {filteredEvents.reduce((sum, event) => sum + (event.resource?.attendees || 0), 0)}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">Total Attendees</Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Box sx={{ p: 1.5, borderRadius: 2, textAlign: 'center' }}>
+              <PublicIcon sx={{ fontSize: 32, color: 'info.main', mb: 0.5 }} />
+              <Typography variant="h5" color="info.main">
+                {filteredEvents.filter(e => e.resource?.type === 'virtual').length}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">Virtual Events</Typography>
+            </Box>
+          </Grid>
         </Grid>
-      </Paper>
-    </Box>
+      </Box>
+
+      {/* Collapsible legend for category colors */}
+      <Box sx={{ mt: 1.5 }}>
+        <Button
+          size="small"
+          variant="text"
+          color="primary"
+          onClick={() => setLegendOpen((open) => !open)}
+        >
+          {legendOpen ? 'Hide category legend ▲' : 'Show category legend ▼'}
+        </Button>
+        <Collapse in={legendOpen} timeout="auto" unmountOnExit>
+          <Box sx={{ mt: 1.5 }}>
+            <Grid container spacing={2}>
+              {categories.filter(c => c.value !== 'all').map((category) => (
+                <Grid item xs={6} sm={4} md={3} lg={2} key={category.value}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ width: 16, height: 16, borderRadius: 1, bgcolor: category.color }} />
+                    <Typography variant="body2">{category.label}</Typography>
+                  </Box>
+                </Grid>
+              ))}
+            </Grid>
+          </Box>
+        </Collapse>
+      </Box>
+    </Paper>
   );
 };
 

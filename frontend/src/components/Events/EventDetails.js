@@ -1,3 +1,5 @@
+// DEPRECATED: Legacy event detail UI, not used in current routing.
+// Do not import or use this component without consulting the maintainer.
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 

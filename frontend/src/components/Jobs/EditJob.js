@@ -7,7 +7,7 @@ import toast from 'react-hot-toast';
 import { toFriendlyToast, getFriendlyErrorMessage } from '../../utils/errors';
 import {
   Box, TextField, Button, Typography, Paper, Grid,
-  CircularProgress, MenuItem, Alert, Switch, FormControlLabel
+  CircularProgress, MenuItem, Alert, Switch, FormControlLabel, Avatar
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { log } from '../../utils/log';
@@ -31,6 +31,8 @@ const EditJob = () => {
   const [loading, setLoading] = useState(false); // fetch loading
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [logoFile, setLogoFile] = useState(null);
+  const [logoPreview, setLogoPreview] = useState('');
 
   // just for coordinating when to start the fetch
   const [guardReady, setGuardReady] = useState(false);
@@ -74,7 +76,8 @@ const EditJob = () => {
             description, requirements, skills, salary_range, application_url,
             contact_email, external_url, apply_url, company_id,
             posted_by, user_id, created_by, deadline, application_deadline,
-            is_active, is_approved
+            is_active, is_approved,
+            company:companies(name, logo_url)
           `)
           .eq('id', id)
           .single();
@@ -116,6 +119,10 @@ const EditJob = () => {
           ? data.skills.join(', ')
           : (data.skills || ''),
       });
+
+      const existingLogo = data?.company?.logo_url || '';
+      setLogoPreview(existingLogo);
+      setLogoFile(null);
     } catch (e) {
       console.error('Error fetching job:', e);
       setError(getFriendlyErrorMessage(e, 'Failed to load job data.'));
@@ -135,6 +142,26 @@ const EditJob = () => {
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+  };
+
+  const handleLogoChange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/svg+xml', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      toast.error('Invalid file type. Only PNG, JPG, JPEG, GIF, SVG, or WebP are allowed.');
+      return;
+    }
+
+    const maxSize = 2 * 1024 * 1024; // 2MB
+    if (file.size > maxSize) {
+      toast.error('File size exceeds 2MB. Please upload a smaller image.');
+      return;
+    }
+
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
   };
 
   const handleSave = async (e) => {
@@ -179,6 +206,47 @@ const EditJob = () => {
     }
 
     const isQuick = !!(norm_application_url || norm_external_url);
+
+    // If a new logo is selected and we have a company_id, upload and update companies.logo_url
+    if (logoFile && company_id) {
+      try {
+        const cleanFileName = logoFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
+        const fileName = `${company_id}/${Date.now()}_${cleanFileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('company-logos')
+          .upload(fileName, logoFile, {
+            cacheControl: '3600',
+            upsert: false,
+          });
+
+        if (uploadError) {
+          console.error('Logo upload failed in EditJob:', uploadError);
+          toast.error(`Logo upload failed: ${uploadError.message || 'Unknown error'}`);
+        } else {
+          const { data: urlData } = supabase.storage
+            .from('company-logos')
+            .getPublicUrl(fileName);
+          const nextLogoUrl = urlData?.publicUrl || null;
+          if (nextLogoUrl) {
+            const { error: logoUpdateError } = await supabase
+              .from('companies')
+              .update({ logo_url: nextLogoUrl })
+              .eq('id', company_id);
+            if (logoUpdateError) {
+              console.error('Error updating company logo in EditJob:', logoUpdateError);
+              toast.error('Job updated, but failed to update company logo.');
+            } else {
+              setLogoPreview(nextLogoUrl);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Unexpected error during logo upload in EditJob:', err);
+        toast.error('Job updated, but failed to update company logo.');
+      }
+    }
+
     let updateData;
     if (isQuick) {
       // Minimal Quick Link update
@@ -307,6 +375,41 @@ const EditJob = () => {
                             <TextField fullWidth multiline rows={3} label="Summary (Optional)" name="description"
                               value={formData.description || ''} onChange={handleChange} disabled={isSubmitting} />
                           </Grid>
+                          <Grid item xs={12}>
+                            <Typography variant="subtitle1" gutterBottom>Company Logo</Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                              <Avatar
+                                src={logoPreview || formData?.company?.logo_url || ''}
+                                alt="Company Logo Preview"
+                                sx={{ width: 60, height: 60, border: '1px solid #ddd' }}
+                              />
+                              <Button variant="outlined" component="label" disabled={isSubmitting}>
+                                Upload Company Logo
+                                <input
+                                  type="file"
+                                  hidden
+                                  accept="image/png, image/jpeg, image/jpg, image/gif, image/svg+xml, image/webp"
+                                  onChange={handleLogoChange}
+                                />
+                              </Button>
+                              {logoFile && (
+                                <Button
+                                  size="small"
+                                  onClick={() => {
+                                    setLogoFile(null);
+                                    setLogoPreview(formData?.company?.logo_url || '');
+                                  }}
+                                  disabled={isSubmitting}
+                                >
+                                  Remove
+                                </Button>
+                              )}
+                            </Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Upload your official <strong>company logo</strong>. This will update the logo shown for this
+                              company across its jobs in the portal.
+                            </Typography>
+                          </Grid>
                         </>
                       );
                     })()}
@@ -401,6 +504,41 @@ const EditJob = () => {
                           <Grid item xs={12}>
                             <TextField fullWidth label="Contact Email" name="contact_email"
                               value={formData.contact_email || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12}>
+                            <Typography variant="h6" sx={{ mb: 1, mt: 1 }}>Company Logo</Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                              <Avatar
+                                src={logoPreview || formData?.company?.logo_url || ''}
+                                alt="Company Logo Preview"
+                                sx={{ width: 60, height: 60, border: '1px solid #ddd' }}
+                              />
+                              <Button variant="outlined" component="label" disabled={isSubmitting}>
+                                Upload Company Logo
+                                <input
+                                  type="file"
+                                  hidden
+                                  accept="image/png, image/jpeg, image/jpg, image/gif, image/svg+xml, image/webp"
+                                  onChange={handleLogoChange}
+                                />
+                              </Button>
+                              {logoFile && (
+                                <Button
+                                  size="small"
+                                  onClick={() => {
+                                    setLogoFile(null);
+                                    setLogoPreview(formData?.company?.logo_url || '');
+                                  }}
+                                  disabled={isSubmitting}
+                                >
+                                  Remove
+                                </Button>
+                              )}
+                            </Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Upload your official <strong>company logo</strong>. This will update the logo shown for this
+                              company across its jobs in the portal.
+                            </Typography>
                           </Grid>
                         </>
                       );

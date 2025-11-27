@@ -21,6 +21,7 @@ import { validateLinkedIn, validateGitHub, validateX, validateWebsite, findDupli
 import DegreeSelect from '../academics/DegreeSelect';
 import DepartmentSelect from '../academics/DepartmentSelect';
 import { useAcademicsCatalog } from '../../hooks/useAcademicsCatalog';
+import Avatar from '../common/Avatar';
 
 // Normalize phone to E.164 or null to satisfy DB constraint chk_phone_e164
 const normalizePhone = (raw) => {
@@ -59,7 +60,7 @@ const Profile = () => {
     description: '',
   });
   const [isEditing, setIsEditing] = useState(false);
-  const [imageUrl, setImageUrl] = useState('/default-avatar.svg'); // Default value without user dependency
+  const [imageUrl, setImageUrl] = useState(null);
   const [imageFile, setImageFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -160,6 +161,8 @@ const Profile = () => {
       setImageUrl(user.avatar);
     } else if (profile && profile.avatar_url) {
       setImageUrl(profile.avatar_url);
+    } else {
+      setImageUrl(null);
     }
   }, [user, profile]);
   
@@ -665,7 +668,15 @@ const Profile = () => {
 
           console.log('Avatar uploaded successfully:', publicUrl);
           profileUpdates.avatar_url = publicUrl;
+          
+          // FIX: Immediately update local state for instant UI feedback
           setImageUrl(publicUrl);
+          
+          // Also update the user object in AuthContext immediately
+          if (user) {
+            user.avatar = publicUrl;
+            user.avatar_url = publicUrl;
+          }
         } catch (error) {
           console.error('Profile picture upload failed:', error);
           toast.error(error.message || 'Failed to upload profile picture');
@@ -904,9 +915,10 @@ const Profile = () => {
     }
 
     const fileExt = (file.name.split('.').pop() || 'jpg').toLowerCase();
-    const filePath = `avatars/${user.id}/${Date.now()}.${fileExt}`;
+    // FIX: Don't include 'avatars/' prefix - the bucket name handles that
+    const filePath = `${user.id}/${Date.now()}.${fileExt}`;
 
-    console.log(`Uploading to: ${filePath}`);
+    console.log(`Uploading to bucket 'avatars' with path: ${filePath}`);
 
     const { error: uploadError } = await supabase.storage
       .from('avatars')
@@ -961,14 +973,13 @@ const Profile = () => {
         <div className="flex items-start justify-between mb-6">
           <div className="flex items-center space-x-6">
             <div className="relative">
-              <img 
-                src={imageUrl} 
-                alt={formData.name}
-                className="w-32 h-32 rounded-full object-cover border-2 border-white shadow-md"
-                onError={(e) => {
-                  e.target.onerror = null;
-                  e.target.src = '/default-avatar.svg';
-                }}
+              <Avatar
+                src={imageUrl || profile.avatar_url || null}
+                alt={`${formData.first_name || profile.first_name || ''} ${formData.last_name || profile.last_name || ''}`.trim() || 'Profile'}
+                size={128}
+                rounded="full"
+                version={imageFile ? null : profile.updated_at}
+                className="border-2 border-white shadow-md"
               />
               {isEditing && (
                 <label className="absolute bottom-0 right-0 bg-ocean-500 text-white p-2 rounded-full hover:bg-ocean-600 transition-colors cursor-pointer shadow-md">

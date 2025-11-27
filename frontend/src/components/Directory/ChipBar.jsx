@@ -57,9 +57,11 @@ export default function ChipBar({ counts, active, onChange, showEmployers = fals
     const isOpen = openMenu === groupId;
     const selectedItem = items.find(i => i.id === activeLeafId) || items[0];
 
+    // Use solid white chips for both active and inactive states so the
+    // "My Connections" chip doesn't look greyed out against the gradient.
     const baseClasses = isActive
-      ? 'bg-ocean-600 text-white border-ocean-600 shadow-sm'
-      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-white hover:border-slate-300';
+      ? 'bg-white text-ocean-700 border-white shadow-lg'
+      : 'bg-white text-slate-700 border-white hover:shadow-md hover:text-ocean-700';
 
     return (
       <div className="relative inline-flex items-stretch">
@@ -67,20 +69,20 @@ export default function ChipBar({ counts, active, onChange, showEmployers = fals
           type="button"
           aria-pressed={isActive}
           aria-expanded={isOpen}
-          className={`min-h-[36px] px-4 py-1.5 rounded-full border font-medium text-sm flex items-center gap-2 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 ${baseClasses}`}
+          className={`min-h-[40px] px-5 py-2 rounded-xl border-2 font-semibold text-sm flex items-center gap-2.5 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-ocean-600 ${baseClasses}`}
           onClick={() => setOpenMenu(isOpen ? null : groupId)}
         >
           <span>{label}</span>
-          <span className="text-xs text-slate-200/80 sm:text-slate-100/90 md:text-slate-100/90">
+          <span className={`text-xs font-medium ${isActive ? 'text-ocean-600' : 'text-slate-600'}`}>
             {/* show current selection label inside the chip */}
             {selectedItem.label}
           </span>
-          <span className="ml-1 text-xs">
+          <span className={`ml-1 text-xs ${isActive ? 'text-ocean-600' : 'text-slate-500'}`}>
             ▾
           </span>
         </button>
         <div
-          className={`absolute left-0 top-full mt-2 w-56 rounded-lg border border-slate-200 bg-white shadow-lg transform origin-top transition-all duration-150 z-30 ${
+          className={`absolute left-0 top-full mt-2 w-56 rounded-xl border border-slate-200 bg-white shadow-2xl transform origin-top transition-all duration-150 z-30 ${
             isOpen ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none'
           }`}
         >
@@ -91,14 +93,14 @@ export default function ChipBar({ counts, active, onChange, showEmployers = fals
                 <li key={item.id}>
                   <button
                     type="button"
-                    className={`w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 ${
-                      itemActive ? 'bg-ocean-50 text-ocean-700' : ''
+                    className={`w-full px-4 py-2 text-left flex items-center justify-between hover:bg-slate-50 transition-colors rounded-lg ${
+                      itemActive ? 'bg-ocean-50 text-ocean-700 font-semibold' : ''
                     }`}
                     onClick={() => handleSelect(item.id)}
                   >
                     <span>{item.label}</span>
                     {typeof item.count === 'number' && (
-                      <span className="ml-2 text-xs text-slate-500 font-semibold">
+                      <span className={`ml-2 text-xs font-bold px-2 py-0.5 rounded-full ${itemActive ? 'bg-ocean-200 text-ocean-800' : 'bg-slate-200 text-slate-700'}`}>
                         {item.count}
                       </span>
                     )}
@@ -113,7 +115,7 @@ export default function ChipBar({ counts, active, onChange, showEmployers = fals
   };
 
   return (
-    <div ref={containerRef} className="flex flex-wrap gap-3 items-center py-3">
+    <div ref={containerRef} className="flex flex-wrap gap-3 items-center">
       {/* Roles group: Alumni / Students / Employers */}
       <GroupChip
         groupId="roles"

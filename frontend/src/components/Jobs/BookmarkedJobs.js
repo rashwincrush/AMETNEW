@@ -5,6 +5,7 @@ import { Box, Typography, Grid, CircularProgress, Paper } from '@mui/material';
 import JobCard from './JobListingsPage'; // Reusing the JobCard component (default export)
 import toast from 'react-hot-toast';
 import { useNotification } from '../common/NotificationCenter';
+import { toggleBookmarkRPC } from '../../utils/bookmarks';
 
 const BookmarkedJobs = () => {
   const { user } = useAuth();
@@ -66,26 +67,43 @@ const BookmarkedJobs = () => {
 
     try {
       if (bookmarkedJobIds.includes(jobId)) {
-        // Remove bookmark
-        const { error } = await supabase
-          .from('job_bookmarks')
-          .delete()
-          .match({ user_id: user.id, job_id: jobId });
-
-        if (error) throw error;
-
-        setBookmarkedJobIds(prev => prev.filter(id => id !== jobId));
-        setBookmarkedJobs(prev => prev.filter(job => job.id !== jobId));
+        // Remove bookmark via RPC
+        const nowBookmarked = await toggleBookmarkRPC(supabase, jobId);
+        if (nowBookmarked) {
+          // RPC reported bookmarked but we expected unbookmark; refresh list as fallback
+          const { data: bookmarks } = await supabase
+            .from('job_bookmarks')
+            .select('job_id')
+            .eq('user_id', user.id);
+          const jobIds = (bookmarks || []).map(b => b.job_id);
+          setBookmarkedJobIds(jobIds);
+        } else {
+          setBookmarkedJobIds(prev => prev.filter(id => id !== jobId));
+          setBookmarkedJobs(prev => prev.filter(job => job.id !== jobId));
+        }
         toast.success('Bookmark removed');
       } else {
-        // Add bookmark
-        const { error } = await supabase
-          .from('job_bookmarks')
-          .insert({ user_id: user.id, job_id: jobId });
+        // Cap before adding (frontend mirror of DB constraint)
+        if (bookmarkedJobIds.length >= 3) {
+          toast.error('You can only bookmark up to 3 jobs.');
+          return;
+        }
 
-        if (error) throw error;
+        const nowBookmarked = await toggleBookmarkRPC(supabase, jobId);
+        if (!nowBookmarked) {
+          // RPC says unbookmarked; refresh state from DB to avoid drift
+          const { data: bookmarks } = await supabase
+            .from('job_bookmarks')
+            .select('job_id')
+            .eq('user_id', user.id);
+          const jobIds = (bookmarks || []).map(b => b.job_id);
+          setBookmarkedJobIds(jobIds);
+          toast.error('Failed to bookmark this job. Please try again.');
+          return;
+        }
 
         setBookmarkedJobIds(prev => [...prev, jobId]);
+
         // Fetch the job details to add to the list
         const { data: job, error: jobError } = await supabase
           .from('jobs')

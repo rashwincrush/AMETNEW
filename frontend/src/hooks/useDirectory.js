@@ -15,35 +15,61 @@ export default function useDirectory({ query = '', filters = {}, sort = 'name_as
       let data = [];
       let err = null;
       try {
-        if (source === 'public') {
-          // Load from public view (no PII)
+        const loadFromPublicView = async () => {
           const res = await supabase
             .from('alumni_directory_public')
             .select('*');
           if (res.error) throw res.error;
-          // Map location_city/country into a synthetic 'location' string for UI/search
           const rows = Array.isArray(res.data) ? res.data : [];
-          data = rows.map(r => ({
+          return rows.map(r => ({
             ...r,
             location: [r.location_city, r.location_country].filter(Boolean).join(', ')
           }));
-        } else {
-          // Default: existing RPC path
+        };
+
+        const loadBaseDirectory = async () => {
           const res = await supabase.rpc('get_directory_profiles');
           if (res.error || !Array.isArray(res.data)) {
             throw res.error || new Error('Bad RPC payload');
           }
-          data = res.data;
-          // Admin fallback if RPC blocked or empty
-          if (adminFallback && (!data || data.length === 0)) {
-            const pub = await supabase.from('alumni_directory_public').select('*');
-            if (!pub.error) {
-              const rows = Array.isArray(pub.data) ? pub.data : [];
-              data = rows.map(r => ({
-                ...r,
-                location: [r.location_city, r.location_country].filter(Boolean).join(', ')
-              }));
+          let base = res.data;
+          // For admins, fall back to the public view if the primary RPC returns nothing
+          if (adminFallback && (!base || base.length === 0)) {
+            try {
+              base = await loadFromPublicView();
+            } catch (_) {
+              // keep original empty base
             }
+          }
+          return base;
+        };
+
+        if (source === 'public') {
+          // Load from public view (no PII)
+          data = await loadFromPublicView();
+        } else {
+          const trimmedQuery = (query || '').trim();
+          if (trimmedQuery) {
+            // 1) Attempt backend search RPC
+            const res = await supabase.rpc('get_directory_profiles_search', {
+              p_search: trimmedQuery,
+              p_limit: null,
+              p_offset: null,
+            });
+
+            const hasValidArray = Array.isArray(res.data) && res.data.length > 0;
+
+            if (!res.error && hasValidArray) {
+              data = res.data;
+            } else {
+              // 2) Fallback: load full directory and let frontend filtering handle search.
+              // This ensures search still works for alumni/students even if the RPC is
+              // strict, misconfigured, or returns zero rows for a valid query.
+              data = await loadBaseDirectory();
+            }
+          } else {
+            // No search term: load the base directory as before
+            data = await loadBaseDirectory();
           }
         }
       } catch (e) {
@@ -76,7 +102,7 @@ export default function useDirectory({ query = '', filters = {}, sort = 'name_as
       setLoading(false);
     })();
     return () => { ignore = true; };
-  }, [source, adminFallback]);
+  }, [source, adminFallback, query]);
 
   // client search / filter / sort / paginate
   const filtered = useMemo(() => {
@@ -99,6 +125,8 @@ export default function useDirectory({ query = '', filters = {}, sort = 'name_as
       const company = (p.company_name || p.current_company || p.company || '').toLowerCase();
       const location = [p.location, p.location_city, p.location_country].filter(Boolean).join(' ').toLowerCase();
 
+      // Always apply a text match on the loaded dataset so that search works
+      // even if the backend RPC does not fully implement p_search filtering.
       const passesText = !q || [name, degree, department, title, company, location].some(v => v.includes(q));
 
       const byYear = qYear == null || (Number(p.graduation_year || p.batch_year || null) === qYear);
@@ -109,7 +137,7 @@ export default function useDirectory({ query = '', filters = {}, sort = 'name_as
 
       return passesText && byYear && byDept && byDegree && byDesignation && byLocation;
     });
-  }, [all, query, filters]);
+  }, [all, query, filters, source]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];

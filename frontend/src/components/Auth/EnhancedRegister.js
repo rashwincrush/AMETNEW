@@ -167,9 +167,10 @@ const EnhancedRegister = () => {
 
   // Degree/Department catalogs are provided by useAcademicsCatalog via the reusable selects
 
-  // Restore persisted onboarding state from localStorage
+  // Restore persisted onboarding state from localStorage and honor explicit step query
   useEffect(() => {
     try {
+      let targetStep = 1;
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
@@ -177,11 +178,23 @@ const EnhancedRegister = () => {
           if (parsed.formData && typeof parsed.formData === 'object') {
             setFormData(prev => ({ ...prev, ...parsed.formData }));
           }
-          if (parsed.currentStep && [1,2].includes(parsed.currentStep)) {
-            setCurrentStep(parsed.currentStep);
+          if (parsed.currentStep && [1, 2].includes(parsed.currentStep)) {
+            targetStep = parsed.currentStep;
           }
         }
       }
+
+      try {
+        const params = new URLSearchParams(window.location.search || '');
+        const stepParam = parseInt(params.get('step') || '', 10);
+        if (stepParam === 2) {
+          targetStep = 2;
+        }
+      } catch (_) {
+        // Ignore URL parsing errors
+      }
+
+      setCurrentStep(targetStep);
     } catch (e) {
       console.warn('Failed to restore onboarding state:', e);
     }
@@ -1005,11 +1018,6 @@ const EnhancedRegister = () => {
               <input id="jobTitle" name="jobTitle" type="text" required value={formData.jobTitle} onChange={handleChange} placeholder="e.g., Chief Officer" className={commonInputClass(errors.jobTitle)} />
               {errors.jobTitle && <p className={commonErrorClass}>{errors.jobTitle}</p>}
             </div>
-            <div className="md:col-span-2">
-              <label htmlFor="currentLocation" className={commonLabelClass}>Location *</label>
-              <input id="currentLocation" name="currentLocation" type="text" required value={formData.currentLocation} onChange={handleChange} placeholder="City, Country" className={commonInputClass(errors.currentLocation)} />
-              {errors.currentLocation && <p className={commonErrorClass}>{errors.currentLocation}</p>}
-            </div>
           </div>
         </>
       )}
@@ -1109,8 +1117,19 @@ const EnhancedRegister = () => {
         </div>
       )}
       <div>
-        <label htmlFor="currentLocation" className={commonLabelClass}>Current Location</label>
-        <input id="currentLocation" name="currentLocation" type="text" value={formData.currentLocation} onChange={handleChange} placeholder="e.g., Chennai, India" className={commonInputClass(false)} />
+        <label htmlFor="currentLocation" className={commonLabelClass}>
+          {formData.primaryRole === 'alumni' ? 'Location *' : 'Current Location'}
+        </label>
+        <input
+          id="currentLocation"
+          name="currentLocation"
+          type="text"
+          value={formData.currentLocation}
+          onChange={handleChange}
+          placeholder="e.g., Chennai, India"
+          className={commonInputClass(errors.currentLocation)}
+        />
+        {errors.currentLocation && <p className={commonErrorClass}>{errors.currentLocation}</p>}
       </div>
       <div>
         <label htmlFor="bio" className={commonLabelClass}>Brief Bio (Optional)</label>
@@ -1141,7 +1160,7 @@ const EnhancedRegister = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-ocean-600 via-ocean-700 to-blue-900 flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-2xl">
         <div className="mb-4">
           <a href="/" target="_self" rel="noopener noreferrer" className="inline-flex items-center text-sm font-medium text-ocean-600 hover:text-ocean-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">

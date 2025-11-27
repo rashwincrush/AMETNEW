@@ -1,3 +1,5 @@
+// DEPRECATED: Legacy MUI create-event form, not used in current routing.
+// Do not import or use this component without consulting the maintainer.
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';

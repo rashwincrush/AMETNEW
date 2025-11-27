@@ -2,6 +2,7 @@ import React from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon, EnvelopeIcon, MapPinIcon, BriefcaseIcon, AcademicCapIcon, ShieldCheckIcon, ClockIcon } from '@heroicons/react/24/outline';
 import { Link } from 'react-router-dom';
+import Avatar from '../common/Avatar';
 
 const UserDetailsModal = ({ user, isOpen, onClose }) => {
   if (!user) return null;
@@ -48,7 +49,14 @@ const UserDetailsModal = ({ user, isOpen, onClose }) => {
                 </Dialog.Title>
                 <div className="mt-4">
                   <div className="flex items-center space-x-4">
-                    <img src={user.avatar_url || `https://ui-avatars.com/api/?name=${user.full_name}&background=random`} alt="" className="h-20 w-20 rounded-full" />
+                    <div className="h-20 w-20 flex-shrink-0 flex items-center justify-center">
+                      <Avatar
+                        src={user.avatar_url ?? null}
+                        alt={user.full_name || 'User'}
+                        size={64}
+                        rounded="full"
+                      />
+                    </div>
                     <div>
                       <p className="text-xl font-semibold text-gray-800">{user.full_name}</p>
                       <p className="text-sm text-gray-500">{getRoleName(user)}</p>

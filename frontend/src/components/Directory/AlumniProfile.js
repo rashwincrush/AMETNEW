@@ -136,7 +136,7 @@ const AlumniProfile = () => {
             currentPosition: data.current_job_title ?? 'Not specified',
             company: data.company_name ?? 'Not specified',
             location: [city, country].filter(Boolean).join(', ') || 'Not specified',
-            avatar: data.avatar_url || '/default-avatar.png',
+            avatar: data.avatar_url || null,
             coverImage: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
             verified: false,
             joinedDate: '',
@@ -162,7 +162,6 @@ const AlumniProfile = () => {
           const transformed = {
             id: data.id,
             name: data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Unknown',
-            // Contact details are injected solely via get_profile_contact_details RPC
             email: '',
             phone: '',
             graduationYear: data.graduation_year ?? 'Not specified',
@@ -171,12 +170,25 @@ const AlumniProfile = () => {
             currentPosition: data.current_job_title ?? 'Not specified',
             company: data.company_name ?? 'Not specified',
             location: data.location ?? 'Not specified',
-            avatar: data.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.full_name || data.email || 'User')}&background=3B82F6&color=fff`,
+            avatar: data.avatar_url || null,
             coverImage: data.cover_image || 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
             verified: data.is_verified || false,
             joinedDate: new Date(data.created_at || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
             about: data.about || '',
-            experience: Array.isArray(data.experience) ? data.experience : [],
+            experience: (() => {
+              if (Array.isArray(data.experience)) return data.experience;
+              const hasExperience = data.experience || data.current_job_title || data.company_name;
+              if (!hasExperience) return [];
+              return [
+                {
+                  position: data.current_job_title || '',
+                  company: data.company_name || '',
+                  duration: data.experience || '',
+                  location: data.location || '',
+                  description: '',
+                },
+              ];
+            })(),
             education: Array.isArray(data.education) ? data.education : [],
             skills: Array.isArray(data.skills) ? data.skills : [],
             achievements: Array.isArray(data.achievements) ? data.achievements : [],
@@ -286,215 +298,264 @@ const AlumniProfile = () => {
       </div>
     );
   }
+  const headlineRaw = [alumnus.currentPosition, alumnus.company].filter(Boolean).join(' at ');
+  const hasHeadline = Boolean(headlineRaw && !/Not specified/i.test(headlineRaw));
+  const metaChips = [
+    alumnus.degreeLabel || (alumnus.degree_code ? String(alumnus.degree_code).toUpperCase() : null),
+    alumnus.departmentLabel || null,
+    alumnus.graduationYear ? `Batch ${alumnus.graduationYear}` : null,
+    alumnus.location && alumnus.location !== 'Not specified' ? alumnus.location : null,
+  ].filter(Boolean);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 p-4">
-      {/* Centered Header */}
-      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col items-center text-center">
-        {/* Profile Picture */}
-        <div className="relative mb-4 h-24 w-24 overflow-hidden rounded-full ring-1 ring-slate-200 bg-slate-100 flex items-center justify-center">
-          <Avatar src={alumnus.avatar} alt={`${alumnus.name}'s profile picture`} size={96} version={alumnus.updated_at} />
-        </div>
-        {/* Basic Info */}
-        <div className="flex-1 mb-2">
-          <h1 className="text-3xl font-bold text-slate-900">{alumnus.name}</h1>
-        </div>
-
-        {/* CTA: shared, scope=profile */}
-        {currentUser && currentUser.id !== alumnus.id && (
-          <div className="mt-3">
-            <ConnectionCTA
-              meId={currentUser?.id}
-              peerId={alumnus.id}
-              rel={rel}
-              scope="profile"
-              onMessage={handleMessage}
-            />
-          </div>
-        )}
-
-        {/* Chips intentionally hidden on Profile header per spec; kept only on Directory cards */}
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* About */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">About</h2>
-            <p className="text-slate-700 leading-relaxed">{alumnus.about || 'No biography provided.'}</p>
-          </div>
-
-          {/* Experience */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Experience</h2>
-            <div className="space-y-6">
-              {Array.isArray(alumnus.experience) && alumnus.experience.length > 0 ? (
-                alumnus.experience.map((exp, index) => (
-                  <div key={index} className="flex items-start space-x-3">
-                    <div className="w-10 h-10 bg-ocean-gradient rounded-lg flex items-center justify-center flex-shrink-0">
-                      <BriefcaseIcon className="w-5 h-5 text-white" aria-hidden="true" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-slate-900">{exp.position}</h3>
-                      <p className="text-ocean-600 font-medium">{exp.company}</p>
-                      <p className="text-sm text-slate-600">{exp.duration} • {exp.location}</p>
-                      <p className="text-slate-700 mt-2">{exp.description}</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-slate-500">No experience information available.</p>
+    <div className="min-h-[calc(100vh-80px)] bg-gradient-to-b from-sky-50/70 via-slate-50 to-white">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-10 space-y-6">
+        {/* Centered Header */}
+        <div className="relative overflow-hidden rounded-2xl bg-white/80 border border-slate-200 shadow-sm shadow-slate-100 backdrop-blur">
+          <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-r from-ocean-500/10 via-ocean-400/10 to-sky-400/10 pointer-events-none" />
+          <div className="relative z-10 px-6 pt-8 pb-6 sm:px-8 sm:pt-10 sm:pb-7 flex flex-col items-center text-center space-y-4">
+            {/* Profile Picture */}
+            <div className="relative mb-1">
+              <Avatar
+                src={alumnus.avatar}
+                alt={`${alumnus.name}'s profile picture`}
+                size={96}
+                version={alumnus.updated_at}
+                className="ring-2 ring-ocean-500/70 shadow-md"
+              />
+            </div>
+            {/* Basic Info */}
+            <div className="space-y-1">
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+                {alumnus.name}
+              </h1>
+              {hasHeadline && (
+                <p className="text-sm sm:text-base text-slate-600">
+                  {headlineRaw}
+                </p>
               )}
             </div>
-          </div>
-
-          {/* Education */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">Education</h2>
-            <div className="space-y-4">
-              {Array.isArray(alumnus.education) && alumnus.education.length > 0 ? (
-                alumnus.education.map((edu, index) => (
-                  <div key={index} className="flex items-start space-x-3">
-                    <div className="w-10 h-10 bg-slate-100 ring-1 ring-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <AcademicCapIcon className="w-5 h-5 text-slate-600" aria-hidden="true" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-slate-900">{edu.degree}</h3>
-                      <p className="text-ocean-600 font-medium">{edu.institution}</p>
-                      <p className="text-sm text-slate-600">{edu.year} • {edu.grade}</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                (alumnus.degreeLabel || alumnus.degree_code || alumnus.departmentLabel || alumnus.graduationYear) ? (
-                  <div className="flex items-start space-x-3">
-                    <div className="w-10 h-10 bg-slate-100 ring-1 ring-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <AcademicCapIcon className="w-5 h-5 text-slate-600" aria-hidden="true" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-slate-900">{alumnus.degreeLabel || (alumnus.degree_code ? String(alumnus.degree_code).toUpperCase() : 'Not specified')}</h3>
-                      <p className="text-ocean-600 font-medium">{alumnus.departmentLabel || ''}</p>
-                      <p className="text-sm text-slate-600">{alumnus.graduationYear ? `Batch ${alumnus.graduationYear}` : ''}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-slate-500">No education information available.</p>
-                )
-              )}
-            </div>
-          </div>
-
-          {/* Achievements */}
-          {Array.isArray(alumnus.achievements) && alumnus.achievements.length > 0 && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Key Achievements</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {alumnus.achievements.map((achievement, index) => (
-                  <AchievementCard key={index} achievement={achievement} />
+            {/* Meta chips row (degree, department, batch, location) */}
+            {metaChips.length > 0 && (
+              <div className="flex flex-wrap justify-center gap-2">
+                {metaChips.map((label, idx) => (
+                  <TextPill key={idx} size="sm">
+                    {label}
+                  </TextPill>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+            {/* CTA: shared, scope=profile */}
+            {currentUser && currentUser.id !== alumnus.id && (
+              <div className="pt-1">
+                <ConnectionCTA
+                  meId={currentUser?.id}
+                  peerId={alumnus.id}
+                  rel={rel}
+                  scope="profile"
+                  onMessage={handleMessage}
+                />
+              </div>
+            )}
+
+            {/* Chips intentionally hidden on Profile header per spec; kept only on Directory cards */}
+          </div>
         </div>
 
-        {/* Right Sidebar */}
-        <div className="space-y-6">
-          {/* Contact Info (email/phone only when backend RPC allows) */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">Contact Information</h3>
-            <div className="space-y-3">
-              <div className="flex items-center">  
-                <BriefcaseIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
-                <div>
-                  <div className="text-sm text-gray-500">Currently</div>
-                  <div className="font-medium">{alumnus.currentPosition} at {alumnus.company}</div>
-                </div>
-              </div>
-
-              <div className="flex items-center">
-                <MapPinIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
-                <div>
-                  <div className="text-sm text-gray-500">Location</div>
-                  <div className="font-medium">{alumnus.location}</div>
-                </div>
-              </div>
-
-              {alumnus.email && (
-                <div className="flex items-center">
-                  <EnvelopeIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
-                  <div>
-                    <div className="text-sm text-gray-500">Email</div>
-                    <a href={`mailto:${alumnus.email}`} className="font-medium text-ocean-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1 rounded">
-                      {alumnus.email}
-                    </a>
-                  </div>
-                </div>
-              )}
-
-              {alumnus.phone && (
-                <div className="flex items-center">
-                  <PhoneIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
-                  <div>
-                    <div className="text-sm text-gray-500">Phone</div>
-                    <a href={`tel:${alumnus.phone}`} className="font-medium text-ocean-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1 rounded">
-                      {alumnus.phone}
-                    </a>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Mentor contact unlock panel for students */}
-          {role === 'student' && <MentorContactPanel mentorId={alumnus.id} />}
-
-          {/* Skills */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">Skills</h3>
-            <div className="flex flex-wrap gap-2">
-              {Array.isArray(alumnus.skills) && alumnus.skills.length > 0 ? (
-                alumnus.skills.map((skill, index) => (
-                  <span 
-                    key={index}
-                    className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm font-medium"
-                  >
-                    {skill}
-                  </span>
-                ))
-              ) : (
-                <p className="text-slate-500 text-sm">No skills listed.</p>
-              )}
-            </div>
-          </div>
-
-          {/* Social Links (safe to show for all roles) */}
-          {(
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          {/* Left Column */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* About */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Social Links</h3>
-              <div className="space-y-2">
-                {alumnus.socialLinks && Object.values(alumnus.socialLinks).some(link => link) ? (
-                  Object.entries(alumnus.socialLinks).map(([platform, url]) => (
-                    url && (
-                      <a 
-                        key={platform}
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1 rounded"
-                      >
-                        <LinkIcon className="w-4 h-4 mr-2" aria-hidden="true" />
-                        {platform.charAt(0).toUpperCase() + platform.slice(1)}
-                      </a>
-                    )
+              <h2 className="text-lg font-semibold text-slate-900 mb-3">About</h2>
+              <p className="text-slate-700 leading-relaxed">{alumnus.about || 'No biography provided.'}</p>
+            </div>
+
+            {/* Experience */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Experience</h2>
+              <div className="space-y-6">
+                {Array.isArray(alumnus.experience) && alumnus.experience.length > 0 ? (
+                  alumnus.experience.map((exp, index) => (
+                    <div key={index} className="flex items-start space-x-3">
+                      <div className="w-10 h-10 bg-ocean-gradient rounded-lg flex items-center justify-center flex-shrink-0">
+                        <BriefcaseIcon className="w-5 h-5 text-white" aria-hidden="true" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-slate-900">{exp.position}</h3>
+                        <p className="text-ocean-600 font-medium">{exp.company}</p>
+                        <p className="text-sm text-slate-600">{exp.duration} f {exp.location}</p>
+                        <p className="text-slate-700 mt-2">{exp.description}</p>
+                      </div>
+                    </div>
                   ))
                 ) : (
-                  <p className="text-slate-500 text-sm">No social links provided.</p>
+                  <p className="text-slate-500">No experience information available.</p>
                 )}
               </div>
             </div>
-          )}
+
+            {/* Education */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Education</h2>
+              <div className="space-y-4">
+                {Array.isArray(alumnus.education) && alumnus.education.length > 0 ? (
+                  alumnus.education.map((edu, index) => (
+                    <div key={index} className="flex items-start space-x-3">
+                      <div className="w-10 h-10 bg-slate-100 ring-1 ring-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <AcademicCapIcon className="w-5 h-5 text-slate-600" aria-hidden="true" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-slate-900">{edu.degree}</h3>
+                        <p className="text-ocean-600 font-medium">{edu.institution}</p>
+                        <p className="text-sm text-slate-600">{edu.year} f {edu.grade}</p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  (alumnus.degreeLabel || alumnus.degree_code || alumnus.departmentLabel || alumnus.graduationYear) ? (
+                    <div className="flex items-start space-x-3">
+                      <div className="w-10 h-10 bg-slate-100 ring-1 ring-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <AcademicCapIcon className="w-5 h-5 text-slate-600" aria-hidden="true" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-slate-900">{alumnus.degreeLabel || (alumnus.degree_code ? String(alumnus.degree_code).toUpperCase() : 'Not specified')}</h3>
+                        <p className="text-ocean-600 font-medium">{alumnus.departmentLabel || ''}</p>
+                        <p className="text-sm text-slate-600">{alumnus.graduationYear ? `Batch ${alumnus.graduationYear}` : ''}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-slate-500">No education information available.</p>
+                  )
+                )}
+              </div>
+            </div>
+
+            {/* Achievements */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Key Achievements</h2>
+              {Array.isArray(alumnus.achievements) && alumnus.achievements.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {alumnus.achievements.map((achievement, index) => (
+                    <AchievementCard key={index} achievement={achievement} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-slate-500 text-sm">No achievements added yet.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Right Sidebar */}
+          <div className="space-y-6">
+            {/* Contact Info (email/phone only when backend RPC allows) */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-slate-900 mb-4">Contact Information</h3>
+              <div className="space-y-3">
+                <div className="flex items-center">
+                  <BriefcaseIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
+                  <div>
+                    <div className="text-sm text-gray-500">Currently</div>
+                    <div className="font-medium">{alumnus.currentPosition} at {alumnus.company}</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center">
+                  <MapPinIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
+                  <div>
+                    <div className="text-sm text-gray-500">Location</div>
+                    <div className="font-medium">{alumnus.location}</div>
+                  </div>
+                </div>
+
+                {alumnus.email && (
+                  <div className="flex items-center">
+                    <EnvelopeIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
+                    <div>
+                      <div className="text-sm text-gray-500">Email</div>
+                      <a
+                        href={`mailto:${alumnus.email}`}
+                        title={alumnus.email}
+                        className="
+                          block font-medium text-sm text-ocean-700 hover:underline
+                          break-all
+                          sm:break-normal sm:max-w-[22ch] sm:truncate
+                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1 rounded
+                        "
+                      >
+                        {alumnus.email}
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                {alumnus.phone && (
+                  <div className="flex items-center">
+                    <PhoneIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
+                    <div>
+                      <div className="text-sm text-gray-500">Phone</div>
+                      <a
+                        href={`tel:${alumnus.phone}`}
+                        className="font-medium text-ocean-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1 rounded"
+                      >
+                        {alumnus.phone}
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Mentor contact unlock panel for students */}
+            {role === 'student' && <MentorContactPanel mentorId={alumnus.id} />}
+
+            {/* Skills */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-slate-900 mb-4">Skills</h3>
+              <div className="flex flex-wrap gap-2">
+                {Array.isArray(alumnus.skills) && alumnus.skills.length > 0 ? (
+                  alumnus.skills.map((skill, index) => (
+                    <span
+                      key={index}
+                      className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm font-medium"
+                    >
+                      {skill}
+                    </span>
+                  ))
+                ) : (
+                  <p className="text-slate-500 text-sm">No skills listed.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Social Links (safe to show for all roles) */}
+            {(
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+                <h3 className="text-lg font-semibold text-slate-900 mb-4">Social Links</h3>
+                <div className="space-y-2">
+                  {alumnus.socialLinks && Object.values(alumnus.socialLinks).some(link => link) ? (
+                    Object.entries(alumnus.socialLinks).map(([platform, url]) => (
+                      url && (
+                        <a
+                          key={platform}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center text-ocean-600 hover:text-ocean-700 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1 rounded"
+                        >
+                          <LinkIcon className="w-4 h-4 mr-2" aria-hidden="true" />
+                          {platform.charAt(0).toUpperCase() + platform.slice(1)}
+                        </a>
+                      )
+                    ))
+                  ) : (
+                    <p className="text-slate-500 text-sm">No social links provided.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

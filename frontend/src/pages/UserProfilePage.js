@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../utils/supabase';
 import { EnvelopeIcon, MapPinIcon, BriefcaseIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
+import Avatar from '../components/common/Avatar';
 
 const UserProfilePage = () => {
   const { userId } = useParams();
@@ -68,11 +69,14 @@ const UserProfilePage = () => {
         <div className="bg-white rounded-lg shadow-lg overflow-hidden">
           <div className="p-6 sm:p-8 bg-gradient-to-r from-indigo-500 to-purple-600 text-white">
             <div className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-6">
-              <img
-                className="h-24 w-24 rounded-full object-cover border-4 border-white"
-                src={profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.full_name}&background=random`}
-                alt={`${profile.full_name}'s avatar`}
-              />
+              <div className="h-24 w-24 rounded-full border-4 border-white flex items-center justify-center bg-white/10">
+                <Avatar
+                  src={profile.avatar_url ?? null}
+                  alt={profile.full_name || 'Profile'}
+                  size={96}
+                  rounded="full"
+                />
+              </div>
               <div className="text-center sm:text-left">
                 <h1 className="text-3xl font-bold">{profile.full_name}</h1>
                 <p className="text-md text-indigo-200">{profile.current_position || 'Position not specified'}</p>

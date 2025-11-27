@@ -20,6 +20,7 @@ import {
   fetchGroupMembers
 } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useApproval } from '../../hooks/useApproval';
 import { 
   Users, 
   MessageSquare, 
@@ -63,6 +64,7 @@ async function getMyMembership(supabaseClient, groupId) {
 const GroupDetail = () => {
   const { id } = useParams();
   const { user, profile, userRole } = useAuth();
+  const { isApproved: isUserApproved } = useApproval();
   const [group, setGroup] = useState(null);
   const [posts, setPosts] = useState([]);
   const [isMember, setIsMember] = useState(false);
@@ -211,6 +213,10 @@ const GroupDetail = () => {
       }
       if (userRole === 'employer') {
         setError('Employers cannot perform this action.');
+        return;
+      }
+      if (!isUserApproved && !isMember) {
+        setError('Your account is pending approval. You can browse groups but cannot join until approved.');
         return;
       }
       // Enforce showJoin/showLeave rules
@@ -483,6 +489,10 @@ const GroupDetail = () => {
   const handleCreatePost = async (e) => {
     if (!user) {
       alert('You must be logged in to create a post.');
+      return;
+    }
+    if (!isUserApproved) {
+      setError('Your account is pending approval. You cannot post until approved.');
       return;
     }
     e.preventDefault();

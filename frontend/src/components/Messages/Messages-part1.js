@@ -1,3 +1,7 @@
+// DEPRECATED: legacy messaging UI. Do not use for new features.
+// The canonical messaging UI is MessagingSystem + ConversationList + ChatWindow.
+// This file contains old "isOnline" logic that was never properly wired up.
+
 import React, { useState, useEffect } from 'react';
 import { 
   ChatBubbleLeftRightIcon,

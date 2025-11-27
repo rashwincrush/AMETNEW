@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { getFriendlyErrorMessage } from '../../utils/errors';
 import { safeObjectName } from '../../utils/files';
+import { computeJobApplyState } from '../../utils/jobs';
 
 export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess }) {
   const { user, userRole, getUserRole } = useAuth();
@@ -78,6 +79,34 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
     const role = userRole || (typeof getUserRole === 'function' ? getUserRole() : null);
     if (role === 'employer') {
       toast.error('Employers cannot apply to jobs from this portal.');
+      return;
+    }
+
+    // Guard against quick-link or closed jobs using latest job state
+    try {
+      const { data: jobRow, error: jobErr } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('id', jobId)
+        .single();
+
+      if (jobErr || !jobRow) {
+        toast.error('This job is no longer available.');
+        return;
+      }
+
+      const applyState = computeJobApplyState(jobRow);
+      if (applyState.isQuickLink) {
+        toast.error('This job only accepts applications on the external site. Please use Apply Externally from the job page.');
+        return;
+      }
+      if (!applyState.canApplyInApp) {
+        toast.error('Applications are closed for this job.');
+        return;
+      }
+    } catch (err) {
+      console.error('Apply guard failed:', err);
+      toast.error('Unable to apply to this job right now. Please try again.');
       return;
     }
     if (deadlinePassed) {

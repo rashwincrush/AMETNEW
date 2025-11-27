@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useApproval } from '../../hooks/useApproval';
 import { useNotification } from '../../hooks/useNotification'; // Import useAuth
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 // Removed legacy useRecentActivity in favor of self-contained ActivitiesWidget
@@ -71,6 +72,7 @@ const formatEventDateTime = (dateString, timeString) => {
 const AlumniDashboard = () => {
   const { showInfo } = useNotification();
   const { user, profile, loading: authLoading, userRole, getUserRole } = useAuth();
+  const { isApproved } = useApproval();
   const location = useLocation();
   const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState({
@@ -486,6 +488,26 @@ const AlumniDashboard = () => {
     <main id="main-content" className="p-4 md:p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-800 mb-6">Welcome back, {userName}!</h1>
+        
+        {/* Pending Approval Banner */}
+        {!isApproved && userRole !== 'employer' && (
+          <div className="mb-6 bg-amber-50 border-l-4 border-amber-400 rounded-lg p-4">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-amber-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-amber-800">Account Pending Approval</h3>
+                <div className="mt-2 text-sm text-amber-700">
+                  <p>Your account is currently under review. You can browse jobs, events, and groups, but you won't be able to apply, RSVP, join groups, or comment until your account is approved.</p>
+                  <p className="mt-2">If you have any questions, please contact an administrator.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
             <StatSkeletonCard />

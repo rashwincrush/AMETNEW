@@ -1,3 +1,6 @@
+// DEPRECATED: legacy messaging UI. Do not use for new features.
+// The canonical messaging UI is MessagingSystem + ConversationList + ChatWindow.
+
   // Load messages when a conversation is selected
   useEffect(() => {
     const loadMessages = async () => {

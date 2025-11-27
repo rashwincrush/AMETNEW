@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase, fetchGroups, joinGroup, leaveGroup, requestGroupMembership } from '../../utils/supabase';
 import { fetchMembershipMap } from '../../utils/memberships';
 import { useAuth } from '../../contexts/AuthContext';
+import { useApproval } from '../../hooks/useApproval';
 import { canCreateGroup } from '../../utils/acl';
 import { Users, Search, Tag, Calendar, Filter } from 'lucide-react';
 import ImageWithFallback from '../common/ImageWithFallback';
@@ -21,7 +22,7 @@ const GroupCardSkeleton = () => (
 );
 
 // Group card component
-const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, canManageAllGroups, userRole }) => {
+const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, canManageAllGroups, userRole, isUserApproved }) => {
   const [imgSrc, setImgSrc] = useState('');
   const isCreator = group.created_by === currentUserId;
   const formattedDate = new Date(group.created_at).toLocaleDateString();
@@ -36,9 +37,9 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
   const isSiteAdmin = !!canManageAllGroups;
   const showManage = (isGroupAdmin || isSiteAdmin) && !group.is_archived;
   const employer = userRole === 'employer';
-  const showJoin = !employer && !group.is_archived && !isMember && isApproved && !isPrivate;
+  const showJoin = !employer && isUserApproved && !group.is_archived && !isMember && isApproved && !isPrivate;
   const showLeave = !group.is_archived && isMember && !(isGroupAdmin || isSiteAdmin);
-  const showRequest = !employer && !group.is_archived && !isMember && isPrivate;
+  const showRequest = !employer && isUserApproved && !group.is_archived && !isMember && isPrivate;
   
   // Build avatar image src: prefer stored public URL; otherwise fetch a signed URL
   useEffect(() => {
@@ -170,6 +171,7 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
 
 const GroupsList = () => {
   const { user, isAdmin, hasPermission, profile, userRole } = useAuth();
+  const { isApproved: isUserApproved } = useApproval();
   const [groups, setGroups] = useState([]);
   const [userMemberships, setUserMemberships] = useState([]);
   const [membershipMap, setMembershipMap] = useState({});
@@ -445,6 +447,7 @@ const GroupsList = () => {
                 currentUserId={user?.id}
                 canManageAllGroups={canManageAllGroups}
                 userRole={userRole}
+                isUserApproved={isUserApproved}
               />
             );
           })

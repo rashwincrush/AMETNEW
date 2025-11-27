@@ -1,3 +1,5 @@
+// DEPRECATED: Legacy MUI edit-event form, not used in current routing.
+// Do not import or use this component without consulting the maintainer.
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';

@@ -19,7 +19,7 @@ import { CalendarIcon } from '@heroicons/react/24/outline';
 import { CircularProgress } from '@mui/material';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { coalesceAppUrl, isQuickLink, companyDisplay, getSourceType } from '../../utils/jobs';
+import { coalesceAppUrl, isQuickLink, getJobLogoUrl, getJobCompanyName, getSourceType, computeJobApplyState } from '../../utils/jobs';
 import { useApproval } from '../../hooks/useApproval';
 import { getApplicantsCount } from '../../utils/applicants';
 import { requestConnectionForJob } from '../../utils/connections';
@@ -189,8 +189,9 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   const employerId = job?.posted_by || job?.user_id || job?.created_by || job?.employer_id;
   const isOwner = !!(user?.id && [job?.created_by, job?.posted_by, job?.user_id, job?.employer_id].some(v => v === user.id));
   const isApplicantRole = ['alumni', 'student'].includes(userRole);
-
-  const quick = isQuickLink(job);
+  const applyState = computeJobApplyState(job);
+  const quick = applyState.isQuickLink;
+  const { canApplyInApp, canApplyExternally, isClosed } = applyState;
   const ownerOrAdmin = isOwner || ['admin', 'super_admin'].includes(userRole);
   const pauseJob = async () => {
     if (job?.is_active === false) return;
@@ -238,23 +239,11 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   }, [user?.id, job?.id]);
   const href = coalesceAppUrl(job);
   const titleTrim = (job.title || '').trim();
-  const companyNameRaw = (job.companies?.name || job.company_name || '').trim();
+  const companyNameRaw = (getJobCompanyName(job) || '').trim();
   const showCompanyName = !!companyNameRaw && companyNameRaw !== titleTrim;
   const descTrim = (job.description || '').trim();
   const showDescription = !!descTrim;
-
-  // Single source of truth for Apply/Upload visibility
   const coalescedDeadline = job?.deadline || job?.application_deadline || null;
-  const deadlinePassed = isDeadlinePassed(coalescedDeadline);
-  const statusActive = job?.status ? String(job.status).toLowerCase() === 'active' : true;
-  const activeFlag = job?.is_active !== false; // treat null/undefined as active
-  const hideApplyForNonOwner = (
-    !job.is_approved ||
-    !activeFlag ||
-    !statusActive ||
-    !!deadlinePassed
-  );
-  const canApply = !hideApplyForNonOwner;
 
   const rejected = job?.is_rejected === true;
   const isPaused = job?.is_active === false && !rejected;
@@ -267,8 +256,8 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
         <div className="flex items-center flex-1">
           <div className="w-12 h-12 rounded-xl mr-4 flex-shrink-0 overflow-hidden bg-gray-100 shadow-sm">
             <ImageWithFallback
-              src={job.companies?.logo_url}
-              alt={job.companies?.name || 'Company'}
+              src={getJobLogoUrl(job)}
+              alt={getJobCompanyName(job) || 'Company'}
               className="w-12 h-12"
               placeholderSrc="/default-avatar.svg"
               emptyMessage="Employer logo to be uploaded"
@@ -417,7 +406,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           {(userRole === 'employer' && isOwner) || (['admin', 'super_admin'].includes(userRole)) ? (
             <Link to={`/jobs/${job.id}/applications`} className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">Manage Applications</Link>
           ) : (userRole === 'employer' && !isOwner) ? (
-            !hideApplyForNonOwner ? (
+            !isClosed ? (
               <button
                 type="button"
                 className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
@@ -437,16 +426,20 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
               </button>
             )
           ) : quick ? (
-            <button
-              onClick={() => { const url = href; if (!url) return; const ok = window.confirm("External listing. Clicking will take you to a page outside the Alumni portal. Continue?"); if (ok) window.open(url, '_blank', 'noopener'); }}
-              aria-label="Apply Externally"
-              className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
-            >
-              Apply Externally
-            </button>
+            canApplyExternally ? (
+              <button
+                onClick={() => { const url = href; if (!url) return; const ok = window.confirm("External listing. Clicking will take you to a page outside the Alumni portal. Continue?"); if (ok) window.open(url, '_blank', 'noopener'); }}
+                aria-label="Apply Externally"
+                className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
+              >
+                Apply Externally
+              </button>
+            ) : (
+              <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications Closed</button>
+            )
           ) : applied ? (
             <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Application Submitted</button>
-          ) : canApply ? (
+          ) : canApplyInApp ? (
             <button
               onClick={() => setApplyOpen(true)}
               className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
@@ -477,8 +470,9 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id || job?.created_by || job?.employer_id;
   const isOwner = !!(user?.id && [job?.created_by, job?.posted_by, job?.user_id, job?.employer_id].some(v => v === user.id));
-
-  const quick = isQuickLink(job);
+  const applyState = computeJobApplyState(job);
+  const quick = applyState.isQuickLink;
+  const { canApplyInApp, canApplyExternally, isClosed } = applyState;
   const ownerOrAdmin = isOwner || ['admin', 'super_admin'].includes(userRole);
   const pauseJob = async () => {
     if (job?.is_active === false) return;
@@ -524,9 +518,6 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
   }, [user?.id, job?.id]);
 
   const coalescedDeadline = job?.deadline || job?.application_deadline || null;
-  const deadlinePassed = isDeadlinePassed(coalescedDeadline);
-  const statusActive = job?.status ? String(job.status).toLowerCase() === 'active' : true;
-  const activeFlag = job?.is_active !== false; // treat null/undefined as active
   const rejected = job?.is_rejected === true;
   const isPaused = job?.is_active === false && !rejected;
   const canToggleVisibility = ownerOrAdmin && !rejected;
@@ -536,8 +527,8 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
     <div className="glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border border-transparent min-h-[140px]">
       <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100">
         <ImageWithFallback
-          src={job.companies?.logo_url}
-          alt={job.companies?.name || 'Company'}
+          src={getJobLogoUrl(job)}
+          alt={getJobCompanyName(job) || 'Company'}
           className="w-16 h-16"
           placeholderSrc="/default-avatar.svg"
           emptyMessage="Employer logo to be uploaded"
@@ -560,7 +551,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
           />
         </div>
         <div className="flex items-center gap-1 mb-2">
-          {(() => { const cn = (job.companies?.name || job.company_name || '').trim(); return (cn && cn !== (job.title || '').trim()) ? (
+          {(() => { const cn = (getJobCompanyName(job) || '').trim(); return (cn && cn !== (job.title || '').trim()) ? (
             <Link to={`/companies/${job.company_id}`} className="text-ocean-600 font-medium hover:underline">{cn}</Link>
           ) : null; })()}
         </div>
@@ -643,7 +634,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
           {(isOwner || ['admin', 'super_admin'].includes(userRole)) ? (
             <Link to={`/jobs/${job.id}/applications`} className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">Manage Applications</Link>
           ) : (userRole === 'employer' && !isOwner) ? (
-            (statusActive && activeFlag && job.is_approved === true && !deadlinePassed) ? (
+            !isClosed ? (
               <button
                 type="button"
                 className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
@@ -663,22 +654,28 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
               </button>
             )
           ) : quick ? (
-            <button
-              className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
-              onClick={() => { const url = coalesceAppUrl(job); if (!url) return; const ok = window.confirm("External listing. Clicking will take you to a page outside the Alumni portal. Continue?"); if (ok) window.open(url, '_blank', 'noopener'); }}
-              aria-label="Apply Externally"
-            >
-              Apply Externally
-            </button>
-          ) : (applied || deadlinePassed || !statusActive || !job.is_approved || !activeFlag) ? (
-            <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">{deadlinePassed ? 'Applications Closed' : 'Applications Closed'}</button>
-          ) : (
+            canApplyExternally ? (
+              <button
+                className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
+                onClick={() => { const url = coalesceAppUrl(job); if (!url) return; const ok = window.confirm("External listing. Clicking will take you to a page outside the Alumni portal. Continue?"); if (ok) window.open(url, '_blank', 'noopener'); }}
+                aria-label="Apply Externally"
+              >
+                Apply Externally
+              </button>
+            ) : (
+              <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications Closed</button>
+            )
+          ) : applied ? (
+            <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Application Submitted</button>
+          ) : canApplyInApp ? (
             <button
               className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
               onClick={() => setApplyOpen(true)}
             >
               Apply
             </button>
+          ) : (
+            <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications Closed</button>
           )}
           {!quick && (
             <ApplyDialog open={applyOpen} onClose={() => setApplyOpen(false)} jobId={job.id} deadline={coalescedDeadline} onSuccess={() => setApplied(true)} />
@@ -1012,10 +1009,9 @@ const JobListingsPage = () => {
     if (!isEmployer) {
       const rawItems = Array.isArray(data) ? data : (data?.items ?? []);
       rows = rawItems.map(j => {
-        // Prefer company_logo_url if present in row
         const company = {
-          name: companyDisplay(j).name,
-          logo_url: j.company_logo_url || companyDisplay(j).logo_url
+          name: getJobCompanyName(j),
+          logo_url: getJobLogoUrl(j),
         };
         const appUrl = coalesceAppUrl(j);
         const computedSource = getSourceType({ ...j, application_url: appUrl });
@@ -1038,8 +1034,8 @@ const JobListingsPage = () => {
     } else {
       rows = (data || []).map(j => {
         const company = {
-          name: companyDisplay(j).name,
-          logo_url: j.company_logo_url || companyDisplay(j).logo_url
+          name: getJobCompanyName(j),
+          logo_url: getJobLogoUrl(j),
         };
         const appUrl = coalesceAppUrl(j);
         const computedSource = getSourceType({ ...j, application_url: appUrl });

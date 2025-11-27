@@ -1,4 +1,17 @@
 import { supabase } from '../utils/supabase';
+import { normalizeJobCompany } from '../utils/jobs';
+
+function normalizeJob(raw) {
+  if (!raw) return raw;
+
+  const company = normalizeJobCompany(raw);
+
+  return {
+    ...raw,
+    company_name: company.name || raw.company_name || '',
+    company_logo_url: company.logo_url || raw.company_logo_url || '',
+  };
+}
 
 export async function fetchJobsFeed() {
   const { data, error } = await supabase
@@ -23,7 +36,7 @@ export async function fetchJobsFeed() {
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  return (data || []).map(normalizeJob);
 }
 
 export async function fetchJobById(jobId) {
@@ -34,7 +47,7 @@ export async function fetchJobById(jobId) {
     .single();
 
   if (error) throw error;
-  return data;
+  return data ? normalizeJob(data) : null;
 }
 
 // Expired jobs feeds (admin/employer)
@@ -45,7 +58,7 @@ export async function fetchExpiredJobsAdmin({ limit = 50, offset = 0, search = n
     p_search: search,
   });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).map(normalizeJob);
 }
 
 export async function fetchMyExpiredJobs({ limit = 50, offset = 0, search = null }) {
@@ -55,5 +68,5 @@ export async function fetchMyExpiredJobs({ limit = 50, offset = 0, search = null
     p_search: search,
   });
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []).map(normalizeJob);
 }

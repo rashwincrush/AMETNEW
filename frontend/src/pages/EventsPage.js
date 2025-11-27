@@ -9,7 +9,8 @@ import EventFeedback from '../components/Events/EventFeedback';
 import EventFeedbackDashboard from '../components/Events/EventFeedbackDashboard';
 
 const EventsPage = () => {
-  const { user, isAdmin } = useAuth();
+  const { user, hasPermission } = useAuth();
+  const isAdmin = hasPermission('events:create');
 
   return (
     <Routes>

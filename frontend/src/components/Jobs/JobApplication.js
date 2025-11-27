@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import { computeJobApplyState } from '../../utils/jobs';
 
 const JobApplication = () => {
   const { jobId } = useParams();
@@ -83,6 +84,18 @@ const JobApplication = () => {
           return;
         }
         
+        const applyState = computeJobApplyState(jobData);
+        if (applyState.isQuickLink) {
+          toast.error('This job only accepts external applications.');
+          navigate(`/jobs/${jobId}`);
+          return;
+        }
+        if (!applyState.canApplyInApp) {
+          toast.error('Applications are closed for this job.');
+          navigate(`/jobs/${jobId}`);
+          return;
+        }
+
         setJob(jobData);
         
         // Check if user already applied

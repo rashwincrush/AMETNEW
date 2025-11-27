@@ -15,13 +15,13 @@ const SupportPageHeader = ({ hideBackWhenFromRegistration = false }) => {
       fromRegistration = false;
     }
   }
-
-  const showBack = !fromRegistration;
+  const showDefaultBack = !hideBackWhenFromRegistration || !fromRegistration;
+  const showRegistrationBack = hideBackWhenFromRegistration && fromRegistration;
 
   return (
     <div className="mb-6 grid grid-cols-3 items-center">
       <div className="flex items-center justify-start">
-        {showBack && (
+        {showDefaultBack && (
           <button
             onClick={() => navigate(-1)}
             aria-label="Go back"
@@ -31,6 +31,18 @@ const SupportPageHeader = ({ hideBackWhenFromRegistration = false }) => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
             </svg>
             <span className="text-sm font-medium">Back</span>
+          </button>
+        )}
+        {showRegistrationBack && (
+          <button
+            onClick={() => navigate('/register?step=2')}
+            aria-label="Back to registration"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-ocean-700 hover:bg-ocean-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+            </svg>
+            <span className="text-sm font-medium">Back to registration</span>
           </button>
         )}
       </div>

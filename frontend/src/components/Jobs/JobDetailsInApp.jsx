@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { hasOverviewData, coalesceAppUrl } from '../../utils/jobs';
+import { useApproval } from '../../hooks/useApproval';
+import { hasOverviewData, coalesceAppUrl, computeJobApplyState } from '../../utils/jobs';
 import { getApplicantsCount } from '../../utils/applicants';
 import { requestConnectionForJob } from '../../utils/connections';
 import toast from 'react-hot-toast'; // Assuming you have react-hot-toast installed
@@ -11,19 +12,20 @@ import ImageWithFallback from '../common/ImageWithFallback';
 
 export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner, isAdmin }) {
   const { user, userRole } = useAuth();
+  const { isApproved } = useApproval();
   const navigate = useNavigate();
   const canEdit = isOwner || isAdmin;
   const employerId = job?.posted_by || job?.user_id || job?.created_by;
   const [applyOpen, setApplyOpen] = useState(false);
   const [applied, setApplied] = useState(false);
   const coalescedDeadline = job?.deadline || job?.application_deadline || null;
-  const deadlinePassed = coalescedDeadline && new Date(coalescedDeadline) < new Date();
+  const applyState = computeJobApplyState(job);
+  const { canApplyInApp, isClosed } = applyState;
   const formatKolkata = (iso) => {
     try {
       return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }).format(new Date(iso));
     } catch (_) { return new Date(iso).toLocaleDateString(); }
   };
-  const isClosed = deadlinePassed || (job?.status && job.status !== 'active');
   const isEmployer = userRole === 'employer';
   const isEmployerOwner = isEmployer && (job?.created_by === user?.id || job?.posted_by === user?.id);
 
@@ -115,18 +117,30 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
                     Connect with Employer
                   </button>
                 )}
-                {(() => { const externalUrl = coalesceAppUrl(job); return externalUrl ? (
-                  <a href={externalUrl} target="_blank" rel="noopener" aria-label="Apply Externally" className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700">Apply Externally</a>
-                ) : null; })()}
-                {(!coalesceAppUrl(job)) && (applied ? (
+                {/* In-app apply controls (non-owner viewers only) */}
+                {applied ? (
                   <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Application Submitted</button>
-                ) : isClosed ? (
-                  <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Applications Closed</button>
+                ) : !isApproved ? (
+                  <button
+                    disabled
+                    className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed"
+                    title="Your account is pending approval"
+                  >
+                    Awaiting Approval
+                  </button>
                 ) : isEmployer ? (
-                  <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Accepting Applications</button>
-                ) : (
+                  <button
+                    type="button"
+                    className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed"
+                    aria-disabled="true"
+                  >
+                    {isClosed ? 'Applications Closed' : 'Accepting Applications'}
+                  </button>
+                ) : canApplyInApp ? (
                   <button onClick={() => setApplyOpen(true)} className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700">Apply</button>
-                ))}
+                ) : (
+                  <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Applications Closed</button>
+                )}
               </>
             )}
           </div>

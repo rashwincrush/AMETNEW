@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import dayjs from 'dayjs';
 import { supabase } from '../utils/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import { computeEventTimelineFlags } from '../utils/eventsStatus';
 
 export function useEvent(eventId) {
   return useQuery({
@@ -78,11 +78,45 @@ export function useEventComputedFlags(eventRow) {
       eventEnded: false,
     };
   }
-  
-  const startISO = eventRow.start_at || eventRow.start_date;
-  const endISO = eventRow.computed_end_at || eventRow.end_at || eventRow.end_date;
-  const eventStarted = !!startISO && dayjs().isAfter(dayjs(startISO));
-  const eventEnded = !!endISO && dayjs().isAfter(dayjs(endISO));
-  
+
+  const { startISO, endISO, eventStarted, eventEnded } = computeEventTimelineFlags(eventRow);
   return { startISO, endISO, eventStarted, eventEnded };
+}
+
+export function useMyRegistrations(userId) {
+  return useQuery({
+    queryKey: ['myRegistrations', userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data: rsvps, error: rsvpError } = await supabase
+        .from('event_attendees')
+        .select('event_id, user_id, attendance_status, created_at')
+        .eq('user_id', userId);
+
+      if (rsvpError) throw rsvpError;
+
+      const eventIds = Array.from(new Set((rsvps || []).map((r) => r.event_id).filter(Boolean)));
+      if (eventIds.length === 0) {
+        return [];
+      }
+
+      const { data: events, error: eventsError } = await supabase
+        .from('events')
+        .select('*')
+        .in('id', eventIds);
+
+      if (eventsError) throw eventsError;
+
+      const rsvpByEventId = (rsvps || []).reduce((acc, r) => {
+        if (!acc[r.event_id]) acc[r.event_id] = r;
+        return acc;
+      }, {});
+
+      return (events || []).map((ev) => ({
+        ...ev,
+        my_attendance_status: rsvpByEventId[ev.id]?.attendance_status || null,
+        my_rsvp_created_at: rsvpByEventId[ev.id]?.created_at || null,
+      }));
+    },
+  });
 }

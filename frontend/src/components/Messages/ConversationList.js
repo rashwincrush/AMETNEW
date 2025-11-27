@@ -3,41 +3,15 @@ import { MagnifyingGlassIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/2
 import { formatDistanceToNow } from 'date-fns';
 import { useProfileById } from '../../hooks/useProfileById';
 import { getDisplayName } from '../../utils/displayName';
-
-// Simple in-memory cache of failed avatar URLs to avoid retry storms
-const failedAvatarCache = new Set();
-
-const Avatar = ({ url, name }) => {
-  const [failed, setFailed] = useState(() => (url ? failedAvatarCache.has(url) : true));
-  const initial = useMemo(() => (name ? name.charAt(0).toUpperCase() : '?'), [name]);
-
-  if (!url || failed) {
-    return (
-      <div className="w-12 h-12 bg-ocean-100 rounded-full flex items-center justify-center text-ocean-600 font-bold overflow-hidden">
-        {initial}
-      </div>
-    );
-  }
-  return (
-    <img
-      src={url}
-      alt={name || 'avatar'}
-      className="w-12 h-12 rounded-full object-cover"
-      loading="lazy"
-      decoding="async"
-      referrerPolicy="no-referrer"
-      width={48}
-      height={48}
-      onError={() => { failedAvatarCache.add(url); setFailed(true); }}
-    />
-  );
-};
+import Avatar from '../common/Avatar';
 
 const ThreadRow = ({ thread, selected, onSelect }) => {
   const { profile, isLoading } = useProfileById(thread.other_user_id);
   const name = getDisplayName(profile, null);
-  const avatarUrl = profile?.avatar_url || null;
-  const initial = (name || '?').charAt(0).toUpperCase();
+  const avatarUrl = profile?.avatar_url ?? null;
+  
+  // Green dot = connected & can send DMs (driven by backend connections.status = 'accepted')
+  const isConnected = !!thread.can_send;
 
   return (
     <div 
@@ -48,23 +22,21 @@ const ThreadRow = ({ thread, selected, onSelect }) => {
         <div className="relative">
           {isLoading ? (
             <div className="w-12 h-12 bg-gray-200 rounded-full animate-pulse" />
-          ) : avatarUrl ? (
-            <img
+          ) : (
+            <Avatar
               src={avatarUrl}
               alt={name || 'avatar'}
-              className="w-12 h-12 rounded-full object-cover"
-              loading="lazy"
-              decoding="async"
-              onError={(e) => { e.target.onerror = null; e.target.src = '/default-avatar.svg'; }}
+              size={48}
+              rounded="full"
             />
-          ) : (
-            <div className="w-12 h-12 bg-ocean-100 rounded-full flex items-center justify-center text-ocean-600 font-bold overflow-hidden">
-              {initial}
-            </div>
           )}
 
-          {thread.can_send && (
-            <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></span>
+          {isConnected && (
+            <span 
+              className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"
+              title="Connected – you can send messages"
+              aria-label="Connected – you can send messages"
+            />
           )}
         </div>
 
@@ -84,6 +56,11 @@ const ThreadRow = ({ thread, selected, onSelect }) => {
               ) : (
                 <p className="text-xs text-gray-500 truncate">
                   {[thread.other_user_title, thread.other_user_company].filter(Boolean).join(' · ')}
+                </p>
+              )}
+              {!isConnected && thread.last_message_at && (
+                <p className="text-xs text-amber-600 mt-0.5">
+                  Connection required to continue messaging
                 </p>
               )}
             </div>

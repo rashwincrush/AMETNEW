@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { useApproval } from '../../hooks/useApproval';
 import { supabase } from '../../utils/supabase';
 import { Box, Typography, Paper, TextField, Button, Alert, CircularProgress } from '@mui/material';
 
@@ -8,6 +9,7 @@ const JobApplyForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user, userRole, getUserRole } = useAuth();
+  const { isApproved } = useApproval();
   const [resumeUrl, setResumeUrl] = useState('');
   const [coverLetter, setCoverLetter] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,6 +34,11 @@ const JobApplyForm = () => {
     const role = userRole || (typeof getUserRole === 'function' ? getUserRole() : null);
     if (role === 'employer') {
       setError('Employers cannot apply to jobs from this portal.');
+      setLoading(false);
+      return;
+    }
+    if (!isApproved) {
+      setError('Your account is pending approval. You can browse jobs but cannot apply until approved.');
       setLoading(false);
       return;
     }

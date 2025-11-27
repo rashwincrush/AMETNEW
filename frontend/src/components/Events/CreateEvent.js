@@ -22,7 +22,7 @@ import AccessDenied from '../Auth/AccessDenied';
 
 const CreateEvent = () => {
   const navigate = useNavigate();
-  const { user, userRole, profile } = useAuth();
+  const { user, userRole, profile, hasPermission } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -90,7 +90,9 @@ const CreateEvent = () => {
   const [errors, setErrors] = useState({});
   const [previewImage, setPreviewImage] = useState(null);
 
-  if (userRole === 'student') {
+  const canCreateEvents = hasPermission('events:create');
+
+  if (!canCreateEvents) {
     return <AccessDenied />;
   }
 

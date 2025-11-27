@@ -241,7 +241,7 @@ const HomePage = () => {
                 <p className="text-sm text-ocean-600 font-semibold">Oct 25, 2025</p>
                 <h3 className="mt-2 text-xl font-bold text-gray-900">Annual Alumni Gala</h3>
                 <p className="mt-3 text-gray-600">A night of celebration and networking.</p>
-                <Link to="#" className="mt-4 inline-block text-ocean-600 font-semibold hover:text-ocean-800 min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Learn More &rarr;</Link>
+                <Link to="/events" className="mt-4 inline-block text-ocean-600 font-semibold hover:text-ocean-800 min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Learn More &rarr;</Link>
               </div>
             </div>
             {/* Placeholder Event 2 */}
@@ -250,7 +250,7 @@ const HomePage = () => {
                 <p className="text-sm text-ocean-600 font-semibold">Nov 12, 2025</p>
                 <h3 className="mt-2 text-xl font-bold text-gray-900">Maritime Tech Webinar</h3>
                 <p className="mt-3 text-gray-600">Exploring the future of maritime technology.</p>
-                <Link to="#" className="mt-4 inline-block text-ocean-600 font-semibold hover:text-ocean-800 min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Learn More &rarr;</Link>
+                <Link to="/events" className="mt-4 inline-block text-ocean-600 font-semibold hover:text-ocean-800 min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Learn More &rarr;</Link>
               </div>
             </div>
             {/* Placeholder Event 3 */}
@@ -259,7 +259,7 @@ const HomePage = () => {
                 <p className="text-sm text-ocean-600 font-semibold">Dec 05, 2025</p>
                 <h3 className="mt-2 text-xl font-bold text-gray-900">Career Development Workshop</h3>
                 <p className="mt-3 text-gray-600">Enhance your skills with industry experts.</p>
-                <Link to="#" className="mt-4 inline-block text-ocean-600 font-semibold hover:text-ocean-800 min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Learn More &rarr;</Link>
+                <Link to="/events" className="mt-4 inline-block text-ocean-600 font-semibold hover:text-ocean-800 min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Learn More &rarr;</Link>
               </div>
             </div>
           </div>

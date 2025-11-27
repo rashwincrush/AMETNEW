@@ -62,14 +62,23 @@ if (!window.AMET_AUTH) {
   };
 }
 
-// Define permissions for each role (ALIGN: db-enum-roles)
-const PERMISSIONS = {
+// Define base permissions for each role (full capabilities when fully approved)
+const BASE_PERMISSIONS = {
   // Alumni role permissions
   alumni: [
-    'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
-    'request:mentorship', 'become:mentor', 'access:groups', 'message:users',
+    'access:dashboard',
+    'view:jobs',
+    'access:events',
+    'view:alumni_directory',
+    'request:mentorship',
+    'become:mentor',
+    'access:groups',
+    'message:users',
     'access:profile_settings',
-    'manage:mentor_profile', 'manage:mentee_requests', 'chat:mentees', 'manage:mentoring_slots'
+    'manage:mentor_profile',
+    'manage:mentee_requests',
+    'chat:mentees',
+    'manage:mentoring_slots',
   ],
   employer: [
     'access:dashboard',
@@ -80,16 +89,74 @@ const PERMISSIONS = {
     'manage:company_profile',
     'access:events',
     'message:users',        // allow messaging entry and gated chat
-    'access:profile_settings'
+    'access:profile_settings',
   ],
-  admin: ['access:all'],
-  super_admin: ['access:all', 'view:feedback_reports'],
+  admin: [
+    'access:all',
+    'access:events',
+    'events:create',
+  ],
+  super_admin: [
+    'access:all',
+    'access:events',
+    'events:create',
+    'view:feedback_reports',
+  ],
   student: [
-    'access:dashboard', 'view:alumni_directory', 'view:jobs', 'access:events',
-    'request:mentorship', 'access:groups', 'message:users',
-    'access:profile_settings'
+    'access:dashboard',
+    'view:jobs',
+    'access:events',
+    'view:alumni_directory',
+    'request:mentorship',
+    'access:groups',
+    'message:users',
+    'access:profile_settings',
   ],
 };
+
+function derivePermissions(role, approvalFlags) {
+  const base = BASE_PERMISSIONS[role] || [];
+  const approvalStatus = approvalFlags?.approvalStatus || 'pending';
+  const isFullyApproved = approvalFlags?.isFullyApproved ?? false;
+
+  // Admin & super_admin always keep full permissions
+  if (role === 'admin' || role === 'super_admin') {
+    return base;
+  }
+
+  // If rejected, return an empty permission set (they are normally redirected)
+  if (approvalStatus === 'rejected') {
+    return [];
+  }
+
+  // If fully approved -> full base permissions
+  if (isFullyApproved) {
+    return base;
+  }
+
+  // Pending logic per role
+  if (role === 'student' || role === 'alumni') {
+    return [
+      'access:dashboard',
+      'access:profile_settings',
+      // Optional read-only listings
+      'view:jobs',
+      'access:events',
+    ];
+  }
+
+  if (role === 'employer') {
+    return [
+      'access:dashboard',
+      'view:jobs',
+      'access:events',
+      'access:profile_settings',
+    ];
+  }
+
+  // Default: fallback to base permissions
+  return base;
+}
 
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
@@ -99,6 +166,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState(null);
   const [rejectionStatus, setRejectionStatus] = useState({ isRejected: false, reason: null });
+  const [approvalFlags, setApprovalFlags] = useState(null);
   const [updatingProfile, setUpdatingProfile] = useState(false);
   
   // Use refs that survive hot reloads but also window.AMET_AUTH for strict mode
@@ -287,6 +355,50 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
+  const computeApprovalFlagsFromProfile = useCallback((p) => {
+    if (!p) {
+      return { approvalStatus: null, isFullyApproved: false };
+    }
+    const approvalStatus =
+      p.approval_status ||
+      p.alumni_verification_status ||
+      (p.is_approved ? 'approved' : 'pending');
+    return {
+      approvalStatus: approvalStatus || null,
+      isFullyApproved: approvalStatus === 'approved',
+    };
+  }, []);
+
+  const refreshApprovalFlags = useCallback(
+    async (userId) => {
+      if (!userId) {
+        setApprovalFlags(null);
+        return;
+      }
+      try {
+        const { data, error } = await supabase.rpc('get_current_user_flags');
+        if (error) {
+          logger.warn('get_current_user_flags failed, falling back to profile fields:', error);
+          setApprovalFlags(computeApprovalFlagsFromProfile(profile));
+          return;
+        }
+        const row = Array.isArray(data) ? data[0] : data;
+        if (!row) {
+          setApprovalFlags(computeApprovalFlagsFromProfile(profile));
+          return;
+        }
+        setApprovalFlags({
+          approvalStatus: row.approval_status || null,
+          isFullyApproved: !!row.is_fully_approved,
+        });
+      } catch (err) {
+        logger.warn('get_current_user_flags threw, falling back to profile fields:', err);
+        setApprovalFlags(computeApprovalFlagsFromProfile(profile));
+      }
+    },
+    [profile, computeApprovalFlagsFromProfile]
+  );
+
   const signOut = useCallback(async () => {
     logger.log('Signing out user');
     
@@ -297,6 +409,7 @@ export const AuthProvider = ({ children }) => {
     setProfile(null);
     setUser(null);
     setSession(null);
+    setApprovalFlags(null);
     
     // Clear stored auth data
     profileFetchedRef.current = null;
@@ -352,7 +465,24 @@ export const AuthProvider = ({ children }) => {
 
     if (error) throw error;
 
-    // Re-fetch profile to update context state
+    // FIX: Immediately update local profile state for instant UI feedback
+    if (data) {
+      setProfile(prevProfile => ({
+        ...prevProfile,
+        ...data
+      }));
+      
+      // If avatar_url was updated, also update user object
+      if (data.avatar_url) {
+        setUser(prevUser => ({
+          ...prevUser,
+          avatar: data.avatar_url,
+          avatar_url: data.avatar_url
+        }));
+      }
+    }
+
+    // Re-fetch profile to ensure consistency
     await fetchUserProfile(user.id);
     return data;
   }, [user, fetchUserProfile]);
@@ -557,10 +687,13 @@ export const AuthProvider = ({ children }) => {
 
   // Handle automatic redirect for rejected users
   useEffect(() => {
-    if (rejectionStatus.isRejected && window.location.pathname !== '/rejection') {
+    const isRejectedFlag =
+      rejectionStatus.isRejected ||
+      approvalFlags?.approvalStatus === 'rejected';
+    if (isRejectedFlag && window.location.pathname !== '/rejection') {
       window.location.href = '/rejection';
     }
-  }, [rejectionStatus.isRejected]);
+  }, [rejectionStatus.isRejected, approvalFlags?.approvalStatus]);
   
   // Monitor profile updates
   useEffect(() => {
@@ -569,6 +702,15 @@ export const AuthProvider = ({ children }) => {
       logger.log(`Profile updated for user ${profile.id}, role: ${role}`);
     }
   }, [profile]);
+
+  // Keep approval flags in sync with backend helper and profile fields
+  useEffect(() => {
+    if (!user?.id) {
+      setApprovalFlags(null);
+      return;
+    }
+    refreshApprovalFlags(user.id);
+  }, [user?.id, profile?.approval_status, profile?.alumni_verification_status, profile?.is_approved, refreshApprovalFlags]);
 
   // Realtime: listen for changes to the current user's profile so role/flags update without re-login
   useEffect(() => {
@@ -619,19 +761,26 @@ export const AuthProvider = ({ children }) => {
   const isSuperAdminFn = useCallback(() => userRole === 'super_admin', [userRole]);
   const isAdminFn = useCallback(() => userRole === 'admin' || userRole === 'super_admin', [userRole]);
 
+  const getEffectivePermissions = useCallback(() => {
+    return derivePermissions(userRole, approvalFlags);
+  }, [userRole, approvalFlags]);
+
   const hasPermission = useCallback((permission) => {
-    // Critical: Only Super Admin should see feedback reports regardless of other permissions
+    if (!permission) return true;
+    const perms = getEffectivePermissions();
+
     if (permission === 'view:feedback_reports') {
-      return userRole === 'super_admin';
+      return perms.includes('view:feedback_reports');
     }
-    const userPermissions = PERMISSIONS[userRole] || [];
-    return userPermissions.includes('access:all') || userPermissions.includes(permission);
-  }, [userRole]);
+
+    return perms.includes('access:all') || perms.includes(permission);
+  }, [getEffectivePermissions]);
 
   const hasAnyPermission = useCallback((permissions) => {
-    const userPermissions = PERMISSIONS[userRole] || [];
-    return userPermissions.includes('access:all') || permissions.some((p) => userPermissions.includes(p));
-  }, [userRole]);
+    const perms = getEffectivePermissions();
+    if (perms.includes('access:all')) return true;
+    return permissions.some((p) => perms.includes(p));
+  }, [getEffectivePermissions]);
 
   // Backfill profiles.email from auth if missing (safe, user-editable column)
   useEffect(() => {
@@ -651,9 +800,10 @@ export const AuthProvider = ({ children }) => {
   }, [user?.id, user?.email, profile?.email]);
 
   const hasAllPermissions = useCallback((permissions) => {
-    const userPermissions = PERMISSIONS[userRole] || [];
-    return userPermissions.includes('access:all') || permissions.every(p => userPermissions.includes(p));
-  }, [userRole]);
+    const perms = getEffectivePermissions();
+    if (perms.includes('access:all')) return true;
+    return permissions.every(p => perms.includes(p));
+  }, [getEffectivePermissions]);
 
   const value = {
     user,
@@ -673,6 +823,7 @@ export const AuthProvider = ({ children }) => {
     hasAllPermissions,
     getUserRole,
     rejectionStatus,
+    approvalFlags,
     // New helpers
     isAdminFn,
     isSuperAdmin: isSuperAdminFn

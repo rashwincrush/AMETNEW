@@ -30,6 +30,23 @@ const MessagingSystem = () => {
   // Always call hooks at the top level (badge for pending received requests)
   const { counts } = useConnectionsPanel(currentUser?.id);
 
+  // Optimistically update thread's can_send after connection acceptance
+  const markThreadAsConnected = useCallback((otherUserId) => {
+    setThreads(prev =>
+      prev.map(t =>
+        t.other_user_id === otherUserId
+          ? { ...t, can_send: true }
+          : t
+      )
+    );
+    // Also update selectedThread if it matches
+    setSelectedThread(prev =>
+      prev && prev.other_user_id === otherUserId
+        ? { ...prev, can_send: true }
+        : prev
+    );
+  }, []);
+
   // Fetch current user (session + profile)
   useEffect(() => {
     if (initRef.current) return;
@@ -346,14 +363,21 @@ const MessagingSystem = () => {
         {/* Page Header */}
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
-              Messages
-              {counts?.received > 0 && (
-                <span className="inline-flex items-center justify-center text-xs font-medium rounded-full px-2 py-0.5 bg-red-100 text-red-700">
-                  {counts.received}
-                </span>
+            <div>
+              <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
+                Messages
+                {counts?.received > 0 && (
+                  <span className="inline-flex items-center justify-center text-xs font-medium rounded-full px-2 py-0.5 bg-red-100 text-red-700">
+                    {counts.received}
+                  </span>
+                )}
+              </h2>
+              {activeTab === 'chats' && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Green dot indicates you are connected and can send messages.
+                </p>
               )}
-            </h2>
+            </div>
             <div className="flex gap-2">
               <button
                 className={`px-3 py-1 rounded-full border ${activeTab==='chats' ? 'bg-ocean-50 border-ocean-300 text-ocean-700' : 'bg-white border-gray-300 text-gray-700'}`}
@@ -397,6 +421,7 @@ const MessagingSystem = () => {
                 thread={selectedThread}
                 currentUser={currentUser}
                 onMessageSent={debouncedRefresh}
+                onConnectionAccepted={markThreadAsConnected}
                 onBack={() => setSelectedThread(null)}
               />
             </div>

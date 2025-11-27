@@ -18,12 +18,13 @@ import { toast } from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { mergeAndConvertToUTC, formatInIST } from '../../utils/timezone';
+import AccessDenied from '../Auth/AccessDenied';
 
 const EditEvent = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, isAdmin, profile } = useAuth();
+  const { user, hasPermission, profile } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
@@ -51,6 +52,7 @@ const EditEvent = () => {
 
   const [errors, setErrors] = useState({});
   const [previewImage, setPreviewImage] = useState(null);
+  const canEditEvents = hasPermission('events:create');
 
   const categories = [
     { value: 'networking', label: 'Networking' },
@@ -66,16 +68,13 @@ const EditEvent = () => {
 
   // Fetch event data when component mounts
   useEffect(() => {
-    if (!isAdmin) {
-      navigate('/events', { 
-        replace: true, 
-        state: { error: 'You do not have permission to edit events' } 
-      });
+    if (!canEditEvents) {
+      setLoading(false);
       return;
     }
-    
+
     fetchEvent();
-  }, [id, isAdmin, navigate]);
+  }, [id, canEditEvents]);
 
   const fetchEvent = async () => {
     try {
@@ -352,6 +351,10 @@ const EditEvent = () => {
       setIsSubmitting(false);
     }
   };
+
+  if (!canEditEvents) {
+    return <AccessDenied />;
+  }
 
   if (loading) {
     return (

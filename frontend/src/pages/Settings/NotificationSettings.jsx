@@ -1,27 +1,45 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
-import { ALLOWED_TYPES } from '../../api/notifications';
 
-const TYPE_LABELS = {
-  system: 'System',
-  connection: 'Connections',
-  message: 'Messages',
-  event: 'Events',
-  job: 'Jobs',
-  application: 'Applications',
-  mentorship: 'Mentorship',
-  group: 'Groups',
-  alert: 'Alerts',
-};
+const NOTIFICATION_GROUPS = [
+  {
+    id: 'connections',
+    label: 'Connections & Networking',
+    types: ['connection', 'connection_request', 'system'],
+  },
+  {
+    id: 'messages',
+    label: 'Messages & Chat',
+    types: ['message', 'chat_message'],
+  },
+  {
+    id: 'jobs',
+    label: 'Jobs & Applications',
+    types: ['job', 'job_posted', 'job_approved', 'job_applied', 'application', 'application_status'],
+  },
+  {
+    id: 'mentorship',
+    label: 'Mentorship',
+    types: ['mentorship'],
+  },
+  {
+    id: 'events',
+    label: 'Events',
+    types: ['event', 'event_created', 'event_published'],
+  },
+  {
+    id: 'system_alerts',
+    label: 'System Alerts',
+    types: ['alert'],
+  },
+];
 
 export default function NotificationSettings() {
   const { user } = useAuth();
-  const [rows, setRows] = useState({}); // type -> { in_app_enabled }
+  const [prefsByType, setPrefsByType] = useState({}); // type -> boolean (in_app_enabled)
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-
-  const types = useMemo(() => Array.from(ALLOWED_TYPES).filter((t) => !t.startsWith('event_') && !t.startsWith('job_') && t !== 'event' && t !== 'job' ? ['system','connection','message','event','job','application','mentorship','group','alert'].includes(t) : true), []);
 
   useEffect(() => {
     if (!user) return;
@@ -29,16 +47,16 @@ export default function NotificationSettings() {
     const load = async () => {
       setLoading(true);
       const { data, error } = await supabase
-        .from('notification_preferences')
+        .from('v_notification_prefs')
         .select('type,in_app_enabled')
         .eq('user_id', user.id);
       if (!mounted) return;
       if (error) {
-        setRows({});
+        setPrefsByType({});
       } else {
         const map = {};
-        (data || []).forEach((r) => { map[r.type] = { in_app_enabled: r.in_app_enabled } });
-        setRows(map);
+        (data || []).forEach((r) => { map[r.type] = r.in_app_enabled; });
+        setPrefsByType(map);
       }
       setLoading(false);
     };
@@ -46,35 +64,56 @@ export default function NotificationSettings() {
     return () => { mounted = false; };
   }, [user?.id]);
 
-  const getEnabled = (t) => (rows[t]?.in_app_enabled ?? true);
+  const isGroupEnabled = (group) =>
+    group.types.every((t) => {
+      const value = prefsByType[t];
+      return value === undefined ? true : value;
+    });
 
-  const toggle = async (t) => {
+  const handleToggleGroup = async (group) => {
     if (!user) return;
-    const next = !getEnabled(t);
-    setRows((prev) => ({ ...prev, [t]: { in_app_enabled: next } }));
+    const next = !isGroupEnabled(group);
+    setPrefsByType((prev) => {
+      const copy = { ...prev };
+      group.types.forEach((t) => {
+        copy[t] = next;
+      });
+      return copy;
+    });
     setSaving(true);
+    const payload = group.types.map((t) => ({
+      user_id: user.id,
+      notification_type: t,
+      in_app_enabled: next,
+    }));
     const { error } = await supabase
       .from('notification_preferences')
-      .upsert({ user_id: user.id, type: t, in_app_enabled: next }, { onConflict: 'user_id,type' });
+      .upsert(payload, { onConflict: 'user_id,notification_type' });
     setSaving(false);
     if (error) {
       // revert on error
-      setRows((prev) => ({ ...prev, [t]: { in_app_enabled: !next } }));
+      setPrefsByType((prev) => {
+        const copy = { ...prev };
+        group.types.forEach((t) => {
+          copy[t] = !next;
+        });
+        return copy;
+      });
     }
   };
 
   const restoreDefaults = async () => {
     if (!user) return;
     setSaving(true);
-    const payload = ['system','connection','message','event','job','application','mentorship','group','alert']
-      .map((t) => ({ user_id: user.id, type: t, in_app_enabled: true }));
+    const allTypes = Array.from(new Set(NOTIFICATION_GROUPS.flatMap((g) => g.types)));
+    const payload = allTypes.map((t) => ({ user_id: user.id, notification_type: t, in_app_enabled: true }));
     const { error } = await supabase
       .from('notification_preferences')
-      .upsert(payload, { onConflict: 'user_id,type' });
+      .upsert(payload, { onConflict: 'user_id,notification_type' });
     if (!error) {
       const map = {};
-      payload.forEach((r) => { map[r.type] = { in_app_enabled: true } });
-      setRows(map);
+      allTypes.forEach((t) => { map[t] = true; });
+      setPrefsByType(map);
     }
     setSaving(false);
   };
@@ -85,22 +124,22 @@ export default function NotificationSettings() {
       <p className="text-sm text-gray-600 mb-6">Control which notifications you receive in the app. Defaults are enabled.</p>
 
       <div className="bg-white rounded-lg shadow border divide-y">
-        {['system','connection','message','event','job','application','mentorship','group','alert'].map((t) => (
-          <div key={t} className="flex items-center justify-between px-4 py-3">
+        {NOTIFICATION_GROUPS.map((group) => (
+          <div key={group.id} className="flex items-center justify-between px-4 py-3">
             <div>
-              <p className="font-medium text-gray-900">{TYPE_LABELS[t] || t}</p>
-              <p className="text-xs text-gray-500">In-app delivery</p>
+              <p className="font-medium text-gray-900">{group.label}</p>
+              <p className="text-xs text-gray-500">Includes: {group.types.join(', ')}</p>
             </div>
             <label className="inline-flex items-center cursor-pointer">
               <input
                 type="checkbox"
                 className="sr-only"
-                checked={getEnabled(t)}
-                onChange={() => toggle(t)}
-                aria-label={`Toggle ${TYPE_LABELS[t] || t} notifications`}
+                checked={isGroupEnabled(group)}
+                onChange={() => handleToggleGroup(group)}
+                aria-label={`Toggle ${group.label} notifications`}
               />
-              <span className={`w-11 h-6 flex items-center bg-gray-200 rounded-full p-1 transition ${getEnabled(t) ? 'bg-ocean-500' : 'bg-gray-300'}`}>
-                <span className={`bg-white w-4 h-4 rounded-full shadow transform transition ${getEnabled(t) ? 'translate-x-5' : ''}`} />
+              <span className={`w-11 h-6 flex items-center bg-gray-200 rounded-full p-1 transition ${isGroupEnabled(group) ? 'bg-ocean-500' : 'bg-gray-300'}`}>
+                <span className={`bg-white w-4 h-4 rounded-full shadow transform transition ${isGroupEnabled(group) ? 'translate-x-5' : ''}`} />
               </span>
             </label>
           </div>
