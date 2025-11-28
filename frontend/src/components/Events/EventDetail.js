@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../utils/supabase';
 import { format, parseISO } from 'date-fns';
 import { utcToZonedTime } from 'date-fns-tz';
 import { ArrowLeft, Edit, Trash2, Calendar, Clock, MapPin, Tag, Users, CheckCircle, BarChart2, Star } from 'lucide-react';
 import SocialShareButtons from '../common/SocialShareButtons';
 import ImageWithFallback from '../common/ImageWithFallback';
-import dayjs from 'dayjs';
 import { useEvent, useMyRsvp, useMyFeedback, useOrganizer, useEventComputedFlags } from '../../hooks/useEventData';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApproval } from '../../hooks/useApproval';
@@ -57,6 +56,52 @@ const EventDetail = () => {
   const iAmAttendee = ['going', 'attended', 'checked_in', 'attending'].includes(rsvpStatusVal);
   const canShowFeedback = eventEnded && iAmAttendee && !myFeedback;
   const isOrganizerOrAdmin = user?.id === event?.organizer_id || !!isAdmin;
+
+  const eventStatus = useMemo(() => {
+    if (!startISO || !endISO) {
+      return { text: 'Date TBD', color: 'bg-gray-400' };
+    }
+    if (eventEnded) {
+      return { text: 'Past', color: 'bg-red-500' };
+    }
+    if (eventStarted) {
+      return { text: 'Ongoing', color: 'bg-green-500' };
+    }
+    return { text: 'Upcoming', color: 'bg-blue-500' };
+  }, [startISO, endISO, eventEnded, eventStarted]);
+
+  const eventDateLabel = useMemo(() => {
+    if (!event?.start_date) {
+      return 'Date not available';
+    }
+    const istZone = 'Asia/Kolkata';
+    const startDateIST = utcToZonedTime(parseISO(event.start_date), istZone);
+    return format(startDateIST, 'EEEE, MMMM d, yyyy');
+  }, [event?.start_date]);
+
+  const eventTimeLabel = useMemo(() => {
+    const istZone = 'Asia/Kolkata';
+
+    if (!event?.start_date) {
+      // Preserve previous behavior: "Time not available" followed by end time if present
+      let label = 'Time not available';
+      if (event?.end_date) {
+        const endDateIST = utcToZonedTime(parseISO(event.end_date), istZone);
+        label += ` - ${format(endDateIST, 'h:mm a')}`;
+      }
+      return label;
+    }
+
+    const startDateIST = utcToZonedTime(parseISO(event.start_date), istZone);
+    let label = format(startDateIST, 'h:mm a');
+
+    if (event?.end_date) {
+      const endDateIST = utcToZonedTime(parseISO(event.end_date), istZone);
+      label += ` - ${format(endDateIST, 'h:mm a')}`;
+    }
+
+    return label;
+  }, [event?.start_date, event?.end_date]);
 
   // Realtime subscription for RSVP changes
   useEffect(() => {
@@ -161,6 +206,29 @@ const EventDetail = () => {
     setRsvpBanner(iAmAttendee && !eventStarted);
   }, [iAmAttendee, eventStarted]);
 
+  const normalizedAttendees = useMemo(() => {
+    return (attendees || [])
+      .filter((a) => a && (a.user_id || a.profiles))
+      .map((attendee) => {
+        const profile = attendee.profiles || {};
+        const profileId = attendee.user_id || profile.id;
+        const name =
+          profile.full_name ||
+          [profile.first_name, profile.last_name].filter(Boolean).join(' ') ||
+          'Attendee';
+        const role = profile.role || profile.current_position || '';
+        const avatar = profile.avatar_url;
+
+        return {
+          id: attendee.id,
+          profileId,
+          name,
+          role,
+          avatar,
+        };
+      });
+  }, [attendees]);
+
   const handleDelete = async () => {
     if (!window.confirm('Are you sure you want to delete this event?')) return;
     setLoading(true);
@@ -254,19 +322,6 @@ const EventDetail = () => {
   const handleRsvp = (status) => {
     return () => updateRsvpStatus(status);
   };
-
-  const eventStatus = (() => {
-    if (!startISO || !endISO) {
-      return { text: 'Date TBD', color: 'bg-gray-400' };
-    }
-    if (eventEnded) {
-      return { text: 'Past', color: 'bg-red-500' };
-    }
-    if (eventStarted) {
-      return { text: 'Ongoing', color: 'bg-green-500' };
-    }
-    return { text: 'Upcoming', color: 'bg-blue-500' };
-  })();
 
   const handleFeedbackSubmit = async (e) => {
     e.preventDefault();
@@ -451,33 +506,13 @@ const EventDetail = () => {
                 <div className="flex items-center text-gray-600 mb-2">
                   <Calendar className="w-5 h-5 mr-3 text-blue-500"/>
                   <span>
-                    {event.start_date ? 
-                      (() => {
-                        // Convert UTC date from Supabase to IST for display
-                        const istZone = 'Asia/Kolkata';
-                        const startDateIST = utcToZonedTime(parseISO(event.start_date), istZone);
-                        return format(startDateIST, 'EEEE, MMMM d, yyyy');
-                      })() : 'Date not available'
-                    }
+                    {eventDateLabel}
                   </span>
                 </div>
                 <div className="flex items-center text-gray-600 mb-2">
                   <Clock className="w-5 h-5 mr-3 text-blue-500"/>
                   <span>
-                    {event.start_date ? 
-                      (() => {
-                        const istZone = 'Asia/Kolkata';
-                        const startDateIST = utcToZonedTime(parseISO(event.start_date), istZone);
-                        return format(startDateIST, 'h:mm a');
-                      })() : 'Time not available'
-                    }
-                    {event.end_date && 
-                      (() => {
-                        const istZone = 'Asia/Kolkata';
-                        const endDateIST = utcToZonedTime(parseISO(event.end_date), istZone);
-                        return ` - ${format(endDateIST, 'h:mm a')}`;
-                      })()
-                    }
+                    {eventTimeLabel}
                   </span>
                 </div>
 
@@ -512,31 +547,6 @@ const EventDetail = () => {
                     ))}
                   </div>
                 )}
-            {showImageModal && (
-              <div
-                className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75"
-                role="dialog"
-                aria-modal="true"
-                aria-label="Event image"
-                onClick={() => setShowImageModal(false)}
-              >
-                <div className="relative max-w-4xl w-full mx-4" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className="absolute top-3 right-3 text-white text-2xl font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-full px-2"
-                    aria-label="Close image"
-                    onClick={() => setShowImageModal(false)}
-                  >
-                    ×
-                  </button>
-                  <img
-                    src={event.featured_image_url || '/default-avatar.svg'}
-                    alt={event.title}
-                    className="w-full max-h-[80vh] object-contain rounded-lg bg-black"
-                  />
-                </div>
-              </div>
-            )}
               </div>
 
               {/* RSVP & Admin */}
@@ -676,32 +686,27 @@ const EventDetail = () => {
                   </div>
                   {attendees.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 max-h-96 overflow-auto">
-                      {attendees
-                        .filter(a => a && (a.user_id || a.profiles))
-                        .map((attendee) => {
-                          const profile = attendee.profiles || {};
-                          const profileId = attendee.user_id || profile.id;
-                          const name = profile.full_name || [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Attendee';
-                          const role = profile.role || profile.current_position || '';
-                          const avatar = profile.avatar_url;
-                          return (
-                            <Link to={profileId ? `/profile/${profileId}` : '#'} key={attendee.id} className="flex items-center gap-3 p-2 rounded hover:bg-gray-50">
-                              <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-100">
-                                <ImageWithFallback
-                                  src={avatar}
-                                  alt={name}
-                                  className="w-12 h-12"
-                                  placeholderSrc="/default-avatar.svg"
-                                  emptyMessage="Profile image to be uploaded"
-                                />
-                              </div>
-                              <div>
-                                <p className="font-semibold text-sm text-gray-800">{name}</p>
-                                {role && <p className="text-xs text-gray-500">{role}</p>}
-                              </div>
-                            </Link>
-                          );
-                        })}
+                      {normalizedAttendees.map((attendee) => (
+                        <Link
+                          to={attendee.profileId ? `/profile/${attendee.profileId}` : '#'}
+                          key={attendee.id}
+                          className="flex items-center gap-3 p-2 rounded hover:bg-gray-50"
+                        >
+                          <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-100">
+                            <ImageWithFallback
+                              src={attendee.avatar}
+                              alt={attendee.name}
+                              className="w-12 h-12"
+                              placeholderSrc="/default-avatar.svg"
+                              emptyMessage="Profile image to be uploaded"
+                            />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-sm text-gray-800">{attendee.name}</p>
+                            {attendee.role && <p className="text-xs text-gray-500">{attendee.role}</p>}
+                          </div>
+                        </Link>
+                      ))}
                     </div>
                   ) : (
                     <p className="text-gray-500">No attendees yet.</p>

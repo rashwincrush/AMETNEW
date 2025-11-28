@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import { supabase } from "../../utils/supabase";
 import { 
   CalendarIcon, 
@@ -8,7 +8,7 @@ import {
   ClockIcon
 } from '@heroicons/react/24/outline';
 
-export default function ActivitiesWidget() {
+function ActivitiesWidget() {
   const [rows, setRows] = useState(null);
   const [err, setErr] = useState(null);
 
@@ -18,7 +18,7 @@ export default function ActivitiesWidget() {
     const refetch = async () => {
       const { data, error } = await supabase
         .from("v_recent_activities")
-        .select("*")
+        .select("user_id, activity_type, activity_text, created_at")
         .order("created_at", { ascending: false })
         .limit(5);
       if (!isMounted) return;
@@ -192,3 +192,5 @@ export default function ActivitiesWidget() {
     </div>
   );
 }
+
+export default memo(ActivitiesWidget);

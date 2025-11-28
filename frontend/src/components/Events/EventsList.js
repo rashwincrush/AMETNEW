@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { 
@@ -29,12 +29,13 @@ import {
   ViewModule as ViewModuleIcon,
   ViewList as ViewListIcon
 } from '@mui/icons-material';
-import EventCalendar from './EventCalendar';
 import PriorityStrip from './PriorityStrip';
 import EventCard from './EventCard';
 import EventRow from './EventRow';
 import { utcToZonedTime } from 'date-fns-tz';
 import { useAuth } from '../../contexts/AuthContext';
+
+const EventCalendar = lazy(() => import('./EventCalendar'));
 
 // Category options for calendar view; values must align with EventCalendar filtering.
 // TODO: DRY with EventCalendar category map if we move this to a shared config.
@@ -67,7 +68,12 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list' or 'calendar'
   // Calendar view category filter, shared with EventCalendar
   const [activeCategory, setActiveCategory] = useState('all');
-  const subscriptionRef = useRef(null);
+
+  const handleViewModeChange = useCallback((event, newViewMode) => {
+    if (newViewMode !== null) {
+      setViewMode(newViewMode);
+    }
+  }, []);
 
   // Removed event-type and extra filters as per requirements
 
@@ -206,7 +212,23 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
       setError('');
 
       const nowIso = new Date().toISOString();
-      let query = supabase.from('events').select('*');
+      let query = supabase
+        .from('events')
+        .select(`
+          id,
+          title,
+          description,
+          start_date,
+          end_date,
+          featured_image_url,
+          is_virtual,
+          event_type,
+          venue,
+          address,
+          location,
+          is_published,
+          approval_status
+        `);
 
       // Role gating (same for everyone except admins)
       if (!isAdmin) {
@@ -355,10 +377,11 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
   };
 
   // Filter and sort events for display
-  const processedEvents = events
-    .filter(ev => {
+  const processedEvents = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+
+    const filtered = events.filter(ev => {
       // Text search within the server-filtered set
-      const q = searchTerm.toLowerCase();
       if (!q) return true;
       return (
         ev.title?.toLowerCase().includes(q) ||
@@ -366,8 +389,9 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
         ev.venue?.toLowerCase().includes(q) ||
         ev.address?.toLowerCase().includes(q)
       );
-    })
-    .sort((a, b) => {
+    });
+
+    const sorted = filtered.sort((a, b) => {
       if (sortBy === 'upcoming' || sortBy === 'oldest') {
         return new Date(a.start_date) - new Date(b.start_date);
       }
@@ -375,8 +399,10 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
       const aEnd = new Date(a.end_date || a.start_date);
       const bEnd = new Date(b.end_date || b.start_date);
       return bEnd - aEnd;
-    })
-    .map(ev => processEventsWithCounts([ev])[0]);
+    });
+
+    return processEventsWithCounts(sorted);
+  }, [events, searchTerm, sortBy]);
 
   if (loading) {
     return <LoadingSpinner message="Loading events..." />;
@@ -403,11 +429,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
           <ToggleButtonGroup
             value={viewMode}
             exclusive
-            onChange={(event, newViewMode) => {
-              if (newViewMode !== null) {
-                setViewMode(newViewMode);
-              }
-            }}
+            onChange={handleViewModeChange}
             aria-label="view mode"
           >
             <ToggleButton value="grid" aria-label="grid view">
@@ -573,11 +595,19 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
 
           {/* Calendar View */}
           {viewMode === 'calendar' && (
-            <EventCalendar 
-              events={calendarEvents} 
-              activeCategory={activeCategory}
-              onCategoryChange={setActiveCategory}
-            />
+            <Suspense
+              fallback={
+                <Paper elevation={0} sx={{ p: 3, textAlign: 'center' }}>
+                  <LoadingSpinner message="Loading calendar..." />
+                </Paper>
+              }
+            >
+              <EventCalendar 
+                events={calendarEvents} 
+                activeCategory={activeCategory}
+                onCategoryChange={setActiveCategory}
+              />
+            </Suspense>
           )}
         </Box>
       )}

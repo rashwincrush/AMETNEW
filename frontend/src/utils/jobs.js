@@ -141,3 +141,74 @@ export const computeJobApplyState = (job, now = new Date()) => {
     reason: baseOpen ? 'open' : (deadlinePassed ? 'deadline-passed' : 'not-open'),
   };
 };
+
+// Derive a consolidated status string for display and moderation UIs
+// based on the same semantics used in computeJobApplyState and
+// Jobs listings (is_approved, is_active, status, deadlines, rejections).
+export const deriveJobStatus = (job, now = new Date()) => {
+  if (!job) return 'unknown';
+
+  const isRejected = job.is_rejected === true;
+  const isApproved = job.is_approved === true;
+  const activeFlag = job.is_active !== false; // treat null/undefined as active
+  const statusActive = job.status ? String(job.status).toLowerCase() === 'active' : true;
+
+  const applyState = computeJobApplyState(job, now);
+
+  if (isRejected) return 'rejected';
+
+  // Not approved yet: distinguish between pending-but-visible vs pending-and-paused
+  if (!isApproved) {
+    return activeFlag && statusActive ? 'pending_approval' : 'pending_inactive';
+  }
+
+  // Approved jobs: mirror apply state + flags
+  if (applyState.reason === 'deadline-passed') return 'expired';
+
+  const baseOpen = !applyState.isClosed;
+
+  if (!baseOpen) {
+    // Approved but effectively not open – treat as paused/disabled
+    if (!activeFlag || !statusActive) return 'paused';
+    return 'closed';
+  }
+
+  return 'open';
+};
+
+// Normalize a job location string for display and filters.
+// Today the schema primarily uses a single `location` field; fall back
+// to optional label-style fields if present.
+export const getJobLocation = (job) => {
+  if (!job) return '';
+  return (
+    job.location ||
+    job.location_label ||
+    ''
+  );
+};
+
+// Normalize a raw job row into a consistent frontend shape while
+// preserving all original fields. This is used by API helpers and
+// can be safely applied to rows coming from views or RPCs.
+export const normalizeJob = (raw, now = new Date()) => {
+  if (!raw) return raw;
+
+  const company = normalizeJobCompany(raw);
+  const logoUrl = resolveJobLogoUrl(raw);
+  const location = getJobLocation(raw);
+  const computedStatus = deriveJobStatus(raw, now);
+
+  return {
+    ...raw,
+    company,
+    // Keep both normalized and legacy fields for compatibility
+    company_name: company.name || raw.company_name || '',
+    companyName: company.name || raw.company_name || '',
+    company_logo_url: logoUrl || raw.company_logo_url || '',
+    logoUrl: logoUrl || raw.logoUrl || null,
+    companyLogoUrl: logoUrl || raw.companyLogoUrl || null,
+    location,
+    computed_status: computedStatus,
+  };
+};

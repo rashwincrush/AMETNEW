@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckBadgeIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 import ConnectionCTA from '../shared/ConnectionCTA';
@@ -19,7 +19,7 @@ function toTitleCase(str) {
     .join(' ');
 }
 
-export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', onChanged }) {
+function DirectoryCardSplit({ meId, profile, currentTab = 'all', onChanged }) {
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
   const rel = useMemo(() => profile?.rel || { status: null, pending_side: null }, [profile?.rel]);
@@ -255,3 +255,5 @@ export default function DirectoryCardSplit({ meId, profile, currentTab = 'all', 
     </div>
   );
 }
+
+export default memo(DirectoryCardSplit);

@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, memo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { isQuickLink, coalesceAppUrl, getJobLogoUrl, getJobCompanyName } from '../../utils/jobs';
+import { isQuickLink, coalesceAppUrl, getJobLogoUrl, getJobCompanyName, getJobLocation } from '../../utils/jobs';
 import { getApplicantsCount } from '../../utils/applicants';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -12,7 +12,7 @@ import { CalendarIcon } from '@heroicons/react/24/outline';
 import { shareJob } from '../../utils/share';
 import ImageWithFallback from '../common/ImageWithFallback';
 
-export default function JobCard({ job }) {
+function JobCard({ job }) {
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id || null;
@@ -26,6 +26,7 @@ export default function JobCard({ job }) {
   const externalUrl = useMemo(() => coalesceAppUrl(job), [job]);
   const [isBookmarked, setIsBookmarked] = useState(Boolean(job?.is_bookmarked));
   const bookmarkedJobs = useMemo(() => user?.bookmarked_jobs || [], [user]);
+  const location = useMemo(() => getJobLocation(job), [job]);
 
   // Prefer salary_display_inr; fallback to legacy or numeric fields
   const salaryText = useMemo(() => {
@@ -129,10 +130,10 @@ export default function JobCard({ job }) {
 
       {/* Meta row */}
       <div className="grid grid-cols-2 gap-2 mb-2">
-        {!!job.location && (
+        {!!location && (
           <div className="flex items-center text-sm text-gray-600">
             <MapPinIcon className="w-4 h-4 mr-1" />
-            <span>{job.location}</span>
+            <span>{location}</span>
           </div>
         )}
         {!!job.job_type && (
@@ -204,3 +205,5 @@ export default function JobCard({ job }) {
     </div>
   );
 }
+
+export default memo(JobCard);

@@ -72,7 +72,7 @@ const formatEventDateTime = (dateString, timeString) => {
 const AlumniDashboard = () => {
   const { showInfo } = useNotification();
   const { user, profile, loading: authLoading, userRole, getUserRole } = useAuth();
-  const { isApproved } = useApproval();
+  const { loading: approvalLoading, isPending, approvalStatus, isAdminLike, approvalFlags } = useApproval();
   const location = useLocation();
   const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState({
@@ -91,6 +91,8 @@ const AlumniDashboard = () => {
   const role = userRole || (profile?.role || (typeof getUserRole === 'function' ? getUserRole() : 'alumni'));
   const isEmployer = role === 'employer';
   const isStudent = role === 'student';
+  const isTrulyPending =
+    approvalFlags?.approvalStatus === 'pending';
   
   // Recent Activity now fully handled by <ActivitiesWidget />
 
@@ -173,34 +175,6 @@ const AlumniDashboard = () => {
       connections: false
     };
     try {
-      // Format today's date in a way that's compatible with Supabase queries
-      const today = new Date();
-      // Format ISO string properly to avoid Bad Request errors
-      const todayStart = today.toISOString();
-      // Define the promises with better error handling
-      const promises = [
-        supabase.from('events').select('id', { count: 'exact', head: true }).gte('start_date', todayStart).eq('is_published', true)
-          .then(result => {
-            if (result.error) console.error('Error fetching event count:', result.error);
-            return result;
-          }),
-        supabase.from('jobs').select('id', { count: 'exact', head: true }).gte('deadline', todayStart).eq('is_active', true)
-          .then(result => {
-            if (result.error) console.error('Error fetching job count:', result.error);
-            return result;
-          }),
-        supabase.from('events').select('id, title, start_date, address, event_type').gte('start_date', todayStart).eq('is_published', true).order('start_date', { ascending: true }).limit(3)
-          .then(result => {
-            if (result.error) console.error('Error fetching upcoming events:', result.error);
-            return result;
-          }),
-        supabase.from('jobs').select('id, title, company_name, location, created_at').gte('deadline', todayStart).eq('is_active', true).order('created_at', { ascending: false }).limit(3)
-          .then(result => {
-            if (result.error) console.error('Error fetching job recommendations:', result.error);
-            return result;
-          }),
-      ];
-      
       // Fetch each piece of data individually to prevent all-or-nothing failures
       let dashboardUpdates = {};
       
@@ -485,7 +459,7 @@ const AlumniDashboard = () => {
         <h1 className="text-2xl font-bold text-gray-800 mb-6">Welcome back, {userName}!</h1>
         
         {/* Pending Approval Banner */}
-        {!isApproved && userRole !== 'employer' && (
+        {!approvalLoading && approvalFlags && userRole !== 'employer' && !isAdminLike && isTrulyPending && (
           <div className="mb-6 bg-amber-50 border-l-4 border-amber-400 rounded-lg p-4">
             <div className="flex items-start">
               <div className="flex-shrink-0">

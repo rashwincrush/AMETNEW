@@ -7,89 +7,113 @@ export function useApproval() {
   const {
     user,
     profile,
-    loading,
+    loading: authLoading,
     getUserRole,
     hasPermission,
-    approvalStatus: ctxApprovalStatus,
-    isApproved: ctxIsApproved,
-    isPending: ctxIsPending,
-    isRejected: ctxIsRejected,
+    approvalFlags,
+    role: ctxRole,
     isAdminLike: isAdminLikeFlag,
   } = useAuth();
 
   const state = useMemo(() => {
     const baseProfile = profile || null;
-    const role = (getUserRole ? getUserRole() : baseProfile?.role || '').toLowerCase();
+    const role = (ctxRole || (getUserRole ? getUserRole() : baseProfile?.role || '')).toLowerCase();
 
-    // Treat admin / super_admin as always approved in the UI
-    const isAdminLikeRole = isAdminLikeFlag || role === 'admin' || role === 'super_admin';
+    const isAdminLike = isAdminLikeFlag || role === 'admin' || role === 'super_admin';
 
-    // Prefer AuthContext's canonical approval status, fall back to profile
-    const approvalStatus =
-      ctxApprovalStatus ??
+    // Prefer canonical RPC-derived flags when available
+    const flagsApprovalStatus = approvalFlags?.approvalStatus ?? null;
+
+    // Fallback to profile fields only when flags are absent
+    const profileApprovalStatus =
       baseProfile?.approval_status ??
-      null;
+      baseProfile?.alumni_verification_status ??
+      (baseProfile?.is_approved === true ? 'approved' : null);
 
-    // Use AuthContext booleans when available, but enforce admin bypass
-    const isApproved = isAdminLikeRole
-      ? true
-      : (ctxIsApproved ?? (approvalStatus === 'approved'));
+    const approvalStatus = flagsApprovalStatus ?? profileApprovalStatus;
 
-    const isRejected = isAdminLikeRole
-      ? false
-      : (ctxIsRejected ?? (approvalStatus === 'rejected'));
+    const hasRpcFlags = Boolean(approvalFlags);
 
-    const isPending = isAdminLikeRole
-      ? false
-      : (ctxIsPending ?? (!isRejected && !isApproved));
+    // Treat "no RPC flags yet" as loading so UI doesn't misinterpret as pending
+    const loading =
+      authLoading ||
+      (!!user && !hasRpcFlags);
 
-    // Profile completeness
-    const isProfileComplete =
-      !!baseProfile?.degree_code &&
-      !!baseProfile?.department_id &&
-      !!baseProfile?.expected_graduation_year;
+    let isApproved = false;
+    let isRejected = false;
+    let isPending = false;
+
+    if (isAdminLike) {
+      isApproved = true;
+      isRejected = false;
+      isPending = false;
+    } else if (!loading) {
+      isRejected =
+        approvalStatus === 'rejected' ||
+        baseProfile?.alumni_verification_status === 'rejected';
+      isApproved = approvalStatus === 'approved';
+      isPending = !isRejected && !isApproved;
+    }
+
+    const isEmployer = role === 'employer' || (hasPermission ? hasPermission('post:jobs') : false);
+
+    let isProfileComplete = false;
+    if (isAdminLike) {
+      isProfileComplete = true;
+    } else if (isEmployer) {
+      const hasCompany =
+        Boolean(baseProfile?.company_id) || Boolean(baseProfile?.company_name);
+      isProfileComplete = hasCompany;
+    } else {
+      isProfileComplete =
+        Boolean(baseProfile?.degree_code) &&
+        Boolean(baseProfile?.department_id) &&
+        Boolean(baseProfile?.expected_graduation_year);
+    }
 
     const isFullyApproved = !!isApproved && isProfileComplete;
 
-    // Legacy convenience flags (preserved for existing callers)
     const isMentor = role === 'mentor' || (hasPermission ? hasPermission('manage:mentor_profile') : false);
     const isMentee =
       role === 'mentee' ||
       role === 'student' ||
       role === 'alumni' ||
       (hasPermission ? hasPermission('request:mentorship') : false);
-    const isEmployer = role === 'employer' || (hasPermission ? hasPermission('post:jobs') : false);
+
+    const isApprovedMentor = isMentor && isFullyApproved;
+    const isApprovedMentee = isMentee && isFullyApproved;
+    const isApprovedEmployer = isEmployer && isFullyApproved;
 
     return {
-      // Core unified shape
-      loading: loading || (!user && !baseProfile),
+      loading,
       profile: baseProfile,
+      role,
       approvalStatus,
+      approvalFlags,
       isPending,
       isApproved,
       isRejected,
       isProfileComplete,
       isFullyApproved,
-      // Backwards-compatible fields
       isMentor,
       isMentee,
       isEmployer,
-      isApprovedMentor: isMentor && isFullyApproved,
-      isApprovedMentee: isMentee && isFullyApproved,
-      isApprovedEmployer: isEmployer && isFullyApproved,
+      isApprovedMentor,
+      isApprovedMentee,
+      isApprovedEmployer,
+      isAdminLike,
     };
   }, [
     user,
     profile,
-    loading,
+    authLoading,
+    approvalFlags,
     getUserRole,
     hasPermission,
-    ctxApprovalStatus,
-    ctxIsApproved,
-    ctxIsPending,
-    ctxIsRejected,
+    ctxRole,
     isAdminLikeFlag,
   ]);
 
   return state;
 }
+

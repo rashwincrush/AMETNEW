@@ -742,10 +742,9 @@ export const AuthProvider = ({ children }) => {
   // Normalize role handling strictly from profiles.role (single source of truth)
   const getUserRole = useCallback(() => {
     // If profile doesn't exist, default to 'alumni'
-    if (!profile) return 'alumni';
 
     // Prefer explicit DB role if valid
-    if (profile.role && isRole(profile.role)) return profile.role;
+    if (profile?.role && isRole(profile.role)) return profile.role;
 
     // Fallback: use auth metadata role until Edge Function updates DB role
     const metaRole = user?.user_metadata?.role;

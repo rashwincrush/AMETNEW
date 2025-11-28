@@ -1,10 +1,10 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase, fetchMyGroupsSummary } from '../../utils/supabase';
 import { UsersIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 
-export default function MyGroupsWidget() {
+function MyGroupsWidget() {
   const { user } = useAuth();
   const [rows, setRows] = useState(null); // null => loading
   const [err, setErr] = useState(null);
@@ -139,3 +139,5 @@ export default function MyGroupsWidget() {
     </div>
   );
 }
+
+export default memo(MyGroupsWidget);

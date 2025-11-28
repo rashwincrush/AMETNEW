@@ -18,7 +18,7 @@ export default function useDirectory({ query = '', filters = {}, sort = 'name_as
         const loadFromPublicView = async () => {
           const res = await supabase
             .from('alumni_directory_public')
-            .select('*');
+            .select('id, full_name, avatar_url, degree_program, graduation_year, current_job_title, company_name, location_city, location_country, achievements');
           if (res.error) throw res.error;
           const rows = Array.isArray(res.data) ? res.data : [];
           return rows.map(r => ({
@@ -77,7 +77,9 @@ export default function useDirectory({ query = '', filters = {}, sort = 'name_as
         // On error, attempt admin fallback to public view if enabled and source is rpc
         if (source === 'rpc' && adminFallback) {
           try {
-            const pub = await supabase.from('alumni_directory_public').select('*');
+            const pub = await supabase
+              .from('alumni_directory_public')
+              .select('id, full_name, avatar_url, degree_program, graduation_year, current_job_title, company_name, location_city, location_country, achievements');
             if (!pub.error) {
               const rows = Array.isArray(pub.data) ? pub.data : [];
               data = rows.map(r => ({

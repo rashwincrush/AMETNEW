@@ -580,6 +580,51 @@ $$;
 
 ALTER FUNCTION "public"."admin_delete_user_rpc"("target" "uuid") OWNER TO "postgres";
 
+SET default_tablespace = '';
+
+SET default_table_access_method = "heap";
+
+
+CREATE TABLE IF NOT EXISTS "public"."profile_approval_audit" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "profile_id" "uuid" NOT NULL,
+    "admin_id" "uuid" NOT NULL,
+    "old_approval_status" "public"."profile_approval_status",
+    "new_approval_status" "public"."profile_approval_status",
+    "old_is_approved" boolean,
+    "new_is_approved" boolean,
+    "old_alumni_verification_status" "text",
+    "new_alumni_verification_status" "text",
+    "decision" "text" NOT NULL,
+    "notes" "text",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "profile_approval_audit_decision_ck" CHECK (("decision" = ANY (ARRAY['approve'::"text", 'reject'::"text", 'block'::"text", 'unblock'::"text", 'deactivate'::"text", 'reactivate'::"text"])))
+);
+
+
+ALTER TABLE "public"."profile_approval_audit" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."profile_approval_audit" IS 'Audit log of admin approval/rejection/block decisions on profiles';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."admin_get_profile_approval_audit"("p_profile_id" "uuid", "p_limit" integer DEFAULT 50, "p_offset" integer DEFAULT 0) RETURNS SETOF "public"."profile_approval_audit"
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  select *
+  from public.profile_approval_audit a
+  where public.app_is_admin()   -- only admins
+    and a.profile_id = p_profile_id
+  order by a.created_at desc
+  limit p_limit
+  offset p_offset;
+$$;
+
+
+ALTER FUNCTION "public"."admin_get_profile_approval_audit"("p_profile_id" "uuid", "p_limit" integer, "p_offset" integer) OWNER TO "postgres";
+
 
 CREATE OR REPLACE FUNCTION "public"."admin_list_jobs_pending"("_limit" integer, "_offset" integer) RETURNS TABLE("id" "uuid", "title" "text", "description" "text", "is_active" boolean, "is_approved" boolean, "is_rejected" boolean, "created_at" timestamp with time zone, "user_id" "uuid", "posted_by" "uuid", "created_by" "uuid", "user_first_name" "text", "user_last_name" "text", "user_email" "text", "user_avatar_url" "text")
     LANGUAGE "sql" SECURITY DEFINER
@@ -599,10 +644,6 @@ $$;
 
 
 ALTER FUNCTION "public"."admin_list_jobs_pending"("_limit" integer, "_offset" integer) OWNER TO "postgres";
-
-SET default_tablespace = '';
-
-SET default_table_access_method = "heap";
 
 
 CREATE TABLE IF NOT EXISTS "public"."profiles" (
@@ -693,7 +734,7 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "deleted_by" "uuid",
     "is_approved" boolean DEFAULT false NOT NULL,
     "verified_at" timestamp with time zone,
-    "degree_code" "text",
+    "degree_code" "text" NOT NULL,
     "education" "jsonb" DEFAULT '[]'::"jsonb",
     "work_experience" "jsonb" DEFAULT '[]'::"jsonb",
     "positions" "jsonb" DEFAULT '[]'::"jsonb",
@@ -709,9 +750,12 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "verified_by" "uuid",
     "approved_at" timestamp with time zone,
     "approval_reason" "text",
-    "department_id" "uuid",
+    "department_id" "uuid" NOT NULL,
     "avatar_path" "text",
-    "expected_graduation_year" integer,
+    "expected_graduation_year" integer NOT NULL,
+    "approval_reviewed_by" "uuid",
+    "approval_reviewed_at" timestamp with time zone,
+    CONSTRAINT "approval_status_valid" CHECK (("approval_status" = ANY (ARRAY['approved'::"public"."profile_approval_status", 'pending'::"public"."profile_approval_status", 'rejected'::"public"."profile_approval_status"]))),
     CONSTRAINT "chk_email_lower" CHECK (("email" = "lower"("email"))),
     CONSTRAINT "chk_email_lower_no_co" CHECK ((("email" = "lower"("email")) AND ("email" !~* '\.co$'::"text"))),
     CONSTRAINT "chk_email_not_co" CHECK (("email" !~* '\.co$'::"text")),
@@ -727,9 +771,11 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     CONSTRAINT "ck_profiles_skills_array" CHECK ((("skills" IS NULL) OR ("jsonb_typeof"("skills") = 'array'::"text"))),
     CONSTRAINT "ck_profiles_social_links_object" CHECK ((("social_links" IS NULL) OR ("jsonb_typeof"("social_links") = 'object'::"text"))),
     CONSTRAINT "profiles_alumni_verification_status_check" CHECK (("alumni_verification_status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"]))),
+    CONSTRAINT "profiles_approval_status_valid" CHECK (("approval_status" = ANY (ARRAY['pending'::"public"."profile_approval_status", 'approved'::"public"."profile_approval_status", 'rejected'::"public"."profile_approval_status"]))),
     CONSTRAINT "profiles_mentee_status_check" CHECK (("mentee_status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"]))),
     CONSTRAINT "profiles_mentor_status_check" CHECK (("mentor_status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"]))),
-    CONSTRAINT "profiles_phone_ck" CHECK ((("phone" IS NULL) OR ("phone" ~ '^[0-9+()\\-\\s]{7,20}$'::"text")))
+    CONSTRAINT "profiles_phone_ck" CHECK ((("phone" IS NULL) OR ("phone" ~ '^[0-9+()\\-\\s]{7,20}$'::"text"))),
+    CONSTRAINT "valid_role" CHECK (("role" = ANY (ARRAY['student'::"public"."app_role_enum", 'alumni'::"public"."app_role_enum", 'employer'::"public"."app_role_enum", 'admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))
 );
 
 ALTER TABLE ONLY "public"."profiles" REPLICA IDENTITY FULL;
@@ -764,6 +810,51 @@ COMMENT ON COLUMN "public"."profiles"."verification_reviewed_by" IS 'Admin who r
 
 COMMENT ON COLUMN "public"."profiles"."verification_reviewed_at" IS 'When the verification was reviewed';
 
+
+
+CREATE OR REPLACE FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status" DEFAULT NULL::"public"."profile_approval_status", "p_role" "public"."app_role_enum" DEFAULT NULL::"public"."app_role_enum", "p_limit" integer DEFAULT 50, "p_offset" integer DEFAULT 0) RETURNS SETOF "public"."profiles"
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  -- Only admins can call this
+  select *
+  from public.profiles p
+  where public.app_is_admin()
+    and (p_status is null or p.approval_status = p_status)
+    and (p_role   is null or p.role            = p_role)
+  order by p.created_at desc
+  limit p_limit
+  offset p_offset;
+$$;
+
+
+ALTER FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status", "p_role" "public"."app_role_enum", "p_limit" integer, "p_offset" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status" DEFAULT NULL::"public"."profile_approval_status", "p_role" "public"."app_role_enum" DEFAULT NULL::"public"."app_role_enum", "p_search" "text" DEFAULT NULL::"text", "p_limit" integer DEFAULT 50, "p_offset" integer DEFAULT 0) RETURNS SETOF "public"."profiles"
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  select *
+  from public.profiles p
+  where public.app_is_admin()  -- only admins/super_admins
+    and (p_status is null or p.approval_status = p_status)
+    and (p_role   is null or p.role            = p_role)
+    and (
+      p_search is null
+      or p_search = ''
+      or p.full_name    ilike '%' || p_search || '%'
+      or p.email        ilike '%' || p_search || '%'
+      or p.first_name   ilike '%' || p_search || '%'
+      or p.last_name    ilike '%' || p_search || '%'
+    )
+  order by p.created_at desc
+  limit p_limit
+  offset p_offset;
+$$;
+
+
+ALTER FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status", "p_role" "public"."app_role_enum", "p_search" "text", "p_limit" integer, "p_offset" integer) OWNER TO "postgres";
 
 
 CREATE OR REPLACE VIEW "public"."admin_user_logins" AS
@@ -1081,60 +1172,38 @@ $$;
 ALTER FUNCTION "public"."admin_set_group_approval"("p_group_id" "uuid", "p_status" "text", "p_reason" "text") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "text") RETURNS "void"
+CREATE OR REPLACE FUNCTION "public"."admin_set_profile_approval"("p_profile_id" "uuid", "p_status" "public"."profile_approval_status", "p_reason" "text" DEFAULT NULL::"text") RETURNS "public"."profiles"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
+declare
+  v_decision text;
 begin
-  update public.profiles
-  set approval_status = new_status::public.profile_approval_status,
-      is_approved    = (new_status::public.profile_approval_status = 'approved'),
-      approved_at    = case
-                          when new_status::public.profile_approval_status = 'approved'
-                          then now()
-                          else approved_at
-                        end,
-      alumni_verification_status = case
-                          when new_status::public.profile_approval_status = 'approved' then 'approved'
-                          when new_status::public.profile_approval_status = 'rejected' then 'rejected'
-                          else 'pending'
-                        end
-  where id = target;
+  -- Map old status parameter to the new decision text
+  if p_status = 'approved' then
+    v_decision := 'approve';
+  elsif p_status = 'rejected' then
+    v_decision := 'reject';
+  else
+    raise exception
+      'Unsupported profile_approval_status % for admin_set_profile_approval; use admin_update_profile_approval directly',
+      p_status;
+  end if;
+
+  return public.admin_update_profile_approval(
+    p_profile_id,
+    v_decision,
+    p_reason
+  );
 end;
 $$;
 
 
-ALTER FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "text") OWNER TO "postgres";
+ALTER FUNCTION "public"."admin_set_profile_approval"("p_profile_id" "uuid", "p_status" "public"."profile_approval_status", "p_reason" "text") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "public"."profile_approval_status", "reason" "text" DEFAULT NULL::"text") RETURNS "void"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
-    AS $$
-BEGIN
-  UPDATE public.profiles
-  SET
-    approval_status = new_status,
-    is_approved     = (new_status = 'approved'),
-    approved_at     = CASE
-                        WHEN new_status = 'approved' THEN now()
-                        ELSE approved_at
-                      END,
-    alumni_verification_status = CASE new_status
-                                   WHEN 'approved' THEN 'approved'
-                                   WHEN 'rejected' THEN 'rejected'
-                                   ELSE 'pending'
-                                 END,
-    rejection_reason = CASE
-                         WHEN new_status = 'rejected' THEN reason
-                         ELSE NULL
-                       END
-  WHERE id = target;
-END;
-$$;
+COMMENT ON FUNCTION "public"."admin_set_profile_approval"("p_profile_id" "uuid", "p_status" "public"."profile_approval_status", "p_reason" "text") IS 'Legacy compatibility wrapper. For new code, call admin_update_profile_approval(...) directly.';
 
-
-ALTER FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "public"."profile_approval_status", "reason" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."admin_set_role"("p_user" "uuid", "p_role" "text") RETURNS "void"
@@ -1162,6 +1231,43 @@ $$;
 
 
 ALTER FUNCTION "public"."admin_set_roles"("p_user_ids" "uuid"[], "p_role" "public"."app_role_enum") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_super_admin_count integer;
+BEGIN
+  -- Caller must be admin/super_admin
+  IF NOT EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE id = auth.uid() 
+        AND role IN ('admin','super_admin')
+  ) THEN
+    RAISE EXCEPTION 'Not authorized';
+  END IF;
+
+  -- Prevent demoting last super_admin
+  IF (SELECT role FROM profiles WHERE id = p_user_id) = 'super_admin'
+     AND p_role <> 'super_admin' THEN
+    SELECT COUNT(*) INTO v_super_admin_count
+    FROM profiles
+    WHERE role = 'super_admin';
+
+    IF v_super_admin_count = 1 THEN
+      RAISE EXCEPTION 'Cannot demote last super_admin';
+    END IF;
+  END IF;
+
+  UPDATE profiles
+  SET role = p_role
+  WHERE id = p_user_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "public"."app_role_enum") RETURNS "void"
@@ -1224,6 +1330,143 @@ CREATE OR REPLACE FUNCTION "public"."admin_total_profiles"() RETURNS integer
 
 
 ALTER FUNCTION "public"."admin_total_profiles"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."admin_update_profile_approval"("p_profile_id" "uuid", "p_decision" "text", "p_notes" "text" DEFAULT NULL::"text") RETURNS "public"."profiles"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_admin_id   uuid := auth.uid();
+  v_old        public.profiles;
+  v_new        public.profiles;
+
+  v_new_approval_status   public.profile_approval_status;
+  v_new_alumni_status     text;
+begin
+  -- 1) Ensure caller is an admin / super_admin
+  if not public.app_is_admin() then
+    raise exception 'Only admins can update profile approval status'
+      using errcode = '42501';
+  end if;
+
+  -- 2) Load existing profile
+  select *
+  into v_old
+  from public.profiles
+  where id = p_profile_id;
+
+  if not found then
+    raise exception 'Profile % not found', p_profile_id
+      using errcode = 'P0002';
+  end if;
+
+  -- 3) Decide new statuses
+  if p_decision = 'approve' then
+    v_new_approval_status := 'approved';
+    v_new_alumni_status   := 'approved';
+
+  elsif p_decision = 'reject' then
+    v_new_approval_status := 'rejected';
+    v_new_alumni_status   := 'rejected';
+
+  elsif p_decision in ('block','deactivate') then
+    v_new_approval_status := v_old.approval_status;
+    v_new_alumni_status   := v_old.alumni_verification_status;
+
+  elsif p_decision in ('unblock','reactivate') then
+    v_new_approval_status := v_old.approval_status;
+    v_new_alumni_status   := v_old.alumni_verification_status;
+
+  else
+    raise exception
+      'Invalid decision: %, expected approve/reject/block/unblock',
+      p_decision
+      using errcode = '22023';
+  end if;
+
+  -- 4) Perform update
+  update public.profiles p
+  set
+    approval_status = v_new_approval_status,
+    is_approved     = (v_new_approval_status = 'approved'),
+    alumni_verification_status =
+      coalesce(v_new_alumni_status, p.alumni_verification_status),
+
+    -- Activation / blocking behavior
+    is_active =
+      case
+        when p_decision in ('block','deactivate') then false
+        when p_decision in ('unblock','reactivate') then true
+        else p.is_active
+      end,
+
+    -- Store rejection / approval reason for UX
+    approval_reason =
+      case
+        when p_decision = 'reject' then p_notes
+        else p.approval_reason
+      end,
+    rejection_reason =
+      case
+        when p_decision = 'reject' then p_notes
+        else p.rejection_reason
+      end,
+    rejected_by =
+      case
+        when p_decision = 'reject' then v_admin_id
+        else p.rejected_by
+      end,
+    rejection_date =
+      case
+        when p_decision = 'reject' then now()
+        else p.rejection_date
+      end,
+
+    -- Verification metadata
+    verification_notes        = coalesce(p_notes, p.verification_notes),
+    verification_reviewed_by  = v_admin_id,
+    verification_reviewed_at  = now()
+
+  where p.id = p_profile_id
+  returning * into v_new;
+
+  -- 5) Audit insert (unchanged)
+  insert into public.profile_approval_audit (
+    profile_id,
+    admin_id,
+    old_approval_status,
+    new_approval_status,
+    old_is_approved,
+    new_is_approved,
+    old_alumni_verification_status,
+    new_alumni_verification_status,
+    decision,
+    notes
+  )
+  values (
+    v_old.id,
+    v_admin_id,
+    v_old.approval_status,
+    v_new.approval_status,
+    v_old.is_approved,
+    v_new.is_approved,
+    v_old.alumni_verification_status,
+    v_new.alumni_verification_status,
+    p_decision,
+    p_notes
+  );
+
+  return v_new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."admin_update_profile_approval"("p_profile_id" "uuid", "p_decision" "text", "p_notes" "text") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."admin_update_profile_approval"("p_profile_id" "uuid", "p_decision" "text", "p_notes" "text") IS 'Canonical function for profile approval: approve/reject/block/unblock/reactivate. Writes audit rows and enforces all consistency rules. Use this for any admin-facing user approval action.';
+
 
 
 CREATE OR REPLACE FUNCTION "public"."app_is_admin"() RETURNS boolean
@@ -2624,6 +2867,20 @@ $$;
 ALTER FUNCTION "public"."debug_can_edit_job"("p_job_id" "uuid", "p_user" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."deny_employer_directory"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+    IF (SELECT role FROM profiles WHERE id = auth.uid()) = 'employer' THEN
+        RAISE EXCEPTION 'Employers cannot access directory';
+    END IF;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."deny_employer_directory"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."dm_get_or_create_thread"("u1" "uuid", "u2" "uuid") RETURNS "uuid"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -2980,14 +3237,17 @@ CREATE OR REPLACE FUNCTION "public"."ensure_employer_company"() RETURNS "uuid"
 declare
   v_company_id uuid;
   v_name text;
-  v_avatar text;
+  v_logo text;
 begin
-  select coalesce(p.company_name, 'My Company'), p.avatar_url
-  into   v_name, v_avatar
+  select
+    coalesce(p.company_name, 'My Company'),
+    p.logo_url
+  into v_name, v_logo
   from public.profiles p
   where p.id = auth.uid();
 
-  select id into v_company_id
+  select id
+  into v_company_id
   from public.companies
   where created_by = auth.uid()
   order by created_at
@@ -2995,16 +3255,19 @@ begin
 
   if v_company_id is null then
     insert into public.companies(name, logo_url, created_by)
-    values (coalesce(v_name, 'My Company'), v_avatar, auth.uid())
+    values (coalesce(v_name, 'My Company'), v_logo, auth.uid())
     returning id into v_company_id;
   else
-    update public.companies
-       set logo_url = coalesce(logo_url, v_avatar)
-     where id = v_company_id;
+    if v_logo is not null and btrim(v_logo) <> '' then
+      update public.companies
+         set logo_url = coalesce(logo_url, v_logo)
+       where id = v_company_id;
+    end if;
   end if;
 
   return v_company_id;
-end $$;
+end
+$$;
 
 
 ALTER FUNCTION "public"."ensure_employer_company"() OWNER TO "postgres";
@@ -3132,6 +3395,20 @@ END$$;
 ALTER FUNCTION "public"."events_set_owner"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."fc_assert_not_employer_for_directory"() RETURNS "void"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  IF (SELECT role FROM profiles WHERE id = auth.uid()) = 'employer' THEN
+    RAISE EXCEPTION 'Employers cannot access the directory';
+  END IF;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."fc_assert_not_employer_for_directory"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."fc_has_applied_to_job"("p_job_id" "uuid", "p_user_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -3166,18 +3443,34 @@ CREATE OR REPLACE FUNCTION "public"."fc_is_employer"() RETURNS boolean
 ALTER FUNCTION "public"."fc_is_employer"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."fc_is_employer_approved"("p_user_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
+    LANGUAGE "sql" STABLE
+    AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM profiles p
+    WHERE p.id = COALESCE(p_user_id, auth.uid())
+      AND p.role = 'employer'
+      AND p.approval_status = 'approved'
+  );
+$$;
+
+
+ALTER FUNCTION "public"."fc_is_employer_approved"("p_user_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."fc_is_fully_approved"("p_user_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
     LANGUAGE "sql" STABLE
-    SET "search_path" TO 'public'
     AS $$
-  select exists (
-    select 1
-    from public.profiles p
-    where p.id = coalesce(p_user_id, auth.uid())
-      and coalesce(p.is_deleted, false) = false
-      and coalesce(p.is_active, true) = true
-      and p.approval_status = 'approved'
-  );
+    SELECT EXISTS (
+        SELECT 1
+        FROM profiles p
+        WHERE p.id = COALESCE(p_user_id, auth.uid())
+          AND p.approval_status = 'approved'
+          AND p.degree_code IS NOT NULL
+          AND p.department_id IS NOT NULL
+          AND p.expected_graduation_year IS NOT NULL
+    );
 $$;
 
 
@@ -3308,6 +3601,22 @@ $$;
 
 
 ALTER FUNCTION "public"."get_admin_users"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_alumni_approved_count"() RETURNS integer
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  SELECT count(*)
+  FROM public.profiles p
+  WHERE p.role = 'alumni'
+    AND p.approval_status = 'approved'
+    AND COALESCE(p.is_deleted, false) = false
+    AND COALESCE(p.is_active, true) = true;
+$$;
+
+
+ALTER FUNCTION "public"."get_alumni_approved_count"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."get_application_count"("p_job_id" "uuid") RETURNS integer
@@ -3621,6 +3930,44 @@ COMMENT ON FUNCTION "public"."get_dashboard_stats"() IS 'Returns statistics for 
 
 
 
+CREATE OR REPLACE FUNCTION "public"."get_directory_cards"("p_search" "text", "p_limit" integer, "p_offset" integer) RETURNS TABLE("id" "uuid", "full_name" "text", "graduation_year" integer, "degree_program" "text", "department" "text", "current_title" "text", "company_name" "text", "location" "text", "avatar_url" "text", "role" "public"."app_role_enum", "is_employer" boolean, "connection_status" "text", "connection_pending_side" "text", "is_available_for_mentorship" boolean, "mentor_status" "text", "mentor_expertise" "text"[], "mentor_preferences" "jsonb")
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+WITH base AS (
+  SELECT *
+  FROM public.get_directory_profiles_search(p_search, p_limit, p_offset)
+)
+SELECT
+  b.id,
+  card.full_name,
+  b.graduation_year,
+  b.degree_program,
+  b.department,
+  card.current_title,
+  b.company_name,
+  b.location,
+  p.avatar_url,
+  b.role,
+  b.is_employer,
+  conn.status       AS connection_status,
+  conn.pending_side AS connection_pending_side,
+  md.is_available_for_mentorship,
+  md.mentor_status,
+  md.expertise      AS mentor_expertise,
+  md.mentoring_preferences AS mentor_preferences
+FROM base b
+JOIN public.profiles p
+  ON p.id = b.id
+LEFT JOIN public.v_profiles_directory_card       card ON card.id           = b.id
+LEFT JOIN public.v_directory_connection_states   conn ON conn.other_user_id = b.id
+LEFT JOIN public.mentors_directory               md   ON md.id             = b.id;
+$$;
+
+
+ALTER FUNCTION "public"."get_directory_cards"("p_search" "text", "p_limit" integer, "p_offset" integer) OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."get_directory_profile"("p_id" "uuid") RETURNS TABLE("id" "uuid", "first_name" "text", "last_name" "text", "graduation_year" integer, "degree_program" "text", "department" "text", "current_job_title" "text", "company_name" "text", "location" "text", "avatar_url" "text", "is_employer" boolean)
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -3729,6 +4076,24 @@ $$;
 ALTER FUNCTION "public"."get_directory_profiles"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_directory_profiles"("p_limit" integer DEFAULT 50, "p_offset" integer DEFAULT 0) RETURNS SETOF "public"."directory_profiles_base"
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  SELECT *
+  FROM public.directory_profiles_base
+  WHERE
+    -- 🔒 block employers here
+    (SELECT role FROM public.profiles WHERE id = auth.uid()) <> 'employer'
+  -- keep your existing filters/order if you had them
+  OFFSET p_offset
+  LIMIT  p_limit;
+$$;
+
+
+ALTER FUNCTION "public"."get_directory_profiles"("p_limit" integer, "p_offset" integer) OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."get_directory_profiles_search"("p_search" "text", "p_limit" integer, "p_offset" integer) RETURNS SETOF "public"."directory_profiles_base"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -3782,6 +4147,40 @@ $$;
 
 
 ALTER FUNCTION "public"."get_directory_profiles_search"("p_search" "text", "p_limit" integer, "p_offset" integer) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_directory_role_counts"() RETURNS "jsonb"
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  SELECT jsonb_build_object(
+    'alumni',   count(*) FILTER (
+                   WHERE p.role = 'alumni'
+                     AND p.approval_status = 'approved'
+                     AND COALESCE(p.is_deleted, false) = false
+                     AND COALESCE(p.is_active, true) = true
+                     AND COALESCE(p.show_in_directory, true) = true
+                 ),
+    'student',  count(*) FILTER (
+                   WHERE p.role = 'student'
+                     AND p.approval_status = 'approved'
+                     AND COALESCE(p.is_deleted, false) = false
+                     AND COALESCE(p.is_active, true) = true
+                     AND COALESCE(p.show_in_directory, true) = true
+                 ),
+    'employer', count(*) FILTER (
+                   WHERE p.role = 'employer'
+                     AND p.approval_status = 'approved'
+                     AND COALESCE(p.is_deleted, false) = false
+                     AND COALESCE(p.is_active, true) = true
+                     AND COALESCE(p.show_in_directory, true) = true
+                 )
+  )
+  FROM public.profiles p;
+$$;
+
+
+ALTER FUNCTION "public"."get_directory_role_counts"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."get_event_attendance_counts"("p_event_ids" "uuid"[]) RETURNS TABLE("event_id" "uuid", "total_attendees" integer)
@@ -3976,7 +4375,8 @@ END) STORED,
     CONSTRAINT "jobs_salary_max_nonneg" CHECK ((("salary_max" IS NULL) OR ("salary_max" >= 0))),
     CONSTRAINT "jobs_salary_min_le_max" CHECK ((("salary_min" IS NULL) OR ("salary_max" IS NULL) OR ("salary_min" <= "salary_max"))),
     CONSTRAINT "jobs_salary_min_nonneg" CHECK ((("salary_min" IS NULL) OR ("salary_min" >= 0))),
-    CONSTRAINT "jobs_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'closed'::"text", 'draft'::"text"])))
+    CONSTRAINT "jobs_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'closed'::"text", 'draft'::"text"]))),
+    CONSTRAINT "valid_status" CHECK (("is_active" = ANY (ARRAY[true, false])))
 );
 
 ALTER TABLE ONLY "public"."jobs" REPLICA IDENTITY FULL;
@@ -6538,18 +6938,7 @@ begin
     new.posted_by := auth.uid();
   end if;
 
-  -- If an employer is inserting a job for a company with no logo,
-  -- copy their profile avatar_url into companies.logo_url.
-  if new.company_id is not null then
-    update public.companies c
-    set logo_url = p.avatar_url
-    from public.profiles p
-    where c.id = new.company_id
-      and c.created_by = new.posted_by        -- only touch your own company
-      and (c.logo_url is null or c.logo_url = '')
-      and p.id = new.posted_by;
-  end if;
-
+  -- No longer copy profile.avatar_url into companies.logo_url here.
   return new;
 end
 $$;
@@ -6873,6 +7262,22 @@ end$$;
 
 
 ALTER FUNCTION "public"."log_group_leave"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."log_profile_approval_change"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  INSERT INTO profile_approval_audit
+    (profile_id, old_status, new_status, reason, changed_by)
+  VALUES
+    (NEW.id, OLD.approval_status, NEW.approval_status, NEW.rejection_reason, auth.uid());
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."log_profile_approval_change"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."log_profile_approval_changes"() RETURNS "trigger"
@@ -7912,11 +8317,7 @@ CREATE OR REPLACE FUNCTION "public"."profiles_after_update_avatar"() RETURNS "tr
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
 begin
-  if (tg_op = 'UPDATE') and (new.avatar_url is distinct from old.avatar_url) then
-    update public.companies
-    set logo_url = new.avatar_url
-    where created_by = new.id;
-  end if;
+  -- Decoupled: changing profile.avatar_url no longer updates companies.logo_url
   return new;
 end
 $$;
@@ -7944,6 +8345,30 @@ $$;
 
 
 ALTER FUNCTION "public"."profiles_normalize_names"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."profiles_prevent_self_approval_changes"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  -- If caller is NOT an admin, and any approval / verification /
+  -- activation fields changed, block the update.
+  if not public.app_is_admin() and (
+       new.approval_status             is distinct from old.approval_status
+    or new.is_approved                is distinct from old.is_approved
+    or new.alumni_verification_status is distinct from old.alumni_verification_status
+    or new.is_active                  is distinct from old.is_active
+  ) then
+    raise exception 'You are not allowed to change approval/activation fields on your profile';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."profiles_prevent_self_approval_changes"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."profiles_set_full_name"() RETURNS "trigger"
@@ -8690,6 +9115,42 @@ $$;
 ALTER FUNCTION "public"."search_events"("p_query" "text", "p_status" "text", "p_type" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."send_dm_message"("p_thread_id" "uuid", "p_content" "text") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_message_id uuid;
+  v_role text;
+BEGIN
+  SELECT role INTO v_role
+  FROM profiles
+  WHERE id = auth.uid();
+
+  -- 1) Block employers entirely
+  IF v_role = 'employer' THEN
+    RAISE EXCEPTION 'Employers cannot use direct messaging';
+  END IF;
+
+  -- 2) Block non-fully-approved community users
+  IF NOT public.fc_is_fully_approved(auth.uid()) THEN
+    RAISE EXCEPTION 'User not approved for messaging';
+  END IF;
+
+  -- 3) TODO: optionally check user is part of this thread / connection exists
+
+  -- 4) Insert message
+  INSERT INTO dm_messages (thread_id, sender_id, content)
+  VALUES (p_thread_id, auth.uid(), p_content)
+  RETURNING id INTO v_message_id;
+
+  RETURN v_message_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."send_dm_message"("p_thread_id" "uuid", "p_content" "text") OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."dm_messages" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "thread_id" "uuid" NOT NULL,
@@ -8836,20 +9297,24 @@ declare
   poster uuid;
   dp text;
 begin
-  -- Who posted the job
   poster := coalesce(new.posted_by, new.user_id, new.created_by);
 
   if poster is null or new.company_id is null then
     return new;
   end if;
 
-  -- Only fill if company logo is missing
-  if exists (select 1 from public.companies c where c.id = new.company_id and (c.logo_url is null or c.logo_url = '')) then
-    select coalesce(p.logo_url, p.avatar_url) into dp
+  if exists (
+    select 1
+    from public.companies c
+    where c.id = new.company_id
+      and (c.logo_url is null or c.logo_url = '')
+  ) then
+    select p.logo_url
+    into dp
     from public.profiles p
     where p.id = poster;
 
-    if dp is not null then
+    if dp is not null and btrim(dp) <> '' then
       update public.companies c
       set logo_url = dp
       where c.id = new.company_id
@@ -8873,7 +9338,8 @@ declare
   v_company_id uuid;
 begin
   if new.company_id is null then
-    select c.id into v_company_id
+    select c.id
+    into v_company_id
     from public.companies c
     where c.created_by = auth.uid()
     order by c.created_at asc
@@ -8881,8 +9347,11 @@ begin
 
     if v_company_id is null then
       insert into public.companies(name, created_by, logo_url)
-      values ('My Company', auth.uid(),
-              (select avatar_url from public.profiles where id = auth.uid()))
+      values (
+        'My Company',
+        auth.uid(),
+        (select logo_url from public.profiles where id = auth.uid())
+      )
       returning id into v_company_id;
     end if;
 
@@ -8890,7 +9359,8 @@ begin
   end if;
 
   return new;
-end$$;
+end
+$$;
 
 
 ALTER FUNCTION "public"."set_company_on_job_insert"() OWNER TO "postgres";
@@ -9092,11 +9562,10 @@ CREATE OR REPLACE FUNCTION "public"."sync_company_logo_from_avatar"() RETURNS "t
     SET "search_path" TO 'public'
     AS $$
 begin
-  update public.companies c
-     set logo_url = new.avatar_url
-   where c.created_by = new.id;
+  -- No longer syncing companies.logo_url from profile.avatar_url
   return null;
-end$$;
+end
+$$;
 
 
 ALTER FUNCTION "public"."sync_company_logo_from_avatar"() OWNER TO "postgres";
@@ -9107,39 +9576,36 @@ CREATE OR REPLACE FUNCTION "public"."sync_company_logo_from_profile"() RETURNS "
     SET "search_path" TO 'public'
     AS $$
 declare
-  v_avatar text;
+  v_logo text;
 begin
-  -- run only if a company is selected
   if new.company_id is null then
     return new;
   end if;
 
-  -- do nothing unless current user owns the company
   if not exists (
     select 1
-      from public.companies c
-     where c.id = new.company_id
-       and c.created_by = auth.uid()
+    from public.companies c
+    where c.id = new.company_id
+      and c.created_by = auth.uid()
   ) then
     return new;
   end if;
 
-  -- pull employer's avatar (no photo_url)
-  select p.avatar_url
-    into v_avatar
-    from public.profiles p
-   where p.id = auth.uid()
-     and p.role = 'employer';
+  select p.logo_url
+  into v_logo
+  from public.profiles p
+  where p.id = auth.uid()
+    and p.role = 'employer';
 
-  -- only set if company has no logo yet and avatar exists
-  if v_avatar is not null then
+  if v_logo is not null and btrim(v_logo) <> '' then
     update public.companies
-       set logo_url = coalesce(logo_url, v_avatar)
+       set logo_url = coalesce(logo_url, v_logo)
      where id = new.company_id;
   end if;
 
   return new;
-end $$;
+end
+$$;
 
 
 ALTER FUNCTION "public"."sync_company_logo_from_profile"() OWNER TO "postgres";
@@ -11960,6 +12426,152 @@ CREATE OR REPLACE VIEW "public"."detailed_event_feedback" AS
 ALTER TABLE "public"."detailed_event_feedback" OWNER TO "postgres";
 
 
+CREATE OR REPLACE VIEW "public"."directory_profiles" AS
+ SELECT "p"."id",
+    "p"."email",
+    "p"."first_name",
+    "p"."last_name",
+    "p"."full_name",
+    "p"."avatar_url",
+    "p"."graduation_year",
+    "p"."degree",
+    "p"."major",
+    "p"."current_company",
+    "p"."current_position",
+    "p"."location",
+    "p"."bio",
+    "p"."linkedin_url",
+    "p"."twitter_url",
+    "p"."website_url",
+    "p"."is_verified",
+    "p"."is_mentor",
+    "p"."created_at",
+    "p"."updated_at",
+    "p"."mentor_availability",
+    "p"."mentor_topics",
+    "p"."mentor_status",
+    "p"."mentee_status",
+    "p"."alumni_verification_status",
+    "p"."verification_document_url",
+    "p"."verification_notes",
+    "p"."verification_reviewed_by",
+    "p"."verification_reviewed_at",
+    "p"."department",
+    "p"."phone",
+    "p"."github_url",
+    "p"."skills",
+    "p"."account_type",
+    "p"."student_id",
+    "p"."is_employer",
+    "p"."company_name",
+    "p"."company_website",
+    "p"."industry",
+    "p"."phone_number",
+    "p"."is_admin",
+    "p"."role",
+    "p"."job_title",
+    "p"."years_experience",
+    "p"."current_location",
+    "p"."degree_program",
+    "p"."current_job_title",
+    "p"."major_specialization",
+    "p"."biography",
+    "p"."privacy_level",
+    "p"."is_online",
+    "p"."last_seen",
+    "p"."username",
+    "p"."about",
+    "p"."headline",
+    "p"."company",
+    "p"."experience",
+    "p"."specialization",
+    "p"."achievements",
+    "p"."interests",
+    "p"."languages",
+    "p"."social_links",
+    "p"."verified",
+    "p"."batch_year",
+    "p"."resume_url",
+    "p"."wants_job_alerts",
+    "p"."website",
+    "p"."is_available_for_mentorship",
+    "p"."mentorship_topics",
+    "p"."date_of_birth",
+    "p"."company_location",
+    "p"."primary_role",
+    "p"."batch",
+    "p"."is_profile_complete",
+    "p"."show_in_directory",
+    "p"."privacy_settings",
+    "p"."rejection_comment",
+    "p"."rejected_by",
+    "p"."rejection_date",
+    "p"."admin_notes",
+    "p"."clarification_comment",
+    "p"."rejection_reason",
+    "p"."is_deleted",
+    "p"."deleted_at",
+    "p"."deleted_by",
+    "p"."is_approved",
+    "p"."verified_at",
+    "p"."degree_code",
+    "p"."education",
+    "p"."work_experience",
+    "p"."positions",
+    "p"."profession",
+    "p"."location_city",
+    "p"."location_country",
+    "p"."company_size",
+    "p"."approval_status",
+    "p"."is_hidden",
+    "p"."visibility",
+    "p"."extra",
+    "p"."is_active",
+    "p"."verified_by",
+    "p"."approved_at",
+    "p"."approval_reason",
+    "p"."department_id",
+    "p"."avatar_path",
+    "p"."expected_graduation_year",
+    "p"."approval_reviewed_by",
+    "p"."approval_reviewed_at"
+   FROM "public"."profiles" "p"
+  WHERE (("p"."role" = ANY (ARRAY['student'::"public"."app_role_enum", 'alumni'::"public"."app_role_enum", 'admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])) AND (( SELECT "profiles"."role"
+           FROM "public"."profiles"
+          WHERE ("profiles"."id" = "auth"."uid"())) <> 'employer'::"public"."app_role_enum"));
+
+
+ALTER TABLE "public"."directory_profiles" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."directory_profiles_extended" AS
+ SELECT "dp"."id",
+    "dp"."first_name",
+    "dp"."last_name",
+    "dp"."full_name",
+    "dp"."graduation_year",
+    "dp"."degree_program",
+    "dp"."department",
+    "dp"."current_job_title",
+    "dp"."company_name",
+    "dp"."location",
+    "dp"."location_city",
+    "dp"."location_country",
+    "dp"."avatar_url",
+    "dp"."is_employer",
+    "dp"."role",
+    "dp"."approval_status",
+    "dp"."is_deleted",
+    "dp"."is_active",
+    "dp"."show_in_directory",
+    COALESCE("p"."graduation_year", "p"."expected_graduation_year", "p"."batch_year") AS "batch_year"
+   FROM ("public"."directory_profiles_base" "dp"
+     JOIN "public"."profiles" "p" ON (("p"."id" = "dp"."id")));
+
+
+ALTER TABLE "public"."directory_profiles_extended" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."dm_participants" (
     "thread_id" "uuid" NOT NULL,
     "user_id" "uuid" NOT NULL,
@@ -12502,14 +13114,18 @@ CREATE OR REPLACE VIEW "public"."mentors_directory" AS
  SELECT "p"."id",
     "p"."full_name",
     COALESCE("p"."avatar_url", '/default-avatar.svg'::"text") AS "avatar_url",
-    "p"."location",
+    COALESCE(NULLIF("p"."location", ''::"text"), NULLIF(TRIM(BOTH FROM ((COALESCE("p"."location_city", ''::"text") ||
+        CASE
+            WHEN (("p"."location_city" <> ''::"text") AND ("p"."location_country" <> ''::"text")) THEN ', '::"text"
+            ELSE ''::"text"
+        END) || COALESCE("p"."location_country", ''::"text"))), ''::"text")) AS "location",
     "p"."is_available_for_mentorship",
     "m"."status" AS "mentor_status",
     "m"."expertise",
     "m"."mentoring_preferences"
    FROM ("public"."mentors" "m"
      JOIN "public"."profiles" "p" ON (("p"."id" = "m"."user_id")))
-  WHERE (("p"."approval_status" = 'approved'::"public"."profile_approval_status") AND ("m"."status" = 'approved'::"text"));
+  WHERE (("p"."approval_status" = 'approved'::"public"."profile_approval_status") AND ("m"."status" = 'approved'::"text") AND (COALESCE("p"."is_deleted", false) = false) AND (COALESCE("p"."is_active", true) = true) AND (COALESCE("p"."show_in_directory", true) = true) AND ("p"."role" <> 'employer'::"public"."app_role_enum"));
 
 
 ALTER TABLE "public"."mentors_directory" OWNER TO "postgres";
@@ -14450,6 +15066,11 @@ ALTER TABLE ONLY "public"."permissions"
 
 
 
+ALTER TABLE ONLY "public"."profile_approval_audit"
+    ADD CONSTRAINT "profile_approval_audit_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."profile_approval_log"
     ADD CONSTRAINT "profile_approval_log_pkey" PRIMARY KEY ("id");
 
@@ -15279,6 +15900,14 @@ CREATE INDEX "idx_notifications_user_id" ON "public"."notifications" USING "btre
 
 
 CREATE INDEX "idx_notifications_user_read" ON "public"."notifications" USING "btree" ("user_id", "read_at");
+
+
+
+CREATE INDEX "idx_profile_approval_audit_admin_created_at" ON "public"."profile_approval_audit" USING "btree" ("admin_id", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_profile_approval_audit_profile_created_at" ON "public"."profile_approval_audit" USING "btree" ("profile_id", "created_at" DESC);
 
 
 
@@ -16174,6 +16803,10 @@ CREATE OR REPLACE TRIGGER "trg_on_mentorship_request_status" AFTER UPDATE OF "st
 
 
 
+CREATE OR REPLACE TRIGGER "trg_profile_approval_audit" AFTER UPDATE OF "approval_status" ON "public"."profiles" FOR EACH ROW WHEN (("old"."approval_status" IS DISTINCT FROM "new"."approval_status")) EXECUTE FUNCTION "public"."log_profile_approval_change"();
+
+
+
 CREATE OR REPLACE TRIGGER "trg_profiles_after_insert_batch" AFTER INSERT ON "public"."profiles" FOR EACH ROW WHEN (("new"."is_approved" IS TRUE)) EXECUTE FUNCTION "public"."trg_attach_user_to_batch_group"();
 
 
@@ -16187,6 +16820,10 @@ CREATE OR REPLACE TRIGGER "trg_profiles_after_update_batch" AFTER UPDATE OF "alu
 
 
 CREATE OR REPLACE TRIGGER "trg_profiles_after_update_batch_canonical" AFTER UPDATE OF "approval_status", "is_approved" ON "public"."profiles" FOR EACH ROW WHEN ((("new"."is_approved" IS TRUE) AND ("old"."is_approved" IS DISTINCT FROM true))) EXECUTE FUNCTION "public"."trg_attach_user_to_batch_group"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_profiles_block_self_approval" BEFORE UPDATE ON "public"."profiles" FOR EACH ROW EXECUTE FUNCTION "public"."profiles_prevent_self_approval_changes"();
 
 
 
@@ -16870,6 +17507,16 @@ ALTER TABLE ONLY "public"."notifications"
 
 
 
+ALTER TABLE ONLY "public"."profile_approval_audit"
+    ADD CONSTRAINT "profile_approval_audit_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "public"."profiles"("id");
+
+
+
+ALTER TABLE ONLY "public"."profile_approval_audit"
+    ADD CONSTRAINT "profile_approval_audit_profile_id_fkey" FOREIGN KEY ("profile_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."profiles"
     ADD CONSTRAINT "profiles_degree_code_fkey" FOREIGN KEY ("degree_code") REFERENCES "public"."degrees"("code");
 
@@ -17023,6 +17670,10 @@ CREATE POLICY "Admins can view all event feedback" ON "public"."event_feedback" 
 
 
 CREATE POLICY "Admins can view logs" ON "public"."activity_logs" FOR SELECT USING ("public"."is_site_admin"());
+
+
+
+CREATE POLICY "Admins can view profile approval audit" ON "public"."profile_approval_audit" FOR SELECT USING ("public"."app_is_admin"());
 
 
 
@@ -17203,6 +17854,10 @@ CREATE POLICY "Roles are viewable by everyone" ON "public"."roles" FOR SELECT US
 
 
 CREATE POLICY "User can insert import history" ON "public"."csv_import_history" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "User can see their own approval audit" ON "public"."profile_approval_audit" FOR SELECT USING (("profile_id" = "auth"."uid"()));
 
 
 
@@ -17726,6 +18381,10 @@ CREATE POLICY "ef_update_self" ON "public"."event_feedback" FOR UPDATE USING (("
 ALTER TABLE "public"."event_attendees" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "event_attendees_insert_approved" ON "public"."event_attendees" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND "public"."fc_is_fully_approved"("auth"."uid"())));
+
+
+
 CREATE POLICY "event_attendees_read" ON "public"."event_attendees" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
    FROM "public"."events" "e"
   WHERE (("e"."id" = "event_attendees"."event_id") AND ("e"."is_published" = true) AND ("e"."approval_status" = 'approved'::"public"."approval_status")))));
@@ -17947,6 +18606,12 @@ CREATE POLICY "group_members_admin_add" ON "public"."group_members" FOR INSERT T
 
 
 
+CREATE POLICY "group_members_insert_no_employers" ON "public"."group_members" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND (( SELECT "profiles"."role"
+   FROM "public"."profiles"
+  WHERE ("profiles"."id" = "auth"."uid"())) <> 'employer'::"public"."app_role_enum")));
+
+
+
 CREATE POLICY "group_members_leave" ON "public"."group_members" FOR DELETE TO "authenticated" USING ((("user_id" = "auth"."uid"()) OR (EXISTS ( SELECT 1
    FROM "public"."profiles" "p"
   WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))));
@@ -17982,6 +18647,12 @@ CREATE POLICY "groups_delete_admin_or_creator" ON "public"."groups" FOR DELETE T
 CREATE POLICY "groups_insert" ON "public"."groups" FOR INSERT TO "authenticated" WITH CHECK (("public"."is_user_admin"("auth"."uid"()) OR ("public"."fc_is_fully_approved"("auth"."uid"()) AND (EXISTS ( SELECT 1
    FROM "public"."profiles" "p"
   WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = 'alumni'::"public"."app_role_enum")))) AND ("created_by" = "auth"."uid"()) AND ("is_approved" = false))));
+
+
+
+CREATE POLICY "groups_insert_no_employers" ON "public"."groups" FOR INSERT TO "authenticated" WITH CHECK ((( SELECT "profiles"."role"
+   FROM "public"."profiles"
+  WHERE ("profiles"."id" = "auth"."uid"())) <> 'employer'::"public"."app_role_enum"));
 
 
 
@@ -18098,10 +18769,34 @@ CREATE POLICY "job_alerts_update" ON "public"."job_alerts" FOR UPDATE TO "authen
 ALTER TABLE "public"."job_applications" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "job_applications_insert_approved" ON "public"."job_applications" FOR INSERT TO "authenticated" WITH CHECK ((("applicant_id" = "auth"."uid"()) AND "public"."fc_is_fully_approved"("auth"."uid"())));
+
+
+
+CREATE POLICY "job_applications_select_employer" ON "public"."job_applications" FOR SELECT TO "authenticated" USING ((("public"."fc_is_employer_approved"("auth"."uid"()) AND (EXISTS ( SELECT 1
+   FROM "public"."jobs" "j"
+  WHERE (("j"."id" = "job_applications"."job_id") AND ("j"."created_by" = "auth"."uid"()))))) OR (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p"
+  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))));
+
+
+
 ALTER TABLE "public"."job_bookmarks" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."jobs" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "jobs_delete_own" ON "public"."jobs" FOR DELETE TO "authenticated" USING (((("created_by" = "auth"."uid"()) AND "public"."fc_is_employer_approved"("auth"."uid"())) OR (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p"
+  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))));
+
+
+
+CREATE POLICY "jobs_insert_employers" ON "public"."jobs" FOR INSERT TO "authenticated" WITH CHECK (("public"."fc_is_employer_approved"("auth"."uid"()) OR (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p"
+  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))));
+
 
 
 CREATE POLICY "jobs_insert_owner" ON "public"."jobs" FOR INSERT TO "authenticated" WITH CHECK (("public"."fc_is_admin"() OR ("public"."fc_is_fully_approved"("auth"."uid"()) AND (EXISTS ( SELECT 1
@@ -18115,6 +18810,12 @@ CREATE POLICY "jobs_select" ON "public"."jobs" FOR SELECT TO "authenticated" USI
 
 
 CREATE POLICY "jobs_select_applied" ON "public"."jobs" FOR SELECT TO "authenticated" USING ("public"."fc_has_applied_to_job"("id", "auth"."uid"()));
+
+
+
+CREATE POLICY "jobs_select_own_employer" ON "public"."jobs" FOR SELECT TO "authenticated" USING ((("public"."fc_is_employer_approved"("auth"."uid"()) AND ("created_by" = "auth"."uid"())) OR (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p"
+  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))));
 
 
 
@@ -18295,6 +18996,16 @@ CREATE POLICY "mentorship_requests_insert" ON "public"."mentorship_requests" FOR
 
 
 
+CREATE POLICY "mentorship_requests_insert_approved" ON "public"."mentorship_requests" FOR INSERT TO "authenticated" WITH CHECK ((("mentee_id" = "auth"."uid"()) AND "public"."fc_is_fully_approved"("auth"."uid"())));
+
+
+
+CREATE POLICY "mentorship_requests_no_employers" ON "public"."mentorship_requests" FOR INSERT TO "authenticated" WITH CHECK ((("mentee_id" = "auth"."uid"()) AND (( SELECT "profiles"."role"
+   FROM "public"."profiles"
+  WHERE ("profiles"."id" = "auth"."uid"())) <> 'employer'::"public"."app_role_enum")));
+
+
+
 CREATE POLICY "mentorship_requests_select" ON "public"."mentorship_requests" FOR SELECT TO "authenticated" USING ((("mentee_id" = "auth"."uid"()) OR ("mentor_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"())));
 
 
@@ -18424,6 +19135,9 @@ CREATE POLICY "notifications_update_policy" ON "public"."notifications" FOR UPDA
 
 CREATE POLICY "notifications_update_self_or_admin" ON "public"."notifications" FOR UPDATE USING ((("recipient_id" = "auth"."uid"()) OR COALESCE("public"."is_admin"("auth"."uid"()), false))) WITH CHECK ((("recipient_id" = "auth"."uid"()) OR COALESCE("public"."is_admin"("auth"."uid"()), false)));
 
+
+
+ALTER TABLE "public"."profile_approval_audit" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
@@ -18557,6 +19271,10 @@ CREATE POLICY "ual_select_admins" ON "public"."user_activity_logs" FOR SELECT TO
 
 
 CREATE POLICY "update_own_social_links" ON "public"."social_links" FOR UPDATE USING (("profile_id" = "auth"."uid"())) WITH CHECK (("profile_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "update_profile_safe_fields" ON "public"."profiles" FOR UPDATE TO "authenticated" USING (("auth"."uid"() = "id")) WITH CHECK ((("id" = "auth"."uid"()) AND true));
 
 
 
@@ -18922,6 +19640,18 @@ GRANT ALL ON FUNCTION "public"."admin_delete_user_rpc"("target" "uuid") TO "serv
 
 
 
+GRANT SELECT,REFERENCES,TRIGGER,TRUNCATE ON TABLE "public"."profile_approval_audit" TO "anon";
+GRANT SELECT,REFERENCES,TRIGGER,TRUNCATE ON TABLE "public"."profile_approval_audit" TO "authenticated";
+GRANT ALL ON TABLE "public"."profile_approval_audit" TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."admin_get_profile_approval_audit"("p_profile_id" "uuid", "p_limit" integer, "p_offset" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_get_profile_approval_audit"("p_profile_id" "uuid", "p_limit" integer, "p_offset" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_get_profile_approval_audit"("p_profile_id" "uuid", "p_limit" integer, "p_offset" integer) TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."admin_list_jobs_pending"("_limit" integer, "_offset" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."admin_list_jobs_pending"("_limit" integer, "_offset" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_list_jobs_pending"("_limit" integer, "_offset" integer) TO "service_role";
@@ -18931,6 +19661,18 @@ GRANT ALL ON FUNCTION "public"."admin_list_jobs_pending"("_limit" integer, "_off
 GRANT ALL ON TABLE "public"."profiles" TO "anon";
 GRANT ALL ON TABLE "public"."profiles" TO "authenticated";
 GRANT ALL ON TABLE "public"."profiles" TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status", "p_role" "public"."app_role_enum", "p_limit" integer, "p_offset" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status", "p_role" "public"."app_role_enum", "p_limit" integer, "p_offset" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status", "p_role" "public"."app_role_enum", "p_limit" integer, "p_offset" integer) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status", "p_role" "public"."app_role_enum", "p_search" "text", "p_limit" integer, "p_offset" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status", "p_role" "public"."app_role_enum", "p_search" "text", "p_limit" integer, "p_offset" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status", "p_role" "public"."app_role_enum", "p_search" "text", "p_limit" integer, "p_offset" integer) TO "service_role";
 
 
 
@@ -19003,15 +19745,9 @@ GRANT ALL ON FUNCTION "public"."admin_set_group_approval"("p_group_id" "uuid", "
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "text") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "public"."profile_approval_status", "reason" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "public"."profile_approval_status", "reason" "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("target" "uuid", "new_status" "public"."profile_approval_status", "reason" "text") TO "service_role";
+GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("p_profile_id" "uuid", "p_status" "public"."profile_approval_status", "p_reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("p_profile_id" "uuid", "p_status" "public"."profile_approval_status", "p_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("p_profile_id" "uuid", "p_status" "public"."profile_approval_status", "p_reason" "text") TO "service_role";
 
 
 
@@ -19023,6 +19759,12 @@ GRANT ALL ON FUNCTION "public"."admin_set_role"("p_user" "uuid", "p_role" "text"
 
 
 GRANT ALL ON FUNCTION "public"."admin_set_roles"("p_user_ids" "uuid"[], "p_role" "public"."app_role_enum") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "text") TO "service_role";
 
 
 
@@ -19046,6 +19788,12 @@ REVOKE ALL ON FUNCTION "public"."admin_total_profiles"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."admin_total_profiles"() TO "anon";
 GRANT ALL ON FUNCTION "public"."admin_total_profiles"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_total_profiles"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."admin_update_profile_approval"("p_profile_id" "uuid", "p_decision" "text", "p_notes" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_update_profile_approval"("p_profile_id" "uuid", "p_decision" "text", "p_notes" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_update_profile_approval"("p_profile_id" "uuid", "p_decision" "text", "p_notes" "text") TO "service_role";
 
 
 
@@ -19381,6 +20129,12 @@ GRANT ALL ON FUNCTION "public"."debug_can_edit_job"("p_job_id" "uuid", "p_user" 
 
 
 
+GRANT ALL ON FUNCTION "public"."deny_employer_directory"() TO "anon";
+GRANT ALL ON FUNCTION "public"."deny_employer_directory"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."deny_employer_directory"() TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."dm_get_or_create_thread"("u1" "uuid", "u2" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."dm_get_or_create_thread"("u1" "uuid", "u2" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."dm_get_or_create_thread"("u1" "uuid", "u2" "uuid") TO "authenticated";
@@ -19516,6 +20270,12 @@ GRANT ALL ON FUNCTION "public"."events_set_owner"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."fc_assert_not_employer_for_directory"() TO "anon";
+GRANT ALL ON FUNCTION "public"."fc_assert_not_employer_for_directory"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."fc_assert_not_employer_for_directory"() TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."fc_has_applied_to_job"("p_job_id" "uuid", "p_user_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."fc_has_applied_to_job"("p_job_id" "uuid", "p_user_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."fc_has_applied_to_job"("p_job_id" "uuid", "p_user_id" "uuid") TO "authenticated";
@@ -19532,6 +20292,12 @@ GRANT ALL ON FUNCTION "public"."fc_is_admin"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."fc_is_employer"() TO "anon";
 GRANT ALL ON FUNCTION "public"."fc_is_employer"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."fc_is_employer"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."fc_is_employer_approved"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."fc_is_employer_approved"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."fc_is_employer_approved"("p_user_id" "uuid") TO "service_role";
 
 
 
@@ -19567,6 +20333,12 @@ GRANT ALL ON FUNCTION "public"."get_admin_profile_metrics"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."get_admin_users"() TO "anon";
 GRANT ALL ON FUNCTION "public"."get_admin_users"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_admin_users"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_alumni_approved_count"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_alumni_approved_count"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_alumni_approved_count"() TO "service_role";
 
 
 
@@ -19632,6 +20404,12 @@ GRANT ALL ON FUNCTION "public"."get_dashboard_stats"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."get_directory_cards"("p_search" "text", "p_limit" integer, "p_offset" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."get_directory_cards"("p_search" "text", "p_limit" integer, "p_offset" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_directory_cards"("p_search" "text", "p_limit" integer, "p_offset" integer) TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."get_directory_profile"("p_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_directory_profile"("p_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_directory_profile"("p_id" "uuid") TO "authenticated";
@@ -19663,9 +20441,21 @@ GRANT ALL ON FUNCTION "public"."get_directory_profiles"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."get_directory_profiles"("p_limit" integer, "p_offset" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."get_directory_profiles"("p_limit" integer, "p_offset" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_directory_profiles"("p_limit" integer, "p_offset" integer) TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_directory_profiles_search"("p_search" "text", "p_limit" integer, "p_offset" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."get_directory_profiles_search"("p_search" "text", "p_limit" integer, "p_offset" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_directory_profiles_search"("p_search" "text", "p_limit" integer, "p_offset" integer) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_directory_role_counts"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_directory_role_counts"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_directory_role_counts"() TO "service_role";
 
 
 
@@ -20336,6 +21126,12 @@ GRANT ALL ON FUNCTION "public"."log_group_leave"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."log_profile_approval_change"() TO "anon";
+GRANT ALL ON FUNCTION "public"."log_profile_approval_change"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."log_profile_approval_change"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."log_profile_approval_changes"() TO "anon";
 GRANT ALL ON FUNCTION "public"."log_profile_approval_changes"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."log_profile_approval_changes"() TO "service_role";
@@ -20559,6 +21355,12 @@ GRANT ALL ON FUNCTION "public"."profiles_normalize_names"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."profiles_prevent_self_approval_changes"() TO "anon";
+GRANT ALL ON FUNCTION "public"."profiles_prevent_self_approval_changes"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."profiles_prevent_self_approval_changes"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."profiles_set_full_name"() TO "anon";
 GRANT ALL ON FUNCTION "public"."profiles_set_full_name"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."profiles_set_full_name"() TO "service_role";
@@ -20725,6 +21527,12 @@ GRANT ALL ON FUNCTION "public"."search_events"("q" "text") TO "service_role";
 GRANT ALL ON FUNCTION "public"."search_events"("p_query" "text", "p_status" "text", "p_type" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."search_events"("p_query" "text", "p_status" "text", "p_type" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."search_events"("p_query" "text", "p_status" "text", "p_type" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."send_dm_message"("p_thread_id" "uuid", "p_content" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."send_dm_message"("p_thread_id" "uuid", "p_content" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."send_dm_message"("p_thread_id" "uuid", "p_content" "text") TO "service_role";
 
 
 
@@ -21342,6 +22150,18 @@ GRANT ALL ON TABLE "public"."event_feedback" TO "service_role";
 GRANT ALL ON TABLE "public"."detailed_event_feedback" TO "anon";
 GRANT ALL ON TABLE "public"."detailed_event_feedback" TO "authenticated";
 GRANT ALL ON TABLE "public"."detailed_event_feedback" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."directory_profiles" TO "anon";
+GRANT ALL ON TABLE "public"."directory_profiles" TO "authenticated";
+GRANT ALL ON TABLE "public"."directory_profiles" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."directory_profiles_extended" TO "anon";
+GRANT ALL ON TABLE "public"."directory_profiles_extended" TO "authenticated";
+GRANT ALL ON TABLE "public"."directory_profiles_extended" TO "service_role";
 
 
 

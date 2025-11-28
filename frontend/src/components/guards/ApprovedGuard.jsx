@@ -1,7 +1,5 @@
 import React from 'react';
 import { useApproval } from '../../hooks/useApproval';
-import { useAuth } from '../../contexts/AuthContext';
-import { isAdminLike } from '../../utils/roles';
 
 // Guard component to restrict access based on approval status
 export default function ApprovedGuard({
@@ -17,26 +15,43 @@ export default function ApprovedGuard({
     isApprovedMentor,
     isApprovedMentee,
     isApprovedEmployer,
+    isAdminLike,
   } = useApproval();
-  const { getUserRole } = useAuth();
 
-  if (loading) return skeleton;
+  if (loading) {
+    if (skeleton !== null && skeleton !== undefined) {
+      return skeleton;
+    }
+    return (
+      <div className="py-8 text-center text-gray-500">
+        Checking your account status...
+      </div>
+    );
+  }
 
-  // Admin-like roles bypass approval checks
-  const role = getUserRole ? getUserRole() : undefined;
-  if (isAdminLike(role)) return <>{children}</>;
+  // Admin-like roles bypass approval checks entirely
+  if (isAdminLike) return <>{children}</>;
 
   const allowed =
-    require === 'approved' ? isApproved :
+    require === 'approved' || require === 'approved-user' ? isApproved :
     require === 'approved-mentor' ? isApprovedMentor :
     require === 'approved-mentee' ? isApprovedMentee :
     require === 'approved-employer' ? isApprovedEmployer :
     false;
 
   if (!allowed) {
-    return fallback ?? (
+    if (fallback) return fallback;
+
+    if (!showBlockedMessage) return null;
+
+    const message =
+      require === 'approved-employer'
+        ? 'Your employer profile is not yet approved. Please contact the administrator if you think this is a mistake.'
+        : 'Your profile is not yet approved. Please contact the administrator.';
+
+    return (
       <div className="p-4 rounded-md bg-red-50 text-red-700 border border-red-200">
-        {showBlockedMessage ? 'Your profile is not approved. Kindly contact administrator.' : null}
+        {message}
       </div>
     );
   }

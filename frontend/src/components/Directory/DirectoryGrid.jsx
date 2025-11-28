@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { memo } from 'react';
 import DirectoryCardSplit from './DirectoryCardSplit';
 
-export default function DirectoryGrid({ items = [], meId, currentTab = 'all', onChanged, compact = false, loading = false }) {
+function DirectoryGrid({ items = [], meId, currentTab = 'all', onChanged, compact = false, loading = false }) {
   const Skeleton = () => (
     <div 
       className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm animate-pulse" 
@@ -89,3 +89,5 @@ export default function DirectoryGrid({ items = [], meId, currentTab = 'all', on
     </div>
   );
 }
+
+export default memo(DirectoryGrid);
