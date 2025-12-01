@@ -139,9 +139,10 @@ function derivePermissions(role, approvalFlags) {
     return [
       'access:dashboard',
       'access:profile_settings',
-      // Optional read-only listings
+      // Allow read-only listings, including browsing the alumni directory
       'view:jobs',
       'access:events',
+      'view:alumni_directory',
     ];
   }
 
