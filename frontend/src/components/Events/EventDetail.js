@@ -683,6 +683,38 @@ const EventDetail = () => {
               )}
             </div>
 
+            {/* Image Modal */}
+            {showImageModal && (
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label="Full size event image"
+                className="fixed inset-0 z-40 flex items-center justify-center"
+              >
+                <div
+                  className="absolute inset-0 bg-black bg-opacity-70"
+                  onClick={() => setShowImageModal(false)}
+                />
+                <div className="relative max-w-5xl max-h-[90vh] mx-4 flex flex-col">
+                  <button
+                    type="button"
+                    onClick={() => setShowImageModal(false)}
+                    className="self-end mb-2 text-white/80 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-full"
+                    aria-label="Close image preview"
+                  >
+                    ✕
+                  </button>
+                  <div className="bg-black rounded-lg overflow-hidden shadow-2xl flex-1 flex items-center justify-center">
+                    <img
+                      src={event.featured_image_url}
+                      alt={event.title}
+                      className="max-h-[80vh] w-auto object-contain"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Attendees Modal */}
             {attendeesOpen && (
               <div role="dialog" aria-modal="true" aria-labelledby="attendees-title" className="fixed inset-0 z-50 flex items-center justify-center">
