@@ -152,7 +152,12 @@ const ResumeUploadForm = () => {
         throw error;
       }
       
-      // Get public URL for the file
+      // For resumes bucket, we store only the storage path (no public URL)
+      if (bucket === 'resumes') {
+        return data?.path || filePath;
+      }
+
+      // Other buckets may continue to use public URLs as before
       const { data: urlData } = supabase.storage
         .from(bucket)
         .getPublicUrl(filePath);

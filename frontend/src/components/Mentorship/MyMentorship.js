@@ -2,15 +2,24 @@ import React, { useEffect, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { Link } from 'react-router-dom';
+import { getAccountStatus } from '../../utils/accountStatus';
+import { Link, useNavigate } from 'react-router-dom';
 import MentorRegistrationForm from './MentorRegistrationForm';
 import CreateSessionModal from './CreateSessionModal';
 import { getPublicIdentity } from '../../lib/hydrateIdentity';
 import { idempotentConnect, acceptPending } from '../../utils/connections';
 import { RequestStatusChip } from '../../lib/statusChips';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchMenteeRequests, fetchMentorRequests } from '../../lib/queries/mentorship';
 import { mapSupabaseErrorToToast } from '../../utils/mapSupabaseErrorToToast';
+import { ensureDmThreadWith } from '../../api/dm';
+import { useAvatars } from '../../hooks/useAvatar';
+import {
+  useCancelMentorshipRequest,
+  useAcceptMentorshipRequest,
+  useRejectMentorshipRequest,
+  useToggleMentorAvailability,
+} from '../../hooks/useMentorshipMutations';
 
 // Small 3-row skeleton for lists
 function ListSkeleton({ rows = 3 }) {
@@ -33,37 +42,18 @@ function ListSkeleton({ rows = 3 }) {
 
 // Cancel button with optimistic React Query update
 function CancelButton({ requestId }) {
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationFn: async (id) => {
-      const { error } = await supabase
-        .from('mentorship_requests')
-        .update({ status: 'cancelled_by_user' })
-        .eq('id', id);
-      if (error) throw error;
-      return { id };
-    },
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: ['menteeRequests', user?.id] });
-      const prev = queryClient.getQueryData(['menteeRequests', user?.id]);
-      queryClient.setQueryData(['menteeRequests', user?.id], (old = []) => old.map((r) => r.id === id ? { ...r, status: 'cancelled_by_user' } : r));
-      toast.dismiss('rq-info');
-      toast.success('Request cancelled', { id: 'rq-info' });
-      return { prev };
-    },
-    onError: (err, id, ctx) => {
-      if (ctx?.prev) queryClient.setQueryData(['menteeRequests', user?.id], ctx.prev);
-      mapSupabaseErrorToToast(err, 'Failed to cancel request');
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['menteeRequests', user?.id] });
-    },
-  });
+  const mutation = useCancelMentorshipRequest();
   return (
     <button
       className="btn-ocean-outline px-3 py-1.5 rounded"
-      onClick={() => mutation.mutate(requestId)}
+      onClick={() =>
+        mutation.mutate(requestId, {
+          onSuccess: () => {
+            toast.dismiss('rq-info');
+            toast.success('Request cancelled', { id: 'rq-info' });
+          },
+        })
+      }
       disabled={mutation.isLoading}
     >
       Cancel Request
@@ -80,6 +70,7 @@ export default function MyMentorship() {
   const [isSaving, setIsSaving] = useState(false);
   const queryClient = useQueryClient();
   const [requestTab, setRequestTab] = useState('received'); // 'received' | 'sent'
+  const navigate = useNavigate();
   // Mentee requests via React Query
   const menteeReqQuery = useQuery({
     queryKey: ['menteeRequests', user?.id],
@@ -118,6 +109,39 @@ export default function MyMentorship() {
   const received = mentorReqQuery.data || [];
   const receivedLoading = mentorReqQuery.isLoading || mentorReqQuery.isFetching;
   const [sessionModal, setSessionModal] = useState({ open: false, requestId: null, mentorId: null, menteeId: null });
+
+  const participantIds = Array.from(new Set([
+    ...(received || []).map((r) => r.mentee?.id || r.mentee_id).filter(Boolean),
+    ...(requests || []).map((r) => r.mentor?.id || r.mentor_id).filter(Boolean),
+  ]));
+
+  const { avatarUrls } = useAvatars(participantIds, {
+    useSignedUrls: true,
+    autoFetch: participantIds.length > 0,
+  });
+
+  const acceptMutation = useAcceptMentorshipRequest();
+  const rejectMutation = useRejectMentorshipRequest();
+  const toggleAvailabilityMutation = useToggleMentorAvailability();
+
+  const handleOpenChat = useCallback(async (req) => {
+    try {
+      if (!user?.id) {
+        toast.error('You must be logged in to open chat.');
+        return;
+      }
+      const otherUserId = user.id === req.mentor_id ? req.mentee_id : req.mentor_id;
+      if (!otherUserId) {
+        toast.error('Unable to determine conversation partner.');
+        return;
+      }
+      const threadId = await ensureDmThreadWith(otherUserId);
+      navigate(`/messages?threadId=${encodeURIComponent(threadId)}&source=mentorship&requestId=${encodeURIComponent(req.id)}`);
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not open chat. Please try again.');
+    }
+  }, [user?.id, navigate]);
 
   useEffect(() => {
     const fetchMyMentor = async () => {
@@ -196,11 +220,7 @@ export default function MyMentorship() {
   // Accept/Reject handlers for mentor side
   const handleAccept = useCallback(async (req) => {
     try {
-      const { error } = await supabase
-        .from('mentorship_requests')
-        .update({ status: 'accepted' })
-        .eq('id', req.id);
-      if (error) throw error;
+      await acceptMutation.mutateAsync(req.id);
       toast.success('Request accepted');
       // Ensure a connection exists so chat can start immediately
       try {
@@ -216,22 +236,18 @@ export default function MyMentorship() {
     } catch (e) {
       mapSupabaseErrorToToast(e, 'Failed to accept request');
     }
-  }, [user?.id]);
+  }, [user?.id, acceptMutation, queryClient]);
 
   const handleReject = useCallback(async (id) => {
     try {
-      const { error } = await supabase
-        .from('mentorship_requests')
-        .update({ status: 'rejected' })
-        .eq('id', id);
-      if (error) throw error;
+      await rejectMutation.mutateAsync(id);
       toast.success('Request rejected');
       queryClient.invalidateQueries({ queryKey: ['mentorRequests'] });
       queryClient.invalidateQueries({ queryKey: ['menteeRequests'] });
     } catch (e) {
       mapSupabaseErrorToToast(e, 'Failed to reject request');
     }
-  }, [user?.id]);
+  }, [rejectMutation, queryClient]);
 
   const openSchedule = (req) => {
     setSessionModal({ open: true, requestId: req.id, mentorId: null, menteeId: null });
@@ -246,12 +262,7 @@ export default function MyMentorship() {
     // Optimistic UI update
     setIsAvailable(next);
     try {
-      // Update profiles flag directly
-      const { error } = await supabase
-        .from('profiles')
-        .update({ is_available_for_mentorship: next })
-        .eq('id', user.id);
-      if (error) throw error;
+      await toggleAvailabilityMutation.mutateAsync(next);
       // Refresh AuthContext state so the value persists across sessions, then toast once
       await fetchUserProfile(user.id);
       toast.success('Availability updated');
@@ -264,11 +275,11 @@ export default function MyMentorship() {
     } finally {
       setIsSaving(false);
     }
-  }, [user]);
+  }, [user, toggleAvailabilityMutation, fetchUserProfile]);
 
-  const profileApproved = !!(profile?.is_approved || profile?.approval_status === 'approved');
   const compositeBadge = () => {
-    if (!profileApproved) return null;
+    const status = profile ? getAccountStatus(profile) : null;
+    if (!status || status.code !== 'approved') return null;
     const st = mentorRow?.status;
     if (st === 'approved') return (
       <span className="ml-3 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Approved + Mentor</span>
@@ -329,7 +340,11 @@ export default function MyMentorship() {
                 {received.map((r) => (
                   <li key={r.id} className={`py-3 flex items-center justify-between ${r.status === 'rejected' ? 'opacity-70' : ''}`}>
                     <div className="flex items-center gap-3">
-                      <img src={r.mentee?.avatar_url || '/default-avatar.svg'} alt={r.mentee?.full_name || 'Mentee'} className="w-10 h-10 rounded-full object-cover" />
+                      <img
+                        src={avatarUrls[r.mentee?.id || r.mentee_id] || r.mentee?.avatar_url || '/default-avatar.svg'}
+                        alt={r.mentee?.full_name || 'Mentee'}
+                        className="w-10 h-10 rounded-full object-cover"
+                      />
                       <div>
                         <div className="font-medium text-gray-900">{r.mentee?.full_name || 'Mentee'}</div>
                         <div className="text-sm text-gray-600">{new Date(r.created_at).toLocaleString()}</div>
@@ -344,7 +359,13 @@ export default function MyMentorship() {
                         </>
                       )}
                       {r.status === 'accepted' && (
-                        <Link to={`/messages?tab=chats&peer=${encodeURIComponent(r.mentee?.id || r.mentee_id)}`} className="btn-ocean px-3 py-1.5 rounded">Go to Chat</Link>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenChat(r)}
+                          className="btn-ocean px-3 py-1.5 rounded"
+                        >
+                          Go to Chat
+                        </button>
                       )}
                     </div>
                   </li>
@@ -364,7 +385,11 @@ export default function MyMentorship() {
                 {requests.map((r) => (
                   <li key={r.id} className={`py-3 flex items-center justify-between ${r.status === 'rejected' || r.status?.startsWith('cancelled') ? 'opacity-70' : ''}`} title={r.status === 'rejected' || (r.status && r.status.startsWith('cancelled')) ? 'This request is closed.' : ''}>
                     <div className="flex items-center gap-3">
-                      <img src={r.mentor?.avatar_url || '/default-avatar.svg'} alt={r.mentor?.full_name || 'Mentor'} className="w-10 h-10 rounded-full object-cover" />
+                      <img
+                        src={avatarUrls[r.mentor?.id || r.mentor_id] || r.mentor?.avatar_url || '/default-avatar.svg'}
+                        alt={r.mentor?.full_name || 'Mentor'}
+                        className="w-10 h-10 rounded-full object-cover"
+                      />
                       <div>
                         <div className="font-medium text-gray-900">{r.mentor?.full_name || 'Mentor'}</div>
                         <div className="text-sm text-gray-600">{new Date(r.created_at).toLocaleString()}</div>
@@ -374,7 +399,13 @@ export default function MyMentorship() {
                     <div className="flex items-center gap-2">
                       {r.status === 'accepted' && (
                         <>
-                          <Link to={`/messages?tab=chats&peer=${encodeURIComponent(r.mentor?.id || r.mentor_id)}`} className="btn-ocean px-3 py-1.5 rounded">Start Chat</Link>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenChat(r)}
+                            className="btn-ocean px-3 py-1.5 rounded"
+                          >
+                            Start Chat
+                          </button>
                           <button onClick={() => openSchedule(r)} className="btn-ocean-outline px-3 py-1.5 rounded">Schedule Session</button>
                         </>
                       )}
@@ -493,8 +524,16 @@ export default function MyMentorship() {
             : "You’re hidden from the Mentor directory and cannot receive new requests."}
         </p>
         <div className="mt-4 flex items-start gap-4">
-          {mentorRow.applicant?.avatar_url && (
-            <img src={mentorRow.applicant.avatar_url} alt="avatar" className="w-16 h-16 rounded-full object-cover" />
+          {mentorRow.applicant?.id && (
+            <img
+              src={avatarUrls[mentorRow.applicant.id] || mentorRow.applicant.avatar_url || '/default-avatar.svg'}
+              alt="avatar"
+              className="w-16 h-16 rounded-full object-cover"
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.src = '/default-avatar.svg';
+              }}
+            />
           )}
           <div>
             <div className="text-lg font-medium">{mentorRow.applicant?.full_name || 'My Mentor Profile'}</div>
@@ -554,7 +593,15 @@ export default function MyMentorship() {
                 {received.map((r) => (
                   <li key={r.id} className={`py-3 flex items-center justify-between ${r.status === 'rejected' ? 'opacity-70' : ''}`}>
                     <div className="flex items-center gap-3">
-                      <img src={r.mentee?.avatar_url || '/default-avatar.svg'} alt={r.mentee?.full_name || 'Mentee'} className="w-10 h-10 rounded-full object-cover" />
+                      <img
+                        src={avatarUrls[r.mentee?.id || r.mentee_id] || r.mentee?.avatar_url || '/default-avatar.svg'}
+                        alt={r.mentee?.full_name || 'Mentee'}
+                        className="w-10 h-10 rounded-full object-cover"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = '/default-avatar.svg';
+                        }}
+                      />
                       <div>
                         <div className="font-medium text-gray-900">{r.mentee?.full_name || 'Mentee'}</div>
                         <div className="text-sm text-gray-600">{new Date(r.created_at).toLocaleString()}</div>
@@ -589,7 +636,15 @@ export default function MyMentorship() {
                 {requests.map((r) => (
                   <li key={r.id} className={`py-3 flex items-center justify-between ${r.status === 'rejected' || r.status?.startsWith('cancelled') ? 'opacity-70' : ''}`} title={r.status === 'rejected' || (r.status && r.status.startsWith('cancelled')) ? 'This request is closed.' : ''}>
                     <div className="flex items-center gap-3">
-                      <img src={r.mentor?.avatar_url || '/default-avatar.svg'} alt={r.mentor?.full_name || 'Mentor'} className="w-10 h-10 rounded-full object-cover" />
+                      <img
+                        src={avatarUrls[r.mentor?.id || r.mentor_id] || r.mentor?.avatar_url || '/default-avatar.svg'}
+                        alt={r.mentor?.full_name || 'Mentor'}
+                        className="w-10 h-10 rounded-full object-cover"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = '/default-avatar.svg';
+                        }}
+                      />
                       <div>
                         <div className="font-medium text-gray-900">{r.mentor?.full_name || 'Mentor'}</div>
                         <div className="text-sm text-gray-600">{new Date(r.created_at).toLocaleString()}</div>

@@ -8,6 +8,24 @@ import { getLatestEdge, idempotentConnect } from '../../utils/connections';
 import { log } from '../../utils/log';
 import { isQuickLink } from '../../utils/jobs';
 
+// Normalize resume value (path or legacy public URL) into a storage path
+const getResumePathFromValue = (value) => {
+  if (!value) return null;
+
+  // New style: plain key/path like "userId/uuid-file.pdf"
+  if (!/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  // Legacy style: full public URL containing "/storage/v1/object/public/resumes/<key>"
+  const match = value.match(/\/storage\/v1\/object\/public\/resumes\/(.+)$/);
+  if (match && match[1]) {
+    return match[1];
+  }
+
+  return null;
+};
+
 const STATUS_MAP = {
   'Submitted': 'submitted',
   'Under review': 'reviewed',
@@ -127,13 +145,12 @@ const ManageJobApplications = () => {
         const enriched = await Promise.all(baseRows.map(async (row) => {
           const out = { ...row };
           try {
-            // Resume signed URL fallback if value looks like a storage path
-            const href = row.resume_url || '';
-            if (href && !/^https?:\/\//i.test(href)) {
+            const path = getResumePathFromValue(row.resume_url || '');
+            if (path) {
               const { data: signed, error: signErr } = await supabase
                 .storage
                 .from('resumes')
-                .createSignedUrl(href, 60 * 60);
+                .createSignedUrl(path, 60 * 60);
               if (!signErr && signed?.signedUrl) {
                 out._resume_signed_url = signed.signedUrl;
               }
@@ -145,12 +162,16 @@ const ManageJobApplications = () => {
             if (!out.applicant_name && out.applicant_id) {
               const { data: prof } = await supabase
                 .from('profiles')
-                .select('full_name, name, first_name, last_name, email')
+                .select('full_name, name, first_name, last_name')
                 .eq('id', out.applicant_id)
                 .maybeSingle();
               if (prof) {
-                out._applicant_display = (prof.full_name || prof.name || [prof.first_name, prof.last_name].filter(Boolean).join(' ') || (prof.email ? prof.email.split('@')[0] : '') || 'Applicant');
-                out._applicant_email = prof.email || out.applicant_email || null;
+                out._applicant_display = (
+                  prof.full_name ||
+                  prof.name ||
+                  [prof.first_name, prof.last_name].filter(Boolean).join(' ') ||
+                  'Applicant'
+                );
               }
             }
           } catch (_) { /* ignore */ }
@@ -323,14 +344,11 @@ const ManageJobApplications = () => {
                         <Link to={`/directory/${app.applicant_id}`} className="block font-medium text-gray-900 truncate hover:underline">
                           {app._applicant_display || app.applicant_name || 'Applicant'}
                         </Link>
-                        {(app._applicant_email || app.applicant_email) && (
-                          <a href={`mailto:${app._applicant_email || app.applicant_email}`} className="text-sm text-gray-500 hover:underline break-all">{app._applicant_email || app.applicant_email}</a>
-                        )}
                         <div className="mt-1 text-xs text-gray-500">Applied on {new Date(app.created_at).toLocaleDateString()}</div>
                         <div className="mt-2 text-sm">
-                          {app.resume_url ? (
+                          {app._resume_signed_url ? (
                             <>
-                              <a href={app._resume_signed_url || app.resume_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Resume</a>
+                              <a href={app._resume_signed_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Resume</a>
                               <div className="mt-1 text-xs text-gray-500 space-x-2">
                                 {app.resume_from_profile ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Profile</span> : <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-green-100 text-green-700">New Upload</span>}
                                 {app.matches_primary ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-ocean-100 text-ocean-700">Primary</span> : null}
@@ -408,16 +426,13 @@ const ManageJobApplications = () => {
                             <Link to={`/directory/${app.applicant_id}`} className="text-sm font-medium text-gray-900 hover:underline">
                               {app._applicant_display || app.applicant_name || 'Applicant'}
                             </Link>
-                            {(app._applicant_email || app.applicant_email) && (
-                              <a href={`mailto:${app._applicant_email || app.applicant_email}`} className="text-sm text-gray-500 hover:underline">{app._applicant_email || app.applicant_email}</a>
-                            )}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(app.created_at).toLocaleDateString()}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          {app.resume_url ? (
+                          {app._resume_signed_url ? (
                             <div>
-                              <a href={app._resume_signed_url || app.resume_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Resume</a>
+                              <a href={app._resume_signed_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Resume</a>
                               <div className="mt-1 text-xs text-gray-500 space-x-2">
                                 {app.resume_from_profile ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Profile</span> : <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-green-100 text-green-700">New Upload</span>}
                                 {app.matches_primary ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-ocean-100 text-ocean-700">Primary</span> : null}

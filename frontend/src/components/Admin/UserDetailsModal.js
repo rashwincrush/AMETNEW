@@ -3,14 +3,17 @@ import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon, EnvelopeIcon, MapPinIcon, BriefcaseIcon, AcademicCapIcon, ShieldCheckIcon, ClockIcon } from '@heroicons/react/24/outline';
 import { Link } from 'react-router-dom';
 import Avatar from '../common/Avatar';
+import { getAccountStatus } from '../../utils/accountStatus';
 import { adminGetProfileApprovalAudit } from '../../api/admin';
 import { useProfileById } from '../../hooks/useProfileById';
 import { getDisplayName } from '../../utils/displayName';
+import { useAvatar } from '../../hooks/useAvatar';
 
 const UserDetailsModal = ({ user, isOpen, onClose }) => {
   const [audit, setAudit] = useState([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [auditError, setAuditError] = useState(null);
+  const { avatarUrl } = useAvatar(user?.id, { useSignedUrl: true, autoFetch: !!user?.id });
 
   useEffect(() => {
     if (!isOpen || !user?.id) return;
@@ -84,7 +87,7 @@ const UserDetailsModal = ({ user, isOpen, onClose }) => {
                   <div className="flex items-center space-x-4">
                     <div className="h-20 w-20 flex-shrink-0 flex items-center justify-center">
                       <Avatar
-                        src={user.avatar_url ?? null}
+                        src={avatarUrl || user.avatar_url || null}
                         alt={user.full_name || 'User'}
                         size={64}
                         rounded="full"
@@ -97,6 +100,7 @@ const UserDetailsModal = ({ user, isOpen, onClose }) => {
                   </div>
                   <div className="mt-6 border-t border-gray-200 pt-6">
                     <dl className="space-y-4">
+                      {/* ADMIN-ONLY: Email is intentionally displayed here for moderation / user management. */}
                       <div className="flex items-center">
                         <EnvelopeIcon className="h-5 w-5 text-gray-400 mr-3" />
                         <span className="text-sm text-gray-700">{user.email}</span>
@@ -112,38 +116,10 @@ const UserDetailsModal = ({ user, isOpen, onClose }) => {
                       <div className="flex items-center">
                         <ShieldCheckIcon className="h-5 w-5 text-gray-400 mr-3" />
                         {(() => {
-                          const status = (() => {
-                            if (user.is_deleted) return 'deleted';
-                            if (user.is_active === false) return 'blocked';
-                            const approval = user.approval_status;
-                            if (approval === 'pending') return 'pending';
-                            if (approval === 'rejected') return 'rejected';
-                            if (approval === 'approved' && user.is_active === true) return 'approved';
-                            return approval || 'unknown';
-                          })();
-                          const cls = status === 'approved'
-                            ? 'bg-green-100 text-green-800'
-                            : status === 'pending'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : status === 'rejected'
-                                ? 'bg-red-100 text-red-800'
-                                : status === 'blocked'
-                                  ? 'bg-orange-100 text-orange-800'
-                                  : 'bg-gray-100 text-gray-600';
-                          const label = status === 'approved'
-                            ? 'Approved'
-                            : status === 'pending'
-                              ? 'Pending'
-                              : status === 'rejected'
-                                ? 'Rejected'
-                                : status === 'blocked'
-                                  ? 'Blocked'
-                                  : status === 'deleted'
-                                    ? 'Deleted'
-                                    : status || 'N/A';
+                          const status = getAccountStatus(user);
                           return (
-                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${cls}`}>
-                              {label}
+                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${status.badgeClass}`}>
+                              {status.label}
                             </span>
                           );
                         })()}

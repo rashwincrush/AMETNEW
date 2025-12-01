@@ -4,7 +4,7 @@ import { logActivity } from '../../utils/activityLogger';
 import ConversationList from './ConversationList';
 import ChatWindow from './ChatWindow';
 import { createThread } from '../../utils/supabase';
-import { ensureDmThreadWith } from '../../api/dm';
+import { ensureDmThreadWith, fetchMyThreads, findMyThreadById, findMyThreadByOtherUserId } from '../../api/dm';
 import { useNotification } from '../../hooks/useNotification';
 import useConnectionsPanel from '../../hooks/useConnectionsPanel';
 import ConnectionsPanel from './ConnectionsPanel';
@@ -17,6 +17,7 @@ const MessagingSystem = () => {
   const [loading, setLoading] = useState(true);
   const [threads, setThreads] = useState([]);
   const [selectedThread, setSelectedThread] = useState(null);
+  const [source, setSource] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [error, setError] = useState(null);
   // Track component mount state
@@ -122,11 +123,7 @@ const MessagingSystem = () => {
     fetchingConvsRef.current = true;
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('v_my_dm_threads')
-        .select('*')
-        .order('thread_id', { ascending: false });
-      if (error) throw error;
+      const data = await fetchMyThreads();
       setThreads(Array.isArray(data) ? data : []);
       logActivity({ action: 'dm_threads_list_load', meta: { count: (data || []).length }, route: '/messages' });
     } catch (err) {
@@ -204,8 +201,11 @@ const MessagingSystem = () => {
     (async () => {
       try {
         const params = new URLSearchParams(location.search || window.location.search);
-        const thread = params.get('thread');
+        const threadIdParam = params.get('threadId');
+        const thread = threadIdParam || params.get('thread');
         const peer = params.get('peer');
+        const src = params.get('source');
+        setSource(src || null);
         if (!currentUser) return;
 
         // Avoid reprocessing same values (StrictMode / HMR)
@@ -216,16 +216,13 @@ const MessagingSystem = () => {
         processedParamsRef.current = { thread, peer };
 
         if (thread) {
-          const { data: found } = await supabase
-            .from('v_my_dm_threads')
-            .select('*')
-            .eq('thread_id', thread)
-            .maybeSingle();
+          const found = await findMyThreadById(thread);
           if (found) {
             setSelectedThread(found);
             try {
               const params2 = new URLSearchParams(window.location.search);
               params2.set('thread', found.thread_id);
+              params2.delete('threadId');
               params2.delete('peer');
               const newUrl = `${window.location.pathname}?${params2.toString()}`;
               window.history.replaceState({}, '', newUrl);
@@ -235,16 +232,13 @@ const MessagingSystem = () => {
         }
 
         if (peer) {
-          const { data: existing } = await supabase
-            .from('v_my_dm_threads')
-            .select('*')
-            .eq('other_user_id', peer)
-            .maybeSingle();
+          const existing = await findMyThreadByOtherUserId(peer);
           if (existing) {
             setSelectedThread(existing);
             try {
               const params2 = new URLSearchParams(window.location.search);
               params2.set('thread', existing.thread_id);
+              params2.delete('threadId');
               params2.delete('peer');
               const newUrl = `${window.location.pathname}?${params2.toString()}`;
               window.history.replaceState({}, '', newUrl);
@@ -307,11 +301,7 @@ const MessagingSystem = () => {
 
       await fetchUserThreads();
       if (ensuredId) {
-        const { data: found } = await supabase
-          .from('v_my_dm_threads')
-          .select('*')
-          .eq('thread_id', ensuredId)
-          .maybeSingle();
+        const found = await findMyThreadById(ensuredId);
         if (found) {
           setSelectedThread(found);
           showSuccess('Conversation ready.');
@@ -323,11 +313,7 @@ const MessagingSystem = () => {
         setSelectedThread(thread);
         showSuccess('Conversation ready.');
       } else {
-        const { data } = await supabase
-          .from('v_my_dm_threads')
-          .select('*')
-          .eq('other_user_id', targetUserId)
-          .maybeSingle();
+        const data = await findMyThreadByOtherUserId(targetUserId);
         if (data) {
           setSelectedThread(data);
           showSuccess('Conversation ready.');
@@ -373,9 +359,16 @@ const MessagingSystem = () => {
                 )}
               </h2>
               {activeTab === 'chats' && (
-                <p className="mt-1 text-xs text-gray-500">
-                  Green dot indicates you are connected and can send messages.
-                </p>
+                <>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Green dot indicates you are connected and can send messages.
+                  </p>
+                  {source === 'mentorship' && (
+                    <p className="mt-1 text-xs text-blue-600">
+                      This conversation is linked to a mentorship. Please keep your messages professional.
+                    </p>
+                  )}
+                </>
               )}
             </div>
             <div className="flex gap-2">

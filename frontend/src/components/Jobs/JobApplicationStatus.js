@@ -4,6 +4,24 @@ import { useAuth } from '../../contexts/AuthContext';
 import LoadingSpinner from '../common/LoadingSpinner';
 import { Link } from 'react-router-dom';
 
+// Normalize resume value (path or legacy public URL) into a storage path
+const getResumePathFromValue = (value) => {
+  if (!value) return null;
+
+  // New style: plain key/path like "userId/uuid-file.pdf"
+  if (!/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  // Legacy style: full public URL containing "/storage/v1/object/public/resumes/<key>"
+  const match = value.match(/\/storage\/v1\/object\/public\/resumes\/(.+)$/);
+  if (match && match[1]) {
+    return match[1];
+  }
+
+  return null;
+};
+
 const JobApplicationStatus = () => {
   const { user } = useAuth();
   const [applications, setApplications] = useState([]);
@@ -29,8 +47,26 @@ const JobApplicationStatus = () => {
           .order('created_at', { ascending: false });
 
         if (error) throw error;
+        const rows = Array.isArray(data) ? data : [];
 
-        setApplications(data);
+        const enriched = await Promise.all(rows.map(async (row) => {
+          const out = { ...row };
+          try {
+            const path = getResumePathFromValue(row.resume_url || '');
+            if (path) {
+              const { data: signed, error: signErr } = await supabase
+                .storage
+                .from('resumes')
+                .createSignedUrl(path, 60 * 60);
+              if (!signErr && signed?.signedUrl) {
+                out._resume_signed_url = signed.signedUrl;
+              }
+            }
+          } catch (_) { /* ignore */ }
+          return out;
+        }));
+
+        setApplications(enriched);
       } catch (err) {
         setError('Failed to fetch application status.');
         console.error('Error fetching applications:', err);
@@ -67,8 +103,8 @@ const JobApplicationStatus = () => {
                     </Link>
                     <p className="text-sm text-gray-600">{app.jobs?.company_name || ''}</p>
                     <p className="text-xs text-gray-500 mt-1">Applied on: {new Date(app.created_at).toLocaleDateString()}</p>
-                    {app.resume_url && (
-                      <a href={app.resume_url} target="_blank" rel="noopener noreferrer" className="text-xs text-ocean-600 hover:underline">
+                    {app._resume_signed_url && (
+                      <a href={app._resume_signed_url} target="_blank" rel="noopener noreferrer" className="text-xs text-ocean-600 hover:underline">
                         View Resume
                       </a>
                     )}

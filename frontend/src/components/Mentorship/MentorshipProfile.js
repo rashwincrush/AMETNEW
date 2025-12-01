@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { Box, Typography, Paper, Avatar, Chip, Button, CircularProgress, Alert } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
+import { createMentorshipRequest, mapMentorshipError } from '../../services/mentorship';
 
 const MentorshipProfile = () => {
   const { id } = useParams();
@@ -59,28 +60,13 @@ const MentorshipProfile = () => {
     setError('');
     setSuccess('');
     try {
-      const { error } = await supabase.from('mentorship_requests').insert([
-        {
-          mentor_id: id,
-          mentee_id: user.id,
-          status: 'pending',
-          // created_at is set by the database default; no requested_at column
-        }
-      ]);
-      if (error) throw error;
+      await createMentorshipRequest(id, { message: undefined, goals: undefined });
       setSuccess('Mentorship request sent!');
       setAlreadyRequested(true);
     } catch (err) {
       console.error('Failed to send mentorship request:', err);
-      const code = err?.code || '';
-      const msg = String(err?.message || '').toLowerCase();
-      if (code === '42501' || /rls/i.test(msg) || /not allowed/i.test(msg) || /fc_is_fully_approved/i.test(msg)) {
-        setError('You need an approved profile to request mentorship.');
-      } else if (/not accepting/i.test(msg) || /mentor.*not.*accept/i.test(msg)) {
-        setError('This mentor is not currently accepting mentorship requests.');
-      } else {
-        setError('Failed to send request. Please try again later.');
-      }
+      const mapped = mapMentorshipError(err);
+      setError(mapped.message || 'Failed to send request. Please try again later.');
     } finally {
       setRequesting(false);
     }

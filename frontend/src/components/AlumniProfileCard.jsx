@@ -11,6 +11,8 @@ import {
   UserPlusIcon,
 } from '@heroicons/react/24/outline';
 import Avatar from './common/Avatar';
+import { useAuth } from '../contexts/AuthContext';
+import { formatBatchLabel } from '../utils/batchYear';
 
 function Chip({ icon: Icon, children }) {
   if (!children) return null;
@@ -24,18 +26,21 @@ function Chip({ icon: Icon, children }) {
   );
 }
 
-export default function AlumniProfileCard({ profile, currentUserId }) {
+export default function AlumniProfileCard({ profile, currentUserId, avatarUrl }) {
   const navigate = useNavigate();
   // status: 'idle' | 'pending' | 'accepted' | 'connected'
   // direction: 'sent' | 'received' | null
   const { status, direction, isLoading, refreshStatus } = useConnectionStatus(currentUserId, profile.id);
   const [actionLoading, setActionLoading] = useState(false);
+  const { isFullyApproved, approvalStatus } = useAuth();
 
   const {
     full_name,
     avatar_url,
     batch_year, // prefer this; fallback to batch
     batch,
+    graduation_year,
+    expected_graduation_year,
     department,
     company_name,
     current_job_title,
@@ -43,7 +48,11 @@ export default function AlumniProfileCard({ profile, currentUserId }) {
     is_verified,
   } = profile;
 
-  const displayBatch = batch_year ?? batch;
+  // Resolve avatar src: prefer prop from hook, fallback to profile data, then default
+  const avatarSrc = avatarUrl || avatar_url || '/default-avatar.svg';
+
+  // Use COALESCE logic matching backend view
+  const displayBatch = graduation_year ?? expected_graduation_year ?? batch_year ?? batch;
 
   // Determine sender/receiver based on hook-provided direction when pending
   const isSender = status === 'pending' && direction === 'sent';
@@ -126,7 +135,7 @@ export default function AlumniProfileCard({ profile, currentUserId }) {
         {/* Left Side: Avatar and Details */}
         <div className="flex flex-col items-center">
           <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full ring-2 ring-slate-200 bg-slate-100 mb-2 flex items-center justify-center">
-            <Avatar src={avatar_url} alt={full_name || 'Profile'} size={64} />
+            <Avatar src={avatarSrc} alt={full_name || 'Profile'} size={64} />
           </div>
 
           <div className="text-center">
@@ -137,7 +146,7 @@ export default function AlumniProfileCard({ profile, currentUserId }) {
 
             {displayBatch && (
               <span className="inline-block mt-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
-                Batch {displayBatch}
+                {formatBatchLabel(displayBatch)}
               </span>
             )}
 
@@ -194,12 +203,16 @@ export default function AlumniProfileCard({ profile, currentUserId }) {
             )
           ) : (
             <button
-              onClick={handleConnect}
+              onClick={isFullyApproved ? handleConnect : undefined}
               className="w-full inline-flex items-center justify-center rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-              disabled={actionLoading}
+              disabled={actionLoading || !isFullyApproved}
             >
               <UserPlusIcon className="h-4 w-4 mr-2" />
-              Connect
+              {isFullyApproved
+                ? 'Connect'
+                : approvalStatus === 'pending'
+                  ? 'Pending approval – cannot connect'
+                  : 'Cannot connect'}
             </button>
           )}
 
@@ -209,6 +222,13 @@ export default function AlumniProfileCard({ profile, currentUserId }) {
           >
             View Profile
           </button>
+          {!isFullyApproved && (
+            <p className="mt-1 text-xs text-amber-700 text-center" role="note">
+              {approvalStatus === 'pending'
+                ? 'Your account is pending approval. You can browse alumni but cannot send new connection requests yet.'
+                : 'You are not allowed to send new connection requests.'}
+            </p>
+          )}
         </div>
       </div>
 

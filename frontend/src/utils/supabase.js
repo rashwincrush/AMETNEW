@@ -611,6 +611,8 @@ export const createConversation = createThread;
 // Legacy alias - now points to createThread
 export const createOrGetDmThread = createThread;
 
+// LEGACY messaging helpers below operate on the old 'messages' / 'conversations' tables.
+// Kept only for deprecated messaging UI; do not use for new DM features.
 export const fetchMessages = async (conversationId) => {
   const { data, error } = await supabase
     .from('messages')

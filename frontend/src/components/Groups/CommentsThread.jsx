@@ -4,6 +4,7 @@ import { onPostgresChangesOnce, waitForRealtimeReady } from '../../utils/supabas
 import { canCommentOnGroup } from '../../utils/acl'
 import { useAuth } from '../../contexts/AuthContext'
 import { useApproval } from '../../hooks/useApproval'
+import { useAvatars } from '../../hooks/useAvatar'
 import toast from 'react-hot-toast'
 
 function timeAgo(ts) {
@@ -22,6 +23,13 @@ export default function CommentsThread({ postId, group, isMember }) {
   const [draft, setDraft] = useState('')
   const canComment = isMember && isApproved && canCommentOnGroup(group, userRole, isMember) && !group?.is_archived
   const channelRef = useRef(null)
+
+  // Fetch avatars for all comment authors
+  const authorIds = comments.map(c => c.author_id || c.profiles?.id).filter(Boolean)
+  const { avatarUrls } = useAvatars(authorIds, {
+    useSignedUrls: true,
+    autoFetch: authorIds.length > 0,
+  })
 
   useEffect(() => {
     let mounted = true
@@ -100,6 +108,7 @@ export default function CommentsThread({ postId, group, isMember }) {
           <CommentItem
             key={c.id}
             comment={c}
+            avatarUrl={avatarUrls[c.author_id || c.profiles?.id] || null}
             canEdit={c.author_id === user?.id && !group?.is_archived}
             onSave={async (newContent) => {
               const prev = c
@@ -143,19 +152,23 @@ export default function CommentsThread({ postId, group, isMember }) {
   )
 }
 
-function CommentItem({ comment, canEdit, onSave }) {
+function CommentItem({ comment, avatarUrl, canEdit, onSave }) {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(comment.content)
 
   const authorName = comment?.profiles?.full_name || 'Member'
-  const avatar = comment?.profiles?.avatar_url
+  const avatar = avatarUrl || comment?.profiles?.avatar_url || '/default-avatar.svg'
 
   return (
     <li className="flex gap-3">
       <img
-        src={avatar || '/default-avatar.png'}
+        src={avatar || '/default-avatar.svg'}
         alt=""
         className="h-8 w-8 rounded-full object-cover"
+        onError={(e) => {
+          e.target.onerror = null;
+          e.target.src = '/default-avatar.svg';
+        }}
       />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">

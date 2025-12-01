@@ -494,48 +494,29 @@ async def get_job_applications(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Messages routes
-@api_router.get("/messages")
-async def get_messages(
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Get messages for current user"""
-    try:
-        response = supabase.table("messages").select("*, sender:sender_id(full_name), recipient:recipient_id(full_name)").or_(f"sender_id.eq.{current_user['id']},recipient_id.eq.{current_user['id']}").order("created_at", desc=True).execute()
-        return response.data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+ # Messages routes
+ @api_router.get("/messages")
+ async def get_messages(
+     current_user: Dict[str, Any] = Depends(get_current_user)
+ ):
+     """Get messages for current user"""
+     raise HTTPException(status_code=410, detail="Legacy messages API has been removed. Use Supabase DM threads (dm_threads/dm_messages).")
 
-@api_router.post("/messages")
-async def send_message(
-    message_data: Dict[str, Any],
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Send a message"""
-    try:
-        message_data["sender_id"] = current_user["id"]
-        response = supabase.table("messages").insert(message_data).execute()
-        if response.data:
-            return response.data[0]
-        else:
-            raise HTTPException(status_code=400, detail="Failed to send message")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+ @api_router.post("/messages")
+ async def send_message(
+     message_data: Dict[str, Any],
+     current_user: Dict[str, Any] = Depends(get_current_user)
+ ):
+     """Send a message"""
+     raise HTTPException(status_code=410, detail="Legacy messages API has been removed. Use Supabase DM threads (dm_threads/dm_messages).")
 
-@api_router.put("/messages/{message_id}/read")
-async def mark_message_as_read(
-    message_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Mark message as read"""
-    try:
-        response = supabase.table("messages").update({"is_read": True}).eq("id", message_id).eq("recipient_id", current_user["id"]).execute()
-        if response.data:
-            return {"message": "Message marked as read"}
-        else:
-            raise HTTPException(status_code=404, detail="Message not found")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+ @api_router.put("/messages/{message_id}/read")
+ async def mark_message_as_read(
+     message_id: str,
+     current_user: Dict[str, Any] = Depends(get_current_user)
+ ):
+     """Mark message as read"""
+     raise HTTPException(status_code=410, detail="Legacy messages API has been removed. Use Supabase DM threads (dm_threads/dm_messages).")
 
 # Mentorship routes
 @api_router.get("/mentors")

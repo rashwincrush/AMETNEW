@@ -45,6 +45,7 @@ const ClarificationModal = ({ isOpen, onClose, rejectionReason }) => {
             .insert({
               recipient_id: admin.id,
               type: 'clarification_submitted',
+              // ADMIN-ONLY: Email is intentionally included here in the notification content for moderation / user management.
               content: `Rejected user (${profileData.user.email}) has sent a clarification.`,
               sender_id: userId,
               is_read: false,

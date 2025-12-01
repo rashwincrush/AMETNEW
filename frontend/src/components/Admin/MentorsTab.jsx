@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { MentorStatusChip } from '../../lib/statusChips';
 import { Skeleton } from '../ui/skeleton';
+import { adminForceMentorUnavailable } from '../../services/mentorship';
 
 const PAGE_SIZE = 10;
 
@@ -86,11 +87,7 @@ const MentorsTab = () => {
           ? { ...x, applicant: { ...x.applicant, is_available_for_mentorship: false } }
           : x
       )));
-      const { error } = await supabase
-        .from('profiles')
-        .update({ is_available_for_mentorship: false })
-        .eq('id', userId);
-      if (error) throw error;
+      await adminForceMentorUnavailable(userId);
       toast.success('Availability set to Off');
       fetchRows();
     } catch (e) {
@@ -214,7 +211,15 @@ const MentorsTab = () => {
                 <tr key={row.user_id}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <img src={row.applicant?.avatar_url || '/default-avatar.svg'} alt={row.applicant?.full_name || 'User'} className="w-10 h-10 rounded-full object-cover" />
+                      <img
+                        src={row.applicant?.avatar_url || '/default-avatar.svg'}
+                        alt={row.applicant?.full_name || 'User'}
+                        className="w-10 h-10 rounded-full object-cover"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = '/default-avatar.svg';
+                        }}
+                      />
                       <div>
                         <div className="font-medium text-gray-900">{row.applicant?.full_name || 'Unknown'}</div>
                         <div className="text-gray-500 text-sm">{row.applicant?.email}</div>

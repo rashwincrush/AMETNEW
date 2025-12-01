@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import MentorContactPanel from './MentorContactPanel';
 import ApprovedGuard from '../guards/ApprovedGuard';
 import { useApproval } from '../../hooks/useApproval';
+import { createMentorshipRequest, mapMentorshipError } from '../../services/mentorship';
 
 const MentorProfile = () => {
   const { id: mentorId } = useParams();
@@ -29,14 +30,14 @@ const MentorProfile = () => {
       toast.error('You need to be logged in to send a request.');
       return;
     }
-        if (!isApprovedMentee) {
+    if (!isApprovedMentee) {
       toast.error('Your profile is not approved. Kindly contact administrator.');
       return;
     }
 
-setIsSubmitting(true);
+    setIsSubmitting(true);
     try {
-      // Prevent duplicate pending requests from this mentee to this mentor
+      // Prevent duplicate pending requests from this mentee to this mentor (extra UX guard; RPC also enforces)
       const { data: dup, error: dupErr } = await supabase
         .from('mentorship_requests')
         .select('id, status')
@@ -50,21 +51,10 @@ setIsSubmitting(true);
         return;
       }
 
-      const payload = {
-        mentor_id: mentorId,
-        mentee_id: user.id,
-        message: requestMessage || null,
-        goals: requestGoals || null,
-        status: 'pending',
-      };
-
-      const { data, error } = await supabase
-        .from('mentorship_requests')
-        .insert(payload)
-        .select('id, mentor_id, mentee_id, status, created_at')
-        .single();
-
-      if (error) throw error;
+      const data = await createMentorshipRequest(mentorId, {
+        message: requestMessage || undefined,
+        goals: requestGoals || undefined,
+      });
 
       setExistingRequest(data);
       setShowRequestModal(false);
@@ -72,20 +62,8 @@ setIsSubmitting(true);
       setRequestGoals('');
       toast.success('Request sent to mentor.');
     } catch (error) {
-      const code = error?.code || '';
-      const msg = String(error?.message || '').toLowerCase();
-      
-      if (code === '23505' || msg.includes('duplicate') || msg.includes('already exists')) {
-        toast.error('You have already sent a request to this mentor.');
-      } else if (code === '42501' || msg.includes('permission denied') || msg.includes('rls')) {
-        toast.error('You do not have permission to send this request. Please ensure your profile is approved.');
-      } else if (code === '23503' || msg.includes('foreign key') || msg.includes('not found')) {
-        toast.error('Mentor not found or no longer available.');
-      } else if (msg.includes('not accepting') || msg.includes('unavailable')) {
-        toast.error('This mentor is not currently accepting new mentees.');
-      } else {
-        toast.error(error.message || 'Failed to send request. Please try again or contact support.');
-      }
+      const mapped = mapMentorshipError(error);
+      toast.error(mapped.message || error.message || 'Failed to send request. Please try again or contact support.');
     } finally {
       setIsSubmitting(false);
     }

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase, onPostgresChangesOnce } from '../utils/supabase';
+import { fetchMyThreads } from '../api/dm';
 
 export default function useGlobalBadges(currentUserId) {
   const [unreadMessages, setUnreadMessages] = useState(0);
@@ -8,9 +9,7 @@ export default function useGlobalBadges(currentUserId) {
   const load = useCallback(async () => {
     if (!currentUserId) return;
     try {
-      const { data: threads } = await supabase
-        .from('v_my_dm_threads')
-        .select('unread_count');
+      const threads = await fetchMyThreads();
       const sum = (threads || []).reduce((a, r) => a + (r.unread_count || 0), 0);
       setUnreadMessages(sum);
     } catch (_) {

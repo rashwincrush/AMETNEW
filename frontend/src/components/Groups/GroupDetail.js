@@ -919,9 +919,13 @@ const GroupDetail = () => {
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center">
                             <img
-                              src={post.author?.avatar_url || '/default-avatar.png'}
+                              src={post.author?.avatar_url || '/default-avatar.svg'}
                               alt={post.author?.full_name}
                               className="w-10 h-10 rounded-full mr-3"
+                              onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.src = '/default-avatar.svg';
+                              }}
                             />
                             <div>
                               <p className="font-bold">{post.author?.full_name || 'Amet User'}</p>
@@ -993,9 +997,13 @@ const GroupDetail = () => {
                   
                   <div className="text-center">
                     <img 
-                      src={member.user.avatar_url || '/default-avatar.png'} 
+                      src={member.user.avatar_url || '/default-avatar.svg'} 
                       alt={member.user.full_name} 
                       className="w-20 h-20 rounded-full mx-auto mb-2"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = '/default-avatar.svg';
+                      }}
                     />
                     <p className="font-semibold">{member.user.full_name}</p>
                     <p className="text-sm text-gray-600">

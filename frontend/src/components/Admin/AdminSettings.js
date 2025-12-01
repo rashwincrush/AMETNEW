@@ -7,8 +7,8 @@ import { toFriendlyToast } from '../../utils/errors';
 import { changeUserRole } from '../../utils/changeUserRole';
 import { Link } from 'react-router-dom';
 import ContentApproval from './ContentApproval';
-import UserManagement from './UserManagement';
 import CSVExport from './CSVExport';
+import AdminUsersPage from './users/AdminUsersPage';
 import { 
   Cog6ToothIcon, 
   ShieldCheckIcon, 
@@ -268,7 +268,7 @@ const AdminSettings = () => {
     {
       name: 'Users',
       icon: UsersIcon,
-      component: <UserManagement />,
+      component: <AdminUsersPage />,
       permission: 'approve_users',
       superAdminOnly: false,
     },

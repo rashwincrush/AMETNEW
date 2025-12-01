@@ -207,21 +207,13 @@ const JobApplication = () => {
             throw uploadError;
           }
           
-          // Get the public URL for the uploaded file
-          const { data: urlData } = supabase.storage
-            .from('resumes')
-            .getPublicUrl(filePath);
-          
-          if (!urlData || !urlData.publicUrl) {
-            throw new Error('Failed to get resume URL after upload.');
-          }
-          
-          resumeUrl = urlData.publicUrl;
+          const storagePath = uploadData?.path || filePath;
+          resumeUrl = storagePath;
           
           // Save the new resume to user_resumes table with error handling
           const { error: insertError } = await supabase.from('user_resumes').insert([{
             user_id: session.user.id,
-            file_url: resumeUrl,
+            file_url: storagePath,
             filename: resumeFile.name,
             uploaded_at: new Date().toISOString(),
             is_primary: userResumes.length === 0 // Make primary if it's the first resume

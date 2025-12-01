@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { supabase } from '../../utils/supabase';
 import { Link } from 'react-router-dom';
 import { 
@@ -11,40 +11,14 @@ import {
   ClockIcon,
   CogIcon
 } from '@heroicons/react/24/outline';
+import useRoleCounts from '../../hooks/useRoleCounts';
 
 const AdminDashboard = ({ user }) => {
-  const [alumniCount, setAlumniCount] = useState(null);
-  const [alumniCountLoading, setAlumniCountLoading] = useState(true);
+  const { displayCounts, loading: countsLoading } = useRoleCounts();
 
-  useEffect(() => {
-    let mounted = true;
-    const fetchAlumniCount = async () => {
-      setAlumniCountLoading(true);
-      try {
-        const { data, error } = await supabase.rpc('get_alumni_approved_count');
-        if (error) throw error;
-        if (!mounted) return;
-        const count = typeof data === 'number' ? data : 0;
-        setAlumniCount(count);
-      } catch (err) {
-        console.error('Failed to load alumni count for admin dashboard:', err);
-        if (mounted) {
-          // Safe fallback
-          setAlumniCount(0);
-        }
-      } finally {
-        if (mounted) setAlumniCountLoading(false);
-      }
-    };
-    fetchAlumniCount();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const totalAlumniValue = alumniCountLoading
+  const totalAlumniValue = countsLoading
     ? '…'
-    : (alumniCount?.toLocaleString?.() || String(alumniCount ?? 0));
+    : (displayCounts.alumni?.toLocaleString?.() || String(displayCounts.alumni ?? 0));
 
   const systemStats = [
     { title: 'Total Alumni', value: totalAlumniValue, change: '', icon: UsersIcon, color: 'bg-blue-500' },

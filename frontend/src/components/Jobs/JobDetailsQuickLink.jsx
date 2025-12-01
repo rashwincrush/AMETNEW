@@ -23,7 +23,7 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
       : [];
 
   const applyState = computeJobApplyState(job);
-  const { canApplyExternally, isClosed } = applyState;
+  const { canApplyExternally, isClosed, disabledReason } = applyState;
 
   // Guards
   if (!job || !isQuickLink(job)) return null;
@@ -98,6 +98,11 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
             >
               Applications Closed
             </button>
+          )}
+          {!canApplyExternally && !isEmployer && disabledReason && (
+            <p className="text-xs text-gray-500">
+              {disabledReason}
+            </p>
           )}
 
           {/* Optional: Ask Employer if viewer isn’t the poster */}

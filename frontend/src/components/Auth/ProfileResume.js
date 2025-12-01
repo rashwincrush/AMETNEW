@@ -9,6 +9,24 @@ import {
   TrashIcon
 } from '@heroicons/react/24/outline';
 
+// Normalize resume value (path or legacy public URL) into a storage path
+const getResumePathFromValue = (value) => {
+  if (!value) return null;
+
+  // New style: plain key/path like "userId/uuid-file.pdf"
+  if (!/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  // Legacy style: full public URL containing "/storage/v1/object/public/resumes/<key>"
+  const match = value.match(/\/storage\/v1\/object\/public\/resumes\/(.+)$/);
+  if (match && match[1]) {
+    return match[1];
+  }
+
+  return null;
+};
+
 const ProfileResume = () => {
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
@@ -31,8 +49,26 @@ const ProfileResume = () => {
         .order('uploaded_at', { ascending: false });
 
       if (error) throw error;
+      const rows = Array.isArray(data) ? data : [];
 
-      setResumes(data || []);
+      const enriched = await Promise.all(rows.map(async (row) => {
+        const out = { ...row };
+        try {
+          const path = getResumePathFromValue(row.file_url || '');
+          if (path) {
+            const { data: signed, error: signErr } = await supabase
+              .storage
+              .from('resumes')
+              .createSignedUrl(path, 60 * 60);
+            if (!signErr && signed?.signedUrl) {
+              out._signedUrl = signed.signedUrl;
+            }
+          }
+        } catch (_) { /* ignore */ }
+        return out;
+      }));
+
+      setResumes(enriched);
     } catch (error) {
       console.error('Error fetching resumes:', error);
       toast.error('Failed to load your resumes');
@@ -76,15 +112,12 @@ const ProfileResume = () => {
 
       if (uploadError) throw uploadError;
 
-      // Get public URL for the file
-      const { data: { publicUrl } } = supabase.storage
-        .from('resumes')
-        .getPublicUrl(filePath);
+      const storagePath = uploadData?.path || filePath;
 
       // Save resume metadata to database
       const resumeData = {
         user_id: user.id,
-        file_url: publicUrl,
+        file_url: storagePath,
         filename: file.name,
         uploaded_at: new Date().toISOString(),
         is_primary: resumes.length === 0 // Make this primary if it's the first resume
@@ -140,9 +173,8 @@ const ProfileResume = () => {
     if (!window.confirm('Are you sure you want to delete this resume?')) return;
     
     try {
-      // Extract the file path from the URL
-      const pathArray = fileUrl.split('resumes/');
-      const filePath = pathArray.length > 1 ? pathArray[1] : null;
+      // Normalize to a storage path from either a path or legacy public URL
+      const filePath = getResumePathFromValue(fileUrl);
 
       if (filePath) {
         // Delete file from storage
@@ -255,14 +287,20 @@ const ProfileResume = () => {
                   </div>
                 </div>
                 <div className="flex space-x-2">
-                  <a 
-                    href={resume.file_url} 
-                    download={resume.filename}
-                    className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full"
-                    title="Download Resume"
-                  >
-                    <DocumentArrowDownIcon className="h-5 w-5" />
-                  </a>
+                  {resume._signedUrl ? (
+                    <a 
+                      href={resume._signedUrl} 
+                      download={resume.filename}
+                      className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full"
+                      title="Download Resume"
+                    >
+                      <DocumentArrowDownIcon className="h-5 w-5" />
+                    </a>
+                  ) : (
+                    <span className="p-1.5 text-gray-400" title="Resume file unavailable">
+                      <DocumentArrowDownIcon className="h-5 w-5" />
+                    </span>
+                  )}
                   {!resume.is_primary && (
                     <button
                       onClick={() => handleSetPrimary(resume.id)}

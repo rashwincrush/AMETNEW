@@ -1,12 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { getAccountStatus } from '../../utils/accountStatus';
 import { toast } from 'react-hot-toast';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Container, Typography, Paper, Box, Button, Chip, Tabs, Tab, CircularProgress } from '@mui/material';
+import {
+  acceptMentorshipRequest,
+  rejectMentorshipRequest,
+  cancelMentorshipRequest,
+  mapMentorshipError,
+} from '../../services/mentorship';
+import { ensureDmThreadWith } from '../../api/dm';
 
 const MentorshipStatus = () => {
   const { user, profile } = useAuth();
+  const navigate = useNavigate();
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState(0); // 0 for received, 1 for sent
@@ -39,10 +48,13 @@ const MentorshipStatus = () => {
         if (missing.length) {
           const { data: profs } = await supabase
             .from('profiles')
-            .select('id, full_name, first_name, last_name, email, avatar_url')
+            .select('id, full_name, first_name, last_name, avatar_url')
             .in('id', missing);
           (profs || []).forEach(p => {
-            const display = p.full_name || [p.first_name, p.last_name].filter(Boolean).join(' ') || (p.email ? p.email.split('@')[0] : 'User');
+            const display =
+              p.full_name ||
+              [p.first_name, p.last_name].filter(Boolean).join(' ') ||
+              'User';
             idMap.set(p.id, { id: p.id, full_name: display, avatar_url: p.avatar_url });
           });
         }
@@ -105,16 +117,18 @@ const MentorshipStatus = () => {
 
   const handleUpdateStatus = async (requestId, newStatus) => {
     try {
-      const { error } = await supabase
-        .from('mentorship_requests')
-        .update({ status: newStatus })
-        .eq('id', requestId);
-
-      if (error) throw error;
+      if (newStatus === 'accepted') {
+        await acceptMentorshipRequest(requestId);
+      } else if (newStatus === 'rejected') {
+        await rejectMentorshipRequest(requestId);
+      } else {
+        throw new Error('Invalid status transition');
+      }
       toast.success(`Request ${newStatus}.`);
       fetchRequests(); // Refresh the list
     } catch (error) {
-      toast.error(`Failed to update request: ${error.message}`);
+      const mapped = mapMentorshipError(error);
+      toast.error(`Failed to update request: ${mapped.message}`);
     }
   };
 
@@ -145,14 +159,12 @@ const MentorshipStatus = () => {
               color="warning"
               onClick={async () => {
                 try {
-                  const { error } = await supabase
-                    .from('mentorship_requests')
-                    .delete()
-                    .eq('id', request.id);
+                  await cancelMentorshipRequest(request.id);
                   toast.success('Request withdrawn');
                   fetchRequests();
                 } catch (e) {
-                  toast.error('Failed to withdraw request: ' + e.message);
+                  const mapped = mapMentorshipError(e);
+                  toast.error('Failed to withdraw request: ' + mapped.message);
                 }
               }}
             >
@@ -161,10 +173,22 @@ const MentorshipStatus = () => {
           )}
           {request.status === 'accepted' && (
             <Button
-              component={Link}
-              to={`/messages?peer=${encodeURIComponent((isMentorView ? request.mentee.id : request.mentor.id) || '')}`}
               variant="contained"
               color="primary"
+              onClick={async () => {
+                try {
+                  const otherId = isMentorView ? request.mentee.id : request.mentor.id;
+                  if (!otherId) {
+                    toast.error('Unable to determine conversation partner.');
+                    return;
+                  }
+                  const threadId = await ensureDmThreadWith(otherId);
+                  navigate(`/messages?threadId=${encodeURIComponent(threadId)}&source=mentorship&requestId=${encodeURIComponent(request.id)}`);
+                } catch (e) {
+                  console.error(e);
+                  toast.error('Could not open chat. Please try again.');
+                }
+              }}
             >
               Go to Chat
             </Button>
@@ -178,13 +202,17 @@ const MentorshipStatus = () => {
     <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
         <Typography variant="h4" component="h1" sx={{ mr: 2 }}>Mentorship Requests</Typography>
-        {(profile?.is_approved || profile?.approval_status === 'approved') && (
-          <Chip
-            size="small"
-            label={myMentorStatus === 'approved' ? 'Approved + Mentor' : 'Approved + Mentor Pending'}
-            color={myMentorStatus === 'approved' ? 'success' : 'warning'}
-          />
-        )}
+        {(() => {
+          const status = profile ? getAccountStatus(profile) : null;
+          if (!status || status.code !== 'approved') return null;
+          return (
+            <Chip
+              size="small"
+              label={myMentorStatus === 'approved' ? 'Approved + Mentor' : 'Approved + Mentor Pending'}
+              color={myMentorStatus === 'approved' ? 'success' : 'warning'}
+            />
+          );
+        })()}
       </Box>
       <Paper>
         <Tabs value={tab} onChange={(e, newValue) => setTab(newValue)} centered>

@@ -4,11 +4,12 @@ import { formatDistanceToNow } from 'date-fns';
 import { useProfileById } from '../../hooks/useProfileById';
 import { getDisplayName } from '../../utils/displayName';
 import Avatar from '../common/Avatar';
+import { useAvatars } from '../../hooks/useAvatar';
 
-const ThreadRow = ({ thread, selected, onSelect }) => {
+const ThreadRow = ({ thread, selected, onSelect, avatarUrl }) => {
   const { profile, isLoading } = useProfileById(thread.other_user_id);
   const name = getDisplayName(profile, null);
-  const avatarUrl = profile?.avatar_url ?? null;
+  const resolvedAvatar = avatarUrl ?? profile?.avatar_url ?? null;
   
   // Green dot = connected & can send DMs (driven by backend connections.status = 'accepted')
   const isConnected = !!thread.can_send;
@@ -24,7 +25,7 @@ const ThreadRow = ({ thread, selected, onSelect }) => {
             <div className="w-12 h-12 bg-gray-200 rounded-full animate-pulse" />
           ) : (
             <Avatar
-              src={avatarUrl}
+              src={resolvedAvatar}
               alt={name || 'avatar'}
               size={48}
               rounded="full"
@@ -103,6 +104,16 @@ const ConversationList = ({
       return bTime - aTime; // newest first
     });
   }, [threads, searchQuery]);
+
+  const otherUserIds = useMemo(
+    () => (filteredThreads || []).map((t) => t.other_user_id).filter(Boolean),
+    [filteredThreads]
+  );
+
+  const { avatarUrls } = useAvatars(otherUserIds, {
+    useSignedUrls: true,
+    autoFetch: otherUserIds.length > 0,
+  });
 
   // Format date to relative time (e.g., "2 hours ago")
   const formatDate = (dateString) => {
@@ -196,6 +207,7 @@ const ConversationList = ({
               thread={thread}
               selected={selectedThread?.thread_id === thread.thread_id}
               onSelect={onSelectThread}
+              avatarUrl={avatarUrls[thread.other_user_id] || null}
             />
           ))
         ) : searchQuery ? (

@@ -100,7 +100,10 @@ export const computeJobApplyState = (job, now = new Date()) => {
       canApplyInApp: false,
       canApplyExternally: false,
       isClosed: true,
+      canApply: false,
+      disabled: true,
       reason: 'no-job',
+      disabledReason: 'This job is not available.',
     };
   }
 
@@ -133,12 +136,38 @@ export const computeJobApplyState = (job, now = new Date()) => {
   const canApplyInApp = !isQuickLink && baseOpen;
   const isClosed = !baseOpen;
 
+  const canApply = canApplyInApp || canApplyExternally;
+  const disabled = !canApply;
+
+  let reasonCode = 'open';
+  if (!baseOpen) {
+    reasonCode = deadlinePassed ? 'deadline-passed' : 'not-open';
+  }
+
+  let disabledReason = null;
+  if (!baseOpen) {
+    if (deadlinePassed) {
+      disabledReason = 'Applications are closed because the deadline has passed.';
+    } else if (isRejected) {
+      disabledReason = 'This job has been rejected by an administrator.';
+    } else if (!isApproved) {
+      disabledReason = 'This job is waiting for admin approval.';
+    } else if (!activeFlag || !statusActive) {
+      disabledReason = 'This job is currently paused or closed.';
+    } else {
+      disabledReason = 'Applications are currently closed for this job.';
+    }
+  }
+
   return {
     isQuickLink,
     canApplyInApp,
     canApplyExternally,
     isClosed,
-    reason: baseOpen ? 'open' : (deadlinePassed ? 'deadline-passed' : 'not-open'),
+    canApply,
+    disabled,
+    reason: reasonCode,
+    disabledReason,
   };
 };
 

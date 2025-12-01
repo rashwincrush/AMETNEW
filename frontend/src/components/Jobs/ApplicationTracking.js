@@ -4,6 +4,24 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 
+// Normalize resume value (path or legacy public URL) into a storage path
+const getResumePathFromValue = (value) => {
+  if (!value) return null;
+
+  // New style: plain key/path like "userId/uuid-file.pdf"
+  if (!/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  // Legacy style: full public URL containing "/storage/v1/object/public/resumes/<key>"
+  const match = value.match(/\/storage\/v1\/object\/public\/resumes\/(.+)$/);
+  if (match && match[1]) {
+    return match[1];
+  }
+
+  return null;
+};
+
 const ApplicationTracking = () => {
   const { user, userRole } = useAuth();
   const navigate = useNavigate();
@@ -53,8 +71,10 @@ const ApplicationTracking = () => {
           throw error;
         }
 
+        const rows = Array.isArray(data) ? data : [];
+
         // Derive source_type client-side (same semantics as v_jobs_public)
-        const appsWithSourceType = (data || []).map(app => ({
+        const appsWithSourceType = rows.map(app => ({
           ...app,
           jobs: app.jobs ? {
             ...app.jobs,
@@ -69,7 +89,24 @@ const ApplicationTracking = () => {
           app.jobs && app.jobs.source_type === 'in_app'
         );
 
-        setApplications(inAppApplications);
+        const enriched = await Promise.all(inAppApplications.map(async (row) => {
+          const out = { ...row };
+          try {
+            const path = getResumePathFromValue(row.resume_url || '');
+            if (path) {
+              const { data: signed, error: signErr } = await supabase
+                .storage
+                .from('resumes')
+                .createSignedUrl(path, 60 * 60);
+              if (!signErr && signed?.signedUrl) {
+                out._resume_signed_url = signed.signedUrl;
+              }
+            }
+          } catch (_) { /* ignore */ }
+          return out;
+        }));
+
+        setApplications(enriched);
       } catch (error) {
         console.error('Error fetching applications:', error);
         toast.error('Failed to load your applications');
@@ -246,12 +283,12 @@ const ApplicationTracking = () => {
                           </svg>
                           {application.jobs?.job_type || 'Job type not specified'}
                         </p>
-                        {application.resume_url && (
+                        {application._resume_signed_url && (
                           <p className="mt-2 flex items-center text-sm text-gray-500 sm:mt-0 sm:ml-6">
                             <svg className="flex-shrink-0 mr-1.5 h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                               <path d="M8 2a2 2 0 00-2 2v12a2 2 0 002 2h6a2 2 0 002-2V7.414a2 2 0 00-.586-1.414l-3.414-3.414A2 2 0 0010.586 2H8z"/>
                             </svg>
-                            <a href={application.resume_url} target="_blank" rel="noopener noreferrer" className="text-ocean-600 hover:underline">View Resume</a>
+                            <a href={application._resume_signed_url} target="_blank" rel="noopener noreferrer" className="text-ocean-600 hover:underline">View Resume</a>
                           </p>
                         )}
                       </div>

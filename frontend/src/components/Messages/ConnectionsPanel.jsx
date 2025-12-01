@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useConnectionsPanel from '../../hooks/useConnectionsPanel';
 import { supabase } from '../../utils/supabase';
+import { fetchMyThreads, fetchThreadMessages } from '../../api/dm';
 import toast from 'react-hot-toast';
 import { setDisconnectCooldown } from '../../utils/ui';
 import { logActivity } from '../../utils/activityLogger';
@@ -149,18 +150,12 @@ export default function ConnectionsPanel({ currentUserId, initialTab = 'received
         .lte('event_id.date', futureDate.toISOString());
       impact.events = (events || []).length;
       
-      // Check message count in DM thread
-      const { data: thread } = await supabase
-        .from('v_my_dm_threads')
-        .select('thread_id')
-        .eq('other_user_id', peerId)
-        .maybeSingle();
+      // Check message count in DM thread via canonical DM helpers
+      const threads = await fetchMyThreads();
+      const thread = (threads || []).find((t) => String(t.other_user_id) === String(peerId));
       if (thread?.thread_id) {
-        const { count } = await supabase
-          .from('dm_messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('thread_id', thread.thread_id);
-        impact.messages = count || 0;
+        const msgs = await fetchThreadMessages(thread.thread_id);
+        impact.messages = Array.isArray(msgs) ? msgs.length : 0;
       }
       
       return impact;

@@ -87,6 +87,7 @@ import AdminGate from './components/Admin/AdminGate';
 import UserManagement from './components/Admin/UserManagement';
 
 import AdminSettings from './components/Admin/AdminSettings';
+import AdminUsersPage from './components/Admin/users/AdminUsersPage';
 import FeedbackReport from './components/Admin/FeedbackReport';
 import ActivityLogs from './components/Admin/ActivityLogs';
 import EventModerationPanel from './components/Events/EventModerationPanel';
@@ -103,7 +104,6 @@ import AboutPage from './pages/AboutPage';
 import Security from './pages/Profile/Security';
 import RequireCompleteProfile from './components/Auth/RequireCompleteProfile.jsx';
 import MyMentorship from './components/Mentorship/MyMentorship.js';
-import MentorshipChat from './components/Mentorship/MentorshipChat.js';
 import HelpCenter from './pages/HelpCenter';
 import ContactUs from './pages/ContactUs';
 import NotificationSettings from './pages/Settings/NotificationSettings';
@@ -257,7 +257,6 @@ function AppContent() {
             { /* Removed dead MentorshipDashboard route */ }
             { /* Deprecated: MentorDirectory route removed */ }
             <Route path="/mentorship/requests" element={<ProtectedRoute requiredPermission="manage:mentee_requests"><MentorshipStatus /></ProtectedRoute>} />
-            <Route path="/mentorship/chat/:requestId" element={<ProtectedRoute requiredPermission="chat:mentees"><MentorshipChat /></ProtectedRoute>} />
             { /* Deprecated: MentorMatching route removed */ }
             <Route path="/mentorship/mentor/:id" element={<ProtectedRoute requiredPermission="view:alumni_directory"><MentorProfile /></ProtectedRoute>} />
             <Route path="/mentorship/mentor-settings" element={<ProtectedRoute requiredPermission="manage:mentor_profile"><MentorSettings /></ProtectedRoute>} />
@@ -290,7 +289,7 @@ function AppContent() {
             <Route path="/messages" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="message:users"><Messages /></ProtectedRoute></RequireCompleteProfile>} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/admin/analytics" element={<ProtectedRoute requiredPermission="access:all"><AdminGate><Analytics /></AdminGate></ProtectedRoute>} />
-            <Route path="/admin/users" element={<ProtectedRoute requiredPermission="access:all"><UserManagement /></ProtectedRoute>} />
+            <Route path="/admin/users" element={<ProtectedRoute requiredPermission="access:all"><AdminUsersPage /></ProtectedRoute>} />
             <Route path="/admin/activity-logs" element={<ProtectedRoute requiredPermission="access:all"><ActivityLogs /></ProtectedRoute>} />
             <Route path="/admin/settings" element={<ProtectedRoute requiredPermission="access:all"><AdminSettings /></ProtectedRoute>} />
             <Route path="/admin/csv" element={<ProtectedRoute requiredPermission="access:all"><CSVImportExport /></ProtectedRoute>} />

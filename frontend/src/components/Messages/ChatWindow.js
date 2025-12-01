@@ -15,8 +15,10 @@ import { format } from 'date-fns';
 import { getDisconnectCooldown, clearDisconnectCooldown, formatCooldownTime } from '../../utils/ui';
 import AvatarComponent from '../common/Avatar';
 import { useDmRealtime } from '../../hooks/useDmRealtime';
-import { ensureDmThreadWith, sendDmMessage } from '../../api/dm';
+import { useAvatar } from '../../hooks/useAvatar';
+import { ensureDmThreadWith, sendDmMessage, mapDmErrorToMessage, fetchThreadMessages } from '../../api/dm';
 import { useProfileById } from '../../hooks/useProfileById';
+import { useAuth } from '../../contexts/AuthContext';
 
 const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, onBack }) => {
   const [messages, setMessages] = useState([]);
@@ -29,6 +31,12 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
   const navigate = useNavigate();
   const location = useLocation();
   const { profile: otherUserProfile } = useProfileById(activeThread?.other_user_id);
+  const { isFullyApproved, approvalStatus } = useAuth();
+
+  const { avatarUrl: peerAvatarUrl } = useAvatar(activeThread?.other_user_id, {
+    useSignedUrl: true,
+    autoFetch: !!activeThread?.other_user_id,
+  });
 
   // Context from query string (job/event)
   const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
@@ -56,6 +64,8 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
   const edgeAccepted = edge && edge.status === 'accepted';        // latest connection row
   const fromRPC = !!isConnected;                                  // result of RPC-based status check
   const canSendDerived = fromThread || fromLocalAccept || !!edgeAccepted || fromRPC;
+  const canSendByApproval = !!isFullyApproved;
+  const canSend = canSendByApproval && canSendDerived;
 
   // Keep local activeThread in sync and ensure dm_threads exists
   useEffect(() => {
@@ -122,13 +132,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
           }
 
           const sinceISO = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-          const { data: msgs, error: mErr } = await supabase
-            .from('dm_messages')
-            .select('id, thread_id, sender_id, body, created_at, client_id')
-            .eq('thread_id', threadId)
-            .gte('created_at', sinceISO)
-            .order('created_at', { ascending: true });
-          if (mErr) throw mErr;
+          const msgs = await fetchThreadMessages(threadId, { since: sinceISO });
           setMessages(Array.isArray(msgs) ? msgs : []);
         } catch (err) {
           console.error('Error loading thread:', err);
@@ -226,6 +230,14 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     if (isSending || sendingMessageRef.current) return;
     if (!newMessage.trim() || !currentUser || !activeThread?.thread_id) return;
+    if (!isFullyApproved) {
+      toast.error(
+        approvalStatus === 'pending'
+          ? 'Your account is pending approval. You can read messages but cannot send new ones yet.'
+          : 'You are not allowed to send messages yet.'
+      );
+      return;
+    }
     if (!canSendDerived) {
       toast.error('You must be connected to send messages.');
       return;
@@ -234,9 +246,6 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
     try {
       setIsSending(true);
       sendingMessageRef.current = true;
-
-      // Debug: verify correct dm_threads.id is used
-      console.log('sending to threadId=', activeThread.thread_id);
 
       const toSend = newMessage.trim();
       // Clear form immediately; rely on realtime delivery
@@ -261,11 +270,11 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
             await sendDmMessage(ensuredId || activeThread.thread_id, toSend);
           } catch (retryErr) {
             console.error('retry send_dm_message error', retryErr);
-            toast.error('Failed to send message.');
+            toast.error(mapDmErrorToMessage(retryErr));
             return;
           }
         } else {
-          toast.error('Failed to send message.');
+          toast.error(mapDmErrorToMessage(err));
           return;
         }
       }
@@ -276,7 +285,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('Error sending message:', err);
-      toast.error('Failed to send message. Please try again.');
+      toast.error(mapDmErrorToMessage(err));
     } finally {
       setIsSending(false);
       sendingMessageRef.current = false;
@@ -310,7 +319,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
   }, [cooldownEnd, activeThread?.other_user_id]);
 
   const handleReconnect = async () => {
-    if (!currentUser?.id || !activeThread?.other_user_id || isReconnecting || cooldownEnd) return;
+    if (!currentUser?.id || !activeThread?.other_user_id || isReconnecting || cooldownEnd || !isFullyApproved) return;
     setIsReconnecting(true);
     try {
       await idempotentConnect(currentUser.id, activeThread.other_user_id);
@@ -341,7 +350,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
     activeThread?.other_user_name ||
     ''
   ).trim();
-  const headerAvatarUrl = otherUserProfile?.avatar_url || otherProfile?.avatar_url || null;
+  const headerAvatarUrl = peerAvatarUrl || otherUserProfile?.avatar_url || otherProfile?.avatar_url || null;
 
   if (!activeThread?.thread_id && activeThread?.other_user_id) {
     // Show header for the selected peer even if the DM thread is not created yet
@@ -556,12 +565,30 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
                   <button
                     className="px-3 py-1.5 text-sm rounded bg-ocean-600 text-white hover:bg-ocean-700 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={handleReconnect}
-                    disabled={isReconnecting || !!cooldownEnd}
-                    aria-label={cooldownEnd ? `Reconnect available in ${cooldownTimer}` : 'Reconnect with this user'}
-                    title={cooldownEnd ? `You can reconnect in ${cooldownTimer}` : ''}
+                    disabled={isReconnecting || !!cooldownEnd || !isFullyApproved}
+                    aria-label={
+                      !isFullyApproved
+                        ? 'Pending approval – cannot reconnect yet'
+                        : cooldownEnd
+                          ? `Reconnect available in ${cooldownTimer}`
+                          : 'Reconnect with this user'
+                    }
+                    title={
+                      !isFullyApproved
+                        ? 'Your account is pending approval. You can browse but cannot send new connection requests yet.'
+                        : cooldownEnd
+                          ? `You can reconnect in ${cooldownTimer}`
+                          : ''
+                    }
                   >
                     <UserPlusIcon className="w-4 h-4" aria-hidden="true" />
-                    {isReconnecting ? 'Sending...' : cooldownEnd ? `Wait ${cooldownTimer}` : 'Reconnect'}
+                    {!isFullyApproved
+                      ? 'Pending approval – cannot reconnect'
+                      : isReconnecting
+                        ? 'Sending...'
+                        : cooldownEnd
+                          ? `Wait ${cooldownTimer}`
+                          : 'Reconnect'}
                   </button>
                 </div>
               ) : (
@@ -570,10 +597,15 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
                   <button
                     className="px-3 py-1.5 text-sm rounded bg-ocean-600 text-white hover:bg-ocean-700 flex items-center gap-1.5"
                     onClick={handleReconnect}
-                    aria-label="Request connection"
+                    disabled={!isFullyApproved}
+                    aria-label={
+                      !isFullyApproved
+                        ? 'Pending approval – cannot send connection request'
+                        : 'Request connection'
+                    }
                   >
                     <UserPlusIcon className="w-4 h-4" aria-hidden="true" />
-                    Request Connection
+                    {isFullyApproved ? 'Request Connection' : 'Pending approval'}
                   </button>
                 </div>
               )}
@@ -591,27 +623,46 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey && canSendDerived) {
+                  if (e.key === 'Enter' && !e.shiftKey && canSend) {
                     e.preventDefault();
                     if (!isSending) handleSendMessage(e);
                   }
                 }}
-                className={`form-input w-full py-3 rounded-lg resize-none ${!canSendDerived ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                className={`form-input w-full py-3 rounded-lg resize-none ${!canSend ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 rows="1"
-                placeholder={canSendDerived ? "Type a message..." : "Cannot send messages - connection required"}
-                disabled={!canSendDerived}
+                placeholder={
+                  !isFullyApproved
+                    ? 'Messaging is locked until your account is approved.'
+                    : canSendDerived
+                      ? 'Type a message...'
+                      : 'Cannot send messages - connection required'
+                }
+                disabled={!canSend}
               />
             </div>
           </div>
           <button
             type="submit"
-            disabled={!newMessage.trim() || !canSendDerived}
-            title={!canSendDerived ? 'Send a connection request to start messaging.' : ''}
+            disabled={!newMessage.trim() || !canSend}
+            title={
+              !isFullyApproved
+                ? 'Your account must be approved before you can send messages.'
+                : !canSendDerived
+                  ? 'Send a connection request to start messaging.'
+                  : ''
+            }
             className="btn-ocean p-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <PaperAirplaneIcon className="w-5 h-5" />
           </button>
         </form>
+        {!isFullyApproved && (
+          <p className="mt-1 text-xs text-yellow-700" role="note">
+            {approvalStatus === 'pending'
+              ? 'Your account is pending approval. You can read messages but cannot send new ones yet.'
+              : 'You are not allowed to send new messages yet. Please contact an administrator.'}
+          </p>
+        )}
       </div>
     </div>
   );

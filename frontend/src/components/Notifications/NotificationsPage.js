@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import Avatar from '../common/Avatar';
+import { useAvatars } from '../../hooks/useAvatar';
 
 const NotificationsPage = ({ currentUser }) => {
   const [notifications, setNotifications] = useState([]);
@@ -15,6 +16,16 @@ const NotificationsPage = ({ currentUser }) => {
   const [requestsLoading, setRequestsLoading] = useState(true);
   // Track component mount state
   const isMountedRef = useRef(true);
+
+  // Fetch avatars for connection requests
+  const requestUserIds = [
+    ...incomingRequests.map(req => req.requester?.id).filter(Boolean),
+    ...outgoingRequests.map(req => req.recipient?.id).filter(Boolean)
+  ];
+  const { avatarUrls } = useAvatars(requestUserIds, {
+    useSignedUrls: true,
+    autoFetch: requestUserIds.length > 0,
+  });
 
   const fetchNotifications = useCallback(async () => {
     if (!currentUser || !isMountedRef.current) return;
@@ -245,7 +256,7 @@ const NotificationsPage = ({ currentUser }) => {
                     <div key={req.id} className="p-4 flex flex-col md:flex-row md:items-center md:justify-between">
                       <div className="flex items-center mb-3 md:mb-0">
                         <div className="flex-shrink-0 h-12 w-12 rounded-full overflow-hidden">
-                          <Avatar src={req.requester.avatar_url} alt={req.requester.full_name} size={48} />
+                          <Avatar src={avatarUrls[req.requester.id] || req.requester.avatar_url || null} alt={req.requester.full_name} size={48} />
                         </div>
                         <div className="ml-4">
                           <Link to={`/profile/${req.requester.id}`} className="text-lg font-medium text-gray-900 hover:text-ocean-600">
@@ -286,7 +297,7 @@ const NotificationsPage = ({ currentUser }) => {
                     <div key={req.id} className="p-4 flex flex-col md:flex-row md:items-center md:justify-between">
                       <div className="flex items-center mb-3 md:mb-0">
                         <div className="flex-shrink-0 h-12 w-12 rounded-full overflow-hidden">
-                          <Avatar src={req.recipient.avatar_url} alt={req.recipient.full_name} size={48} />
+                          <Avatar src={avatarUrls[req.recipient.id] || req.recipient.avatar_url || null} alt={req.recipient.full_name} size={48} />
                         </div>
                         <div className="ml-4">
                           <Link to={`/profile/${req.recipient.id}`} className="text-lg font-medium text-gray-900 hover:text-ocean-600">

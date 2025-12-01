@@ -380,17 +380,6 @@ const PostJob = () => {
           effectiveLogoUrlForEmployer = newCompanyLogoUrl;
         }
       }
-
-      // Keep employer DP in sync with the company logo when applicable
-      if (userRole === 'employer' && effectiveLogoUrlForEmployer && profile?.id) {
-        const { error: profileLogoError } = await supabase
-          .from('profiles')
-          .update({ avatar_url: effectiveLogoUrlForEmployer })
-          .eq('id', profile.id);
-        if (profileLogoError) {
-          console.error('Error updating employer profile logo:', profileLogoError);
-        }
-      }
       
       if (!companyId) {
         console.error("No valid company_id after company creation/lookup");

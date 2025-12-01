@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { useDegreePrograms } from '../../hooks/useDegreePrograms';
+import AvatarService from '../../services/avatar';
 
 export default function ProfileCompletion() {
   const { user, profile, getUserRole } = useAuth();
@@ -54,11 +55,8 @@ export default function ProfileCompletion() {
   const uploadAvatarIfAny = async () => {
     if (!form.avatar_file) return form.prefill_avatar_url || null;
     const file = form.avatar_file;
-    const path = `${user.id}/${Date.now()}_${file.name}`;
-    const { error: upErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: false });
-    if (upErr) throw upErr;
-    const { data } = supabase.storage.from('avatars').getPublicUrl(path);
-    return data?.publicUrl || null;
+    const { publicUrl } = await AvatarService.uploadAvatar(file);
+    return publicUrl || form.prefill_avatar_url || null;
   };
 
   const onSave = async (e) => {
@@ -72,7 +70,7 @@ export default function ProfileCompletion() {
     }
     setSaving(true);
     try {
-      const avatar_url = await uploadAvatarIfAny();
+      await uploadAvatarIfAny();
       const payload = {
         email: form.email.trim(),
         first_name: form.first_name.trim(),
@@ -85,7 +83,6 @@ export default function ProfileCompletion() {
         company_name: form.company_name || null,
         job_title: form.job_title || null,
         student_id: role === 'student' ? (form.student_id || null) : profile?.student_id ?? null,
-        ...(avatar_url ? { avatar_url } : {}),
       };
       const { error: upErr } = await supabase
         .from('profiles')

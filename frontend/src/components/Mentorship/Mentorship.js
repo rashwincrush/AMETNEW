@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApproval } from '../../hooks/useApproval';
 import { getPublicIdentity } from '../../lib/hydrateIdentity';
 import { fetchMenteeRequests, fetchMentorRequests as qFetchMentorRequests } from '../../lib/queries/mentorship';
 import { RequestStatusChip } from '../../lib/statusChips';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { mapSupabaseErrorToToast } from '../../utils/mapSupabaseErrorToToast';
+import { useCreateMentorshipRequest, useAcceptMentorshipRequest, useRejectMentorshipRequest, useCancelMentorshipRequest } from '../../hooks/useMentorshipMutations';
+import { ensureDmThreadWith } from '../../api/dm';
+import { useMentorshipEligibility } from '../../hooks/useMentorshipEligibility';
 import { 
   UserGroupIcon,
   AcademicCapIcon,
@@ -48,6 +51,7 @@ const getAvailabilityColor = (availability) => {
 
 const Mentorship = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('find-mentors');
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({
@@ -72,8 +76,14 @@ const Mentorship = () => {
   const [isMentorPending, setIsMentorPending] = useState(false);
   const { user, profile, getUserRole } = useAuth();
   const { isApprovedMentee, isApprovedMentor } = useApproval();
+  const mentorshipEligibility = useMentorshipEligibility();
   const hasFetched = useRef(false);
   const isStudentUnapproved = ((getUserRole ? getUserRole() : '') .toLowerCase() === 'student') && !(profile?.is_approved || profile?.approval_status === 'approved');
+
+  const createRequestMutation = useCreateMentorshipRequest();
+  const acceptRequestMutation = useAcceptMentorshipRequest();
+  const rejectRequestMutation = useRejectMentorshipRequest();
+  const cancelRequestMutation = useCancelMentorshipRequest();
 
   // Load mentee-side requests (My Requests)
   const loadMenteeRequests = async () => {
@@ -112,52 +122,9 @@ const Mentorship = () => {
   const mentorRequests = mentorReqQuery.data || [];
   const mentorReqLoading = mentorReqQuery.isLoading || mentorReqQuery.isFetching;
 
-  // Accept/Reject with optimistic updates
-  const acceptMutation = useMutation({
-    mutationFn: async (id) => {
-      const { error } = await supabase.from('mentorship_requests').update({ status: 'accepted' }).eq('id', id);
-      if (error) throw error;
-      return { id };
-    },
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: ['mentorRequests'] });
-      const prev = queryClient.getQueryData(['mentorRequests', user?.id, mentorFilter || 'all']);
-      queryClient.setQueryData(['mentorRequests', user?.id, mentorFilter || 'all'], (old = []) => old.map(r => r.id === id ? { ...r, status: 'accepted' } : r));
-      toast.dismiss('rq-info');
-      toast.success('Request accepted', { id: 'rq-info' });
-      return { prev };
-    },
-    onError: (err, id, ctx) => {
-      if (ctx?.prev) queryClient.setQueryData(['mentorRequests', user?.id, mentorFilter || 'all'], ctx.prev);
-      mapSupabaseErrorToToast(err, 'Failed to accept request');
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['mentorRequests'] });
-    }
-  });
-
-  const rejectMutation = useMutation({
-    mutationFn: async (id) => {
-      const { error } = await supabase.from('mentorship_requests').update({ status: 'rejected' }).eq('id', id);
-      if (error) throw error;
-      return { id };
-    },
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: ['mentorRequests'] });
-      const prev = queryClient.getQueryData(['mentorRequests', user?.id, mentorFilter || 'all']);
-      queryClient.setQueryData(['mentorRequests', user?.id, mentorFilter || 'all'], (old = []) => old.map(r => r.id === id ? { ...r, status: 'rejected' } : r));
-      toast.dismiss('rq-info');
-      toast.success('Request rejected', { id: 'rq-info' });
-      return { prev };
-    },
-    onError: (err, id, ctx) => {
-      if (ctx?.prev) queryClient.setQueryData(['mentorRequests', user?.id, mentorFilter || 'all'], ctx.prev);
-      mapSupabaseErrorToToast(err, 'Failed to reject request');
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['mentorRequests'] });
-    }
-  });
+  // Accept/Reject using centralized RPC-based mutations
+  const acceptMutation = acceptRequestMutation;
+  const rejectMutation = rejectRequestMutation;
 
   // Initial mount: fetch mentors and current user's mentor status once
   useEffect(() => {
@@ -362,13 +329,6 @@ const Mentorship = () => {
         return;
       }
 
-    const role = getUserRole ? getUserRole() : undefined;
-    const isApproved = profile?.alumni_verification_status === 'approved';
-    if (role && role.toLowerCase() === 'student' && !isApproved) {
-      toast.error('Your profile is not approved. Kindly contact administrator.');
-      return;
-    }
-
       const menteeId = profile?.id || user.id; // profiles.id equals auth user id in this schema
       const mentorId = mentorObj?.user_id;
       if (!mentorId) {
@@ -382,50 +342,18 @@ const Mentorship = () => {
         return;
       }
 
-      // Prevent duplicate requests (since no unique constraint in DB)
-      const { data: existing, error: existingErr } = await supabase
-        .from('mentorship_requests')
-        .select('id, status')
-        .eq('mentor_id', mentorId)
-        .eq('mentee_id', menteeId)
-        .in('status', ['pending', 'accepted']);
-      if (existingErr) {
-        console.error('Duplicate check failed:', existingErr);
-      } else if (existing && existing.length > 0) {
-        toast('You already have a pending or accepted request with this mentor.', { icon: 'ℹ️' });
-        setActiveTab('my-requests');
-        return;
-      }
-
       // Basic prompts for message/goals (kept simple for basic mode)
       const message = window.prompt('Write a short message to the mentor (why you want mentorship):', '');
       if (message === null) return; // user cancelled
       const goals = window.prompt('Optionally describe your goals (optional):', '') || '';
 
-      const payload = {
-        mentee_id: menteeId,
-        mentor_id: mentorId,
-        message: message || '',
-        goals,
-        status: 'pending'
-      };
-
-      const { error } = await supabase
-        .from('mentorship_requests')
-        .insert([payload]);
-
-      if (error) {
-        console.error('Failed to create mentorship request:', error);
-        toast.error(`Failed to send request: ${error.message}`);
-        return;
-      }
+      await createRequestMutation.mutateAsync({ mentorId, message, goals });
 
       toast.success('Mentorship request sent!');
       // Optionally, switch to My Requests tab
       setActiveTab('my-requests');
     } catch (e) {
-      console.error(e);
-      toast.error('Something went wrong while sending the request.');
+      // Errors are already mapped to user-friendly toasts inside the mutation
     }
   };
 
@@ -538,6 +466,74 @@ const Mentorship = () => {
           {/* Find Mentors Tab */}
           {activeTab === 'find-mentors' && (
             <div className="space-y-6">
+              {/* Modern eligibility banners */}
+              {(() => {
+                const { approvalStatus, menteeStatus, mentorStatus, isDualRole, menteeReason, mentorReason, isApprovedMentee: eligMentee, isApprovedMentor: eligMentor } = mentorshipEligibility || {};
+                if (!user) return null;
+
+                return (
+                  <div className="flex flex-col gap-3 mb-4">
+                    {!eligMentee && (
+                      <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm">
+                        <div className="mt-1 flex h-7 w-7 items-center justify-center rounded-full bg-amber-100 flex-shrink-0">
+                          <span className="text-amber-700 text-sm">🎓</span>
+                        </div>
+                        <div className="flex-1 text-sm">
+                          <div className="font-semibold text-amber-900">
+                            Mentee access not ready yet
+                          </div>
+                          <p className="mt-0.5 text-amber-800">
+                            {menteeReason || (
+                              <>
+                                Your mentee status is <span className="font-semibold">{menteeStatus || 'pending'}</span>.
+                                You'll be able to request mentorship once your mentee status is approved by an admin in User Management.
+                              </>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {!eligMentor && (
+                      <div className="flex items-start gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 shadow-sm">
+                        <div className="mt-1 flex h-7 w-7 items-center justify-center rounded-full bg-indigo-100 flex-shrink-0">
+                          <span className="text-indigo-700 text-sm">⭐</span>
+                        </div>
+                        <div className="flex-1 text-sm">
+                          <div className="font-semibold text-indigo-900">
+                            Mentor profile not active yet
+                          </div>
+                          <p className="mt-0.5 text-indigo-800">
+                            {mentorReason || (
+                              <>
+                                Your mentor status is currently <span className="font-semibold">{mentorStatus || 'pending'}</span>.
+                                You'll start receiving mentorship requests once an admin approves your mentor profile in User Management.
+                              </>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {eligMentee && eligMentor && (
+                      <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 shadow-sm">
+                        <div className="mt-1 flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 flex-shrink-0">
+                          <span className="text-emerald-700 text-sm">✅</span>
+                        </div>
+                        <div className="flex-1 text-sm">
+                          <div className="font-semibold text-emerald-900">
+                            You're all set for mentorship
+                          </div>
+                          <p className="mt-0.5 text-emerald-800">
+                            You can request mentors and also receive mentees. Use the tabs above to explore opportunities.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Search and Filters */}
               <div className="flex flex-col lg:flex-row gap-4">
                 <div className="flex-1">
@@ -670,7 +666,30 @@ const Mentorship = () => {
                         <div className="mt-3 flex items-center gap-2">
                           {r.status === 'accepted' && (
                             <>
-                              <Link to={`/mentorship/chat/${r.id}`} className="btn-ocean px-3 py-1.5 rounded">Open Chat</Link>
+                              <button
+                                type="button"
+                                className="btn-ocean px-3 py-1.5 rounded"
+                                onClick={async () => {
+                                  try {
+                                    if (!user?.id) {
+                                      toast.error('You must be logged in to open chat.');
+                                      return;
+                                    }
+                                    const otherUserId = r.mentor_id;
+                                    if (!otherUserId) {
+                                      toast.error('Unable to determine conversation partner.');
+                                      return;
+                                    }
+                                    const threadId = await ensureDmThreadWith(otherUserId);
+                                    navigate(`/messages?threadId=${encodeURIComponent(threadId)}&source=mentorship&requestId=${encodeURIComponent(r.id)}`);
+                                  } catch (e) {
+                                    console.error(e);
+                                    toast.error('Could not open chat. Please try again.');
+                                  }
+                                }}
+                              >
+                                Open Chat
+                              </button>
                               <Link to={`/mentorship/mentor/${r.mentor.id}`} className="btn-ocean-outline px-3 py-1.5 rounded">View Mentor</Link>
                             </>
                           )}
@@ -678,13 +697,12 @@ const Mentorship = () => {
                             <button
                               className="btn-ocean-outline px-3 py-1.5 rounded"
                               onClick={async () => {
-                                const { error } = await supabase.from('mentorship_requests').update({ status: 'cancelled_by_user' }).eq('id', r.id);
-                                if (!error) {
+                                try {
+                                  await cancelRequestMutation.mutateAsync(r.id);
                                   toast.success('Request cancelled');
-                                  // refresh list
                                   await loadMenteeRequests();
-                                } else {
-                                  toast.error('Failed: ' + (error?.message || 'Unknown error'));
+                                } catch (_) {
+                                  // Error toast already handled via mapMentorshipError
                                 }
                               }}
                             >
@@ -768,6 +786,25 @@ const Mentorship = () => {
 // Mentor Card Component
 const MentorCard = ({ mentor, requested = false, requestStatus = null, onRequestSuccess }) => {
   const isAvailable = mentor.is_available_for_mentorship === true;
+  const total = typeof mentor.totalMentees === 'number' ? mentor.totalMentees : 0;
+  const max = mentor.maxMentees ?? null;
+  const atCapacity = max !== null && total >= max;
+  const accepting = isAvailable && !atCapacity;
+
+  let availabilityLabel = 'Unavailable';
+  if (!isAvailable) {
+    availabilityLabel = 'Not accepting mentees';
+  } else if (atCapacity) {
+    availabilityLabel = 'At capacity';
+  } else {
+    availabilityLabel = 'Accepting mentees';
+  }
+
+  const disabledReason = !accepting
+    ? (!isAvailable
+        ? 'This mentor is not accepting new mentees right now.'
+        : 'This mentor has reached their current mentee limit.')
+    : undefined;
   return (
     <div className="glass-card rounded-lg p-6 card-hover">
       <div className="flex items-start justify-between mb-4">
@@ -800,7 +837,10 @@ const MentorCard = ({ mentor, requested = false, requestStatus = null, onRequest
         <div className="flex items-center">
           <StarIcon className="w-4 h-4 text-yellow-500 mr-1" />
           <span className="font-medium">{mentor.rating}</span>
-          <span className="text-gray-600 ml-1">({mentor.totalMentees} mentees)</span>
+          <span className="text-gray-600 ml-1">
+            Mentees: {total}
+            {max !== null ? ` / ${max}` : ''}
+          </span>
         </div>
         <div className="flex items-center">
           <ClockIcon className="w-4 h-4 text-gray-400 mr-1" />
@@ -811,8 +851,8 @@ const MentorCard = ({ mentor, requested = false, requestStatus = null, onRequest
           <span className="text-gray-600">{mentor.responseTime}</span>
         </div>
         <div className="flex items-center">
-          <span className={`px-2 py-1 rounded-full text-xs font-medium ${isAvailable ? 'text-green-600 bg-green-100' : 'text-gray-600 bg-gray-100'}`}>
-            {isAvailable ? 'Available' : 'Unavailable'}
+          <span className={`px-2 py-1 rounded-full text-xs font-medium ${accepting ? 'text-green-600 bg-green-100' : atCapacity ? 'text-orange-700 bg-orange-100' : 'text-gray-600 bg-gray-100'}`}>
+            {availabilityLabel}
           </span>
         </div>
       </div>
@@ -876,7 +916,8 @@ const MentorCard = ({ mentor, requested = false, requestStatus = null, onRequest
         <ApprovedGuard require="approved-mentee" showBlockedMessage={false}>
           <RequestMentorshipButton
             mentorId={mentor.user_id}
-            disabled={!mentor.is_available_for_mentorship}
+            disabled={!accepting}
+            disabledReason={disabledReason}
             requested={requested}
             requestStatus={requestStatus}
             onSuccess={onRequestSuccess}

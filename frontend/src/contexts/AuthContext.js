@@ -772,6 +772,10 @@ export const AuthProvider = ({ children }) => {
   const isRejectedFlag = approvalStatus === 'rejected' || !!rejectionStatus.isRejected;
   const isPending = !isRejectedFlag && !isApproved;
   const isAdminLike = isAdminFn();
+  const isFullyApproved =
+    (approvalFlags && typeof approvalFlags.isFullyApproved === 'boolean')
+      ? approvalFlags.isFullyApproved
+      : !!computedFromProfile.isFullyApproved;
 
   const hasPermission = useCallback((permission) => {
     if (!permission) return true;
@@ -840,6 +844,8 @@ export const AuthProvider = ({ children }) => {
     isPending,
     isRejected: isRejectedFlag,
     isAdminLike,
+    // Canonical full-approval flag (mirrors backend fc_is_fully_approved via get_current_user_flags)
+    isFullyApproved,
   };
 
   return (

@@ -140,7 +140,7 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
       const uid = user.id;
       const uuid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const key = `${uid}/${uuid}-${safeObjectName(file.name)}`;
-      const { error: uploadErr } = await supabase.storage
+      const { data: uploadData, error: uploadErr } = await supabase.storage
         .from('resumes')
         .upload(key, file, {
           upsert: true,
@@ -149,18 +149,16 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
         });
       if (uploadErr) throw uploadErr;
 
-      // Get a public URL for persistent storage in job_applications.resume_url
-      const { data: pub } = await supabase.storage.from('resumes').getPublicUrl(key);
-      const publicUrl = pub?.publicUrl || null;
+      const storagePath = uploadData?.path || key;
 
-      // Insert application with minimal columns (trust RLS), using public URL
+      // Insert application with minimal columns (trust RLS), using storage path only
       const base = { job_id: jobId };
       let insertPayload = base;
 
       // Try with resume_url if column exists; on failure due to column absence, retry without
       let res = await supabase
         .from('job_applications')
-        .insert({ ...insertPayload, resume_url: publicUrl || key }, { returning: 'minimal' });
+        .insert({ ...insertPayload, resume_url: storagePath }, { returning: 'minimal' });
       if (res.error && /column\s+"?resume_url"?/i.test(res.error.message || '')) {
         res = await supabase
           .from('job_applications')
@@ -173,7 +171,7 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
         throw new Error(msg);
       }
 
-      if (onSuccess) onSuccess({ publicUrl: publicUrl || null, path: key });
+      if (onSuccess) onSuccess({ path: storagePath });
       toast.success('Application submitted!', { id: toastId });
       onClose();
     } catch (err) {

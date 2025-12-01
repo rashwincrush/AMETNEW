@@ -54,6 +54,7 @@ const RejectUserModal = ({ user, isOpen, onClose, onReject }) => {
                   </button>
                 </Dialog.Title>
                 <div className="mt-4">
+                  {/* ADMIN-ONLY: Email is intentionally referenced here for moderation / user management. */}
                   <p className="text-sm text-gray-500 mb-4">
                     You are about to reject {user?.full_name || user?.email}. Please provide a reason for rejection:
                   </p>

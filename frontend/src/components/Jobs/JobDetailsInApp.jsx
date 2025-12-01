@@ -20,7 +20,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
   const [applied, setApplied] = useState(false);
   const coalescedDeadline = job?.deadline || job?.application_deadline || null;
   const applyState = computeJobApplyState(job);
-  const { canApplyInApp, isClosed } = applyState;
+  const { canApplyInApp, isClosed, disabledReason } = applyState;
   const formatKolkata = (iso) => {
     try {
       return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }).format(new Date(iso));
@@ -288,6 +288,11 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
           {/* Apply Dialog */}
           {!isOwner && !coalesceAppUrl(job) && (
             <ApplyDialog open={applyOpen} onClose={() => setApplyOpen(false)} jobId={job.id} deadline={coalescedDeadline} onSuccess={() => setApplied(true)} />
+          )}
+          {(!canApplyInApp && !applied && !isEmployer && disabledReason) && (
+            <p className="mt-2 text-xs text-gray-500 text-right max-w-xs ml-auto">
+              {disabledReason}
+            </p>
           )}
         </div>
 

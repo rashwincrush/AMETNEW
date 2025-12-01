@@ -305,13 +305,15 @@ const SessionsCalendar = () => {
                   <div>
                     <p className="text-sm text-gray-500 mb-1">Mentor</p>
                     <div className="flex items-center">
-                      {mentorProfile?.avatar_url && (
-                        <img
-                          src={mentorProfile.avatar_url}
-                          alt={mentorProfile.full_name}
-                          className="w-8 h-8 rounded-full mr-2"
-                        />
-                      )}
+                      <img
+                        src={mentorProfile?.avatar_url || '/default-avatar.svg'}
+                        alt={mentorProfile?.full_name || 'Mentor'}
+                        className="w-8 h-8 rounded-full mr-2"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = '/default-avatar.svg';
+                        }}
+                      />
                       <span>{mentorProfile?.full_name || 'Unknown'}</span>
                     </div>
                   </div>
@@ -319,13 +321,15 @@ const SessionsCalendar = () => {
                   <div>
                     <p className="text-sm text-gray-500 mb-1">Mentee</p>
                     <div className="flex items-center">
-                      {menteeProfile?.avatar_url && (
-                        <img
-                          src={menteeProfile.avatar_url}
-                          alt={menteeProfile.full_name}
-                          className="w-8 h-8 rounded-full mr-2"
-                        />
-                      )}
+                      <img
+                        src={menteeProfile?.avatar_url || '/default-avatar.svg'}
+                        alt={menteeProfile?.full_name || 'Mentee'}
+                        className="w-8 h-8 rounded-full mr-2"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = '/default-avatar.svg';
+                        }}
+                      />
                       <span>{menteeProfile?.full_name || 'Unknown'}</span>
                     </div>
                   </div>

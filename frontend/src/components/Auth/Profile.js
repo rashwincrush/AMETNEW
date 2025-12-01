@@ -22,6 +22,16 @@ import DegreeSelect from '../academics/DegreeSelect';
 import DepartmentSelect from '../academics/DepartmentSelect';
 import { useAcademicsCatalog } from '../../hooks/useAcademicsCatalog';
 import Avatar from '../common/Avatar';
+import AvatarService from '../../services/avatar';
+import { useAvatar } from '../../hooks/useAvatar';
+import { 
+  getEffectiveBatchYear, 
+  formatBatchLabel, 
+  validateBatchYear, 
+  getBatchYearLabel,
+  getBatchYearPlaceholder,
+  getProfileYearWriteFields 
+} from '../../utils/batchYear';
 
 // Normalize phone to E.164 or null to satisfy DB constraint chk_phone_e164
 const normalizePhone = (raw) => {
@@ -46,6 +56,12 @@ const Profile = () => {
   const navigate = useNavigate();
   const { user, profile, loading, updateProfile, getUserRole, fetchUserProfile } = useAuth();
   
+  // Centralized avatar hook
+  const { avatarUrl, loading: avatarLoading, refetch: refetchAvatar } = useAvatar(user?.id, {
+    useSignedUrl: true,
+    autoFetch: !!user?.id,
+  });
+  
   // Additional component loading state for transitional periods
   const [isComponentLoading, setIsComponentLoading] = useState(true);
   const initialLoadComplete = useRef(false);
@@ -63,6 +79,7 @@ const Profile = () => {
   const [imageUrl, setImageUrl] = useState(null);
   const [imageFile, setImageFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const initialFormRef = useRef(null);
   // DB-driven academics catalog
@@ -81,8 +98,8 @@ const Profile = () => {
     experience: '',
     degree_code: '',
     department_id: '',
-    batch: '',
-    expected_graduation_year: '',
+    batchYear: '', // Unified field for both graduation_year and expected_graduation_year
+    expected_graduation_year: '', // Keep for backward compat during transition
     student_id: '',
     date_of_birth: '',
     skills: [],
@@ -155,16 +172,17 @@ const Profile = () => {
     }
   }, [loading, user, profile]);
   
-  // Update imageUrl when user/profile is available
+  // Update imageUrl when avatarUrl from hook changes (unless we have a local preview)
   useEffect(() => {
-    if (user && user.avatar) {
-      setImageUrl(user.avatar);
-    } else if (profile && profile.avatar_url) {
+    if (!imageFile && avatarUrl) {
+      setImageUrl(avatarUrl);
+    } else if (!imageFile && !avatarUrl && profile?.avatar_url) {
+      // Fallback to profile.avatar_url if hook hasn't loaded yet
       setImageUrl(profile.avatar_url);
-    } else {
+    } else if (!imageFile && !avatarUrl) {
       setImageUrl(null);
     }
-  }, [user, profile]);
+  }, [avatarUrl, profile?.avatar_url, imageFile]);
   
   // Helper functions to deeply clean "Not specified" values
   const cleanValue = (value) => {
@@ -300,6 +318,8 @@ const Profile = () => {
             experience: cleanedProfile.experience || '',
             degree_code: cleanedProfile.degree_code || '',
             department_id: cleanedProfile.department_id || '',
+            // Use centralized helper to get effective batch year from any source
+            batchYear: getEffectiveBatchYear(cleanedProfile) || '',
             graduation_year: cleanedProfile.graduation_year || '',
             expected_graduation_year: cleanedProfile.expected_graduation_year || '',
             student_id: cleanedProfile.student_id || '',
@@ -493,6 +513,24 @@ const Profile = () => {
     setImageUrl(URL.createObjectURL(file));
   };
 
+  const handleDeleteAvatar = async () => {
+    if (!window.confirm('Are you sure you want to remove your profile photo?')) return;
+    
+    try {
+      setIsDeleting(true);
+      await AvatarService.deleteAvatar();
+      await refetchAvatar(); // Refresh avatar hook
+      setImageUrl(null); // Clear local preview
+      setImageFile(null); // Clear any pending upload
+      toast.success('Profile photo removed successfully');
+    } catch (err) {
+      console.error('[Profile] avatar delete error', err);
+      toast.error(err?.message || 'Failed to remove profile photo');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -559,6 +597,15 @@ const Profile = () => {
       // Degree and Department validation via DB catalogs
       const degreeCode = isEmployer ? null : (formData.degree_code ? String(formData.degree_code) : null);
 
+      // Batch/Graduation year validation using centralized helper
+      const role = getUserRole();
+      const yearValidation = validateBatchYear(formData.batchYear, role);
+      if (!yearValidation.isValid) {
+        toast.error(yearValidation.error);
+        setIsSubmitting(false);
+        return;
+      }
+
       // Required field checks
       const missing = [];
       if (!formData.location || !String(formData.location).trim()) missing.push('Location');
@@ -593,6 +640,10 @@ const Profile = () => {
         throw new Error('Failed to load profile data');
       }
 
+      // Use centralized helper to determine which year fields to write
+      const userRole = getUserRole();
+      const yearFields = getProfileYearWriteFields(userRole, formData.batchYear);
+      
       const possibleFields = {
         first_name: formData.first_name,
         last_name: formData.last_name,
@@ -605,8 +656,7 @@ const Profile = () => {
         experience: formData.experience,
         degree_code: degreeCode,
         department_id: isEmployer ? null : (formData.department_id || null),
-        graduation_year: formData.graduation_year,
-        expected_graduation_year: isStudent ? formData.expected_graduation_year : null,
+        ...yearFields, // Apply graduation_year and/or expected_graduation_year based on role
         student_id: formData.student_id,
         date_of_birth: formData.date_of_birth,
         skills: formData.skills,
@@ -660,54 +710,56 @@ const Profile = () => {
 
     // Do not write JSON social_links back to profiles; managed via table
 
-      if (imageFile) {
-        console.log('Uploading new avatar...');
-        try {
-          // Use the upload function directly without a race condition
-          const publicUrl = await uploadAvatar(imageFile);
+    if (imageFile) {
+      console.log('Uploading new avatar...');
+      try {
+        // Centralized avatar upload via AvatarService; backend RPC updates avatar metadata
+        const { publicUrl } = await AvatarService.uploadAvatar(imageFile);
 
-          console.log('Avatar uploaded successfully:', publicUrl);
-          profileUpdates.avatar_url = publicUrl;
-          
-          // FIX: Immediately update local state for instant UI feedback
+        console.log('Avatar uploaded successfully via AvatarService:', publicUrl);
+
+        // Immediately update local preview for instant UI feedback
+        if (publicUrl) {
           setImageUrl(publicUrl);
-          
-          // Also update the user object in AuthContext immediately
+          await refetchAvatar(); // Refresh avatar hook
+
+          // Also update the user object in AuthContext immediately for header, etc.
           if (user) {
             user.avatar = publicUrl;
             user.avatar_url = publicUrl;
           }
-        } catch (error) {
-          console.error('Profile picture upload failed:', error);
-          toast.error(error.message || 'Failed to upload profile picture');
-          // Don't throw the error - let the profile save even if avatar upload fails
-          // This way the form submission won't be blocked by avatar issues
         }
+      } catch (error) {
+        console.error('Profile picture upload failed:', error);
+        toast.error(error.message || 'Failed to upload profile picture');
+        // Don't throw the error - let the profile save even if avatar upload fails
+        // This way the form submission won't be blocked by avatar issues
       }
+    }
 
-      // Remove is_profile_complete as it's a generated column in the database
-      // This avoids the error: column "is_profile_complete" can only be updated to DEFAULT
-      delete profileUpdates.is_profile_complete;
+    // Remove is_profile_complete as it's a generated column in the database
+    // This avoids the error: column "is_profile_complete" can only be updated to DEFAULT
+    delete profileUpdates.is_profile_complete;
 
-      console.log('Updating profile in database with:', JSON.stringify(profileUpdates));
-      // Removed Promise.race to ensure the update completes
-      const { data, error } = await supabase
-        .from('profiles')
-        .update(profileUpdates)
-        .eq('id', user.id)
-        .select()
-        .single();
+    console.log('Updating profile in database with:', JSON.stringify(profileUpdates));
+    // Removed Promise.race to ensure the update completes
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(profileUpdates)
+      .eq('id', user.id)
+      .select()
+      .single();
 
-      if (error) {
-        console.error('Database update error:', error);
-        throw new Error(`Database error: ${error.message}`);
-      }
+    if (error) {
+      console.error('Database update error:', error);
+      throw new Error(`Database error: ${error.message}`);
+    }
 
-      if (!data) {
-        throw new Error('No data returned from database update');
-      }
+    if (!data) {
+      throw new Error('No data returned from database update');
+    }
 
-      console.log('Profile updated in database:', data);
+    console.log('Profile updated in database:', data);
 
       // Save social links to dedicated table (view-managed elsewhere)
       try {
@@ -754,7 +806,8 @@ const Profile = () => {
             experience: updatedProfile.experience || formData.experience,
             degree_code: updatedProfile.degree_code || formData.degree_code,
             department_id: updatedProfile.department_id || formData.department_id,
-            batch: updatedProfile.batch || formData.batch,
+            batchYear: getEffectiveBatchYear(updatedProfile) || formData.batchYear,
+            graduation_year: updatedProfile.graduation_year || formData.graduation_year,
             expected_graduation_year: updatedProfile.expected_graduation_year ?? formData.expected_graduation_year,
             student_id: updatedProfile.student_id || formData.student_id,
             date_of_birth: updatedProfile.date_of_birth || formData.date_of_birth,
@@ -909,43 +962,7 @@ const Profile = () => {
     });
   };
 
-  const uploadAvatar = async (file) => {
-    if (!file) {
-      throw new Error('No file provided for avatar upload.');
-    }
-
-    const fileExt = (file.name.split('.').pop() || 'jpg').toLowerCase();
-    // FIX: Don't include 'avatars/' prefix - the bucket name handles that
-    const filePath = `${user.id}/${Date.now()}.${fileExt}`;
-
-    console.log(`Uploading to bucket 'avatars' with path: ${filePath}`);
-
-    const { error: uploadError } = await supabase.storage
-      .from('avatars')
-      .upload(filePath, file, { 
-        upsert: true,
-        cacheControl: '3600'
-      });
-
-    if (uploadError) {
-      console.error('Error during avatar upload:', uploadError);
-      throw new Error(`Failed to upload avatar: ${uploadError.message}`);
-    }
-
-    console.log('Upload successful, getting public URL...');
-
-    const { data } = supabase.storage
-      .from('avatars')
-      .getPublicUrl(filePath);
-
-    if (!data || !data.publicUrl) {
-      console.error('Could not get public URL for avatar.');
-      throw new Error('Could not get public URL for avatar.');
-    }
-
-    console.log('Public URL received:', data.publicUrl);
-    return data.publicUrl;
-  };
+  // Avatar uploads are now handled centrally by AvatarService.uploadAvatar
 
   // Main render logic
   // Compute approval status badge styles
@@ -972,25 +989,37 @@ const Profile = () => {
       <div className="glass-card rounded-lg p-6">
         <div className="flex items-start justify-between mb-6">
           <div className="flex items-center space-x-6">
-            <div className="relative">
-              <Avatar
-                src={imageUrl || profile.avatar_url || null}
-                alt={`${formData.first_name || profile.first_name || ''} ${formData.last_name || profile.last_name || ''}`.trim() || 'Profile'}
-                size={128}
-                rounded="full"
-                version={imageFile ? null : profile.updated_at}
-                className="border-2 border-white shadow-md"
-              />
-              {isEditing && (
-                <label className="absolute bottom-0 right-0 bg-ocean-500 text-white p-2 rounded-full hover:bg-ocean-600 transition-colors cursor-pointer shadow-md">
-                  <CameraIcon className="w-4 h-4" />
-                  <input 
-                    type="file" 
-                    className="hidden" 
-                    accept="image/jpeg, image/png, image/gif, image/webp"
-                    onChange={handleImageChange}
-                  />
-                </label>
+            <div className="flex flex-col items-center space-y-3">
+              <div className="relative">
+                <Avatar
+                  src={imageUrl || avatarUrl || profile.avatar_url || null}
+                  alt={`${formData.first_name || profile.first_name || ''} ${formData.last_name || profile.last_name || ''}`.trim() || 'Profile'}
+                  size={128}
+                  rounded="full"
+                  version={imageFile ? null : profile.updated_at}
+                  className="border-2 border-white shadow-md"
+                />
+                {isEditing && (
+                  <label className="absolute bottom-0 right-0 bg-ocean-500 text-white p-2 rounded-full hover:bg-ocean-600 transition-colors cursor-pointer shadow-md">
+                    <CameraIcon className="w-4 h-4" />
+                    <input 
+                      type="file" 
+                      className="hidden" 
+                      accept="image/jpeg, image/png, image/gif, image/webp"
+                      onChange={handleImageChange}
+                    />
+                  </label>
+                )}
+              </div>
+              {isEditing && (imageUrl || avatarUrl || profile.avatar_url) && (
+                <button
+                  type="button"
+                  onClick={handleDeleteAvatar}
+                  disabled={isDeleting}
+                  className="text-xs text-red-600 hover:text-red-700 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isDeleting ? 'Removing...' : 'Remove Photo'}
+                </button>
               )}
             </div>
             
@@ -1107,50 +1136,37 @@ const Profile = () => {
               </div>
             </div>
             
-            {!isStudent && (
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Graduation Year</label>
-                <input
-                  type="number"
-                  name="graduation_year"
-                  value={formData.graduation_year || ''}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    const fieldName = e.target.name;
-                    setFormData(prev => ({
-                      ...prev,
-                      [fieldName]: val === '' ? '' : val
-                    }));
-                  }}
-                  min="1900"
-                  max={new Date().getFullYear()}
-                  className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                  placeholder="Enter your graduation year (e.g. 2020)"
-                />
-              </div>
-            )}
-            {isStudent && (
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Expected Graduation Year</label>
-                <input
-                  type="number"
-                  name="expected_graduation_year"
-                  value={formData.expected_graduation_year || ''}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    const fieldName = e.target.name;
-                    setFormData(prev => ({
-                      ...prev,
-                      [fieldName]: val === '' ? '' : val
-                    }));
-                  }}
-                  min="1900"
-                  max={new Date().getFullYear() + 10}
-                  className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                  placeholder="Enter your expected graduation year (e.g. 2026)"
-                />
-              </div>
-            )}
+            {/* Unified Batch/Graduation Year field */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                {getBatchYearLabel(getUserRole())}
+                {(getUserRole() === 'alumni' || getUserRole() === 'student') && <span className="text-red-500 ml-1">*</span>}
+              </label>
+              <input
+                type="number"
+                name="batchYear"
+                value={formData.batchYear || ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData(prev => ({
+                    ...prev,
+                    batchYear: val === '' ? '' : val
+                  }));
+                }}
+                min="1970"
+                max={new Date().getFullYear() + 6}
+                className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                placeholder={getBatchYearPlaceholder(getUserRole())}
+                required={getUserRole() === 'alumni' || getUserRole() === 'student'}
+              />
+              <p className="text-xs text-gray-500">
+                {getUserRole() === 'student' 
+                  ? 'Your expected graduation year (can be in the future)'
+                  : getUserRole() === 'alumni'
+                  ? 'Your graduation year (past or current year)'
+                  : 'Your batch or graduation year (optional for employers/admins)'}
+              </p>
+            </div>
             {!isEmployer && (
               <>
                 <div className="space-y-2">
@@ -1434,8 +1450,8 @@ const Profile = () => {
                             {getDepartments(formData.degree_code).find(dep => dep.id === formData.department_id)?.name || ''}
                           </p>
                         )}
-                        {hasValue(formData.batch) && (
-                          <p className="text-sm text-gray-600">{`Batch of ${formData.batch}`}</p>
+                        {hasValue(formData.batchYear) && (
+                          <p className="text-sm text-gray-600">{formatBatchLabel(formData.batchYear)}</p>
                         )}
                         {hasValue(formData.student_id) && (
                           <p className="text-sm text-gray-600">Student ID: {formData.student_id}</p>

@@ -3,6 +3,7 @@ import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { UserPlusIcon, ClockIcon } from '@heroicons/react/24/outline';
 import Avatar from '../common/Avatar';
+import { useAvatars } from '../../hooks/useAvatar';
 
 const ConnectionManager = ({ currentUser }) => {
   const [incomingRequests, setIncomingRequests] = useState([]);
@@ -10,6 +11,17 @@ const ConnectionManager = ({ currentUser }) => {
   const [loading, setLoading] = useState(true);
   // Track component mount state
   const isMountedRef = useRef(true);
+
+  // Gather all user IDs for avatar fetching
+  const allUserIds = [
+    ...incomingRequests.map(req => req.requester?.id).filter(Boolean),
+    ...outgoingRequests.map(req => req.recipient?.id).filter(Boolean)
+  ];
+  
+  const { avatarUrls } = useAvatars(allUserIds, {
+    useSignedUrls: true,
+    autoFetch: allUserIds.length > 0,
+  });
 
   const fetchRequests = useCallback(async () => {
     if (!currentUser || !isMountedRef.current) return;
@@ -140,7 +152,7 @@ const ConnectionManager = ({ currentUser }) => {
               <li key={req.id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
                 <div className="flex items-center space-x-3">
                   <Avatar
-                    src={req.requester.avatar_url ?? null}
+                    src={avatarUrls[req.requester.id] || req.requester.avatar_url || null}
                     alt={req.requester.full_name || 'User'}
                     size={40}
                     rounded="full"
@@ -174,7 +186,7 @@ const ConnectionManager = ({ currentUser }) => {
               <li key={req.id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
                 <div className="flex items-center space-x-3">
                   <Avatar
-                    src={req.recipient.avatar_url ?? null}
+                    src={avatarUrls[req.recipient.id] || req.recipient.avatar_url || null}
                     alt={req.recipient.full_name || 'User'}
                     size={40}
                     rounded="full"

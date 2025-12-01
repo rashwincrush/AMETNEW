@@ -1,6 +1,7 @@
 import React from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import Avatar from '../common/Avatar';
+import { formatBatchLabel } from '../../utils/batchYear';
 import {
   MapPinIcon,
   AcademicCapIcon,
@@ -25,6 +26,7 @@ function Chip({ icon: Icon, children }) {
 
 export default function ProfileCard({
   profile = {},
+  avatarUrl,
   onView,
   onConnect,
   onMessage,
@@ -45,6 +47,9 @@ export default function ProfileCard({
     role,
   } = profile;
 
+  // Resolve avatar src: prefer prop from hook, fallback to profile data, then default
+  const avatarSrc = avatarUrl || avatar_url || '/default-avatar.svg';
+
   const jobLine = [current_job_title, company_name].filter(Boolean).join(' at ');
 
   return (
@@ -56,7 +61,7 @@ export default function ProfileCard({
         {/* Left Side: Avatar and Details */}
         <div className="flex flex-col items-center">
           <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full ring-2 ring-slate-200 bg-slate-100 mb-2 flex items-center justify-center">
-            <Avatar src={avatar_url} alt={full_name || 'Profile'} size={64} />
+            <Avatar src={avatarSrc} alt={full_name || 'Profile'} size={64} />
           </div>
 
           <div className="text-center">
@@ -74,7 +79,7 @@ export default function ProfileCard({
 
             {graduation_year && (
               <span className="inline-block mt-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
-                Batch {graduation_year}
+                {formatBatchLabel(graduation_year)}
               </span>
             )}
 

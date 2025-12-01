@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../utils/supabase';
-import { EnvelopeIcon, MapPinIcon, BriefcaseIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
+import { MapPinIcon, BriefcaseIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
 import Avatar from '../components/common/Avatar';
+import useProfileContact from '../hooks/useProfileContact';
+import { useAvatar } from '../hooks/useAvatar';
+import { canViewContact } from '../utils/contactPermissions';
+import LockedContactInfo from '../components/Directory/LockedContactInfo';
+import ContactInfo from '../components/Directory/ContactInfo';
 
 const UserProfilePage = () => {
   const { userId } = useParams();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { avatarUrl } = useAvatar(userId, { useSignedUrl: true, autoFetch: !!userId });
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -16,10 +22,10 @@ const UserProfilePage = () => {
       setError(null);
       try {
         const { data, error } = await supabase
-          .from('profiles')
+          .from('directory_profiles_public')
           .select('*')
           .eq('id', userId)
-          .single();
+          .maybeSingle();
 
         if (error) throw error;
         setProfile(data);
@@ -35,6 +41,8 @@ const UserProfilePage = () => {
       fetchProfile();
     }
   }, [userId]);
+
+  const contact = useProfileContact(userId);
 
   if (loading) {
     return (
@@ -71,7 +79,7 @@ const UserProfilePage = () => {
             <div className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-6">
               <div className="h-24 w-24 rounded-full border-4 border-white flex items-center justify-center bg-white/10">
                 <Avatar
-                  src={profile.avatar_url ?? null}
+                  src={avatarUrl || profile.avatar_url || '/default-avatar.svg'}
                   alt={profile.full_name || 'Profile'}
                   size={96}
                   rounded="full"
@@ -79,32 +87,34 @@ const UserProfilePage = () => {
               </div>
               <div className="text-center sm:text-left">
                 <h1 className="text-3xl font-bold">{profile.full_name}</h1>
-                <p className="text-md text-indigo-200">{profile.current_position || 'Position not specified'}</p>
+                <p className="text-md text-indigo-200">{profile.current_job_title || profile.current_position || 'Position not specified'}</p>
               </div>
             </div>
           </div>
           <div className="border-t border-gray-200 px-6 py-5 sm:p-8">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
-            <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
-              <div className="sm:col-span-1">
-                <dt className="text-sm font-medium text-gray-500 flex items-center">
-                  <EnvelopeIcon className="h-5 w-5 mr-2 text-gray-400" />
-                  Email address
-                </dt>
-                <dd className="mt-1 text-sm text-gray-900">{profile.email}</dd>
-              </div>
-              <div className="sm:col-span-1">
-                <dt className="text-sm font-medium text-gray-500 flex items-center">
-                  <MapPinIcon className="h-5 w-5 mr-2 text-gray-400" />
-                  Location
-                </dt>
-                <dd className="mt-1 text-sm text-gray-900">{profile.location || 'Not specified'}</dd>
-              </div>
-               <div className="sm:col-span-2">
-                <dt className="text-sm font-medium text-gray-500">Bio</dt>
-                <dd className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">{profile.bio || 'No bio available.'}</dd>
-              </div>
-            </dl>
+            <div className="space-y-4">
+              {contact.loading ? (
+                <p className="text-sm text-gray-500">Loading contact details...</p>
+              ) : !canViewContact(contact) ? (
+                <LockedContactInfo />
+              ) : (
+                <ContactInfo email={contact.email} phone_number={contact.phone_number} />
+              )}
+              <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
+                <div className="sm:col-span-1">
+                  <dt className="text-sm font-medium text-gray-500 flex items-center">
+                    <MapPinIcon className="h-5 w-5 mr-2 text-gray-400" />
+                    Location
+                  </dt>
+                  <dd className="mt-1 text-sm text-gray-900">{profile.location || 'Not specified'}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-sm font-medium text-gray-500">Bio</dt>
+                  <dd className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">{profile.bio || 'No bio available.'}</dd>
+                </div>
+              </dl>
+            </div>
           </div>
            <div className="border-t border-gray-200 px-6 py-5 sm:p-8">
              <h3 className="text-lg font-semibold text-gray-900 mb-4">Professional Details</h3>

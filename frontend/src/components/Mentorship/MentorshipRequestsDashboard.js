@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 import { Link } from 'react-router-dom';
+import { acceptMentorshipRequest, rejectMentorshipRequest, mapMentorshipError } from '../../services/mentorship';
 
 const MentorshipRequestsDashboard = () => {
   const { user, isAdmin, profile } = useAuth();
@@ -86,17 +87,19 @@ const MentorshipRequestsDashboard = () => {
     setError('');
     setSuccess('');
     try {
-      const updateData = { status };
-      const { error } = await supabase
-        .from('mentorship_requests')
-        .update(updateData)
-        .eq('id', id);
-      if (error) throw error;
+      if (status === 'accepted') {
+        await acceptMentorshipRequest(id);
+      } else if (status === 'rejected') {
+        await rejectMentorshipRequest(id);
+      } else {
+        throw new Error('Invalid status transition');
+      }
       setSuccess(`Request ${status}`);
       fetchRequests();
     } catch (err) {
       console.error('Error updating request:', err);
-      setError('Failed to update request');
+      const mapped = mapMentorshipError(err);
+      setError(mapped.message || 'Failed to update request');
     } finally {
       setActionLoading(false);
     }

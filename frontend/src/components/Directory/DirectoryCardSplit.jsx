@@ -5,7 +5,9 @@ import ConnectionCTA from '../shared/ConnectionCTA';
 import { DegreeChip, BatchChip, DeptChip, CompanyChip, PositionChip } from '../shared/Chips';
 import { SecondaryButton } from '../shared/Buttons';
 import { useAuth } from '../../contexts/AuthContext';
+import { getAccountStatus } from '../../utils/accountStatus';
 import Avatar from '../common/Avatar';
+import { formatBatchLabel } from '../../utils/batchYear';
 
 /**
  * Converts a name to Title Case (non-admin users never see ALL CAPS)
@@ -19,7 +21,7 @@ function toTitleCase(str) {
     .join(' ');
 }
 
-function DirectoryCardSplit({ meId, profile, currentTab = 'all', onChanged }) {
+function DirectoryCardSplit({ meId, profile, avatarUrl, currentTab = 'all', onChanged }) {
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
   const rel = useMemo(() => profile?.rel || { status: null, pending_side: null }, [profile?.rel]);
@@ -51,7 +53,8 @@ function DirectoryCardSplit({ meId, profile, currentTab = 'all', onChanged }) {
 
   const company = profile.company_name ?? profile.current_company ?? profile.company ?? null;
   const position = profile.current_job_title ?? profile.current_title ?? profile.job_title ?? null;
-  const batch = profile.graduation_year ?? profile.batch_year ?? profile.batch ?? null;
+  // Use COALESCE logic matching backend view
+  const batch = profile.graduation_year ?? profile.expected_graduation_year ?? profile.batch_year ?? profile.batch ?? null;
 
   const message = () => navigate(`/messages?peer=${profile.id}`);
   const viewProfile = () => navigate(`/directory/${profile.id}`);
@@ -64,10 +67,8 @@ function DirectoryCardSplit({ meId, profile, currentTab = 'all', onChanged }) {
     const last = (profile.last_name || '').trim();
     const combined = `${first} ${last}`.trim();
     if (combined) return toTitleCase(combined);
-    const email = (profile.email || '').trim();
-    if (email) return toTitleCase(email.split('@')[0]);
     return 'Alumni';
-  }, [profile.full_name, profile.first_name, profile.last_name, profile.email]);
+  }, [profile.full_name, profile.first_name, profile.last_name]);
 
   // Admin status badges
   let statusBadge = null;
@@ -80,8 +81,9 @@ function DirectoryCardSplit({ meId, profile, currentTab = 'all', onChanged }) {
       raw.is_deleted !== undefined;
 
     if (hasApprovalFields) {
-      const isDeleted = raw.is_deleted === true;
-      if (isDeleted) {
+      const status = getAccountStatus(raw);
+
+      if (status.code === 'deleted') {
         statusBadge = (
           <span
             className="inline-flex items-center rounded-full bg-red-50 text-red-700 border border-red-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
@@ -90,31 +92,24 @@ function DirectoryCardSplit({ meId, profile, currentTab = 'all', onChanged }) {
             D
           </span>
         );
-      } else {
-        const effectiveApproval =
-          raw.approval_status ||
-          raw.alumni_verification_status ||
-          (raw.is_approved ? 'approved' : 'pending');
-
-        if (effectiveApproval === 'rejected') {
-          statusBadge = (
-            <span
-              className="inline-flex items-center rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
-              title="Rejected profile"
-            >
-              R
-            </span>
-          );
-        } else if (effectiveApproval && effectiveApproval !== 'approved') {
-          statusBadge = (
-            <span
-              className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
-              title="Unapproved profile"
-            >
-              UA
-            </span>
-          );
-        }
+      } else if (status.code === 'rejected') {
+        statusBadge = (
+          <span
+            className="inline-flex items-center rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
+            title="Rejected profile"
+          >
+            R
+          </span>
+        );
+      } else if (status.code === 'pending') {
+        statusBadge = (
+          <span
+            className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
+            title="Unapproved profile"
+          >
+            UA
+          </span>
+        );
       }
     }
   }
@@ -168,7 +163,7 @@ function DirectoryCardSplit({ meId, profile, currentTab = 'all', onChanged }) {
           {/* Smaller avatar: 60px */}
           <div className="relative flex-shrink-0">
             <Avatar
-              src={profile.avatar_url}
+              src={avatarUrl || profile.avatar_url || null}
               alt={`${displayName} profile photo`}
               size={60}
               version={profile?.updated_at}
@@ -191,8 +186,8 @@ function DirectoryCardSplit({ meId, profile, currentTab = 'all', onChanged }) {
             
             {/* Optional secondary line: Batch only */}
             {batch && (
-              <p className="text-xs text-slate-500 mb-1" title={`Batch ${batch}`}>
-                Batch {batch}
+              <p className="text-xs text-slate-500 mb-1" title={formatBatchLabel(batch)}>
+                {formatBatchLabel(batch)}
               </p>
             )}
             

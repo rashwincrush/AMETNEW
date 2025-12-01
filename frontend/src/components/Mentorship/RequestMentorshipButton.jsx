@@ -1,14 +1,21 @@
 import React, { useState } from 'react';
-import { supabase } from '../../utils/supabase';
 import { useApproval } from '../../hooks/useApproval';
-import { handleSupabaseGuardError } from '../../utils/mapSupabaseErrorToToast';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import { useCreateMentorshipRequest } from '../../hooks/useMentorshipMutations';
 
-export default function RequestMentorshipButton({ mentorId, disabled = false, requested = false, requestStatus = null, onSuccess }) {
+export default function RequestMentorshipButton({
+  mentorId,
+  disabled = false,
+  requested = false,
+  requestStatus = null,
+  disabledReason,
+  onSuccess,
+}) {
   const { loading, isApprovedMentee } = useApproval();
   const [busy, setBusy] = useState(false);
   const { user } = useAuth();
+  const createMutation = useCreateMentorshipRequest();
 
   const isOwnerMentor = !!user && !!mentorId && user.id === mentorId;
 
@@ -24,44 +31,21 @@ export default function RequestMentorshipButton({ mentorId, disabled = false, re
     }
     try {
       setBusy(true);
-      const { data: userData } = await supabase.auth.getUser();
-      const uid = userData?.user?.id;
-      if (!uid) return;
-
-      const { error } = await supabase
-        .from('mentorship_requests')
-        .insert({
-          mentor_id: mentorId,
-          mentee_id: uid,
-          status: 'pending',
-        });
-
-      if (error) {
-        const code = error?.code || '';
-        const msg = String(error?.message || '').toLowerCase();
-        
-        if (code === '23505' || msg.includes('duplicate') || msg.includes('already exists')) {
-          toast.error('You have already sent a request to this mentor.');
-        } else if (code === '42501' || msg.includes('permission denied') || msg.includes('rls')) {
-          toast.error('You do not have permission to send this request. Please ensure your profile is approved.');
-        } else if (code === '23503' || msg.includes('foreign key') || msg.includes('not found')) {
-          toast.error('Mentor not found or no longer available.');
-        } else if (msg.includes('not accepting') || msg.includes('unavailable')) {
-          toast.error('This mentor is not currently accepting new mentees.');
-        } else {
-          handleSupabaseGuardError(error);
-        }
-        return;
-      }
+      // RPC handles auth, eligibility, capacity, and duplicate checks server-side
+      await createMutation.mutateAsync({ mentorId });
 
       toast.success('Request sent!');
       // Emit global event so other screens (Mentorship.js) can refresh
-      window.dispatchEvent(new CustomEvent('mentorship:request:created', { detail: { mentorId, menteeId: uid } }));
+      window.dispatchEvent(
+        new CustomEvent('mentorship:request:created', {
+          detail: { mentorId, menteeId: user?.id },
+        })
+      );
       if (typeof onSuccess === 'function') {
-        onSuccess({ mentorId, menteeId: uid });
+        onSuccess({ mentorId, menteeId: user?.id });
       }
     } catch (err) {
-      handleSupabaseGuardError(err);
+      // Error toasts are already handled inside the mutation via mapMentorshipError
     } finally {
       setBusy(false);
     }
@@ -100,7 +84,11 @@ export default function RequestMentorshipButton({ mentorId, disabled = false, re
               ? 'Request accepted'
               : activeStatus === 'pending'
                 ? 'Request pending'
-                : (disabled ? 'This mentor isn’t accepting requests right now.' : 'Request mentorship')
+                : disabled && disabledReason
+                  ? disabledReason
+                  : disabled
+                    ? 'This mentor isn’t accepting requests right now.'
+                    : 'Request mentorship'
         }
         className={`flex-1 btn-ocean py-2 px-3 rounded text-sm ${isDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
       >

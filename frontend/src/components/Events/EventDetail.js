@@ -555,7 +555,15 @@ const EventDetail = () => {
                   <div className="bg-gray-50 p-4 rounded-lg border">
                     <h3 className="font-bold text-lg mb-3">Organizer</h3>
                     <div className="flex items-center gap-3">
-                      <img src={(organizer?.avatar_url) || '/default-avatar.svg'} alt={(organizer?.name) || 'Organizer'} className="w-10 h-10 rounded-full" />
+                      <img
+                        src={(organizer?.avatar_url) || '/default-avatar.svg'}
+                        alt={(organizer?.name) || 'Organizer'}
+                        className="w-10 h-10 rounded-full"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = '/default-avatar.svg';
+                        }}
+                      />
                       <div>
                         {(organizer?.name || event.organizer_name) && <div className="font-medium text-gray-800">{organizer?.name || event.organizer_name}</div>}
                         {organizer?.company_name && <div className="text-sm text-gray-500">{organizer.company_name}</div>}

@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { getAccountStatus } from '../../utils/accountStatus';
 import { Box, Paper, Typography, Avatar, Button, Chip, CircularProgress, Alert, Divider } from '@mui/material';
 
 const AdminMentorApprovals = () => {
@@ -55,7 +56,8 @@ const AdminMentorApprovals = () => {
   const canApproveAlumniQueue = userRole === 'admin' || userRole === 'super_admin';
 
   const renderCard = (row, canApprove) => {
-    const profileApproved = !!(row.applicant?.is_approved || row.applicant?.approval_status === 'approved');
+    const status = row.applicant ? getAccountStatus(row.applicant) : null;
+    const profileApproved = !!status && status.code === 'approved';
     return (
       <Paper key={row.id} sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>

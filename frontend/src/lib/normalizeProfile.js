@@ -5,11 +5,9 @@ export function normalizeProfile(row = {}) {
   const first = safe(row.first_name) || '';
   const last = safe(row.last_name) || '';
   const combined = `${first} ${last}`.trim();
-  const email = safe(row.email) || '';
-
   const full_name = safe(row.full_name)
     || safe(row.name)
-    || (combined || (email ? email.split('@')[0] : 'Alumni'));
+    || (combined || 'Alumni');
 
   return {
     id: row.id,

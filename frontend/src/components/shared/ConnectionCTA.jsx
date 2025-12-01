@@ -3,6 +3,7 @@ import { TextPill } from './Chips';
 import { idempotentConnect, cancelPending, acceptPending, declinePending, removeConnection } from '../../utils/connections';
 import { MessageButton, RemoveButton, primaryButtonClasses } from './Buttons';
 import { Loader2 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 // scope: 'directory' | 'profile'
 // currentTab: 'all' | 'received' | 'sent' | 'connected' (optional outside Directory)
@@ -10,6 +11,10 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
   const [busy, setBusy] = useState(false);
   const [overrideRel, setOverrideRel] = useState(null); // used to force immediate fallback after remove
   const [error, setError] = useState(null);
+
+  // Frontend gating to mirror backend fc_is_fully_approved():
+  // pending / not-fully-approved users can browse but must not initiate new connection requests.
+  const { isFullyApproved, approvalStatus } = useAuth();
 
   const safe = (fn) => async () => {
     if (!meId || !peerId || busy) return;
@@ -77,8 +82,8 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
         <div className="w-full">
           <button
             type="button"
-            onClick={doConnect}
-            disabled={!meId || busy}
+            onClick={isFullyApproved ? doConnect : undefined}
+            disabled={!meId || busy || !isFullyApproved}
             className={`${primaryButtonClasses} w-full min-h-[44px]`}
             aria-label={profileName ? `Connect with ${profileName}` : 'Connect'}
           >
@@ -87,10 +92,21 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 Connecting…
               </span>
+            ) : !isFullyApproved ? (
+              approvalStatus === 'pending'
+                ? 'Pending approval – cannot connect'
+                : 'Cannot connect'
             ) : (
               'Connect'
             )}
           </button>
+          {!isFullyApproved && (
+            <p className="mt-1 text-xs text-amber-700" role="note">
+              {approvalStatus === 'pending'
+                ? 'Your account is pending approval. You can browse but cannot send new connection requests yet.'
+                : 'You are not allowed to send new connection requests.'}
+            </p>
+          )}
           {error && (
             <p className="mt-1 text-xs text-red-600" role="alert">{error}</p>
           )}
@@ -213,12 +229,18 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
 
       {showConnect && (
         <button 
-          onClick={doConnect} 
-          disabled={!meId || busy} 
+          onClick={isFullyApproved ? doConnect : undefined}
+          disabled={!meId || busy || !isFullyApproved}
           className={`${primaryButtonClasses} w-full min-h-[44px]`}
           aria-label={profileName ? `Connect with ${profileName}` : 'Connect'}
         >
-          {busy ? 'Connecting…' : 'Connect'}
+          {busy
+            ? 'Connecting…'
+            : !isFullyApproved
+              ? (approvalStatus === 'pending'
+                  ? 'Pending approval – cannot connect'
+                  : 'Cannot connect')
+              : 'Connect'}
         </button>
       )}
 

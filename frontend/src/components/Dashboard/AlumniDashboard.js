@@ -71,7 +71,7 @@ const formatEventDateTime = (dateString, timeString) => {
 
 const AlumniDashboard = () => {
   const { showInfo } = useNotification();
-  const { user, profile, loading: authLoading, userRole, getUserRole } = useAuth();
+  const { user, profile, loading: authLoading, userRole, getUserRole, approvalStatus: authApprovalStatus, isFullyApproved } = useAuth();
   const { loading: approvalLoading, isPending, approvalStatus, isAdminLike, approvalFlags } = useApproval();
   const location = useLocation();
   const navigate = useNavigate();
@@ -91,8 +91,8 @@ const AlumniDashboard = () => {
   const role = userRole || (profile?.role || (typeof getUserRole === 'function' ? getUserRole() : 'alumni'));
   const isEmployer = role === 'employer';
   const isStudent = role === 'student';
-  const isTrulyPending =
-    approvalFlags?.approvalStatus === 'pending';
+  const effectiveApprovalStatus = authApprovalStatus || approvalFlags?.approvalStatus || approvalStatus;
+  const isTrulyPending = effectiveApprovalStatus === 'pending';
   
   // Recent Activity now fully handled by <ActivitiesWidget />
 
@@ -164,187 +164,37 @@ const AlumniDashboard = () => {
     if (!user?.id) return;
     console.log('AlumniDashboard: fetchDashboardData started.');
     setLoading(true);
-    
-    // Track which data items have been loaded successfully
-    const dataStatus = {
-      eventsCount: false,
-      jobsCount: false,
-      events: false,
-      jobs: false,
-      alumni: false,
-      connections: false
-    };
+
     try {
-      // Fetch each piece of data individually to prevent all-or-nothing failures
-      let dashboardUpdates = {};
-      
-      try {
-        // Fetch approved, non-deleted alumni count from canonical RPC
-        const fetchAlumniCount = async () => {
-          try {
-            const { data, error } = await supabase.rpc('get_alumni_approved_count');
-            if (error) throw error;
-            const count = typeof data === 'number' ? data : 0;
-            return { count, error: null };
-          } catch (err) {
-            console.warn('Alumni count RPC failed, will retry:', err);
-            throw err;
-          }
-        };
+      const { data, error } = await supabase.rpc('get_dashboard_summary_for_user', {
+        p_user_id: user.id,
+      });
 
-        const alumniResult = await promiseWithTimeout(
-          fetchAlumniCount(),
-          20000,
-          3
-        );
+      if (error) {
+        console.error('Error fetching dashboard summary:', error);
+        toast.error('Failed to load dashboard data. Please try again.');
+        return;
+      }
 
-        if (alumniResult && !alumniResult.error) {
-          dashboardUpdates.totalAlumni = alumniResult.count || 0;
-          dataStatus.alumni = true;
-        } else if (alumniResult && alumniResult.error) {
-          console.error('Error in alumni count RPC response:', alumniResult.error);
-        }
-      } catch (error) {
-        console.error('Error fetching alumni count:', error);
-        // Set a fallback value so the UI doesn't break
-        dashboardUpdates.totalAlumni = 0;
-        dataStatus.alumni = true;
+      if (!data) {
+        console.warn('Dashboard summary RPC returned no data');
+        return;
       }
-      
-      // Then fetch connections count
-      try {
-        const connectionsCount = await fetchConnectionsCount(user.id);
-        dashboardUpdates.personalConnections = connectionsCount;
-        dataStatus.connections = true;
-      } catch (error) {
-        console.error('Error fetching connections count:', error);
-        dashboardUpdates.personalConnections = 0;
-      }
-      
-      // Update dashboard with whatever data we have so far
-      if (Object.keys(dashboardUpdates).length > 0) {
-        setDashboardData(prev => ({
-          ...prev,
-          ...dashboardUpdates
-        }));
-      }
-      
-      // Reset for next batch
-      dashboardUpdates = {};
-      
-      // Now try fetching events data
-      try {
-        const today = new Date();
-        const todayStart = today.toISOString();
-        
-        // Get event count with increased timeout and retries
-        const eventsResult = await promiseWithTimeout(
-          supabase.from('events')
-            .select('id, title, start_date, address, event_type, approval_status, is_published')
-            .gte('start_date', todayStart)
-            .eq('is_published', true)
-            .eq('approval_status', 'approved')
-            .order('start_date', { ascending: true }),
-          15000, // Increased from 8000ms to 15000ms
-          2     // Allow up to 2 retries
-        );
-        
-        if (!eventsResult.error) {
-          const rows = eventsResult.data || [];
-          const list = rows.slice(0, 3);
-          dashboardUpdates.upcomingEventsList = list;
-          // Derive the dashboard count from all matching upcoming events; widget shows only the top 3
-          dashboardUpdates.upcomingEventsCount = rows.length;
-          dataStatus.events = true;
-          dataStatus.eventsCount = true;
-        }
-        
-        // Get event list with increased timeout and retries
-        const eventsListResult = { error: eventsResult.error, data: dashboardUpdates.upcomingEventsList || [] };
-        
-        if (!eventsListResult.error) {
-          dashboardUpdates.upcomingEventsList = eventsListResult.data || [];
-          dataStatus.events = true;
-        }
-      } catch (error) {
-        console.error('Error fetching events data:', error);
-      }
-      
-      // Update dashboard with events data
-      if (Object.keys(dashboardUpdates).length > 0) {
-        setDashboardData(prev => ({
-          ...prev,
-          ...dashboardUpdates
-        }));
-      }
-      
-      // Reset for next batch
-      dashboardUpdates = {};
-      
-      // Finally try fetching jobs data
-      try {
-        const today = new Date();
-        const todayStart = today.toISOString();
-        
-        // Get jobs count with increased timeout and retries
-        const jobsResult = await promiseWithTimeout(
-          supabase.rpc('get_jobs_public_v5', {
-            p_search_query: null,
-            p_sort_by: 'created_at',
-            p_sort_order: 'desc',
-            p_limit: 50,
-            p_offset: 0,
-            p_department: null,
-            p_job_type: null,
-            p_experience_level: null,
-            p_location: null,
-            p_industry: null,
-            p_salary_min: null,
-            p_salary_max: null,
-            p_posted_since_days: null,
-          }),
-          15000, // Increased from 8000ms to 15000ms
-          2     // Allow up to 2 retries
-        );
 
-        if (!jobsResult.error) {
-          const rawItems = Array.isArray(jobsResult.data) ? jobsResult.data : (jobsResult.data?.items || []);
-          const totalCount = Array.isArray(jobsResult.data)
-            ? (jobsResult.data?.[0]?.total_count ?? rawItems.length)
-            : (jobsResult.data?.total_count ?? rawItems.length);
-          const jobSlice = rawItems.slice(0, 3);
-          dashboardUpdates.jobRecommendationsList = jobSlice;
-          // Derive the dashboard count from the same RPC used by the public job listing
-          dashboardUpdates.jobOpportunitiesCount = totalCount;
-          dataStatus.jobs = true;
-          dataStatus.jobsCount = true;
-        }
+      const counts = data.counts || {};
 
-        // Get jobs list with increased timeout and retries
-        const jobsListResult = { error: jobsResult.error, data: dashboardUpdates.jobRecommendationsList || [] };
-
-        if (!jobsListResult.error) {
-          dashboardUpdates.jobRecommendationsList = jobsListResult.data || [];
-          dataStatus.jobs = true;
-        }
-      } catch (error) {
-        console.error('Error fetching jobs data:', error);
-      }
-      
-      // Final update with jobs data
-      if (Object.keys(dashboardUpdates).length > 0) {
-        setDashboardData(prev => ({
-          ...prev,
-          ...dashboardUpdates
-        }));
-      }
-      
-      // Log which data was successfully loaded
-      console.log('Dashboard data load status:', dataStatus);
+      setDashboardData(prev => ({
+        ...prev,
+        totalAlumni: counts.total_alumni ?? 0,
+        personalConnections: counts.my_connections ?? 0,
+        upcomingEventsCount: counts.upcoming_events ?? 0,
+        jobOpportunitiesCount: counts.active_jobs ?? 0,
+        unreadMessagesCount: counts.unread_messages ?? 0,
+        upcomingEventsList: Array.isArray(data.upcoming_events_list) ? data.upcoming_events_list : [],
+        jobRecommendationsList: Array.isArray(data.recommended_jobs_list) ? data.recommended_jobs_list : [],
+      }));
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-      
-      // More helpful error messages based on error type
       if (error.message && error.message.includes('timeout')) {
         toast.error('Dashboard data is taking longer than expected to load. Some features may be limited.');
       } else if (error.message && error.message.includes('network')) {
@@ -355,7 +205,7 @@ const AlumniDashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [user?.id, promiseWithTimeout, fetchConnectionsCount]);
+  }, [user?.id]);
 
   const checkEventReminders = useCallback(async (userId) => {
     if (!userId) return;
@@ -458,8 +308,8 @@ const AlumniDashboard = () => {
       <div className="max-w-7xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-800 mb-6">Welcome back, {userName}!</h1>
         
-        {/* Pending Approval Banner */}
-        {!approvalLoading && approvalFlags && userRole !== 'employer' && !isAdminLike && isTrulyPending && (
+        {/* Browse-only banner for pending, not-fully-approved users */}
+        {!approvalLoading && approvalFlags && userRole !== 'employer' && !isAdminLike && isTrulyPending && !isFullyApproved && (
           <div className="mb-6 bg-amber-50 border-l-4 border-amber-400 rounded-lg p-4">
             <div className="flex items-start">
               <div className="flex-shrink-0">
@@ -470,7 +320,7 @@ const AlumniDashboard = () => {
               <div className="ml-3">
                 <h3 className="text-sm font-medium text-amber-800">Account Pending Approval</h3>
                 <div className="mt-2 text-sm text-amber-700">
-                  <p>Your account is currently under review. You can browse jobs, events, and groups, but you won't be able to apply, RSVP, join groups, or comment until your account is approved.</p>
+                  <p>Your account is under review. You can browse jobs, events, alumni, groups, and messages, but actions like applying, RSVPing, joining groups, sending connection requests or messages are disabled until approval.</p>
                   <p className="mt-2">If you have any questions, please contact an administrator.</p>
                 </div>
               </div>
@@ -495,7 +345,9 @@ const AlumniDashboard = () => {
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Total Alumni</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboardData.totalAlumni}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {dashboardData.totalAlumni}
+                  </p>
                 </div>
               </div>
 

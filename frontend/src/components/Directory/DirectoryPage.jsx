@@ -4,9 +4,9 @@ import ChipBar from './ChipBar';
 import DirectoryGrid from './DirectoryGrid';
 import { useConnectionsRealtime } from '../../hooks/useConnectionsRealtime';
 import { FunnelIcon, XMarkIcon } from '@heroicons/react/24/outline';
-import useDirectory from '../../hooks/useDirectory';
 import { useAuth } from '../../contexts/AuthContext';
-import { normalizeProfile } from '../../lib/normalizeProfile';
+import useDirectorySecure from '../../hooks/useDirectorySecure';
+import useRoleCounts from '../../hooks/useRoleCounts';
 
 export default function DirectoryPage() {
   const [me, setMe] = useState(null);
@@ -84,37 +84,24 @@ export default function DirectoryPage() {
     return filtered;
   }, [activeFilter, relMap]);
 
-  // Directory data via RPC-only hook
-  const sortKey = useMemo(() => {
-    const [sf, so] = sortBy.split(',');
-    if (sf === 'full_name' && so === 'asc') return 'name_asc';
-    if (sf === 'full_name' && so === 'desc') return 'name_desc';
-    if (sf === 'graduation_year' && so === 'asc') return 'year_asc';
-    if (sf === 'graduation_year' && so === 'desc') return 'year_desc';
-    return 'name_asc';
-  }, [sortBy]);
-
-  // Role-aware flags from auth; directory data always comes from RPC now
+  // Role-aware flags from auth; directory data always comes from secure RPC now
   const { isAdmin, getUserRole } = useAuth();
   const role = getUserRole ? getUserRole() : 'alumni';
-  const source = 'rpc';
 
-  const { items, total, loading: dirLoading, error: dirError, dataset } = useDirectory({
-    query: debouncedSearch,
-    filters: {
-      graduation_year: filters.graduation_year,
-      department: filters.department,
-      degree_program: filters.degree_program,
-      current_job_title: filters.current_job_title,
-      location: filters.location,
-    },
-    sort: sortKey,
+  // Role-based counts for Alumni / Students / Employers
+  const { displayCounts: roleCounts } = useRoleCounts();
+
+  // Directory data via secure RPC (get_directory_profiles_secure)
+  const {
+    data: secureRows,
+    totalCount,
+    loading: dirLoading,
+    error: dirError,
+  } = useDirectorySecure({
+    search: debouncedSearch,
     page: currentPage,
     pageSize: itemsPerPage,
-    source,
-    // Only admins should fall back to the public view if the RPC fails or returns empty.
-    // Alumni/students must always use the RPC, which enforces approval/visibility rules.
-    adminFallback: isAdmin
+    sortBy,
   });
 
   // Use hook loading directly
@@ -135,48 +122,20 @@ export default function DirectoryPage() {
     return !!(raw.is_employer || raw.role === 'employer');
   }, []);
 
-  // Normalize dataset for consistent fields while preserving the raw row
+  // Base directory rows from secure RPC; attach _raw for admin-only diagnostics
   const base = useMemo(
-    () => (dataset || []).map((row) => {
-      const normalized = normalizeProfile(row);
-      return { ...normalized, _raw: row };
-    }),
-    [dataset]
+    () => (secureRows || []).map((row) => ({ ...row, _raw: row })),
+    [secureRows]
   );
 
-  // Build counts for Alumni, Students, and Employers using canonical rules
-  const alumniCount = useMemo(
-    () =>
-      base.filter(p => {
-        const raw = p._raw || p;
-        return isAlumniProfile(raw);
-      }).length,
-    [base, isAlumniProfile]
-  );
-  const studentsCount = useMemo(
-    () =>
-      base.filter(p => {
-        const raw = p._raw || p;
-        return isStudentProfile(raw);
-      }).length,
-    [base, isStudentProfile]
-  );
-  const employersCount = useMemo(
-    () =>
-      base.filter(p => {
-        const raw = p._raw || p;
-        return isEmployerProfile(raw);
-      }).length,
-    [base, isEmployerProfile]
-  );
-
-  // Counts passed to ChipBar; hide certain counts for non-admin roles per requirements
+  // Counts passed to ChipBar; hide certain counts for non-admin roles per requirements.
+  // Alumni / Students / Employers counts now come from role-aware backend RPCs via useRoleCounts.
   const countsForChips = useMemo(() => {
     const baseCounts = {
       ...counts,
-      alumni: alumniCount,
-      students: studentsCount,
-      employers: employersCount,
+      alumni: roleCounts.alumni,
+      students: roleCounts.students,
+      employers: roleCounts.employers,
     };
 
     if (!isAdmin) {
@@ -192,7 +151,7 @@ export default function DirectoryPage() {
     }
 
     return baseCounts;
-  }, [counts, alumniCount, studentsCount, employersCount, isAdmin, role]);
+  }, [counts, roleCounts.alumni, roleCounts.students, roleCounts.employers, isAdmin, role]);
 
   const loadRels = useCallback(async () => {
     // Relationship states for all others
@@ -276,62 +235,14 @@ export default function DirectoryPage() {
   }, []);
 
   // Merge profiles with relationship state
-  const withRel = useMemo(() => {
-    const parseDegreeDept = (label) => {
-      if (!label || typeof label !== 'string') return { degree_program: null, department: null };
-      // Try to split "DEGREE, Department" or "DEGREE - Department"
-      const byComma = label.split(',').map(s => s.trim());
-      if (byComma.length >= 2) {
-        const degree_program = byComma[0].toUpperCase();
-        const department = byComma.slice(1).join(', ');
-        return { degree_program, department };
-      }
-      const byDash = label.split(' - ').map(s => s.trim());
-      if (byDash.length >= 2) {
-        const degree_program = byDash[0].toUpperCase();
-        const department = byDash.slice(1).join(' - ');
-        return { degree_program, department };
-      }
-      // Fallback: if it matches known codes exactly, treat as degree only
-      const upper = label.toUpperCase();
-      const KNOWN = ['BBA','BCA','BE','BSC','BTECH','MBA','MCA','ME','MSC','MTECH','PHD'];
-      if (KNOWN.includes(upper)) return { degree_program: upper, department: null };
-      return { degree_program: null, department: label };
-    };
-
-    const computeName = (row) => {
-      // Prefer backend-computed full_name
-      if (row.full_name && String(row.full_name).trim().length > 0) return row.full_name;
-      // Some RPCs return `name` instead of `full_name`
-      if (row.name && String(row.name).trim().length > 0) return row.name;
-      const first = (row.first_name || '').trim();
-      const last = (row.last_name || '').trim();
-      const combined = `${first} ${last}`.trim();
-      if (combined) return combined;
-      const email = (row.email || '').trim();
-      if (email) return email.split('@')[0];
-      return 'Alumni';
-    };
-
-    const normalizeProfile = (row) => {
-      const { degree_program, department } = parseDegreeDept(row.degree_department);
-      return {
-        ...row,
-        full_name: computeName(row),
-        // Map fields that DirectoryCard expects
-        current_job_title: row.current_job_title ?? row.current_title ?? row.job_title ?? row.currentPosition ?? null,
-        company_name: row.company_name ?? row.current_company ?? row.company ?? null,
-        location: row.location ?? row.location_label ?? null,
-        degree_program: row.degree_program ?? degree_program ?? null,
-        department: row.department ?? department ?? null,
-        batch: row.batch_year ?? row.graduation_year ?? row.batch ?? null,
-      };
-    };
-    return (base || []).map(p => ({
-      ...normalizeProfile(p),
-      rel: relMap.get(p.id) || { status: null, pending_side: null, edge_ts: null }
-    }));
-  }, [base, relMap]);
+  const withRel = useMemo(
+    () => (base || []).map((p) => ({
+      ...p,
+      // Relationship information from v_directory_connection_states
+      rel: relMap.get(p.id) || { status: null, pending_side: null, edge_ts: null },
+    })),
+    [base, relMap]
+  );
 
   // Priority strip: pending (sent or received), sort by newest edge_ts
   const priority = useMemo(() => {
@@ -357,13 +268,51 @@ export default function DirectoryPage() {
 
   const filtered = useMemo(() => {
     const baseList = activeFilter === 'alumni' ? rest : withRel;
-    return applyFilter(baseList, activeFilter);
-  }, [withRel, rest, activeFilter, applyFilter]);
+    let list = applyFilter(baseList, activeFilter);
 
-  // Derive totals and page slice from filtered results
-  const totalAlumni = filtered.length;
-  const pageStart = Math.max(0, (currentPage - 1) * itemsPerPage);
-  const pageItems = filtered.slice(pageStart, pageStart + itemsPerPage);
+    // Apply UI filters (batch year, department, degree, designation, location)
+    const qYear = filters.graduation_year ? Number(filters.graduation_year) : null;
+    const qDept = (filters.department || '').trim().toLowerCase();
+    const qDegree = (filters.degree_program || '').trim().toLowerCase();
+    const qTitle = (filters.current_job_title || '').trim().toLowerCase();
+    const qLoc = (filters.location || '').trim().toLowerCase();
+
+    if (qYear || qDept || qDegree || qTitle || qLoc) {
+      list = list.filter((p) => {
+        const raw = p._raw || p;
+
+        const yearVal = raw.graduation_year ?? raw.batch_year ?? null;
+        if (qYear !== null && Number(yearVal || 0) !== qYear) return false;
+
+        const deptVal = String(raw.department || '').toLowerCase();
+        if (qDept && !deptVal.includes(qDept)) return false;
+
+        const degreeVal = String(raw.degree_program || raw.degree || '').toLowerCase();
+        if (qDegree && !degreeVal.includes(qDegree)) return false;
+
+        const titleVal = String(raw.current_job_title || raw.current_title || raw.job_title || '').toLowerCase();
+        if (qTitle && !titleVal.includes(qTitle)) return false;
+
+        const locVal = [raw.location, raw.location_city, raw.location_country]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (qLoc && !locVal.includes(qLoc)) return false;
+
+        return true;
+      });
+    }
+
+    return list;
+  }, [withRel, rest, activeFilter, applyFilter, filters.graduation_year, filters.department, filters.degree_program, filters.current_job_title, filters.location]);
+
+  // The secure RPC already applies pagination and sorting via page/pageSize/sortBy;
+  // we only apply client-side filters (batch/department/degree/title/location).
+  const pageItems = filtered;
+  const hasNextPage = base.length >= itemsPerPage;
+  const totalPages = totalCount
+    ? Math.max(1, Math.ceil(totalCount / itemsPerPage))
+    : null;
 
   if (role === 'employer') {
     return (
@@ -557,8 +506,8 @@ export default function DirectoryPage() {
           <DirectoryGrid items={pageItems} meId={me?.id} currentTab={activeFilter} onChanged={reloadRelsAndCounts} loading={loading} />
         )}
         
-        {/* Pagination */}
-        {totalAlumni > itemsPerPage && pageItems.length > 0 && (
+        {/* Pagination: we only know if another page likely exists based on page size */}
+        {pageItems.length > 0 && (
           <div className="mt-10 flex items-center justify-between border-t border-slate-200/60 pt-6 px-2">
             <button
               type="button"
@@ -570,13 +519,16 @@ export default function DirectoryPage() {
               Previous
             </button>
             <div className="text-sm font-semibold text-slate-700">
-              Page <span className="text-lg text-indigo-600 font-bold">{currentPage}</span> of <span className="font-bold">{Math.ceil((totalAlumni || 0) / itemsPerPage)}</span>
+              Page <span className="text-lg text-indigo-600 font-bold">{currentPage}</span>
+              {totalPages && (
+                <span className="ml-1 text-sm text-slate-500">/ {totalPages}</span>
+              )}
             </div>
             <button
               type="button"
               className="min-h-[48px] rounded-xl border-2 border-slate-200 bg-white px-6 py-2.5 text-sm font-semibold text-slate-700 shadow-md hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
               onClick={() => setCurrentPage(p => p + 1)}
-              disabled={currentPage >= Math.ceil((totalAlumni || 0) / itemsPerPage)}
+              disabled={!hasNextPage}
               aria-label="Next page"
             >
               Next

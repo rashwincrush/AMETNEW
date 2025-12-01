@@ -3,12 +3,20 @@ import { Dialog, Transition } from '@headlessui/react';
 import { supabase, createThread } from '../../utils/supabase';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import Avatar from '../common/Avatar';
+import { useAvatars } from '../../hooks/useAvatar';
 
 const NewConversationModal = ({ isOpen, onClose, onConversationStarted }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Fetch avatars for search results
+  const userIds = searchResults.map(u => u.id).filter(Boolean);
+  const { avatarUrls } = useAvatars(userIds, {
+    useSignedUrls: true,
+    autoFetch: userIds.length > 0,
+  });
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -117,7 +125,7 @@ const NewConversationModal = ({ isOpen, onClose, onConversationStarted }) => {
                         className="flex items-center p-2 rounded-md hover:bg-gray-100 cursor-pointer"
                       >
                         <Avatar
-                          src={user.avatar_url ?? null}
+                          src={avatarUrls[user.id] || user.avatar_url || null}
                           alt={user.full_name || 'User'}
                           size={40}
                           rounded="full"

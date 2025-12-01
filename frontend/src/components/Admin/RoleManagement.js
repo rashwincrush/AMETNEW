@@ -61,6 +61,7 @@ const RoleManagement = () => {
     fetchData();
   }, []);
 
+  // ADMIN-ONLY: Email is intentionally used here for searching/filtering users in role management.
   const filteredUsers = users.filter(user => {
     if (searchQuery && 
         !`${user.first_name || ''} ${user.last_name || ''}`.toLowerCase().includes(searchQuery.toLowerCase()) && 
@@ -191,6 +192,14 @@ const RoleManagement = () => {
             <div className="mt-3 p-3 rounded-md bg-blue-50 text-blue-800 border border-blue-200">
               <p className="text-sm"><strong>Note:</strong> Mentors are approved in <span className="font-semibold">Admin → Mentors</span>. This page manages account roles only.</p>
             </div>
+            <div className="mt-3 p-3 rounded-md bg-yellow-50 text-yellow-800 border border-yellow-200">
+              <p className="text-sm">
+                <strong>Heads up:</strong> The primary place to review and manage users is now
+                {' '}
+                <span className="font-semibold">Admin Settings → Users</span>.
+                This legacy Role Management page focuses on direct role changes only.
+              </p>
+            </div>
           </div>
           <div className="flex flex-col md:flex-row gap-4 mb-6">
             <div className="relative flex-1">
@@ -256,6 +265,7 @@ const RoleManagement = () => {
                         <div className="flex items-center">
                           <div className="ml-4">
                             <div className="text-sm font-medium text-gray-900">{user.first_name} {user.last_name}</div>
+                            {/* ADMIN-ONLY: Email is intentionally displayed here for moderation / user management. */}
                             <div className="text-sm text-gray-500">{user.email}</div>
                           </div>
                         </div>

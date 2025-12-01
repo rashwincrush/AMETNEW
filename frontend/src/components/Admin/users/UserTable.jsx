@@ -1,0 +1,451 @@
+import React, { useState } from 'react';
+import Avatar from '../../common/Avatar';
+import { getAccountStatus, ACCOUNT_STATUS_META } from '../../../utils/accountStatus';
+import {
+  UsersIcon,
+  MapPinIcon,
+  EyeIcon,
+  PencilIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  ExclamationTriangleIcon,
+  DocumentArrowDownIcon,
+  DocumentArrowUpIcon,
+  TrashIcon,
+  EllipsisVerticalIcon,
+  AcademicCapIcon,
+  UserGroupIcon,
+} from '@heroicons/react/24/outline';
+
+const ROLE_MAPPINGS = {
+  alumni: 'Alumni',
+  mentor: 'Mentor',
+  employer: 'Employer',
+  mentee_student: 'Mentee/Student',
+  student: 'Mentee/Student',
+  admin: 'Admin',
+  super_admin: 'Super Admin',
+};
+
+function getRoleBadge(role) {
+  switch (role) {
+    case 'admin':
+    case 'super_admin':
+      return 'bg-purple-100 text-purple-800';
+    case 'mentor':
+      return 'bg-ocean-100 text-ocean-800';
+    case 'employer':
+      return 'bg-indigo-100 text-indigo-800';
+    case 'mentee_student':
+    case 'student':
+      return 'bg-green-100 text-green-800';
+    default:
+      return 'bg-gray-100 text-gray-800';
+  }
+}
+
+function getRoleLabel(role) {
+  return ROLE_MAPPINGS[role] || 'Unknown';
+}
+
+function StatusBadge({ value }) {
+  if (!value) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+        Not set
+      </span>
+    );
+  }
+
+  const normalized = value.toLowerCase();
+  const styles =
+    normalized === 'approved'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      : normalized === 'pending'
+      ? 'bg-amber-50 text-amber-700 border-amber-200'
+      : normalized === 'rejected'
+      ? 'bg-rose-50 text-rose-700 border-rose-200'
+      : 'bg-slate-50 text-slate-700 border-slate-200'; // suspended/other
+
+  const label = normalized.charAt(0).toUpperCase() + normalized.slice(1);
+
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${styles}`}>
+      {label}
+    </span>
+  );
+}
+
+function MentorshipActionsMenu({ user, onMenteeAction, onMentorAction }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  if (!onMenteeAction || !onMentorAction) return null;
+
+  return (
+    <div className="relative">
+      <button
+        title="Mentorship Actions"
+        onClick={() => setIsOpen(!isOpen)}
+        className="inline-flex items-center justify-center w-[40px] h-[40px] rounded-lg text-gray-400 hover:text-ocean-600 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+      >
+        <EllipsisVerticalIcon className="w-4 h-4" />
+      </button>
+      {isOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setIsOpen(false)}
+          />
+          <div className="absolute right-0 z-20 mt-1 w-56 origin-top-right rounded-lg bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+            <div className="py-1">
+              <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b border-gray-100">
+                <div className="flex items-center gap-1">
+                  <AcademicCapIcon className="w-3 h-3" />
+                  Mentee Status
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  onMenteeAction(user.id, 'approved');
+                  setIsOpen(false);
+                }}
+                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+              >
+                <CheckCircleIcon className="w-4 h-4 text-green-600" />
+                Approve as mentee
+              </button>
+              <button
+                onClick={() => {
+                  onMenteeAction(user.id, 'rejected');
+                  setIsOpen(false);
+                }}
+                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+              >
+                <XCircleIcon className="w-4 h-4 text-red-600" />
+                Reject mentee
+              </button>
+              <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b border-t border-gray-100 mt-1">
+                <div className="flex items-center gap-1">
+                  <UserGroupIcon className="w-3 h-3" />
+                  Mentor Status
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  onMentorAction(user.id, 'approved');
+                  setIsOpen(false);
+                }}
+                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+              >
+                <CheckCircleIcon className="w-4 h-4 text-green-600" />
+                Approve as mentor
+              </button>
+              <button
+                onClick={() => {
+                  onMentorAction(user.id, 'rejected');
+                  setIsOpen(false);
+                }}
+                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+              >
+                <XCircleIcon className="w-4 h-4 text-red-600" />
+                Reject mentor
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function UserTable({
+  rows,
+  loading,
+  error,
+  page,
+  pageSize,
+  totalCount,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
+  onView,
+  onEditRole,
+  onApprove,
+  onReject,
+  onToggleActive,
+  onSoftDelete,
+  onPurge,
+  onDeleteAuth,
+  canPurge,
+  canHardDelete,
+  currentUserId,
+  onPageChange,
+  onMenteeAction,
+  onMentorAction,
+}) {
+  const totalPages = totalCount
+    ? Math.max(1, Math.ceil(totalCount / pageSize))
+    : null;
+
+  if (loading && !rows.length) {
+    return (
+      <div className="flex items-center justify-center py-12 text-sm text-gray-500">
+        Loading users...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        Failed to load users. Please try again.
+      </div>
+    );
+  }
+
+  if (!rows.length) {
+    return (
+      <div className="rounded-lg border border-gray-200 bg-white p-8 text-center text-sm text-gray-600">
+        <UsersIcon className="w-8 h-8 mx-auto mb-3 text-gray-400" />
+        <p>No users found for the current filters.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="overflow-x-auto rounded-lg border border-gray-200">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th scope="col" className="relative py-3.5 pl-4 pr-3 text-left sm:pl-6">
+                <input
+                  type="checkbox"
+                  className="absolute left-4 top-1/2 -mt-2 h-4 w-4 rounded border-gray-300 text-ocean-600 focus:ring-ocean-500"
+                  checked={rows.length > 0 && selectedIds.length === rows.length}
+                  onChange={onToggleSelectAll}
+                />
+              </th>
+              <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">
+                User
+              </th>
+              <th scope="col" className="px-4 py-3.5 text-left text-sm font-semibold text-gray-900">
+                Role
+              </th>
+              <th scope="col" className="px-4 py-3.5 text-left text-sm font-semibold text-gray-900">
+                Status
+              </th>
+              <th scope="col" className="px-4 py-3.5 text-left text-sm font-semibold text-gray-900">
+                Mentee Status
+              </th>
+              <th scope="col" className="px-4 py-3.5 text-left text-sm font-semibold text-gray-900">
+                Mentor Status
+              </th>
+              <th scope="col" className="px-4 py-3.5 text-left text-sm font-semibold text-gray-900">
+                Location
+              </th>
+              <th scope="col" className="px-4 py-3.5 text-left text-sm font-semibold text-gray-900">
+                Last Login
+              </th>
+              <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6">
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 bg-white">
+            {rows.map((user) => {
+              const selected = selectedIds.includes(user.id);
+              const status = getAccountStatus(user);
+              const statusMeta = ACCOUNT_STATUS_META[status.code] || ACCOUNT_STATUS_META.unknown;
+
+              return (
+                <tr key={user.id} className={selected ? 'bg-ocean-50' : ''}>
+                  <td className="relative py-4 pl-4 pr-3 sm:pl-6">
+                    <input
+                      type="checkbox"
+                      className="absolute left-4 top-1/2 -mt-2 h-4 w-4 rounded border-gray-300 text-ocean-600 focus:ring-ocean-500"
+                      checked={selected}
+                      onChange={() => onToggleSelect(user.id)}
+                    />
+                  </td>
+                  <td className="py-4 pl-4 pr-3 text-sm sm:pl-6">
+                    <div className="flex items-center">
+                      <div className="h-10 w-10 flex-shrink-0 flex items-center justify-center">
+                        <Avatar
+                          src={user.avatar_url ?? null}
+                          alt={user.full_name || 'User'}
+                          size={40}
+                          rounded="full"
+                        />
+                      </div>
+                      <div className="ml-4">
+                        <div className="font-medium text-gray-900">{user.full_name || 'N/A'}</div>
+                        <p className="text-sm text-gray-600">{user.email}</p>
+                        {user.current_position && (
+                          <p className="text-xs text-gray-500">{user.current_position}</p>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-4 px-4">
+                    <span
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleBadge(
+                        user.role
+                      )}`}
+                    >
+                      {getRoleLabel(user.role)}
+                    </span>
+                  </td>
+                  <td className="py-4 px-4">
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${statusMeta.badgeClass}`}
+                    >
+                      {statusMeta.label}
+                    </span>
+                  </td>
+                  <td className="py-4 px-4">
+                    <StatusBadge value={user.mentee_status} />
+                  </td>
+                  <td className="py-4 px-4">
+                    <StatusBadge value={user.mentor_status} />
+                  </td>
+                  <td className="py-4 px-4">
+                    <div className="flex items-center text-sm text-gray-600">
+                      <MapPinIcon className="w-4 h-4 mr-1" />
+                      {user.location || 'N/A'}
+                    </div>
+                  </td>
+                  <td className="py-4 px-4">
+                    <span className="text-sm text-gray-600" title={user.last_sign_in_at || ''}>
+                      {user.last_sign_in_at
+                        ? new Date(user.last_sign_in_at).toLocaleString()
+                        : 'N/A'}
+                    </span>
+                  </td>
+                  <td className="py-4 px-4">
+                    <div className="flex items-center space-x-2">
+                      <button
+                        title="View Details"
+                        onClick={() => onView(user)}
+                        className="inline-flex items-center justify-center w-[40px] h-[40px] rounded-lg text-gray-400 hover:text-ocean-600 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                      >
+                        <EyeIcon className="w-4 h-4" />
+                      </button>
+                      <button
+                        title="Edit Role"
+                        onClick={() => onEditRole(user)}
+                        className="inline-flex items-center justify-center w-[40px] h-[40px] rounded-lg text-gray-400 hover:text-ocean-600 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                      >
+                        <PencilIcon className="w-4 h-4" />
+                      </button>
+                      <MentorshipActionsMenu
+                        user={user}
+                        onMenteeAction={onMenteeAction}
+                        onMentorAction={onMentorAction}
+                      />
+                      <button
+                        title={status.code === 'approved' ? 'Already approved' : 'Approve User'}
+                        disabled={status.code === 'approved'}
+                        onClick={() => onApprove(user)}
+                        className={`inline-flex items-center justify-center w-[40px] h-[40px] rounded-lg ${
+                          status.code === 'approved'
+                            ? 'text-green-300 cursor-not-allowed'
+                            : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
+                        } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
+                      >
+                        <CheckCircleIcon className="w-4 h-4" />
+                      </button>
+                      <button
+                        title={status.code === 'rejected' ? 'Already rejected' : 'Reject User'}
+                        disabled={status.code === 'rejected'}
+                        onClick={() => onReject(user)}
+                        className={`inline-flex items-center justify-center w-[40px] h-[40px] rounded-lg ${
+                          status.code === 'rejected'
+                            ? 'text-red-300 cursor-not-allowed'
+                            : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
+                        } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2`}
+                      >
+                        <XCircleIcon className="w-4 h-4" />
+                      </button>
+                      {!user.is_deleted && (
+                        <button
+                          title={user.is_active === false ? 'Unblock User' : 'Block User'}
+                          onClick={() => onToggleActive(user)}
+                          className="inline-flex items-center justify-center w-[40px] h-[40px] rounded-lg text-gray-400 hover:text-orange-600 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                        >
+                          <ExclamationTriangleIcon className="w-4 h-4" />
+                        </button>
+                      )}
+                      {user.id !== currentUserId && (
+                        <>
+                          {user.is_deleted && canPurge && (
+                            <button
+                              title="Purge User Data"
+                              onClick={() => onPurge(user)}
+                              className="inline-flex items-center justify-center w-[40px] h-[40px] rounded-lg text-gray-400 hover:text-red-800 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                            >
+                              <DocumentArrowDownIcon className="w-4 h-4" />
+                            </button>
+                          )}
+                          {user.is_deleted && canHardDelete && (
+                            <button
+                              title="Delete Auth User"
+                              onClick={() => onDeleteAuth(user)}
+                              className="inline-flex items-center justify-center w-[40px] h-[40px] rounded-lg text-gray-400 hover:text-red-900 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                            >
+                              <DocumentArrowUpIcon className="w-4 h-4" />
+                            </button>
+                          )}
+                          {!user.is_deleted && (
+                            <button
+                              title="Soft Delete User"
+                              onClick={() => onSoftDelete(user)}
+                              className="inline-flex items-center justify-center w-[40px] h-[40px] rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                            >
+                              <TrashIcon className="w-4 h-4" />
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-2">
+        <p className="text-sm text-gray-600">
+          Page <span className="font-medium">{page}</span>
+          {totalPages && (
+            <>
+              <span className="mx-1">/</span>
+              <span className="font-medium">{totalPages}</span>
+            </>
+          )}
+          {typeof totalCount === 'number' && (
+            <span className="ml-2 text-gray-500">• {totalCount} total</span>
+          )}
+        </p>
+        <div className="flex space-x-2">
+          <button
+            onClick={() => onPageChange(Math.max(1, page - 1))}
+            disabled={page === 1}
+            className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+          >
+            Previous
+          </button>
+          <button
+            onClick={() => onPageChange(page + 1)}
+            disabled={totalPages && page >= totalPages}
+            className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

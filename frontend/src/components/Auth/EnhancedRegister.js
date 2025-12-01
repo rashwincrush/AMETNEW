@@ -13,6 +13,12 @@ import { validatePassword } from '../../utils/passwordPolicy';
 import DegreeSelect from '../academics/DegreeSelect';
 import DepartmentSelect from '../academics/DepartmentSelect';
 import { useAcademicsCatalog } from '../../hooks/useAcademicsCatalog';
+import { 
+  validateBatchYear, 
+  getBatchYearLabel, 
+  getBatchYearPlaceholder,
+  getProfileYearWriteFields 
+} from '../../utils/batchYear';
 
 const EnhancedRegister = () => {
   const navigate = useNavigate();
@@ -522,12 +528,10 @@ const EnhancedRegister = () => {
     else if (stepToValidate === 2) {
       // Role-specific required fields to eliminate onboarding
       if (formData.primaryRole === 'alumni') {
-        const yr = Number(formData.graduationYear);
-        const current = new Date().getFullYear() + 1;
-        if (!formData.graduationYear || Number.isNaN(yr)) {
-          newErrors.graduationYear = 'Graduation year is required.';
-        } else if (yr < 1950 || yr > current) {
-          newErrors.graduationYear = `Graduation year must be between 1950 and ${current}.`;
+        // Use centralized validation
+        const yearValidation = validateBatchYear(formData.graduationYear, 'alumni');
+        if (!yearValidation.isValid) {
+          newErrors.graduationYear = yearValidation.error;
         }
         if (!formData.degree_code) {
           newErrors.degree_code = 'Please select your degree.';
@@ -546,8 +550,10 @@ const EnhancedRegister = () => {
         }
       }
       if (formData.primaryRole === 'student') {
-        if (!formData.expectedGraduationYear || isNaN(Number(formData.expectedGraduationYear))) {
-          newErrors.expectedGraduationYear = 'Expected graduation year is required.';
+        // Use centralized validation
+        const yearValidation = validateBatchYear(formData.expectedGraduationYear, 'student');
+        if (!yearValidation.isValid) {
+          newErrors.expectedGraduationYear = yearValidation.error;
         }
         if (!formData.degree_code) {
           newErrors.degree_code = 'Please select your degree.';
@@ -650,11 +656,17 @@ const EnhancedRegister = () => {
       }
 
       // Stage-2 payload mapped to profile columns (avatar omitted intentionally)
+      // Use centralized helper to determine which year fields to write
+      const yearValue = selectedRole === 'student' 
+        ? formData.expectedGraduationYear 
+        : formData.graduationYear;
+      const yearFields = getProfileYearWriteFields(selectedRole, yearValue);
+      
       const stage2 = {
         first_name: formData.firstName.trim(),
         last_name: formData.lastName.trim(),
         phone: normalizePhoneForDb(formData.phone),
-        graduation_year: (selectedRole === 'alumni') ? Number(formData.graduationYear) : null,
+        ...yearFields, // Apply graduation_year and/or expected_graduation_year
         degree_code: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.degree_code || null) : null,
         department_id: (selectedRole === 'alumni' || selectedRole === 'student') ? (formData.department_id || null) : null,
         company_name: formData.companyName?.trim() || null,
@@ -664,7 +676,6 @@ const EnhancedRegister = () => {
       };
 
       if (selectedRole === 'student') {
-        stage2.expected_graduation_year = Number(formData.expectedGraduationYear) || null;
         stage2.student_id = formData.studentId?.trim() || null;
       }
       if (selectedRole === 'employer') {
@@ -704,6 +715,12 @@ const EnhancedRegister = () => {
       // Session present immediately → single write to public.profiles
       const isAlumni = selectedRole === 'alumni';
       const isStudent = selectedRole === 'student';
+      const isEmployerRole = selectedRole === 'employer';
+      
+      // Use centralized helper for year fields
+      const yearValueForUpsert = isStudent ? formData.expectedGraduationYear : formData.graduationYear;
+      const yearFieldsForUpsert = getProfileYearWriteFields(selectedRole, yearValueForUpsert);
+      
       const profilePayloadRaw = {
         id: hydratedUser.id,
         email: hydratedUser.email?.toLowerCase() || formData.email.trim().toLowerCase(),
@@ -712,16 +729,15 @@ const EnhancedRegister = () => {
         phone: normalizePhoneForDb(formData.phone),
         role: selectedRole,
         location: formData.currentLocation?.trim() || formData.location?.trim() || null,
-        graduation_year: isAlumni ? (Number(formData.graduationYear) || null) : null,
+        ...yearFieldsForUpsert, // Apply graduation_year and/or expected_graduation_year
         degree_code: (isAlumni || isStudent) ? (formData.degree_code || null) : null,
         department_id: (isAlumni || isStudent) ? (formData.department_id || null) : null,
-        expected_graduation_year: isStudent ? (Number(formData.expectedGraduationYear) || null) : null,
         student_id: isStudent ? (formData.studentId?.trim() || null) : null,
-        company_name: (isAlumni || isEmployer) ? (formData.companyName?.trim() || null) : null,
-        current_job_title: (isAlumni || isEmployer) ? (formData.jobTitle?.trim() || null) : null,
-        industry: isEmployer ? (formData.industry?.trim() || null) : null,
-        company_size: isEmployer ? (formData.companySize || null) : null,
-        company_website: isEmployer ? (formData.companyWebsite?.trim() || null) : null,
+        company_name: (isAlumni || isEmployerRole) ? (formData.companyName?.trim() || null) : null,
+        current_job_title: (isAlumni || isEmployerRole) ? (formData.jobTitle?.trim() || null) : null,
+        industry: isEmployerRole ? (formData.industry?.trim() || null) : null,
+        company_size: isEmployerRole ? (formData.companySize || null) : null,
+        company_website: isEmployerRole ? (formData.companyWebsite?.trim() || null) : null,
         // Optional registration fields persisted into profile so they appear in Edit Profile
         about: formData.bio?.trim() || null,
         experience: formData.experienceYears && String(formData.experienceYears).trim()

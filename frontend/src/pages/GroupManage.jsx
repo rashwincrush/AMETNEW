@@ -22,6 +22,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { canManageGroup } from '../utils/acl';
 import { getFriendlyErrorMessage } from '../utils/errors';
 import { ROLE_LABELS } from '../utils/roles';
+import { useAvatars } from '../hooks/useAvatar';
 
 export default function GroupManage() {
   const { id } = useParams();
@@ -31,6 +32,11 @@ export default function GroupManage() {
   const [saving, setSaving] = useState(false);
   const [group, setGroup] = useState(null);
   const [members, setMembers] = useState([]);
+  const memberUserIds = members.map((m) => m.user?.id).filter(Boolean);
+  const { avatarUrls } = useAvatars(memberUserIds, {
+    useSignedUrls: true,
+    autoFetch: memberUserIds.length > 0,
+  });
   const [isSiteAdmin, setIsSiteAdmin] = useState(false);
   const [isGroupAdmin, setIsGroupAdmin] = useState(false);
   const [authorized, setAuthorized] = useState(false);
@@ -380,7 +386,15 @@ export default function GroupManage() {
               {pending.map((p) => (
                 <div key={p.user_id} className="flex items-center justify-between border rounded p-3">
                   <div className="flex items-center gap-3">
-                    <img src="/default-avatar.png" alt="" className="w-8 h-8 rounded-full" />
+                    <img
+                      src="/default-avatar.svg"
+                      alt=""
+                      className="w-8 h-8 rounded-full"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = '/default-avatar.svg';
+                      }}
+                    />
                     <div>
                       <div className="text-sm font-medium">{p.user_id}</div>
                       <div className="text-xs text-gray-500">Requested at {new Date(p.requested_at).toLocaleString()}</div>
@@ -440,7 +454,15 @@ export default function GroupManage() {
                 <span className="absolute top-2 right-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full flex items-center"><Shield size={12} className="mr-1"/>Admin</span>
               )}
               <div className="flex items-center gap-3">
-                <img src={m.user.avatar_url || '/default-avatar.png'} alt={m.user.full_name} className="w-10 h-10 rounded-full" />
+                <img
+                  src={avatarUrls[m.user.id] || m.user.avatar_url || '/default-avatar.svg'}
+                  alt={m.user.full_name}
+                  className="w-10 h-10 rounded-full"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.src = '/default-avatar.svg';
+                  }}
+                />
                 <div>
                   <div className="font-medium">{m.user.full_name}</div>
                   <div className="text-xs text-gray-500">

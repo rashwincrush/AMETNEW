@@ -71,9 +71,18 @@ const JobDetails = () => {
         const row = Array.isArray(data) ? data[0] : data;
 
         if (row) {
-          // Process data to ensure arrays are handled properly
+          // Process data to ensure arrays and new RPC fields are handled properly
           const processedData = {
             ...row,
+            // New/normalized fields from get_job_details
+            location: row.location ?? null,
+            job_type: row.job_type ?? row.jobType ?? null,
+            department: row.department ?? null,
+            experience_level: row.experience_level ?? null,
+            industry: row.industry ?? null,
+            status: row.status ?? null,
+            salary_display_inr: row.salary_display_inr ?? row.salaryDisplayInr ?? null,
+            // Array conversions
             requirements: convertToArray(row.requirements),
             responsibilities: convertToArray(row.responsibilities),
             preferredQualifications: convertToArray(row.preferredQualifications),

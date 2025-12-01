@@ -28,21 +28,30 @@ const Avatar = ({
 }) => {
   const [imageState, setImageState] = useState('loading'); // 'loading' | 'loaded' | 'error'
   const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false);
+  const [showSkeleton, setShowSkeleton] = useState(true);
+  const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   
   const sizeClasses = getAvatarSizeClasses(size);
   const roundedClass = getRoundedClass(rounded, square);
   const initials = getInitials(alt);
-  const imageUrl = version ? getCacheBustedUrl(src, version) : src;
+  const rawSrc = src && typeof src === 'string' ? src.trim() : src;
+  const imageUrl = version ? getCacheBustedUrl(rawSrc, version) : rawSrc;
   
   // Reset state when src changes
   useEffect(() => {
-    if (src) {
+    if (rawSrc) {
       setImageState('loading');
       setHasAttemptedLoad(false);
+      setShowSkeleton(true);
+      
+      // Hide skeleton after 500ms to comply with WCAG 2.2.2 (no auto-play animations >5s)
+      const timer = setTimeout(() => setShowSkeleton(false), 500);
+      return () => clearTimeout(timer);
     } else {
       setImageState('error');
+      setShowSkeleton(false);
     }
-  }, [src]);
+  }, [rawSrc]);
   
   const handleImageLoad = () => {
     setImageState('loaded');
@@ -54,6 +63,15 @@ const Avatar = ({
     if (!hasAttemptedLoad) {
       setHasAttemptedLoad(true);
       setImageState('error');
+
+      if (
+        process.env.NODE_ENV === 'development' &&
+        typeof rawSrc === 'string' &&
+        rawSrc.includes('/storage/v1/object/public/avatars/')
+      ) {
+        // eslint-disable-next-line no-console
+        console.warn('[Avatar] image load failed for Supabase avatar URL', rawSrc);
+      }
     }
   };
   
@@ -77,16 +95,17 @@ const Avatar = ({
       role="img"
       aria-label={alt}
     >
-      {/* Loading skeleton */}
-      {imageState === 'loading' && src && (
+      {/* Loading skeleton - only show for first 500ms and if motion not reduced */}
+      {imageState === 'loading' && rawSrc && showSkeleton && !prefersReducedMotion && (
         <div 
           className={`absolute inset-0 ${roundedClass} bg-slate-200 animate-pulse`}
           aria-hidden="true"
+          data-testid="avatar-skeleton"
         />
       )}
       
       {/* Image */}
-      {src && imageState !== 'error' && (
+      {rawSrc && imageState !== 'error' && (
         <img
           src={imageUrl}
           alt={alt}
@@ -106,8 +125,8 @@ const Avatar = ({
         />
       )}
       
-      {/* Initials fallback */}
-      {(!src || imageState === 'error' || imageState === 'loading') && (
+      {/* Initials fallback - show only when no src or after an actual image error */}
+      {(!src || imageState === 'error') && (
         <div 
           className={`
             ${sizeClasses.container}
@@ -122,6 +141,8 @@ const Avatar = ({
             font-semibold
             ${sizeClasses.text}
           `.trim().replace(/\s+/g, ' ')}
+          data-testid="avatar-initials"
+          aria-label={`${alt} (initials)`}
         >
           {initials}
         </div>

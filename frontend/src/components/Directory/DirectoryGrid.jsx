@@ -1,5 +1,6 @@
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import DirectoryCardSplit from './DirectoryCardSplit';
+import { useAvatars } from '../../hooks/useAvatar';
 
 function DirectoryGrid({ items = [], meId, currentTab = 'all', onChanged, compact = false, loading = false }) {
   const Skeleton = () => (
@@ -41,7 +42,20 @@ function DirectoryGrid({ items = [], meId, currentTab = 'all', onChanged, compac
     </div>
   );
 
-  if (loading) {
+  // Memoize ids array to prevent useAvatars from refetching on every render
+  const ids = useMemo(
+    () => Array.isArray(items) ? items.map((p) => p.id).filter(Boolean) : [],
+    [items]
+  );
+  
+  const { avatarUrls, loading: avatarsLoading } = useAvatars(ids, {
+    useSignedUrls: true,
+    autoFetch: ids.length > 0,
+  });
+
+  const isLoading = loading || avatarsLoading;
+
+  if (isLoading) {
     const count = Math.max(6, items.length || 0);
     return (
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" role="status" aria-label="Loading alumni profiles">
@@ -81,6 +95,7 @@ function DirectoryGrid({ items = [], meId, currentTab = 'all', onChanged, compac
         <DirectoryCardSplit
           key={profile.id}
           profile={profile}
+          avatarUrl={avatarUrls[profile.id] || null}
           meId={meId}
           currentTab={currentTab}
           onChanged={onChanged}

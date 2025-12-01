@@ -6,6 +6,7 @@ import { saveOnboardingDraft, loadOnboardingDraft, clearOnboardingDraft } from '
 import { sanitizeProfilePayload } from '../../utils/payload';
 import { useDegreePrograms } from '../../hooks/useDegreePrograms';
 import { useDepartments } from '../../hooks/useDepartments';
+import AvatarService from '../../services/avatar';
 
 export default function OnboardingForm() {
   const navigate = useNavigate();
@@ -125,11 +126,8 @@ export default function OnboardingForm() {
   const uploadAvatarIfAny = async () => {
     if (!form.avatar_file) return form.prefill_avatar_url || null;
     const file = form.avatar_file;
-    const path = `${user.id}/${Date.now()}_${file.name}`;
-    const { error: upErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: false });
-    if (upErr) throw upErr;
-    const { data } = supabase.storage.from('avatars').getPublicUrl(path);
-    return data?.publicUrl || null;
+    const { publicUrl } = await AvatarService.uploadAvatar(file);
+    return publicUrl || form.prefill_avatar_url || null;
   };
 
   const onSubmit = async (e) => {
@@ -140,7 +138,7 @@ export default function OnboardingForm() {
     setSaving(true);
     setStatus({ state: 'saving' });
     try {
-      const avatar_url = await uploadAvatarIfAny();
+      await uploadAvatarIfAny();
       // Build minimal payload for profile UPDATE (do not include id/email)
       const rawPayload = {
         first_name: form.first_name,
@@ -152,7 +150,6 @@ export default function OnboardingForm() {
         company_name: form.company_name,
         current_job_title: form.current_job_title,
         location: form.location,
-        ...(avatar_url ? { avatar_url } : {}),
       };
       const payload = sanitizeProfilePayload(rawPayload);
       // Ensure we have an authenticated user ID before writing; if not, persist draft and ask for email confirmation

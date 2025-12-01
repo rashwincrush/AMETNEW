@@ -16,9 +16,8 @@ export async function ensureDmThreadWith(otherUserId) {
 
   const run = async () => {
     const call = async () => {
-      const { data, error } = await supabase.rpc('get_or_create_dm_thread', {
-        p_user1: me,
-        p_user2: otherUserId,
+      const { data, error } = await supabase.rpc('ensure_dm_thread_with', {
+        p_other: otherUserId,
       });
       if (error) throw error;
       if (!isUuid(data)) throw new Error('bad-thread-id');
@@ -74,12 +73,48 @@ export async function fetchMyThreads() {
   return data || [];
 }
 
-export async function fetchThreadMessages(threadId) {
-  const { data, error } = await supabase
+export async function findMyThreadById(threadId) {
+  if (!threadId) return null;
+  const threads = await fetchMyThreads();
+  return (threads || []).find((t) => String(t.thread_id) === String(threadId)) || null;
+}
+
+export async function findMyThreadByOtherUserId(otherUserId) {
+  if (!otherUserId) return null;
+  const threads = await fetchMyThreads();
+  return (threads || []).find((t) => String(t.other_user_id) === String(otherUserId)) || null;
+}
+
+export function mapDmErrorToMessage(error) {
+  const fallback = 'Something went wrong while sending your message. Please try again.';
+  if (!error) return fallback;
+  const msg = String(error.message || '').toLowerCase();
+
+  if (msg.includes('not a participant')) {
+    return 'You cannot send messages in this conversation.';
+  }
+  if (msg.includes('are_connected') || msg.includes('connection required')) {
+    return 'You must be connected to this user to send messages.';
+  }
+  if (msg.includes('fully approved')) {
+    return 'Your account must be approved before you can send messages.';
+  }
+
+  return fallback;
+}
+
+export async function fetchThreadMessages(threadId, options = {}) {
+  const { since } = options || {};
+  let query = supabase
     .from('dm_messages')
     .select('id, thread_id, sender_id, body, created_at, client_id')
-    .eq('thread_id', threadId)
-    .order('created_at', { ascending: true });
+    .eq('thread_id', threadId);
+
+  if (since) {
+    query = query.gte('created_at', since);
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: true });
   if (error) throw error;
   return data || [];
 }

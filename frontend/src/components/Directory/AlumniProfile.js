@@ -1,13 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
-  EnvelopeIcon,
-  PhoneIcon,
   MapPinIcon,
   BriefcaseIcon,
   AcademicCapIcon,
   LinkIcon,
-  
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
 import { StarIcon } from '@heroicons/react/24/solid';
@@ -19,6 +16,11 @@ import MentorContactPanel from '../Mentorship/MentorContactPanel';
 import Avatar from '../common/Avatar';
 import { useAcademicsCatalog } from '../../hooks/useAcademicsCatalog';
 import { loadProfileSocialLinks } from '../../services/socialLinks';
+import useProfileContact from '../../hooks/useProfileContact';
+import { canViewContact } from '../../utils/contactPermissions';
+import LockedContactInfo from './LockedContactInfo';
+import ContactInfo from './ContactInfo';
+import { formatBatchLabel } from '../../utils/batchYear';
 
 const AchievementCard = ({ achievement }) => (
   <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-300">
@@ -46,6 +48,7 @@ const AlumniProfile = () => {
   const { getUserRole } = useAuth();
   const role = getUserRole?.();
   const { degrees, groups } = useAcademicsCatalog();
+  const contact = useProfileContact(alumnus?.id);
   
   useEffect(() => {
     const getCurrentUser = async () => {
@@ -57,150 +60,78 @@ const AlumniProfile = () => {
     getCurrentUser();
 
     const fetchAlumnusData = async () => {
-      if (!id || !role) return;
+      if (!id) return;
 
       setLoading(true);
       setError(null);
 
       try {
-        let data = null;
-        let supabaseError = null;
-        if (role === 'student') {
-          // Load from public view (no PII)
-          const res = await supabase
-            .from('alumni_directory_public')
-            .select('*')
-            .eq('id', id)
-            .single();
-          data = res.data;
-          supabaseError = res.error;
-        } else {
-          const res = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', id)
-            .single();
-          data = res.data;
-          supabaseError = res.error;
-          if (supabaseError || !data) {
-            const code = supabaseError?.code || '';
-            const msg = supabaseError?.message || '';
-            const isNoRow = code === 'PGRST116' || /no row/i.test(msg);
-            if (isNoRow) {
-              const pub = await supabase
-                .from('alumni_directory_public')
-                .select('*')
-                .eq('id', id)
-                .maybeSingle();
-              if (!pub.error && pub.data) {
-                data = pub.data;
-                supabaseError = null;
-                // Treat as student-safe view for transformation below
-                // by overriding role locally
-                // eslint-disable-next-line no-var
-                var _usePublicTransform = true;
-              }
-            }
-          }
-        }
+        const { data, error: supabaseError } = await supabase
+          .from('directory_profiles_public')
+          .select('*')
+          .eq('id', id)
+          .maybeSingle();
 
-        if (supabaseError) {
-          if (supabaseError.code === 'PGRST116') {
-             setError("This profile isn’t publicly visible.");
-          } else {
-             setError("This profile isn’t publicly visible.");
+        if (supabaseError || !data) {
+          setError('This profile isn’t publicly visible.');
+          if (supabaseError) {
+            console.error('Error fetching alumni from directory_profiles_public:', supabaseError);
           }
-          console.error('Error fetching alumni:', supabaseError);
           return;
         }
 
-        if (!data) {
-          setError("This profile isn’t publicly visible.");
-          return;
-        }
+        console.log('Fetched alumni from directory_profiles_public:', data);
 
-        console.log('Fetched alumni from Supabase:', data);
+        const city = data.location_city || '';
+        const country = data.location_country || '';
+        const location =
+          data.location ||
+          [city, country].filter(Boolean).join(', ') ||
+          'Not specified';
 
-        // Transform to a normalized alumnus object
-        if (role === 'student' || typeof _usePublicTransform !== 'undefined') {
-          const city = data.location_city || '';
-          const country = data.location_country || '';
-          const transformed = {
-            id: data.id,
-            name: data.full_name || 'Unknown',
-            email: '',
-            phone: '',
-            graduationYear: data.graduation_year ?? 'Not specified',
-            degreeLabel: data.degree_program ?? 'Not specified',
-            departmentLabel: data.department ?? '',
-            currentPosition: data.current_job_title ?? 'Not specified',
-            company: data.company_name ?? 'Not specified',
-            location: [city, country].filter(Boolean).join(', ') || 'Not specified',
-            avatar: data.avatar_url || null,
-            coverImage: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
-            verified: false,
-            joinedDate: '',
-            about: '',
-            experience: [],
-            education: [],
-            skills: [],
-            achievements: typeof data.achievements === 'string' ? [data.achievements] : (Array.isArray(data.achievements) ? data.achievements : []),
-            interests: [],
-            languages: [],
-            socialLinks: {},
-            updated_at: data.updated_at || null,
-          };
-          setAlumnus(transformed);
-        } else {
-          // Private view: fetch social links from canonical view in parallel
-          const socialLinks = await loadProfileSocialLinks(id);
-          // Fallback: if linkedin_url exists on profile row but not in social_links view, include it
-          const mergedSocialLinks = {
-            ...socialLinks,
-            ...(data.linkedin_url && !socialLinks?.linkedin ? { linkedin: data.linkedin_url } : {})
-          };
-          const transformed = {
-            id: data.id,
-            name: data.full_name || `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Unknown',
-            email: '',
-            phone: '',
-            graduationYear: data.graduation_year ?? 'Not specified',
-            degreeLabel: null,
-            departmentLabel: null,
-            currentPosition: data.current_job_title ?? 'Not specified',
-            company: data.company_name ?? 'Not specified',
-            location: data.location ?? 'Not specified',
-            avatar: data.avatar_url || null,
-            coverImage: data.cover_image || 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
-            verified: data.is_verified || false,
-            joinedDate: new Date(data.created_at || Date.now()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-            about: data.about || '',
-            experience: (() => {
-              if (Array.isArray(data.experience)) return data.experience;
-              const hasExperience = data.experience || data.current_job_title || data.company_name;
-              if (!hasExperience) return [];
-              return [
-                {
-                  position: data.current_job_title || '',
-                  company: data.company_name || '',
-                  duration: data.experience || '',
-                  location: data.location || '',
-                  description: '',
-                },
-              ];
-            })(),
-            education: Array.isArray(data.education) ? data.education : [],
-            skills: Array.isArray(data.skills) ? data.skills : [],
-            achievements: Array.isArray(data.achievements) ? data.achievements : [],
-            interests: Array.isArray(data.interests) ? data.interests : [],
-            languages: Array.isArray(data.languages) ? data.languages : [],
-            socialLinks: mergedSocialLinks,
-            updated_at: data.updated_at || null,
-            degree_code: data.degree_code || null,
-            department_id: data.department_id || null,
-          };
-          setAlumnus(transformed);
-        }
+        const nameFromParts = `${(data.first_name || '').trim()} ${(data.last_name || '').trim()}`.trim();
+        const name = (data.full_name || '').trim() || nameFromParts || 'Unknown';
+
+        const transformed = {
+          id: data.id,
+          name,
+          // Use COALESCE logic matching backend view
+          graduationYear: data.graduation_year ?? data.expected_graduation_year ?? data.batch_year ?? null,
+          degreeLabel: data.degree_program ?? null,
+          departmentLabel: data.department ?? null,
+          currentPosition: data.current_job_title ?? data.current_position ?? 'Not specified',
+          company: data.company_name ?? 'Not specified',
+          location,
+          avatar: data.avatar_url || null,
+          coverImage: data.cover_image || 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&h=300&fit=crop',
+          verified: data.is_verified || false,
+          joinedDate: data.created_at
+            ? new Date(data.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+            : '',
+          about: data.about || '',
+          experience: Array.isArray(data.experience) ? data.experience : [],
+          education: Array.isArray(data.education) ? data.education : [],
+          skills: Array.isArray(data.skills) ? data.skills : [],
+          achievements: Array.isArray(data.achievements)
+            ? data.achievements
+            : typeof data.achievements === 'string'
+              ? [data.achievements]
+              : [],
+          interests: Array.isArray(data.interests) ? data.interests : [],
+          languages: Array.isArray(data.languages) ? data.languages : [],
+          socialLinks: {},
+          updated_at: data.updated_at || null,
+          degree_code: data.degree_code || null,
+          department_id: data.department_id || null,
+        };
+
+        const socialLinks = await loadProfileSocialLinks(id);
+        const mergedSocialLinks = {
+          ...socialLinks,
+          ...(data.linkedin_url && !socialLinks?.linkedin ? { linkedin: data.linkedin_url } : {}),
+        };
+
+        setAlumnus({ ...transformed, socialLinks: mergedSocialLinks });
       } catch (err) {
         console.error('An unexpected error occurred:', err);
         setError("This profile isn’t publicly visible.");
@@ -210,7 +141,7 @@ const AlumniProfile = () => {
     };
 
     fetchAlumnusData();
-  }, [id, role]);
+  }, [id]);
 
   // Compute degree/department labels in private view when catalog is ready
   useEffect(() => {
@@ -227,29 +158,6 @@ const AlumniProfile = () => {
     }
     setAlumnus(prev => prev ? { ...prev, degreeLabel, departmentLabel } : prev);
   }, [alumnus?.id, alumnus?.degree_code, alumnus?.department_id, degrees, groups, role]);
-
-  // Enrich contact details via RPC (backend enforces who is allowed to see email/phone)
-  useEffect(() => {
-    if (!alumnus?.id) return;
-    (async () => {
-      try {
-        const { data: contact, error } = await supabase
-          .rpc('get_profile_contact_details', { target_user_id: alumnus.id });
-        if (!error && contact) {
-          const row = Array.isArray(contact) ? contact[0] : contact;
-          if (row) {
-            setAlumnus(prev => ({
-              ...prev,
-              email: row.email || '',
-              phone: row.phone || ''
-            }));
-          }
-        }
-      } catch (e) {
-        console.error('contact rpc error', e);
-      }
-    })();
-  }, [alumnus?.id, role]);
 
   const handleMessage = () => {
     if (!currentUser || !alumnus) return;
@@ -303,7 +211,7 @@ const AlumniProfile = () => {
   const metaChips = [
     alumnus.degreeLabel || (alumnus.degree_code ? String(alumnus.degree_code).toUpperCase() : null),
     alumnus.departmentLabel || null,
-    alumnus.graduationYear ? `Batch ${alumnus.graduationYear}` : null,
+    alumnus.graduationYear ? formatBatchLabel(alumnus.graduationYear) : null,
     alumnus.location && alumnus.location !== 'Not specified' ? alumnus.location : null,
   ].filter(Boolean);
 
@@ -468,41 +376,12 @@ const AlumniProfile = () => {
                     <div className="font-medium">{alumnus.location}</div>
                   </div>
                 </div>
-
-                {alumnus.email && (
-                  <div className="flex items-center">
-                    <EnvelopeIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
-                    <div>
-                      <div className="text-sm text-gray-500">Email</div>
-                      <a
-                        href={`mailto:${alumnus.email}`}
-                        title={alumnus.email}
-                        className="
-                          block font-medium text-sm text-ocean-700 hover:underline
-                          break-all
-                          sm:break-normal sm:max-w-[22ch] sm:truncate
-                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1 rounded
-                        "
-                      >
-                        {alumnus.email}
-                      </a>
-                    </div>
-                  </div>
-                )}
-
-                {alumnus.phone && (
-                  <div className="flex items-center">
-                    <PhoneIcon className="w-6 h-6 mr-4 text-ocean-600" aria-hidden="true" />
-                    <div>
-                      <div className="text-sm text-gray-500">Phone</div>
-                      <a
-                        href={`tel:${alumnus.phone}`}
-                        className="font-medium text-ocean-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1 rounded"
-                      >
-                        {alumnus.phone}
-                      </a>
-                    </div>
-                  </div>
+                {contact.loading ? (
+                  <p className="text-sm text-slate-500">Loading contact details...</p>
+                ) : !canViewContact(contact) ? (
+                  <LockedContactInfo />
+                ) : (
+                  <ContactInfo email={contact.email} phone_number={contact.phone_number} />
                 )}
               </div>
             </div>

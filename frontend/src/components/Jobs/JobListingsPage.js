@@ -19,7 +19,7 @@ import { CalendarIcon } from '@heroicons/react/24/outline';
 import { CircularProgress } from '@mui/material';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { coalesceAppUrl, isQuickLink, getJobLogoUrl, getJobCompanyName, getSourceType, computeJobApplyState } from '../../utils/jobs';
+import { coalesceAppUrl, isQuickLink, getJobLogoUrl, getJobCompanyName, getSourceType, computeJobApplyState, normalizeJob } from '../../utils/jobs';
 import { useApproval } from '../../hooks/useApproval';
 import { getApplicantsCount } from '../../utils/applicants';
 import { requestConnectionForJob } from '../../utils/connections';
@@ -1152,12 +1152,14 @@ const JobListingsPage = () => {
     const { eventType, new: newRecord, old: oldRecord } = payload;
     setJobs(currentJobs => {
       if (eventType === 'INSERT') {
+        const normalized = normalizeJob(newRecord);
         toast('A new job has been posted.', { icon: 'ℹ️' });
-        return [newRecord, ...currentJobs];
+        return [normalized, ...currentJobs];
       }
       if (eventType === 'UPDATE') {
+        const normalized = normalizeJob(newRecord);
         toast('A job listing has been updated.', { icon: 'ℹ️' });
-        return currentJobs.map(job => job.id === newRecord.id ? newRecord : job);
+        return currentJobs.map(job => job.id === normalized.id ? normalized : job);
       }
       if (eventType === 'DELETE') {
         toast('A job listing has been removed.', { icon: 'ℹ️' });

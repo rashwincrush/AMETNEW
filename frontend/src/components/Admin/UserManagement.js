@@ -2,9 +2,11 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import Avatar from '../common/Avatar';
+import { useAvatars } from '../../hooks/useAvatar';
 import { adminUpdateProfileApproval, adminListProfilesForApproval } from '../../api/admin';
 import { isRole } from '../../utils/roles';
 import { changeUserRole } from '../../utils/changeUserRole';
+import { getAccountStatus, ACCOUNT_STATUS_META } from '../../utils/accountStatus';
 import { 
   UsersIcon,
   MagnifyingGlassIcon,
@@ -55,11 +57,14 @@ const UserManagement = () => {
   const canHardDelete = role === 'super_admin';
   const canPurge = role === 'super_admin';
   
-  const softDeleteUser = async (userId) => {
+  const softDeleteUser = async (userId, reason) => {
     setDeletingId(userId);
     setLoading(true);
     try {
-      const { data, error } = await supabase.rpc('admin_soft_delete_user', { target: userId });
+      const { data, error } = await supabase.rpc('admin_soft_delete_user', {
+        target: userId,
+        p_reason: reason || null,
+      });
       if (error) {
         console.error('Soft delete failed:', error);
         toast.error(`Delete failed: ${getFriendlyErrorMessage(error, 'Unable to delete user.')}`);
@@ -232,13 +237,8 @@ const UserManagement = () => {
   };
 
   const getEffectiveStatus = (user) => {
-    if (user.is_deleted) return 'deleted';
-    if (user.is_active === false) return 'blocked';
-    const approval = user.approval_status;
-    if (approval === 'pending') return 'pending';
-    if (approval === 'rejected') return 'rejected';
-    if (approval === 'approved' && user.is_active === true) return 'approved';
-    return approval || 'unknown';
+    const status = getAccountStatus(user);
+    return status.code;
   };
 
   const filteredUsers = useMemo(() => {
@@ -280,38 +280,23 @@ const UserManagement = () => {
     });
   }, [users, searchQuery, filters, selectedTab]);
 
+  const avatarUserIds = Array.from(new Set(
+    (filteredUsers || []).map((u) => u.id).filter(Boolean)
+  ));
+
+  const { avatarUrls } = useAvatars(avatarUserIds, {
+    useSignedUrls: true,
+    autoFetch: avatarUserIds.length > 0,
+  });
+
   const getStatusBadge = (status) => {
-    switch (status) {
-      case 'approved':
-        return 'bg-green-100 text-green-800';
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'rejected':
-        return 'bg-red-100 text-red-800';
-      case 'blocked':
-        return 'bg-orange-100 text-orange-800';
-      case 'deleted':
-        return 'bg-gray-100 text-gray-600';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
+    const meta = ACCOUNT_STATUS_META[status] || ACCOUNT_STATUS_META['unknown'];
+    return meta.badgeClass;
   };
 
   const getStatusLabel = (status) => {
-    switch (status) {
-      case 'approved':
-        return 'Approved';
-      case 'pending':
-        return 'Pending';
-      case 'rejected':
-        return 'Rejected';
-      case 'blocked':
-        return 'Blocked';
-      case 'deleted':
-        return 'Deleted';
-      default:
-        return status || 'N/A';
-    }
+    const meta = ACCOUNT_STATUS_META[status] || ACCOUNT_STATUS_META['unknown'];
+    return meta.label;
   };
  
   // Role mapping utility functions
@@ -444,6 +429,44 @@ const UserManagement = () => {
     }
   };
 
+  const handleToggleActive = async (user) => {
+    // Do not allow toggling deleted users; use soft delete instead
+    if (user.is_deleted) {
+      return;
+    }
+
+    const currentlyActive = user.is_active !== false;
+    const confirmLabel = currentlyActive
+      ? `Block ${user.email || user.full_name || 'this user'}? They will not be able to use the platform.`
+      : `Unblock ${user.email || user.full_name || 'this user'} and allow access again?`;
+
+    const ok = window.confirm(confirmLabel);
+    if (!ok) return;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.rpc('admin_toggle_active', {
+        p_user_id: user.id,
+        p_is_active: !currentlyActive,
+        p_reason: currentlyActive
+          ? 'Blocked from Admin User Management'
+          : 'Unblocked from Admin User Management',
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      await fetchUsers();
+      toast.success(currentlyActive ? 'User has been blocked.' : 'User has been unblocked.');
+    } catch (err) {
+      console.error('Error toggling user active state:', err);
+      toast.error(getFriendlyErrorMessage(err, 'Unable to change user active status.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSaveUser = async (userId, newRole) => {
     const user = users.find((u) => u.id === userId);
     if (!user) {
@@ -502,7 +525,7 @@ const UserManagement = () => {
       }
       setLoading(true);
       const results = await Promise.allSettled(
-        selectedUsers.map(id => softDeleteUser(id))
+        selectedUsers.map(id => softDeleteUser(id, 'Bulk soft delete from User Management'))
       );
       const ok = results.filter(r => r.status === 'fulfilled' && r.value?.success).length;
       const failed = results.length - ok;
@@ -758,7 +781,7 @@ const UserManagement = () => {
                       <div className="flex items-center">
                         <div className="h-10 w-10 flex-shrink-0 flex items-center justify-center">
                           <Avatar
-                            src={user.avatar_url ?? null}
+                            src={avatarUrls[user.id] ?? user.avatar_url ?? null}
                             alt={user.full_name || 'User'}
                             size={40}
                             rounded="full"
@@ -828,6 +851,15 @@ const UserManagement = () => {
                             >
                               <XCircleIcon className="w-4 h-4" />
                             </button>
+                            {!user.is_deleted && (
+                              <button
+                                title={user.is_active === false ? 'Unblock User' : 'Block User'}
+                                onClick={() => handleToggleActive(user)}
+                                className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg text-gray-400 hover:text-orange-600 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                              >
+                                <ExclamationTriangleIcon className="w-4 h-4" />
+                              </button>
+                            )}
                           </>
                         )}
                         {hasPermission('delete:users') && user.id !== currentUser?.id && (
