@@ -3,10 +3,25 @@ import { supabase } from '../../utils/supabase';
 type OrderOpt = { ascending?: boolean };
 type ListOpt = { status?: string | string[]; order?: OrderOpt };
 
+// NOTE: Column names here must match the existing Supabase views used by legacy
+// components (MyMentorship, MentorshipStatus, etc.). Those views already expose
+// denormalized name + avatar fields, so we just select them directly.
+
 export async function fetchMenteeRequests(userId: string, opt: ListOpt = {}) {
   let q = supabase
-    .from('mentorship_requests')
-    .select('id, mentor_id, mentee_id, status, message, goals, created_at')
+    .from('v_my_mentorship_requests')
+    .select(`
+      id,
+      mentor_id,
+      mentee_id,
+      status,
+      message,
+      goals,
+      created_at,
+      relationship_id,
+      mentor_full_name,
+      mentor_avatar
+    `)
     .eq('mentee_id', userId)
     .order('created_at', { ascending: opt.order?.ascending ?? false });
 
@@ -20,8 +35,19 @@ export async function fetchMenteeRequests(userId: string, opt: ListOpt = {}) {
 
 export async function fetchMentorRequests(userId: string, opt: ListOpt = {}) {
   let q = supabase
-    .from('mentorship_requests')
-    .select('id, mentor_id, mentee_id, status, message, goals, created_at')
+    .from('v_my_mentorship_dashboard')
+    .select(`
+      id,
+      mentor_id,
+      mentee_id,
+      status,
+      message,
+      goals,
+      created_at,
+      relationship_id,
+      mentee_full_name,
+      mentee_avatar
+    `)
     .eq('mentor_id', userId)
     .order('created_at', { ascending: opt.order?.ascending ?? false });
 

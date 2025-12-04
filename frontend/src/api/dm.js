@@ -4,7 +4,7 @@ const inflight = new Map();
 const sleep = (n) => new Promise((r) => setTimeout(r, n));
 const isUuid = (s) => !!s && /^[0-9a-f-]{36}$/i.test(s);
 
-export async function ensureDmThreadWith(otherUserId) {
+export async function ensureDmThreadWith(otherUserId, metadata = {}) {
   if (!otherUserId) throw new Error('otherUserId required');
   const { data: userData, error: userErr } = await supabase.auth.getUser();
   if (userErr) throw userErr;
@@ -16,6 +16,10 @@ export async function ensureDmThreadWith(otherUserId) {
 
   const run = async () => {
     const call = async () => {
+      // NOTE: The Supabase function ensure_dm_thread_with currently only accepts
+      // a single argument (p_other). We keep the metadata parameter in the JS
+      // API for potential future use, but we do NOT send it to the RPC to avoid
+      // signature mismatches (PGRST202 errors).
       const { data, error } = await supabase.rpc('ensure_dm_thread_with', {
         p_other: otherUserId,
       });

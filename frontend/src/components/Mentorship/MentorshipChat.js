@@ -1,11 +1,45 @@
+/**
+ * @deprecated LEGACY COMPONENT - DO NOT USE IN NEW CODE
+ * 
+ * ⚠️ WARNING: This component is DEPRECATED and must not be used in new features.
+ * 
+ * All mentorship chat functionality has been migrated to the unified /messages system.
+ * 
+ * CORRECT APPROACH:
+ * 1. Use `useOpenMentorshipChat` hook from hooks/useOpenMentorshipChat.js
+ * 2. Call openChat(relationshipId) which uses the canonical mentorship_open_chat RPC
+ * 3. User is navigated to /messages?conversationId=<id>&source=mentorship&relationshipId=<id>
+ * 4. ChatWindow.js renders mentorship-aware UI with pills and banners
+ * 
+ * LEGACY ISSUES WITH THIS COMPONENT:
+ * - Uses deprecated mentorship_messages table (not the canonical conversations/messages)
+ * - Bypasses canonical RPCs (mentorship_open_chat)
+ * - Does not integrate with unified DM system
+ * - Missing proper RLS and ownership checks
+ * 
+ * This file is kept temporarily for reference only.
+ * It will be removed in a future release.
+ * 
+ * DO NOT route to this component. DO NOT import it in new code.
+ */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Navigate } from 'react-router-dom';
 import { supabase, onPostgresChangesOnce, checkConnectionStatus } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { Box, TextField, Button, Paper, Typography, CircularProgress, Alert, AlertTitle } from '@mui/material';
 
+/**
+ * @deprecated Use useOpenMentorshipChat hook instead
+ */
 const MentorshipChat = () => {
+  // Show deprecation warning in development
+  useEffect(() => {
+    console.warn(
+      '[DEPRECATED] MentorshipChat component is deprecated. ' +
+      'Use useOpenMentorshipChat hook and /messages route instead.'
+    );
+  }, []);
   const { requestId } = useParams();
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);

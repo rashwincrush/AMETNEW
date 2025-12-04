@@ -111,20 +111,22 @@ export async function createMentorshipRequest(
   return data;
 }
 
-export async function acceptMentorshipRequest(requestId: string) {
-  const { data, error } = await supabase.rpc('mentorship_request_update_status', {
+export async function acceptMentorshipRequest(requestId: string, reason?: string) {
+  const { data, error } = await supabase.rpc('mentorship_request_respond', {
     p_request_id: requestId,
     p_new_status: 'accepted',
+    p_reason: reason ?? null,
   });
 
   if (error) throw error;
   return data;
 }
 
-export async function rejectMentorshipRequest(requestId: string) {
-  const { data, error } = await supabase.rpc('mentorship_request_update_status', {
+export async function rejectMentorshipRequest(requestId: string, reason?: string) {
+  const { data, error } = await supabase.rpc('mentorship_request_respond', {
     p_request_id: requestId,
     p_new_status: 'rejected',
+    p_reason: reason ?? null,
   });
 
   if (error) throw error;

@@ -51,35 +51,100 @@ const MentorshipRequestsDashboard = () => {
   const fetchRequests = async () => {
     setLoading(true);
     setError('');
-    let query = supabase
-      .from('mentorship_requests')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (!isAdmin) {
-      query = query.or(`mentor_id.eq.${user.id},mentee_id.eq.${user.id}`);
+    try {
+      if (isAdmin) {
+        // Admins still see all requests directly from the base table for auditing purposes
+        let query = supabase
+          .from('mentorship_requests')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        const { data: rows, error } = await query;
+        if (error) throw error;
+
+        const ids = Array.from(new Set((rows || []).flatMap(r => [r.mentor_id, r.mentee_id]).filter(Boolean)));
+        let idMap = new Map();
+        if (ids.length) {
+          const { data: pubs } = await supabase
+            .from('alumni_directory_public')
+            .select('id, full_name, avatar_url')
+            .in('id', ids);
+          (pubs || []).forEach(p => idMap.set(p.id, p));
+        }
+
+        const hydrated = (rows || []).map(r => ({
+          ...r,
+          mentor: idMap.get(r.mentor_id) || { id: r.mentor_id, full_name: 'Mentor', avatar_url: null },
+          mentee: idMap.get(r.mentee_id) || { id: r.mentee_id, full_name: 'Mentee', avatar_url: null }
+        }));
+
+        setRequests(hydrated);
+      } else {
+        // Non-admins: use role-aware views
+        const [sentRes, receivedRes] = await Promise.all([
+          supabase
+            .from('v_my_mentorship_requests')
+            .select('*')
+            .eq('mentee_id', user.id)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('v_my_mentorship_dashboard')
+            .select('*')
+            .eq('mentor_id', user.id)
+            .order('created_at', { ascending: false }),
+        ]);
+
+        if (sentRes.error) throw sentRes.error;
+        if (receivedRes.error) throw receivedRes.error;
+
+        const sentRows = sentRes.data || [];
+        const receivedRows = receivedRes.data || [];
+
+        const hydrated = [
+          ...receivedRows.map((r) => ({
+            id: r.id,
+            status: r.status,
+            created_at: r.created_at,
+            mentor_id: r.mentor_id,
+            mentee_id: r.mentee_id,
+            mentor: {
+              id: r.mentor_id,
+              full_name: profile?.full_name || 'You',
+              avatar_url: profile?.avatar_url || null,
+            },
+            mentee: {
+              id: r.mentee_id,
+              full_name: r.mentee_full_name || 'Mentee',
+              avatar_url: r.mentee_avatar || null,
+            },
+          })),
+          ...sentRows.map((r) => ({
+            id: r.id,
+            status: r.status,
+            created_at: r.created_at,
+            mentor_id: r.mentor_id,
+            mentee_id: r.mentee_id,
+            mentor: {
+              id: r.mentor_id,
+              full_name: r.mentor_full_name || 'Mentor',
+              avatar_url: r.mentor_avatar || null,
+            },
+            mentee: {
+              id: r.mentee_id,
+              full_name: profile?.full_name || 'You',
+              avatar_url: profile?.avatar_url || null,
+            },
+          })),
+        ];
+
+        setRequests(hydrated);
+      }
+    } catch (err) {
+      console.error('Failed to fetch requests:', err);
+      setError('Failed to fetch requests');
+    } finally {
+      setLoading(false);
     }
-    const { data: rows, error } = await query;
-    if (error) setError('Failed to fetch requests');
-
-    // Hydrate mentor/mentee identities from public view
-    const ids = Array.from(new Set((rows || []).flatMap(r => [r.mentor_id, r.mentee_id]).filter(Boolean)));
-    let idMap = new Map();
-    if (ids.length) {
-      const { data: pubs } = await supabase
-        .from('alumni_directory_public')
-        .select('id, full_name, avatar_url')
-        .in('id', ids);
-      (pubs || []).forEach(p => idMap.set(p.id, p));
-    }
-
-    const hydrated = (rows || []).map(r => ({
-      ...r,
-      mentor: idMap.get(r.mentor_id) || { id: r.mentor_id, full_name: 'Mentor', avatar_url: null },
-      mentee: idMap.get(r.mentee_id) || { id: r.mentee_id, full_name: 'Mentee', avatar_url: null }
-    }));
-
-    setRequests(hydrated);
-    setLoading(false);
   };
 
   const handleAction = async (id, status) => {

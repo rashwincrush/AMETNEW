@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { getFriendlyErrorMessage } from '../../../utils/errors';
+import { getAccountStatus, ACCOUNT_STATUS_CODES } from '../../../utils/accountStatus';
 import { useAdminUsersGrid } from '../../../hooks/useAdminUsersGrid';
 import { changeUserRole } from '../../../utils/changeUserRole';
 import EditUserModal from '../EditUserModal';
@@ -52,8 +53,9 @@ export default function AdminUsersPage() {
 
   // Map UI filters to server-side role/status
   const serverRole = (() => {
-    if (filters.role === 'all') return null;
-    if (filters.role === 'admin') return 'admin';
+    // For 'Admin & Super Admin' UI filter, we do not apply a server-side
+    // role constraint and instead filter both roles on the client.
+    if (filters.role === 'all' || filters.role === 'admin') return null;
     return filters.role;
   })();
 
@@ -80,28 +82,50 @@ export default function AdminUsersPage() {
   const rows = data?.rows || [];
   const totalCount = data?.totalCount;
 
-  // Client-side filter for "deleted" status and mentorship statuses
+  // Client-side filters for role, status (including deleted), and mentorship statuses.
+  // This makes the grid behavior deterministic even if server-side filters change.
   const filteredRows = rows.filter((u) => {
-    if (filters.status === 'deleted') {
-      if (!u.is_deleted) return false;
+    // Role filter: "Admin" in the UI should match both admin and super_admin.
+    if (filters.role && filters.role !== 'all') {
+      if (filters.role === 'admin') {
+        if (u.role !== 'admin' && u.role !== 'super_admin') {
+          return false;
+        }
+      } else if (u.role !== filters.role) {
+        return false;
+      }
     }
-    
-    // Filter by mentee status
+
+    // Status filter: use normalized account status so deleted/blocked/pending/approved are consistent.
+    if (filters.status && filters.status !== 'all') {
+      const status = getAccountStatus(u).code;
+
+      if (
+        filters.status === ACCOUNT_STATUS_CODES.DELETED ||
+        filters.status === 'deleted'
+      ) {
+        if (status !== ACCOUNT_STATUS_CODES.DELETED) return false;
+      } else if (status !== filters.status) {
+        return false;
+      }
+    }
+
+    // Filter by mentee status (client-side only)
     if (filters.menteeStatus && filters.menteeStatus !== 'all') {
       const userMenteeStatus = (u.mentee_status || 'pending').toLowerCase();
       if (userMenteeStatus !== filters.menteeStatus.toLowerCase()) {
         return false;
       }
     }
-    
-    // Filter by mentor status
+
+    // Filter by mentor status (client-side only)
     if (filters.mentorStatus && filters.mentorStatus !== 'all') {
       const userMentorStatus = (u.mentor_status || 'pending').toLowerCase();
       if (userMentorStatus !== filters.mentorStatus.toLowerCase()) {
         return false;
       }
     }
-    
+
     return true;
   });
 

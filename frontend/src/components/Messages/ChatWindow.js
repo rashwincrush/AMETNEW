@@ -38,11 +38,43 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
     autoFetch: !!activeThread?.other_user_id,
   });
 
-  // Context from query string (job/event)
+  // Context from query string (job/event/mentorship)
   const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const ctxJobId = qs.get('job');
   const ctxEventId = qs.get('event');
+  const ctxSource = qs.get('source');
+  const ctxRelationshipId = qs.get('relationshipId');
+  const isMentorshipContext = ctxSource === 'mentorship' && ctxRelationshipId;
+  
+  // Mentorship relationship state (if applicable)
+  const [mentorshipRelationship, setMentorshipRelationship] = useState(null);
 
+  // Fetch mentorship relationship if in mentorship context
+  useEffect(() => {
+    if (!isMentorshipContext || !ctxRelationshipId) {
+      setMentorshipRelationship(null);
+      return;
+    }
+    
+    const fetchRelationship = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('mentorship_relationships')
+          .select('id, status, mentor_id, mentee_id, start_date, end_date')
+          .eq('id', ctxRelationshipId)
+          .maybeSingle();
+        
+        if (!error && data) {
+          setMentorshipRelationship(data);
+        }
+      } catch (err) {
+        console.error('Error fetching mentorship relationship:', err);
+      }
+    };
+    
+    fetchRelationship();
+  }, [isMentorshipContext, ctxRelationshipId]);
+  
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -416,21 +448,28 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
             </button>
             <AvatarComponent src={headerAvatarUrl} alt={displayName || 'Contact'} size={40} />
             <div>
-              <h3 className="text-lg font-medium text-gray-900">
-                {displayName || 'Conversation'}
-                <button
-                  className="ml-3 text-sm text-ocean-600 hover:underline"
-                  onClick={() => {
-                    if (activeThread.other_user_role === 'employer') {
-                      navigate(`/companies/${activeThread.other_user_id}`);
-                    } else {
-                      navigate(`/profile/${activeThread.other_user_id}`);
-                    }
-                  }}
-                >
-                  {activeThread.other_user_role === 'employer' ? 'View Company' : 'View Profile'}
-                </button>
-              </h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-lg font-medium text-gray-900">
+                  {displayName || 'Conversation'}
+                  <button
+                    className="ml-3 text-sm text-ocean-600 hover:underline"
+                    onClick={() => {
+                      if (activeThread.other_user_role === 'employer') {
+                        navigate(`/companies/${activeThread.other_user_id}`);
+                      } else {
+                        navigate(`/profile/${activeThread.other_user_id}`);
+                      }
+                    }}
+                  >
+                    {activeThread.other_user_role === 'employer' ? 'View Company' : 'View Profile'}
+                  </button>
+                </h3>
+                {isMentorshipContext && mentorshipRelationship && (
+                  <span className="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-800">
+                    Mentorship · {currentUser?.id === mentorshipRelationship.mentor_id ? 'Your Mentee' : 'Your Mentor'}
+                  </span>
+                )}
+              </div>
               {activeThread.other_user_role === 'employer' ? (
                 <p className="text-sm text-gray-500">
                   {activeThread.other_user_company || otherProfile?.company || 'Company'}
@@ -455,6 +494,29 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mentorship ended banner */}
+      {isMentorshipContext && mentorshipRelationship && mentorshipRelationship.status !== 'active' && (
+        <div className="bg-blue-50 border-b border-blue-200 p-3">
+          <div className="flex items-start gap-2 px-2">
+            <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div className="flex-1 text-sm">
+              <p className="font-medium text-blue-900">
+                {mentorshipRelationship.status === 'ended_by_system' 
+                  ? 'This mentorship was ended by the platform'
+                  : mentorshipRelationship.status === 'completed'
+                  ? 'This mentorship has been completed'
+                  : 'This mentorship has ended'}
+              </p>
+              <p className="text-blue-700 mt-1">
+                You can still view past messages, but this mentorship is no longer active.
+              </p>
             </div>
           </div>
         </div>

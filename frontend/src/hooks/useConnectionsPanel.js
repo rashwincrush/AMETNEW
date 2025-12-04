@@ -94,11 +94,19 @@ export default function useConnectionsPanel(currentUserId) {
         .eq('status', 'pending')
         .maybeSingle();
       if (!edge) return;
-      const { error } = await supabase.from('connections').update({ status: 'accepted' }).eq('id', edge.id);
+
+      // Use server-side RPC so dm_threads creation runs under SECURITY DEFINER
+      const { error } = await supabase.rpc('connection_accept', {
+        p_connection_id: edge.id,
+      });
       if (error) throw error;
+
       toast.success('Request accepted');
       load();
-    } catch (_) { toast.error('Accept failed'); }
+    } catch (e) {
+      console.error('useConnectionsPanel.accept error', e);
+      toast.error('Accept failed');
+    }
   };
 
   const reject = async (peerId) => {

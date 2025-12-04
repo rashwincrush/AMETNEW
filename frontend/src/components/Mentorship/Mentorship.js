@@ -1,3 +1,21 @@
+/**
+ * @deprecated This component is DEPRECATED.
+ * 
+ * The mentorship module has been refactored to use a new panel-based architecture:
+ * - MentorshipLayout.jsx - Main layout shell
+ * - MentorshipHub.jsx - Central hub with tab routing
+ * - panels/FindMentorsPanel.jsx - Find mentors
+ * - panels/MyMentorsPanel.jsx - My mentors (as mentee)
+ * - panels/MyMenteesPanel.jsx - My mentees (as mentor)
+ * - panels/RequestsPanel.jsx - Sent/received requests
+ * - panels/MentorshipSettingsPanel.jsx - Settings
+ * 
+ * All chat functionality now uses:
+ * - useOpenMentorshipChat hook (calls mentorship_open_chat RPC)
+ * - Navigates to /messages with conversationId
+ * 
+ * This file is kept for backwards compatibility but should not be used for new features.
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
@@ -10,7 +28,7 @@ import { RequestStatusChip } from '../../lib/statusChips';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { mapSupabaseErrorToToast } from '../../utils/mapSupabaseErrorToToast';
 import { useCreateMentorshipRequest, useAcceptMentorshipRequest, useRejectMentorshipRequest, useCancelMentorshipRequest } from '../../hooks/useMentorshipMutations';
-import { ensureDmThreadWith } from '../../api/dm';
+import { ensureDmThreadWith } from '../../api/dm'; // @deprecated - use useOpenMentorshipChat instead
 import { useMentorshipEligibility } from '../../hooks/useMentorshipEligibility';
 import { 
   UserGroupIcon,
@@ -198,18 +216,11 @@ const Mentorship = () => {
       
       console.log('Fetching approved mentors from Supabase...');
       
-      // Use RLS-safe public view for mentors directory
-      let q = supabase
-        .from('v_mentors_public')
-        .select('*')
-        .order('full_name', { ascending: true });
-
-      // Server-side availability filter from the view when toggled
-      if (showOnlyAccepting) {
-        q = q.eq('is_available_for_mentorship', true);
-      }
-
-      const { data: mentorsRows, error: mentorsError } = await q;
+      // Prefer RPC wrapper around v_mentors_public for future personalization/pagination
+      const { data: mentorsRows, error: mentorsError } = await supabase.rpc('get_mentors_for_current_mentee', {
+        p_limit: 50,
+        p_offset: 0,
+      });
       
       console.log('Supabase query result:', mentorsRows, mentorsError);
       
@@ -220,7 +231,12 @@ const Mentorship = () => {
       console.log('Fetched mentors:', mentorsRows);
 
       // Transform data to match rendering needs
-      const transformedMentors = (mentorsRows || []).map(mentor => {
+      let baseMentors = mentorsRows || [];
+      if (showOnlyAccepting) {
+        baseMentors = baseMentors.filter((m) => m.is_available_for_mentorship);
+      }
+
+      const transformedMentors = baseMentors.map(mentor => {
         const ident = {
           full_name: mentor.full_name,
           avatar_url: mentor.avatar_url,

@@ -684,6 +684,7 @@ const EnhancedRegister = () => {
         stage2.company_website = formData.companyWebsite?.trim() || null;
       }
 
+      console.log('[Register] Email about to sign up:', formData.email);
       const { data: signUpData, error } = await supabase.auth.signUp({
         email: formData.email.trim().toLowerCase(),
         password: formData.password,

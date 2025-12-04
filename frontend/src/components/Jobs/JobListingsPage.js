@@ -14,8 +14,9 @@ import {
   BellIcon,
   DocumentTextIcon,
   CurrencyDollarIcon,
+  CalendarIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
-import { CalendarIcon } from '@heroicons/react/24/outline';
 import { CircularProgress } from '@mui/material';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -183,7 +184,7 @@ const StatusBadge = ({ job, isAdmin, isEmployer }) => {
   );
 };
 
-const JobCard = ({ job, handleBookmark, isBookmarked }) => {
+const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id || job?.created_by || job?.employer_id;
@@ -195,8 +196,6 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
   const ownerOrAdmin = isOwner || ['admin', 'super_admin'].includes(userRole);
   const pauseJob = async () => {
     if (job?.is_active === false) return;
-    const ok = window.confirm('Pause this listing? Applicants will no longer see Apply on this listing.');
-    if (!ok) return;
     try {
       const { error } = await supabase
         .from('jobs')
@@ -212,8 +211,6 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
 
   const resumeJob = async () => {
     if (job?.is_active === true || job?.is_active == null) return;
-    const ok = window.confirm('Resume this listing? It will become visible again to eligible candidates.');
-    if (!ok) return;
     try {
       const { error } = await supabase
         .from('jobs')
@@ -230,6 +227,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
 
   const [applyOpen, setApplyOpen] = useState(false);
   const [applied, setApplied] = useState(false);
+  const [visibilityDialog, setVisibilityDialog] = useState({ open: false, mode: null });
   useEffect(() => {
     let mounted = true;
     if (user?.id && job?.id) {
@@ -299,7 +297,12 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           </div>
           {canToggleVisibility && (
             <button
-              onClick={isPaused ? resumeJob : pauseJob}
+              onClick={() =>
+                setVisibilityDialog({
+                  open: true,
+                  mode: isPaused ? 'resume' : 'pause',
+                })
+              }
               className="inline-flex items-center justify-center h-7 px-2 rounded-full border border-slate-200 bg-slate-50 text-[11px] font-medium text-slate-700 hover:bg-slate-100 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
               title={isPaused ? 'Resume listing' : 'Pause listing'}
             >
@@ -310,28 +313,6 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
       </div>
 
       <p className="text-gray-700 text-sm mb-2 px-5 line-clamp-4">{showDescription ? descTrim : 'No description provided.'}</p>
-
-      {(() => {
-        const raw = job.skills;
-        const arr = Array.isArray(raw)
-          ? raw
-          : typeof raw === 'string'
-            ? raw.split(',').map((s) => s.trim()).filter(Boolean)
-            : [];
-        if (!arr.length) return null;
-        return (
-          <div className="px-5 mb-2 flex flex-wrap gap-1">
-            {arr.slice(0, 5).map((skill, idx) => (
-              <span
-                key={idx}
-                className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-ocean-50 text-ocean-700 border border-ocean-100"
-              >
-                {skill}
-              </span>
-            ))}
-          </div>
-        );
-      })()}
       {quick && (
         <div className="px-5 mb-4">
           <p className="text-xs text-gray-500">
@@ -381,6 +362,33 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           </div>
         )}
       </div>
+
+      {(() => {
+        const raw = job.skills;
+        const arr = Array.isArray(raw)
+          ? raw
+          : typeof raw === 'string'
+            ? raw.split(',').map((s) => s.trim()).filter(Boolean)
+            : [];
+        if (!arr.length) return null;
+        return (
+          <div className="px-5 mb-3">
+            <p className="text-xs font-medium text-gray-500 mb-1">Skills required</p>
+            <div className="flex flex-wrap gap-1">
+              {arr.slice(0, 5).map((skill, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => onSkillClick && onSkillClick(skill)}
+                  className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-ocean-50 text-ocean-700 border border-ocean-100 hover:bg-ocean-100 hover:border-ocean-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ocean-500"
+                >
+                  {skill}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="mt-auto border-t border-gray-100 pt-4 px-5 pb-5">
         <div className="flex justify-between items-center mb-3">
@@ -462,11 +470,52 @@ const JobCard = ({ job, handleBookmark, isBookmarked }) => {
           
         </div>
       </div>
+
+      {visibilityDialog.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full mx-4 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-2">
+              {visibilityDialog.mode === 'pause'
+                ? 'Pause this listing?'
+                : 'Resume this listing?'}
+            </h2>
+            <p className="text-sm text-gray-600 mb-6">
+              {visibilityDialog.mode === 'pause'
+                ? 'Applicants will no longer see Apply on this listing.'
+                : 'This listing will become visible again to eligible candidates.'}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setVisibilityDialog({ open: false, mode: null })}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const mode = visibilityDialog.mode;
+                  setVisibilityDialog({ open: false, mode: null });
+                  if (mode === 'pause') {
+                    await pauseJob();
+                  } else if (mode === 'resume') {
+                    await resumeJob();
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-ocean-600 text-white text-sm font-medium hover:bg-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+              >
+                {visibilityDialog.mode === 'pause' ? 'Pause listing' : 'Resume listing'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
+const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id || job?.created_by || job?.employer_id;
@@ -477,8 +526,6 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
   const ownerOrAdmin = isOwner || ['admin', 'super_admin'].includes(userRole);
   const pauseJob = async () => {
     if (job?.is_active === false) return;
-    const ok = window.confirm('Pause this listing? Applicants will no longer see Apply on this listing.');
-    if (!ok) return;
     try {
       const { error } = await supabase
         .from('jobs')
@@ -494,8 +541,6 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
 
   const resumeJob = async () => {
     if (job?.is_active === true || job?.is_active == null) return;
-    const ok = window.confirm('Resume this listing? It will become visible again to eligible candidates.');
-    if (!ok) return;
     try {
       const { error } = await supabase
         .from('jobs')
@@ -510,6 +555,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
   };
   const [applyOpen, setApplyOpen] = useState(false);
   const [applied, setApplied] = useState(false);
+  const [visibilityDialog, setVisibilityDialog] = useState({ open: false, mode: null });
   useEffect(() => {
     let mounted = true;
     if (user?.id && job?.id) {
@@ -558,27 +604,6 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
           ) : null; })()}
         </div>
         <p className="text-gray-600 text-sm mt-2 mb-2 line-clamp-2">{(() => { const d = (job.description || '').trim(); return d ? `${d.slice(0, 160)}...` : 'No description provided.'; })()}</p>
-        {(() => {
-          const raw = job.skills;
-          const arr = Array.isArray(raw)
-            ? raw
-            : typeof raw === 'string'
-              ? raw.split(',').map((s) => s.trim()).filter(Boolean)
-              : [];
-          if (!arr.length) return null;
-          return (
-            <div className="flex flex-wrap gap-1 mb-2">
-              {arr.slice(0, 5).map((skill, idx) => (
-                <span
-                  key={idx}
-                  className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-ocean-50 text-ocean-700 border border-ocean-100"
-                >
-                  {skill}
-                </span>
-              ))}
-            </div>
-          );
-        })()}
         {quick && (
           <p className="text-xs text-gray-500 mb-3">External listing. Clicking will take you to a page outside the Alumni portal.</p>
         )}
@@ -601,6 +626,32 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
           )}
           {coalescedDeadline && (<div className="flex items-center"><CalendarIcon className="w-4 h-4 mr-1" /><span>Deadline: {formatKolkata(coalescedDeadline)}</span></div>)}
         </div>
+        {(() => {
+          const raw = job.skills;
+          const arr = Array.isArray(raw)
+            ? raw
+            : typeof raw === 'string'
+              ? raw.split(',').map((s) => s.trim()).filter(Boolean)
+              : [];
+          if (!arr.length) return null;
+          return (
+            <div className="mt-2">
+              <p className="text-xs font-medium text-gray-500 mb-1">Skills required</p>
+              <div className="flex flex-wrap gap-1">
+                {arr.slice(0, 5).map((skill, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => onSkillClick && onSkillClick(skill)}
+                    className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-ocean-50 text-ocean-800 border border-ocean-100 hover:bg-ocean-100 hover:border-ocean-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ocean-500"
+                  >
+                    {skill}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
       </div>
       <div className="flex flex-col items-end justify-between self-stretch pt-2 sm:pt-0">
         <div className="flex flex-col items-end gap-1">
@@ -612,7 +663,12 @@ const JobListItem = ({ job, handleBookmark, isBookmarked }) => {
           </div>
           {canToggleVisibility && (
             <button
-              onClick={isPaused ? resumeJob : pauseJob}
+              onClick={() =>
+                setVisibilityDialog({
+                  open: true,
+                  mode: isPaused ? 'resume' : 'pause',
+                })
+              }
               className="mt-0.5 inline-flex items-center justify-center h-8 px-2 rounded-full border border-slate-200 bg-slate-50 text-[11px] font-medium text-slate-700 hover:bg-slate-100 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
               title={isPaused ? 'Resume listing' : 'Pause listing'}
             >
@@ -1278,6 +1334,14 @@ const JobListingsPage = () => {
   const paginate = (pageNumber) => { setCurrentPage(pageNumber); };
   const handleRefresh = async () => { setIsRefreshing(true); await fetchJobs(); setIsRefreshing(false); toast.success('Job listings have been refreshed!'); };
 
+  const handleSkillClick = (skill) => {
+    const s = (skill || '').trim();
+    if (!s) return;
+    setSearchTerm(s);
+    setSearchQuery(s);
+    setCurrentPage(1);
+  };
+
   const canPostJob = ['employer', 'admin', 'super_admin'].includes(userRole);
 
   if (authLoading) {
@@ -1338,8 +1402,18 @@ const JobListingsPage = () => {
               placeholder="Search by title, skill, or company..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
+              className="pl-10 pr-10 py-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                aria-label="Clear search"
+              >
+                <XMarkIcon className="w-4 h-4" />
+              </button>
+            )}
           </div>
           <button onClick={toggleFilters} aria-label="Toggle filters" aria-expanded={filtersOpen} aria-controls="job-filters" className="btn-ocean-outline px-4 py-2 rounded-lg text-sm w-full md:w-auto flex items-center justify-center min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">
             <FunnelIcon className="w-4 h-4 mr-2" />
@@ -1462,6 +1536,7 @@ const JobListingsPage = () => {
                 job={job}
                 handleBookmark={handleBookmark}
                 isBookmarked={bookmarkedJobs.includes(job.id)}
+                onSkillClick={handleSkillClick}
               />
             ) : (
               <JobListItem
@@ -1469,6 +1544,7 @@ const JobListingsPage = () => {
                 job={job}
                 handleBookmark={handleBookmark}
                 isBookmarked={bookmarkedJobs.includes(job.id)}
+                onSkillClick={handleSkillClick}
               />
             )
           ))}

@@ -1,3 +1,38 @@
+/**
+ * @deprecated LEGACY COMPONENT - DO NOT USE IN NEW CODE
+ * 
+ * ⚠️ WARNING: This component is DEPRECATED and must not be used in new features.
+ * 
+ * The mentorship module has been refactored to use canonical backend RPCs and a panel-based architecture.
+ * 
+ * CORRECT APPROACH - Use the new mentorship hub:
+ * - Route: /mentorship (handled by MentorshipLayout.jsx)
+ * - MentorshipHub.jsx - Central hub with tab routing
+ * - panels/FindMentorsPanel.jsx - Browse mentors
+ * - panels/MyMentorsPanel.jsx - My mentors (as mentee)
+ * - panels/MyMenteesPanel.jsx - My mentees (as mentor)
+ * - panels/RequestsPanel.jsx - Sent/received requests
+ * - panels/MentorshipSettingsPanel.jsx - Mentor profile & availability
+ * 
+ * All write operations now use canonical API:
+ * - api/mentorshipApi.ts - Wraps all mentorship RPCs
+ * - createMentorshipRequest, cancelMentorshipRequest, respondToMentorshipRequest
+ * - endMentorshipRelationship, openMentorshipChat
+ * 
+ * All chat functionality now uses:
+ * - useOpenMentorshipChat hook (calls mentorship_open_chat RPC)
+ * - Navigates to /messages?conversationId=<id>&source=mentorship&relationshipId=<id>
+ * - ChatWindow.js renders mentorship-aware UI
+ * 
+ * LEGACY ISSUES WITH THIS COMPONENT:
+ * - Uses deprecated ensureDmThreadWith directly (bypasses mentorship_open_chat RPC)
+ * - Mixes mutation hooks with direct RPC calls
+ * - Does not use centralized error mapping
+ * - Does not use MentorshipStatusChip for consistent status display
+ * 
+ * This file is kept temporarily for reference only.
+ * DO NOT route to this component. DO NOT import it in new code.
+ */
 import React, { useEffect, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
@@ -12,7 +47,7 @@ import { RequestStatusChip } from '../../lib/statusChips';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchMenteeRequests, fetchMentorRequests } from '../../lib/queries/mentorship';
 import { mapSupabaseErrorToToast } from '../../utils/mapSupabaseErrorToToast';
-import { ensureDmThreadWith } from '../../api/dm';
+import { ensureDmThreadWith } from '../../api/dm'; // @deprecated - use useOpenMentorshipChat instead
 import { useAvatars } from '../../hooks/useAvatar';
 import {
   useCancelMentorshipRequest,
@@ -108,6 +143,20 @@ export default function MyMentorship() {
   });
   const received = mentorReqQuery.data || [];
   const receivedLoading = mentorReqQuery.isLoading || mentorReqQuery.isFetching;
+  const relationshipsQuery = useQuery({
+    queryKey: ['myMentorshipRelationships', user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('v_my_mentorship_relationships')
+        .select('*');
+      if (error) throw error;
+      return data;
+    },
+    staleTime: 60_000,
+  });
+  const relationships = relationshipsQuery.data || [];
+  const relationshipsLoading = relationshipsQuery.isLoading || relationshipsQuery.isFetching;
   const [sessionModal, setSessionModal] = useState({ open: false, requestId: null, mentorId: null, menteeId: null });
 
   const participantIds = Array.from(new Set([
@@ -155,8 +204,12 @@ export default function MyMentorship() {
       if (!error) setMentorRow(data);
       setLoading(false);
     };
+
     fetchMyMentor();
   }, [user, fetchUserProfile]);
+
+  const activeRelationships = relationships.filter((r) => r && r.status === 'active');
+  const pastRelationships = relationships.filter((r) => r && r.status !== 'active');
 
   // Read initial availability from profiles for the current user
   useEffect(() => {
@@ -455,6 +508,84 @@ export default function MyMentorship() {
           <div className="mt-4">
             <Link to="/mentorship/become-mentor" className="btn-ocean-outline px-4 py-2 rounded">Edit & Resubmit</Link>
           </div>
+        </div>
+
+        {/* My Mentorships section for active/past relationships */}
+        <div className="bg-white shadow rounded-lg p-6">
+          <h2 className="text-xl font-semibold text-gray-800 mb-3">My Mentorships</h2>
+          {relationshipsLoading ? (
+            <ListSkeleton rows={3} />
+          ) : relationships.length === 0 ? (
+            <p className="text-gray-600">You don't have any mentorships yet.</p>
+          ) : (
+            <>
+              {activeRelationships.length > 0 && (
+                <div className="mb-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Active</h3>
+                  <ul className="divide-y">
+                    {activeRelationships.map((r) => {
+                      const amMentor = r.mentor_id === user.id;
+                      const otherName = amMentor ? r.mentee_name || 'Mentee' : r.mentor_name || 'Mentor';
+                      const otherId = amMentor ? r.mentee_id : r.mentor_id;
+                      return (
+                        <li key={r.id} className="py-3 flex items-center justify-between">
+                          <div>
+                            <div className="font-medium text-gray-900">{otherName}</div>
+                            {r.start_date && (
+                              <div className="text-xs text-gray-600">Since {new Date(r.start_date).toLocaleDateString()}</div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                if (!otherId) {
+                                  toast.error('Unable to determine conversation partner.');
+                                  return;
+                                }
+                                const threadId = await ensureDmThreadWith(otherId);
+                                navigate(`/messages?threadId=${encodeURIComponent(threadId)}&source=mentorship&relationshipId=${encodeURIComponent(r.id)}`);
+                              } catch (e) {
+                                console.error(e);
+                                toast.error('Could not open chat. Please try again.');
+                              }
+                            }}
+                            className="btn-ocean px-3 py-1.5 rounded"
+                          >
+                            Go to Chat
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+              {pastRelationships.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Past</h3>
+                  <ul className="divide-y">
+                    {pastRelationships.map((r) => {
+                      const amMentor = r.mentor_id === user.id;
+                      const otherName = amMentor ? r.mentee_name || 'Mentee' : r.mentor_name || 'Mentor';
+                      return (
+                        <li key={r.id} className="py-3 flex items-center justify-between opacity-75">
+                          <div>
+                            <div className="font-medium text-gray-900">{otherName}</div>
+                            {r.start_date && (
+                              <div className="text-xs text-gray-600">
+                                {new Date(r.start_date).toLocaleDateString()} – {r.end_date ? new Date(r.end_date).toLocaleDateString() : 'ended'}
+                              </div>
+                            )}
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">{r.status}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     );

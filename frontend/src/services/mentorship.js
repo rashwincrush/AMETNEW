@@ -12,6 +12,16 @@ export function mapMentorshipError(error) {
   const rawMessage = toLower(error.message || error.error_description || error.details);
   const pgCode = String(error.code || error.errcode || '').toUpperCase();
 
+  // New: bad enum value from old data (e.g. status = 'unknown' after
+  // migrating to an ENUM column). This typically happens only for legacy
+  // rows and is a data issue, not something the user can resolve.
+  if (rawMessage.includes('invalid input value for enum') && rawMessage.includes('mentorship_request_status')) {
+    return {
+      code: 'BAD_STATUS_VALUE',
+      message: 'This older mentorship request has an invalid internal status and cannot be updated. Please contact support or an administrator to clean it up.',
+    };
+  }
+
   if (rawMessage.includes('not authenticated')) {
     return {
       code: 'FORBIDDEN',
@@ -55,6 +65,30 @@ export function mapMentorshipError(error) {
     };
   }
 
+  // 5-request limit for mentees
+  if (rawMessage.includes('pending request') && rawMessage.includes('limit')) {
+    return {
+      code: 'PENDING_REQUEST_LIMIT',
+      message: 'You have reached the maximum number of pending mentorship requests (5). Please wait for responses or cancel existing requests.',
+    };
+  }
+
+  // Mentor not selectable (blocked, rejected, or not approved)
+  if (rawMessage.includes('mentor not selectable') || rawMessage.includes('not available for selection')) {
+    return {
+      code: 'MENTOR_NOT_SELECTABLE',
+      message: 'This mentor is not available for new mentorships.',
+    };
+  }
+
+  // Request already exists (duplicate check)
+  if (rawMessage.includes('request_already_exists')) {
+    return {
+      code: 'REQUEST_ALREADY_EXISTS',
+      message: 'You already have a pending or active request with this mentor.',
+    };
+  }
+
   if (rawMessage.includes('invalid status transition')) {
     return {
       code: 'INVALID_STATUS_TRANSITION',
@@ -91,7 +125,9 @@ export async function createMentorshipRequest(mentorId, payload) {
 }
 
 export async function acceptMentorshipRequest(requestId) {
-  const { data, error } = await supabase.rpc('mentorship_request_update_status', {
+  // Backend contract: mentorship_request_respond(p_request_id uuid, p_new_status text)
+  // Returns relationship_id on success for 'accepted'
+  const { data, error } = await supabase.rpc('mentorship_request_respond', {
     p_request_id: requestId,
     p_new_status: 'accepted',
   });
@@ -100,7 +136,8 @@ export async function acceptMentorshipRequest(requestId) {
 }
 
 export async function rejectMentorshipRequest(requestId) {
-  const { data, error } = await supabase.rpc('mentorship_request_update_status', {
+  // Backend contract: mentorship_request_respond(p_request_id uuid, p_new_status text)
+  const { data, error } = await supabase.rpc('mentorship_request_respond', {
     p_request_id: requestId,
     p_new_status: 'rejected',
   });
@@ -112,6 +149,21 @@ export async function cancelMentorshipRequest(requestId) {
   const { data, error } = await supabase.rpc('mentorship_request_cancel', {
     p_request_id: requestId,
   });
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * End an active mentorship relationship.
+ * Uses the server-side RPC so RLS and business rules are correctly enforced.
+ * Backend contract: mentorship_relationship_end(p_relationship_id uuid, p_reason text)
+ */
+export async function endMentorshipRelationship(relationshipId, reason = null) {
+  const { data, error } = await supabase.rpc('mentorship_relationship_end', {
+    p_relationship_id: relationshipId,
+    p_reason: reason,
+  });
+
   if (error) throw error;
   return data;
 }

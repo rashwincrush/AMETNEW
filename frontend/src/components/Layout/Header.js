@@ -10,7 +10,7 @@ import {
 import { useMobileNav } from './MobileNavContext';
 
 const Header = ({ user }) => {
-  const { user: authUserFromContext, profile: profileFromContext, signOut } = useAuth();
+  const { user: authUserFromContext, profile: profileFromContext, signOut, role: userRole } = useAuth();
   const { name: displayName, avatarUrl, isLoading } = useCurrentUserIdentity();
   const currentUser = profileFromContext || authUserFromContext || user;
   const avatarSrc = avatarUrl ? `${avatarUrl}?t=${new Date().getTime()}` : '/default-avatar.svg';
@@ -38,6 +38,21 @@ const Header = ({ user }) => {
     await signOut();
     navigate('/login');
   };
+
+  // Resolve a stable role label from the normalized userRole so it does not
+  // visually flip when profile/auth sources hydrate or when navigating tabs.
+  const resolvedRoleLabel =
+    userRole === 'super_admin'
+      ? 'Super Admin'
+      : userRole === 'admin'
+      ? 'Administrator'
+      : userRole === 'employer'
+      ? 'Employer'
+      : userRole === 'student'
+      ? 'Student'
+      : userRole === 'alumni'
+      ? 'Alumni'
+      : '';
 
   return (
     <header role="banner" className="bg-white shadow-sm border-b border-ocean-200 px-4 sm:px-6 py-3 sm:py-4">
@@ -129,11 +144,7 @@ const Header = ({ user }) => {
               <div className="text-right">
                 <p className="text-sm font-medium text-gray-900">{isLoading ? '…' : displayName}</p>
                 <p className="text-xs text-ocean-600">
-                  {currentUser.role === 'super_admin' ? 'Super Admin' :
-                   currentUser.role === 'admin' ? 'Administrator' :
-                   currentUser.role === 'employer' ? 'Employer' :
-                   currentUser.role === 'student' ? 'Student' :
-                   currentUser.primary_role || currentUser.role || 'Alumni'}
+                  {resolvedRoleLabel || ' '}
                 </p>
               </div>
               {isLoading ? (
@@ -159,11 +170,7 @@ const Header = ({ user }) => {
                     <p className="text-sm font-semibold text-gray-900 truncate">{isLoading ? '…' : displayName}</p>
                     <p className="text-xs text-gray-500 truncate">{currentUser.email || 'No email provided'}</p>
                     <p className="text-xs text-ocean-600 mt-1 font-medium">
-                      {currentUser.role === 'super_admin' ? 'Super Admin' :
-                       currentUser.role === 'admin' ? 'Administrator' :
-                       currentUser.role === 'employer' ? 'Employer' :
-                       currentUser.role === 'student' ? 'Student' :
-                       currentUser.primary_role || currentUser.role || 'Alumni'}
+                      {resolvedRoleLabel || ' '}
                     </p>
                   </div>
                   <Link

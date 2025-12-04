@@ -221,11 +221,21 @@ const NotificationBell = ({ currentUser }) => {
     const { type, metadata } = notification;
     const meta = parseMetadata(metadata);
     if (type === 'mentorship_request' && meta) {
-      if (meta.status === 'accepted' && meta.request_id) {
-        return `/mentorship/chat/${meta.request_id}`;
+      if (meta.status === 'accepted') {
+        // Navigate to mentorship hub with highlight on the relationship
+        // The relationship_id should be in metadata after accept
+        if (meta.relationship_id) {
+          return `/mentorship?tab=mentee&highlightRelationshipId=${meta.relationship_id}`;
+        }
+        // Fallback: go to My Mentors tab
+        return '/mentorship?tab=mentee';
       }
       if (meta.status === 'rejected') {
-        return '/mentorship/me';
+        return '/mentorship?tab=requests&sub=sent';
+      }
+      // Pending request - go to sent requests
+      if (meta.status === 'pending') {
+        return '/mentorship?tab=requests&sub=sent';
       }
     }
     return null;

@@ -86,19 +86,17 @@ export default function MentorContactPanel({ mentorId }) {
       </div>
     );
 
-  // unlocked
+  // unlocked – only show card if a meeting link is actually set
+  if (!contact?.default_meeting_link) return null;
+
   return (
     <div className="card bg-base-100 shadow">
       <div className="card-body">
         <div className="font-semibold">Mentor Contact</div>
         <div className="text-sm">
-          {contact?.default_meeting_link ? (
-            <a className="link" href={contact.default_meeting_link} target="_blank" rel="noreferrer">
-              Meeting Link
-            </a>
-          ) : (
-            <span className="opacity-70">Meeting link not set by mentor.</span>
-          )}
+          <a className="link" href={contact.default_meeting_link} target="_blank" rel="noreferrer">
+            Meeting Link
+          </a>
         </div>
       </div>
     </div>

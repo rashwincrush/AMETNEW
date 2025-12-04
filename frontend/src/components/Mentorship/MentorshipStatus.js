@@ -25,46 +25,59 @@ const MentorshipStatus = () => {
     if (!user) return;
     setLoading(true);
     try {
-      const { data: rows, error } = await supabase
-        .from('mentorship_requests')
-        .select('*')
-        .or(`mentor_id.eq.${user.id},mentee_id.eq.${user.id}`)
-        .order('created_at', { ascending: false });
+      const [sentRes, receivedRes] = await Promise.all([
+        supabase
+          .from('v_my_mentorship_requests')
+          .select('*')
+          .eq('mentee_id', user.id)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('v_my_mentorship_dashboard')
+          .select('*')
+          .eq('mentor_id', user.id)
+          .order('created_at', { ascending: false }),
+      ]);
 
-      if (error) throw error;
+      if (sentRes.error) throw sentRes.error;
+      if (receivedRes.error) throw receivedRes.error;
 
-      // Hydrate mentor/mentee identities from public view, then fallback to profiles
-      const ids = Array.from(new Set((rows || []).flatMap(r => [r.mentor_id, r.mentee_id]).filter(Boolean)));
-      const idMap = new Map();
-      if (ids.length) {
-        const { data: pubs } = await supabase
-          .from('alumni_directory_public')
-          .select('id, full_name, avatar_url')
-          .in('id', ids);
-        (pubs || []).forEach(p => idMap.set(p.id, p));
+      const sentRows = sentRes.data || [];
+      const receivedRows = receivedRes.data || [];
 
-        // Fallback for IDs missing from the public view (e.g., not public or not yet approved)
-        const missing = ids.filter(id => !idMap.has(id));
-        if (missing.length) {
-          const { data: profs } = await supabase
-            .from('profiles')
-            .select('id, full_name, first_name, last_name, avatar_url')
-            .in('id', missing);
-          (profs || []).forEach(p => {
-            const display =
-              p.full_name ||
-              [p.first_name, p.last_name].filter(Boolean).join(' ') ||
-              'User';
-            idMap.set(p.id, { id: p.id, full_name: display, avatar_url: p.avatar_url });
-          });
-        }
-      }
-
-      const hydrated = (rows || []).map(r => {
-        const mentor = idMap.get(r.mentor_id) || { id: r.mentor_id, full_name: 'Mentor', avatar_url: null };
-        const mentee = idMap.get(r.mentee_id) || { id: r.mentee_id, full_name: 'Mentee', avatar_url: null };
-        return { ...r, mentor, mentee };
-      });
+      const hydrated = [
+        // Requests where current user is mentor (received)
+        ...receivedRows.map((r) => ({
+          id: r.id,
+          status: r.status,
+          created_at: r.created_at,
+          mentor: {
+            id: r.mentor_id,
+            full_name: profile?.full_name || 'You',
+            avatar_url: profile?.avatar_url || null,
+          },
+          mentee: {
+            id: r.mentee_id,
+            full_name: r.mentee_full_name || 'Mentee',
+            avatar_url: r.mentee_avatar || null,
+          },
+        })),
+        // Requests where current user is mentee (sent)
+        ...sentRows.map((r) => ({
+          id: r.id,
+          status: r.status,
+          created_at: r.created_at,
+          mentor: {
+            id: r.mentor_id,
+            full_name: r.mentor_full_name || 'Mentor',
+            avatar_url: r.mentor_avatar || null,
+          },
+          mentee: {
+            id: r.mentee_id,
+            full_name: profile?.full_name || 'You',
+            avatar_url: profile?.avatar_url || null,
+          },
+        })),
+      ];
 
       setRequests(hydrated);
     } catch (error) {
@@ -72,7 +85,7 @@ const MentorshipStatus = () => {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, profile]);
 
   useEffect(() => {
     fetchRequests();

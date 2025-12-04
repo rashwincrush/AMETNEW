@@ -706,11 +706,12 @@ export const fetchMentors = async () => {
 };
 
 export const createMentorshipRequest = async (requestData) => {
-  const { data, error } = await supabase
-    .from('mentorship_requests')
-    .insert([requestData])
-    .select()
-    .single();
+  const { mentor_id, message, goals } = requestData || {};
+  const { data, error } = await supabase.rpc('mentorship_request_create', {
+    p_mentor_id: mentor_id,
+    p_message: message ?? null,
+    p_goals: goals ?? null,
+  });
   return { data, error };
 };
 
@@ -1221,15 +1222,45 @@ export const uploadPostImage = async (file, groupId, postId) => {
 };
 
 export const fetchMentorshipRequests = async (userId) => {
-  const { data, error } = await supabase
-    .from('mentorship_requests')
-    .select(`
-      *,
-      mentor:mentor_id(profiles(*)),
-      mentee:mentee_id(profiles(*))
-    `)
-    .or(`mentor_id.eq.${userId},mentee_id.eq.${userId}`);
-  return { data, error };
+  const [sentRes, receivedRes] = await Promise.all([
+    supabase
+      .from('v_my_mentorship_requests')
+      .select('*')
+      .eq('mentee_id', userId),
+    supabase
+      .from('v_my_mentorship_dashboard')
+      .select('*')
+      .eq('mentor_id', userId),
+  ]);
+
+  if (sentRes.error) return { data: null, error: sentRes.error };
+  if (receivedRes.error) return { data: null, error: receivedRes.error };
+
+  const sentRows = sentRes.data || [];
+  const receivedRows = receivedRes.data || [];
+
+  const data = [
+    ...receivedRows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      created_at: r.created_at,
+      mentor_id: r.mentor_id,
+      mentee_id: r.mentee_id,
+      mentor: { id: r.mentor_id },
+      mentee: { id: r.mentee_id },
+    })),
+    ...sentRows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      created_at: r.created_at,
+      mentor_id: r.mentor_id,
+      mentee_id: r.mentee_id,
+      mentor: { id: r.mentor_id },
+      mentee: { id: r.mentee_id },
+    })),
+  ];
+
+  return { data, error: null };
 };
 
 /**

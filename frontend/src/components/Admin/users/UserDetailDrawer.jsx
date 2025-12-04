@@ -1,14 +1,25 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import Avatar from '../../common/Avatar';
 import { getAccountStatus, ACCOUNT_STATUS_META } from '../../../utils/accountStatus';
 
 export default function UserDetailDrawer({ user, open, onClose }) {
+  const navigate = useNavigate();
+
   if (!user) return null;
 
   const status = getAccountStatus(user);
   const statusMeta = ACCOUNT_STATUS_META[status.code] || ACCOUNT_STATUS_META.unknown;
+
+  const handleViewProfile = () => {
+    if (!user?.id) return;
+    if (onClose) {
+      onClose();
+    }
+    navigate(`/profile/${user.id}`);
+  };
 
   return (
     <Transition.Root show={open} as={React.Fragment}>
@@ -103,6 +114,15 @@ export default function UserDetailDrawer({ user, open, onClose }) {
                             {user.approval_status}
                           </div>
                         )}
+                        <div className="pt-3">
+                          <button
+                            type="button"
+                            onClick={handleViewProfile}
+                            className="inline-flex items-center px-3 py-2 rounded-md bg-ocean-600 text-white text-sm font-medium hover:bg-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                          >
+                            View full profile
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

@@ -23,6 +23,10 @@ export function useApproval() {
 
     // Prefer canonical RPC-derived flags when available
     const flagsApprovalStatus = approvalFlags?.approvalStatus ?? null;
+    const flagsIsFullyApproved =
+      typeof approvalFlags?.isFullyApproved === 'boolean'
+        ? approvalFlags.isFullyApproved
+        : null;
 
     // Fallback to profile fields only when flags are absent
     const profileApprovalStatus =
@@ -65,13 +69,36 @@ export function useApproval() {
         Boolean(baseProfile?.company_id) || Boolean(baseProfile?.company_name);
       isProfileComplete = hasCompany;
     } else {
-      isProfileComplete =
+      // Mirror backend fc_is_fully_approved semantics for non-employer users
+      const hasCoreAcademics =
         Boolean(baseProfile?.degree_code) &&
-        Boolean(baseProfile?.department_id) &&
-        Boolean(baseProfile?.expected_graduation_year);
+        Boolean(baseProfile?.department_id);
+
+      const isAlumniRole = role === 'alumni';
+      const isStudentRole = role === 'student';
+
+      const hasGradForAlumni =
+        isAlumniRole &&
+        (baseProfile?.graduation_year != null ||
+          baseProfile?.expected_graduation_year != null);
+
+      const hasGradForStudent =
+        isStudentRole && baseProfile?.expected_graduation_year != null;
+
+      const passesGradRule =
+        !isAlumniRole && !isStudentRole
+          ? true
+          : isAlumniRole
+            ? hasGradForAlumni
+            : hasGradForStudent;
+
+      isProfileComplete = hasCoreAcademics && passesGradRule;
     }
 
-    const isFullyApproved = !!isApproved && isProfileComplete;
+    const isFullyApproved =
+      flagsIsFullyApproved !== null
+        ? !!flagsIsFullyApproved
+        : !!isApproved && isProfileComplete;
 
     const isMentor = role === 'mentor' || (hasPermission ? hasPermission('manage:mentor_profile') : false);
     const isMentee =

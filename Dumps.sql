@@ -87,6 +87,19 @@ CREATE TYPE "public"."group_visibility_enum" AS ENUM (
 ALTER TYPE "public"."group_visibility_enum" OWNER TO "postgres";
 
 
+CREATE TYPE "public"."job_status_enum" AS ENUM (
+    'draft',
+    'pending_approval',
+    'active',
+    'paused',
+    'closed',
+    'rejected'
+);
+
+
+ALTER TYPE "public"."job_status_enum" OWNER TO "postgres";
+
+
 CREATE TYPE "public"."membership_status_enum" AS ENUM (
     'pending',
     'approved',
@@ -95,6 +108,41 @@ CREATE TYPE "public"."membership_status_enum" AS ENUM (
 
 
 ALTER TYPE "public"."membership_status_enum" OWNER TO "postgres";
+
+
+CREATE TYPE "public"."mentorship_relationship_status" AS ENUM (
+    'active',
+    'completed',
+    'terminated'
+);
+
+
+ALTER TYPE "public"."mentorship_relationship_status" OWNER TO "postgres";
+
+
+CREATE TYPE "public"."mentorship_request_status" AS ENUM (
+    'pending',
+    'accepted',
+    'rejected',
+    'cancelled_by_user',
+    'cancelled_by_system'
+);
+
+
+ALTER TYPE "public"."mentorship_request_status" OWNER TO "postgres";
+
+
+CREATE TYPE "public"."notification_module" AS ENUM (
+    'jobs',
+    'events',
+    'mentorship',
+    'groups',
+    'dm',
+    'system'
+);
+
+
+ALTER TYPE "public"."notification_module" OWNER TO "postgres";
 
 
 CREATE TYPE "public"."notification_type_enum" AS ENUM (
@@ -257,14 +305,25 @@ CREATE OR REPLACE FUNCTION "public"."_is_admin"("uid" "uuid") RETURNS boolean
     SET "search_path" TO 'public', 'pg_temp'
     AS $_$
 DECLARE
-  col text;
-  sql text;
+  col    text;
+  sql    text;
   result boolean;
 BEGIN
+  -- NEW: direct check on profiles.role for apps that use app_role_enum
+  IF EXISTS (
+    SELECT 1
+    FROM public.profiles p
+    WHERE p.id = uid
+      AND p.role IN ('admin','super_admin')
+  ) THEN
+    RETURN true;
+  END IF;
+
   -- Try to detect a label column on roles (name/slug/code/key/title/role/label)
   SELECT c.column_name INTO col
   FROM information_schema.columns c
-  WHERE c.table_schema='public' AND c.table_name='roles'
+  WHERE c.table_schema='public'
+    AND c.table_name='roles'
     AND c.column_name = ANY (ARRAY['name','slug','code','key','title','role','label'])
   ORDER BY array_position(ARRAY['name','slug','code','key','title','role','label'], c.column_name)
   LIMIT 1;
@@ -722,7 +781,7 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "industry" "text",
     "phone_number" "text",
     "is_admin" boolean DEFAULT false,
-    "role" "public"."app_role_enum" DEFAULT 'alumni'::"public"."app_role_enum",
+    "role" "public"."app_role_enum" DEFAULT 'alumni'::"public"."app_role_enum" NOT NULL,
     "job_title" "text",
     "years_experience" integer,
     "current_location" "text",
@@ -768,7 +827,7 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "deleted_by" "uuid",
     "is_approved" boolean DEFAULT false NOT NULL,
     "verified_at" timestamp with time zone,
-    "degree_code" "text" NOT NULL,
+    "degree_code" "text",
     "education" "jsonb" DEFAULT '[]'::"jsonb",
     "work_experience" "jsonb" DEFAULT '[]'::"jsonb",
     "positions" "jsonb" DEFAULT '[]'::"jsonb",
@@ -784,13 +843,15 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "verified_by" "uuid",
     "approved_at" timestamp with time zone,
     "approval_reason" "text",
-    "department_id" "uuid" NOT NULL,
+    "department_id" "uuid",
     "avatar_path" "text",
-    "expected_graduation_year" integer NOT NULL,
+    "expected_graduation_year" integer,
     "approval_reviewed_by" "uuid",
     "approval_reviewed_at" timestamp with time zone,
     "avatar_source" "text",
     "avatar_storage_bucket" "text",
+    "max_mentees" integer DEFAULT 5 NOT NULL,
+    "is_data_purged" boolean DEFAULT false,
     CONSTRAINT "approval_status_valid" CHECK (("approval_status" = ANY (ARRAY['approved'::"public"."profile_approval_status", 'pending'::"public"."profile_approval_status", 'rejected'::"public"."profile_approval_status"]))),
     CONSTRAINT "avatar_source_valid" CHECK (("avatar_source" = ANY (ARRAY['supabase'::"text", 'oauth'::"text", 'custom_url'::"text"]))),
     CONSTRAINT "chk_avatar_url_format" CHECK ((("avatar_url" IS NULL) OR (("avatar_url" ~ '^https?://.+'::"text") AND ("length"("avatar_url") <= 2048)))),
@@ -811,6 +872,7 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     CONSTRAINT "profiles_alumni_verification_status_check" CHECK (("alumni_verification_status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"]))),
     CONSTRAINT "profiles_approval_status_valid" CHECK (("approval_status" = ANY (ARRAY['pending'::"public"."profile_approval_status", 'approved'::"public"."profile_approval_status", 'rejected'::"public"."profile_approval_status"]))),
     CONSTRAINT "profiles_avatar_source_check" CHECK (("avatar_source" = ANY (ARRAY['supabase'::"text", 'oauth'::"text", 'custom_url'::"text"]))),
+    CONSTRAINT "profiles_check_max_mentees" CHECK ((("max_mentees" > 0) AND ("max_mentees" <= 50))),
     CONSTRAINT "profiles_mentee_status_check" CHECK (("mentee_status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"]))),
     CONSTRAINT "profiles_mentor_status_check" CHECK (("mentor_status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"]))),
     CONSTRAINT "profiles_phone_ck" CHECK ((("phone" IS NULL) OR ("phone" ~ '^[0-9+()\\-\\s]{7,20}$'::"text"))),
@@ -943,7 +1005,7 @@ BEGIN
       p.id,
       p.email,
       p.full_name,
-      COALESCE(p.role, CASE WHEN p.is_admin THEN 'admin' ELSE 'alumni' END) AS role,
+      COALESCE((p.role)::text, CASE WHEN p.is_admin THEN 'admin' ELSE 'alumni' END) AS role,
       u.last_sign_in_at,
       u.created_at
     FROM public.profiles p
@@ -955,7 +1017,7 @@ BEGIN
   )
   SELECT *
   FROM base
-  ORDER BY COALESCE(last_sign_in_at, created_at) DESC
+  ORDER BY COALESCE(base.last_sign_in_at, base.created_at) DESC
   LIMIT p_limit OFFSET p_offset;
 END;
 $$;
@@ -1056,12 +1118,72 @@ CREATE OR REPLACE FUNCTION "public"."admin_purge_user_data"("target" "uuid") RET
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
+DECLARE
+  caller      uuid := auth.uid();
+  target_role public.app_role_enum;
 BEGIN
-  IF NOT public.is_super_admin() THEN
-    RAISE EXCEPTION 'forbidden';
+  -- Must be logged in
+  IF caller IS NULL THEN
+    RAISE EXCEPTION 'unauthenticated'
+      USING ERRCODE = '28000';
   END IF;
 
-  -- your purge logic here
+  -- Only super_admins can purge
+  IF NOT public.is_super_admin(caller) THEN
+    RAISE EXCEPTION 'forbidden'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- No self-purge
+  IF target = caller THEN
+    RAISE EXCEPTION 'cannot_purge_self'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Target must exist
+  SELECT role INTO target_role
+  FROM public.profiles
+  WHERE id = target;
+
+  IF target_role IS NULL THEN
+    RAISE EXCEPTION 'user_not_found'
+      USING ERRCODE = 'P0002';
+  END IF;
+
+  -- Optional safety: require soft delete first
+  -- IF NOT EXISTS (
+  --   SELECT 1 FROM public.profiles
+  --   WHERE id = target AND coalesce(is_deleted, false) = true
+  -- ) THEN
+  --   RAISE EXCEPTION 'must_soft_delete_first'
+  --     USING ERRCODE = 'P0001';
+  -- END IF;
+
+  -- Do the actual purge (your big cascade function)
+  PERFORM public.purge_user_data(target);
+
+  -- Mark profile as purged
+  UPDATE public.profiles
+  SET is_data_purged = true
+  WHERE id = target;
+
+  -- Audit in admin_actions (adjust columns if needed)
+  INSERT INTO public.admin_actions (
+    admin_id,
+    action_type,
+    target_type,
+    target_id,
+    description,
+    details
+  )
+  VALUES (
+    caller,
+    'purge_user_data',
+    'user',
+    target,
+    'Admin purged user-owned data',
+    jsonb_build_object('target_role', target_role)
+  );
 END;
 $$;
 
@@ -1530,6 +1652,69 @@ CREATE OR REPLACE FUNCTION "public"."admin_total_profiles"() RETURNS integer
 
 
 ALTER FUNCTION "public"."admin_total_profiles"() OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."mentors" (
+    "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
+    "user_id" "uuid",
+    "status" "text" DEFAULT 'pending'::"text",
+    "expertise" "text"[],
+    "mentoring_experience_years" integer,
+    "max_mentees" integer DEFAULT 5,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "mentoring_capacity_hours_per_month" integer,
+    "mentoring_preferences" "jsonb",
+    "mentoring_statement" "text",
+    "mentoring_experience_description" "text",
+    CONSTRAINT "mentors_status_check" CHECK (("status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"])))
+);
+
+ALTER TABLE ONLY "public"."mentors" FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."mentors" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."mentors" IS 'Stores mentor profiles and expertise';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."admin_update_mentor_status"("p_user_id" "uuid", "p_status" "text") RETURNS "public"."mentors"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_mentor public.mentors;
+BEGIN
+  -- 1. Only admins or super_admins can run this
+  IF NOT public.is_site_admin() THEN
+    RAISE EXCEPTION 'Only admins can update mentor status'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 2. Validate input
+  IF p_status NOT IN ('pending', 'approved', 'rejected') THEN
+    RAISE EXCEPTION 'Invalid status: %', p_status
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- 3. Insert or update mentor row
+  INSERT INTO public.mentors AS m (user_id, status)
+  VALUES (p_user_id, p_status)
+  ON CONFLICT (user_id) DO UPDATE
+  SET status = EXCLUDED.status,
+      updated_at = now()
+  RETURNING * INTO v_mentor;
+
+  -- 4. Your existing trigger (mentorship_on_mentor_status_change)
+  --     will automatically run here after the update.
+  RETURN v_mentor;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."admin_update_mentor_status"("p_user_id" "uuid", "p_status" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."admin_update_profile_approval"("p_profile_id" "uuid", "p_decision" "text", "p_notes" "text" DEFAULT NULL::"text") RETURNS "public"."profiles"
@@ -2188,6 +2373,23 @@ $$;
 ALTER FUNCTION "public"."block_applications_for_quick_link"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."block_direct_role_updates"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  IF NEW.role IS DISTINCT FROM OLD.role THEN
+    RAISE EXCEPTION
+      'Direct role updates are forbidden. Use admin_update_user_role() / admin_set_user_role().';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."block_direct_role_updates"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."bump_conversation_last_message"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -2547,6 +2749,23 @@ end$$;
 
 
 ALTER FUNCTION "public"."companies_set_created_by"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."connection_accept"("p_connection_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+begin
+  update public.connections
+  set status = 'accepted', updated_at = now()
+  where id = p_connection_id
+    and (requester_id = auth.uid() or recipient_id = auth.uid());
+  -- triggers on connections will handle dm_threads
+end;
+$$;
+
+
+ALTER FUNCTION "public"."connection_accept"("p_connection_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."connections_fill_defaults"() RETURNS "trigger"
@@ -3037,6 +3256,7 @@ ALTER FUNCTION "public"."create_or_update_mentor_profile"("p_expertise" "text"[]
 
 CREATE OR REPLACE FUNCTION "public"."create_relationship_on_accept"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
     AS $$
 begin
   if new.status = 'accepted' and (old.status is distinct from 'accepted') then
@@ -3552,6 +3772,28 @@ $$;
 ALTER FUNCTION "public"."enforce_at_least_one_admin_deferred"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."enforce_avatar_upload_rate"("p_user_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_count int;
+BEGIN
+  SELECT count(*) INTO v_count
+  FROM public.avatar_upload_log
+  WHERE user_id = p_user_id
+    AND uploaded_at > now() - interval '1 hour';
+
+  IF v_count >= 5 THEN
+    RAISE EXCEPTION 'Too many avatar uploads. Please wait before trying again.'
+      USING ERRCODE = '42901'; -- custom / generic code
+  END IF;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."enforce_avatar_upload_rate"("p_user_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."enforce_feedback_after_end"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -3621,6 +3863,134 @@ $$;
 ALTER FUNCTION "public"."enforce_requester_guard"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."enqueue_notification_event"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text" DEFAULT NULL::"text", "p_metadata" "jsonb" DEFAULT '{}'::"jsonb", "p_idempotency_key" "text" DEFAULT NULL::"text") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_notification_id uuid;
+BEGIN
+  IF p_recipient_id IS NULL THEN
+    RAISE EXCEPTION 'Recipient cannot be NULL' USING ERRCODE = '23502';
+  END IF;
+
+  -- Idempotency guard
+  IF p_idempotency_key IS NOT NULL THEN
+    SELECT id INTO v_notification_id
+    FROM public.notification_events
+    WHERE idempotency_key = p_idempotency_key;
+
+    IF FOUND THEN
+      RETURN v_notification_id;
+    END IF;
+  END IF;
+
+  -- Insert into notification_events (audit trail)
+  INSERT INTO public.notification_events(
+    recipient_id,
+    event_type,
+    title,
+    message,
+    link,
+    metadata,
+    idempotency_key
+  )
+  VALUES (
+    p_recipient_id,
+    p_type,
+    p_title,
+    p_message,
+    p_link,
+    p_metadata,
+    p_idempotency_key
+  )
+  RETURNING id INTO v_notification_id;
+
+  -- Also insert into main notifications table
+  INSERT INTO public.notifications(
+    id,
+    recipient_id,
+    type,
+    title,
+    message,
+    link,
+    metadata,
+    is_read,
+    created_at
+  )
+  VALUES (
+    v_notification_id,
+    p_recipient_id,
+    p_type,
+    p_title,
+    p_message,
+    p_link,
+    p_metadata,
+    false,
+    now()
+  );
+
+  RETURN v_notification_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."enqueue_notification_event"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb", "p_idempotency_key" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."enqueue_notification_event"("p_event_type" "public"."notification_type_enum", "p_module" "public"."notification_module", "p_actor_profile_id" "uuid", "p_entity_table" "text", "p_entity_id" "uuid", "p_metadata" "jsonb" DEFAULT '{}'::"jsonb", "p_idempotency_key" "text" DEFAULT NULL::"text") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_id uuid;
+BEGIN
+  IF p_actor_profile_id IS NULL THEN
+    RAISE EXCEPTION 'Actor profile ID is required';
+  END IF;
+
+  -- Optional idempotency: if a row with same key exists, return it
+  IF p_idempotency_key IS NOT NULL THEN
+    SELECT id INTO v_id
+    FROM public.notification_events
+    WHERE idempotency_key = p_idempotency_key;
+
+    IF v_id IS NOT NULL THEN
+      RETURN v_id;
+    END IF;
+  END IF;
+
+  INSERT INTO public.notification_events (
+    event_type,
+    module,
+    actor_profile_id,
+    entity_table,
+    entity_id,
+    metadata,
+    idempotency_key
+  ) VALUES (
+    p_event_type,
+    p_module,
+    p_actor_profile_id,
+    lower(p_entity_table),
+    p_entity_id,
+    COALESCE(p_metadata, '{}'::jsonb),
+    p_idempotency_key
+  )
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."enqueue_notification_event"("p_event_type" "public"."notification_type_enum", "p_module" "public"."notification_module", "p_actor_profile_id" "uuid", "p_entity_table" "text", "p_entity_id" "uuid", "p_metadata" "jsonb", "p_idempotency_key" "text") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."enqueue_notification_event"("p_event_type" "public"."notification_type_enum", "p_module" "public"."notification_module", "p_actor_profile_id" "uuid", "p_entity_table" "text", "p_entity_id" "uuid", "p_metadata" "jsonb", "p_idempotency_key" "text") IS 'Modules call this when something notification-worthy happens. Fan-out happens separately.';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."enqueue_user_hard_delete"("target_user_id" "uuid", "reason" "text" DEFAULT NULL::"text") RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -3669,6 +4039,36 @@ $$;
 ALTER FUNCTION "public"."ensure_connection_on_mentorship_accept"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."ensure_dm_thread_for_mentorship"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_thread uuid;
+BEGIN
+  -- We only act when both sides are present
+  IF NEW.mentor_id IS NULL OR NEW.mentee_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- If already linked, no work
+  IF NEW.dm_thread_id IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Create or reuse a DM thread for this mentor/mentee pair
+  v_thread := public.dm_get_or_create_thread(NEW.mentor_id, NEW.mentee_id);
+
+  NEW.dm_thread_id := v_thread;
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."ensure_dm_thread_for_mentorship"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."ensure_dm_thread_with"("p_other" "uuid") RETURNS "uuid"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public', 'pg_temp'
@@ -3698,6 +4098,28 @@ $$;
 
 
 ALTER FUNCTION "public"."ensure_dm_thread_with"("p_other" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."ensure_dm_thread_with"("p_other_user_id" "uuid", "p_context_type" "text", "p_context_id" "uuid") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_thread_id uuid;
+BEGIN
+  -- Reuse the existing 1-arg helper that knows how to
+  -- find/create a DM thread between the current user and p_other_user_id.
+  v_thread_id := public.ensure_dm_thread_with(p_other_user_id);
+
+  -- For now we ignore p_context_type / p_context_id.
+  -- Later, if you add columns on dm_threads, you can store them here.
+
+  RETURN v_thread_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."ensure_dm_thread_with"("p_other_user_id" "uuid", "p_context_type" "text", "p_context_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."ensure_employer_company"() RETURNS "uuid"
@@ -3805,17 +4227,25 @@ ALTER FUNCTION "public"."ensure_profile_for_new_user"() OWNER TO "postgres";
 CREATE OR REPLACE FUNCTION "public"."ensure_thread_for_connection"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
-begin
-  if (tg_op = 'UPDATE' and new.status in ('accepted','connected') and (old.status is distinct from new.status)) then
-    insert into public.dm_threads (user_a, user_b)
-    values (
-      least(new.requester_id, new.recipient_id),
-      greatest(new.requester_id, new.recipient_id)
+BEGIN
+  IF (
+       (TG_OP = 'INSERT' AND NEW.status IN ('accepted','connected'))
+       OR
+       (TG_OP = 'UPDATE'
+        AND NEW.status IN ('accepted','connected')
+        AND (OLD.status IS DISTINCT FROM NEW.status))
+     )
+  THEN
+    INSERT INTO public.dm_threads (user_a, user_b)
+    VALUES (
+      LEAST(NEW.requester_id, NEW.recipient_id),
+      GREATEST(NEW.requester_id, NEW.recipient_id)
     )
-    on conflict (user_a, user_b) do nothing;
-  end if;
-  return new;
-end;
+    ON CONFLICT (user_a, user_b) DO NOTHING;
+  END IF;
+
+  RETURN NEW;
+END;
 $$;
 
 
@@ -3898,10 +4328,23 @@ ALTER FUNCTION "public"."fc_has_applied_to_job"("p_job_id" "uuid", "p_user_id" "
 CREATE OR REPLACE FUNCTION "public"."fc_is_admin"() RETURNS boolean
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
-    AS $$ select public.current_role_text() in ('admin','super_admin'); $$;
+    AS $$
+  SELECT COALESCE(public.app_is_admin(), false);
+$$;
 
 
 ALTER FUNCTION "public"."fc_is_admin"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."fc_is_admin"("p_user_id" "uuid") RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  SELECT COALESCE(public.app_is_admin_of(p_user_id), false);
+$$;
+
+
+ALTER FUNCTION "public"."fc_is_admin"("p_user_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."fc_is_employer"() RETURNS boolean
@@ -3941,15 +4384,47 @@ CREATE OR REPLACE FUNCTION "public"."fc_is_fully_approved"("p_user_id" "uuid" DE
       -- safety flags
       AND COALESCE(p.is_deleted, false) = false
       AND COALESCE(p.is_active,  true)  = true
-      -- completeness gates
+      -- profile completeness (degree + department always required)
       AND p.degree_code IS NOT NULL
       AND p.department_id IS NOT NULL
-      AND p.expected_graduation_year IS NOT NULL
+      -- graduation requirement, role-aware:
+      AND (
+        -- Alumni: allow graduation_year OR expected_graduation_year
+        (p.role = 'alumni'::public.app_role_enum
+         AND (p.graduation_year IS NOT NULL OR p.expected_graduation_year IS NOT NULL))
+        -- Students: still require expected_graduation_year
+        OR (p.role = 'student'::public.app_role_enum
+            AND p.expected_graduation_year IS NOT NULL)
+        -- Other roles: no extra graduation-year requirement
+        OR (p.role NOT IN ('alumni'::public.app_role_enum, 'student'::public.app_role_enum))
+      )
   );
 $$;
 
 
 ALTER FUNCTION "public"."fc_is_fully_approved"("p_user_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."fc_is_super_admin"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  SELECT public.is_site_admin();
+$$;
+
+
+ALTER FUNCTION "public"."fc_is_super_admin"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."fc_is_super_admin"("p_user_id" "uuid") RETURNS boolean
+    LANGUAGE "sql" STABLE
+    SET "search_path" TO 'public'
+    AS $$
+  SELECT public.is_super_admin(p_user_id);
+$$;
+
+
+ALTER FUNCTION "public"."fc_is_super_admin"("p_user_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."find_or_create_conversation"("other_user_id" "uuid") RETURNS "uuid"
@@ -4011,6 +4486,162 @@ $$;
 
 
 ALTER FUNCTION "public"."format_inr"("val" bigint) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_admin_analytics_summary"("p_period" "text" DEFAULT '30d'::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_admin_id uuid := auth.uid();
+  v_is_admin boolean;
+  v_period_start timestamptz;
+  v_result jsonb;
+BEGIN
+  IF v_admin_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required';
+  END IF;
+
+  -- Explicit admin check against profiles.role enum
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = v_admin_id
+      AND p.role IN ('admin','super_admin')
+      AND COALESCE(p.is_deleted, false) = false
+  ) INTO v_is_admin;
+
+  IF NOT v_is_admin THEN
+    RAISE EXCEPTION 'Access denied: admin role required';
+  END IF;
+
+  -- Period window
+  v_period_start := CASE p_period
+    WHEN '7d'  THEN now() - interval '7 days'
+    WHEN '30d' THEN now() - interval '30 days'
+    WHEN '90d' THEN now() - interval '90 days'
+    WHEN '1y'  THEN now() - interval '1 year'
+    ELSE now() - interval '30 days'
+  END;
+
+  -- Log the call (no PII in parameters)
+  INSERT INTO public.admin_analytics_audit_log (admin_id, function_name, parameters)
+  VALUES (v_admin_id, 'get_admin_analytics_summary', jsonb_build_object('period', p_period));
+
+  -- Build analytics JSON
+  v_result := jsonb_build_object(
+    'period', p_period,
+    'generated_at', now(),
+
+    'users', jsonb_build_object(
+      'total_profiles', (
+        SELECT count(*)::int FROM public.profiles p
+        WHERE COALESCE(p.is_deleted, false) = false
+      ),
+      'approved_alumni', (
+        SELECT count(*)::int FROM public.profiles p
+        WHERE p.role = 'alumni'
+          AND p.approval_status = 'approved'
+          AND COALESCE(p.is_deleted, false) = false
+      ),
+      'approved_students', (
+        SELECT count(*)::int FROM public.profiles p
+        WHERE p.role = 'student'
+          AND p.approval_status = 'approved'
+          AND COALESCE(p.is_deleted, false) = false
+      ),
+      'approved_employers', (
+        SELECT count(*)::int FROM public.profiles p
+        WHERE p.role = 'employer'
+          AND p.approval_status = 'approved'
+          AND COALESCE(p.is_deleted, false) = false
+      ),
+      'pending_approvals', (
+        SELECT count(*)::int FROM public.profiles p
+        WHERE p.approval_status = 'pending'
+          AND COALESCE(p.is_deleted, false) = false
+      ),
+      'active_users_period', (
+        SELECT count(DISTINCT l.user_id)::int
+        FROM public.user_activity_logs l
+        WHERE l.created_at >= v_period_start
+      )
+    ),
+
+    'events', jsonb_build_object(
+      'total_events', (SELECT count(*)::int FROM public.events),
+      'upcoming_events', (
+        SELECT count(*)::int
+        FROM public.events e
+        WHERE e.start_date >= CURRENT_DATE
+          AND e.is_published = true
+      ),
+      'total_rsvps', (SELECT count(*)::int FROM public.event_attendees),
+      'rsvps_period', (
+        SELECT count(*)::int
+        FROM public.event_attendees ea
+        WHERE ea.created_at >= v_period_start
+      )
+    ),
+
+    'jobs', jsonb_build_object(
+      'total_jobs', (SELECT count(*)::int FROM public.jobs),
+      'active_jobs', (
+        SELECT count(*)::int
+        FROM public.jobs j
+        WHERE j.is_active = true
+          AND j.is_approved = true
+      ),
+      'total_applications', (SELECT count(*)::int FROM public.job_applications),
+      'applications_period', (
+        SELECT count(*)::int
+        FROM public.job_applications ja
+        WHERE ja.created_at >= v_period_start
+      )
+    ),
+
+    'networking', jsonb_build_object(
+      'total_connections', (
+        SELECT count(*)::int
+        FROM public.connections c
+        WHERE c.status = 'accepted'
+      ),
+      'total_groups', (
+        SELECT count(*)::int
+        FROM public.groups g
+        WHERE g.is_approved = true
+      ),
+      'total_group_members', (SELECT count(*)::int FROM public.group_members)
+    ),
+
+    'mentorship', jsonb_build_object(
+      'active_mentorships', (
+        SELECT count(*)::int
+        FROM public.mentorships m
+        WHERE m.status = 'accepted'
+      ),
+      'pending_requests', (
+        SELECT count(*)::int
+        FROM public.mentorship_requests mr
+        WHERE mr.status = 'pending'
+      )
+    ),
+
+    'messaging', jsonb_build_object(
+      'total_messages', (SELECT count(*)::int FROM public.messages),
+      'messages_period', (
+        SELECT count(*)::int
+        FROM public.messages m
+        WHERE m.created_at >= v_period_start
+      )
+    )
+  );
+
+  RETURN v_result;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_admin_analytics_summary"("p_period" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE VIEW "public"."admin_profile_metrics" AS
@@ -4212,6 +4843,49 @@ $$;
 
 
 ALTER FUNCTION "public"."get_admin_users"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_all_profiles_count_by_role_admin"() RETURNS "jsonb"
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  -- Only admin/super_admin can call this
+  SELECT CASE
+    WHEN public._is_admin(auth.uid()) THEN
+      jsonb_build_object(
+        'alumni', jsonb_build_object(
+          'total',    COUNT(*) FILTER (WHERE p.role = 'alumni'),
+          'pending',  COUNT(*) FILTER (WHERE p.role = 'alumni' AND p.approval_status = 'pending'),
+          'approved', COUNT(*) FILTER (WHERE p.role = 'alumni' AND p.approval_status = 'approved'),
+          'rejected', COUNT(*) FILTER (WHERE p.role = 'alumni' AND p.approval_status = 'rejected')
+        ),
+        'student', jsonb_build_object(
+          'total',    COUNT(*) FILTER (WHERE p.role = 'student'),
+          'pending',  COUNT(*) FILTER (WHERE p.role = 'student' AND p.approval_status = 'pending'),
+          'approved', COUNT(*) FILTER (WHERE p.role = 'student' AND p.approval_status = 'approved'),
+          'rejected', COUNT(*) FILTER (WHERE p.role = 'student' AND p.approval_status = 'rejected')
+        ),
+        'employer', jsonb_build_object(
+          'total',    COUNT(*) FILTER (WHERE p.role = 'employer'),
+          'pending',  COUNT(*) FILTER (WHERE p.role = 'employer' AND p.approval_status = 'pending'),
+          'approved', COUNT(*) FILTER (WHERE p.role = 'employer' AND p.approval_status = 'approved'),
+          'rejected', COUNT(*) FILTER (WHERE p.role = 'employer' AND p.approval_status = 'rejected')
+        )
+      )
+    ELSE
+      NULL  -- Non-admins get nothing
+  END
+  FROM public.profiles p
+  WHERE COALESCE(p.is_deleted, false) = false
+    AND COALESCE(p.is_active, true) = true;
+$$;
+
+
+ALTER FUNCTION "public"."get_all_profiles_count_by_role_admin"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."get_all_profiles_count_by_role_admin"() IS 'Admin/Super Admin only: returns all profile counts by role and approval status (pending/approved/rejected). Non-admins get NULL.';
+
 
 
 CREATE OR REPLACE FUNCTION "public"."get_alumni_approved_count"() RETURNS integer
@@ -4541,6 +5215,204 @@ COMMENT ON FUNCTION "public"."get_dashboard_stats"() IS 'Returns statistics for 
 
 
 
+CREATE OR REPLACE FUNCTION "public"."get_dashboard_summary_for_user"("p_user_id" "uuid" DEFAULT NULL::"uuid") RETURNS "jsonb"
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_viewer uuid := auth.uid();
+  v_target uuid := COALESCE(p_user_id, v_viewer);
+  v_role   text;
+  v_is_deleted boolean;
+  v_result jsonb;
+BEGIN
+  -- Require authentication
+  IF v_viewer IS NULL THEN
+    RAISE EXCEPTION 'Authentication required';
+  END IF;
+
+  -- Users can only request their own summary
+  IF v_target <> v_viewer THEN
+    RAISE EXCEPTION 'Access denied: cannot view other users'' dashboard summary';
+  END IF;
+
+  -- Get role & deletion flag
+  SELECT role, COALESCE(is_deleted, false)
+  INTO v_role, v_is_deleted
+  FROM public.profiles
+  WHERE id = v_target;
+
+  IF v_is_deleted OR v_role IS NULL THEN
+    RAISE EXCEPTION 'User not found or deleted';
+  END IF;
+
+  -- Build JSON summary
+  v_result := jsonb_build_object(
+    'user_id', v_target,
+    'role', v_role,
+
+    'counts', jsonb_build_object(
+      'total_alumni', (
+        SELECT count(*)::int
+        FROM public.profiles p
+        WHERE p.role = 'alumni'
+          AND p.approval_status = 'approved'
+          AND COALESCE(p.is_deleted, false) = false
+          AND COALESCE(p.is_active, true) = true
+      ),
+      'total_students', (
+        SELECT count(*)::int
+        FROM public.profiles p
+        WHERE p.role = 'student'
+          AND p.approval_status = 'approved'
+          AND COALESCE(p.is_deleted, false) = false
+          AND COALESCE(p.is_active, true) = true
+      ),
+      'total_employers', (
+        SELECT count(*)::int
+        FROM public.profiles p
+        WHERE p.role = 'employer'
+          AND p.approval_status = 'approved'
+          AND COALESCE(p.is_deleted, false) = false
+          AND COALESCE(p.is_active, true) = true
+      ),
+      'my_connections', (
+        SELECT count(*)::int
+        FROM public.connections c
+        WHERE (c.requester_id = v_target OR c.recipient_id = v_target)
+          AND c.status = 'accepted'
+      ),
+      'upcoming_events', (
+        SELECT count(*)::int
+        FROM public.events e
+        WHERE e.start_date >= CURRENT_DATE
+          AND e.is_published = true
+          AND e.approval_status = 'approved'
+      ),
+      'active_jobs', (
+        SELECT count(*)::int
+        FROM public.jobs j
+        WHERE j.is_active = true
+          AND j.is_approved = true
+      ),
+      'unread_messages', (
+        SELECT count(*)::int
+        FROM public.messages m
+        WHERE m.recipient_id = v_target
+          AND m.read_at IS NULL
+      )
+    ),
+
+    'upcoming_events_list', (
+      SELECT COALESCE(
+        jsonb_agg(
+          jsonb_build_object(
+            'id', e.id,
+            'title', e.title,
+            'start_date', e.start_date,
+            'start_time', e.start_time,       -- alias from start_at
+            'location', e.location,
+            'event_type', e.event_type
+          )
+          ORDER BY e.start_date ASC, e.start_time ASC
+        ),
+        '[]'::jsonb
+      )
+      FROM (
+        SELECT
+          id,
+          title,
+          start_date,
+          start_at AS start_time,            -- ← FIX: alias real column
+          location,
+          event_type
+        FROM public.events
+        WHERE start_date >= CURRENT_DATE
+          AND is_published = true
+          AND approval_status = 'approved'
+        ORDER BY start_date ASC, start_at ASC
+        LIMIT 3
+      ) e
+    ),
+
+    'recommended_jobs_list', (
+      SELECT COALESCE(
+        jsonb_agg(
+          jsonb_build_object(
+            'id', j.id,
+            'title', j.title,
+            'company_name', COALESCE(c.name, j.company_name),
+            'location', j.location,
+            'salary_range',
+              CASE 
+                WHEN j.salary_min IS NOT NULL AND j.salary_max IS NOT NULL THEN
+                  j.salary_min::text || ' - ' || j.salary_max::text
+                WHEN j.salary_min IS NOT NULL THEN
+                  'From ' || j.salary_min::text
+                ELSE
+                  'Not specified'
+              END,
+            'created_at', j.created_at
+          )
+          ORDER BY j.created_at DESC
+        ),
+        '[]'::jsonb
+      )
+      FROM (
+        SELECT id, title, company_id, company_name, location,
+               salary_min, salary_max, created_at
+        FROM public.jobs
+        WHERE is_active = true
+          AND is_approved = true
+        ORDER BY created_at DESC
+        LIMIT 3
+      ) j
+      LEFT JOIN public.companies c ON c.id = j.company_id
+    ),
+
+    'role_data',
+      CASE 
+        WHEN v_role = 'employer' THEN
+          jsonb_build_object(
+            'my_active_jobs', (
+              SELECT count(*)::int
+              FROM public.jobs j
+              WHERE j.created_by = v_target
+                AND j.is_active = true
+            ),
+            'my_total_applications', (
+              SELECT count(*)::int
+              FROM public.job_applications ja
+              JOIN public.jobs j ON j.id = ja.job_id
+              WHERE j.created_by = v_target
+            )
+          )
+        WHEN v_role IN ('student', 'alumni') THEN
+          jsonb_build_object(
+            'my_applications', (
+              SELECT count(*)::int
+              FROM public.job_applications ja
+              WHERE ja.applicant_id = v_target
+            ),
+            'my_pending_applications', (
+              SELECT count(*)::int
+              FROM public.job_applications ja
+              WHERE ja.applicant_id = v_target
+                AND ja.status = 'pending'
+            )
+          )
+        ELSE '{}'::jsonb
+      END
+  );
+
+  RETURN v_result;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_dashboard_summary_for_user"("p_user_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."get_directory_cards"("p_search" "text", "p_limit" integer, "p_offset" integer) RETURNS TABLE("id" "uuid", "full_name" "text", "graduation_year" integer, "degree_program" "text", "department" "text", "current_title" "text", "company_name" "text", "location" "text", "avatar_url" "text", "role" "public"."app_role_enum", "is_employer" boolean, "connection_status" "text", "connection_pending_side" "text", "is_available_for_mentorship" boolean, "mentor_status" "text", "mentor_expertise" "text"[], "mentor_preferences" "jsonb")
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -4761,100 +5633,388 @@ ALTER FUNCTION "public"."get_directory_profiles_search"("p_search" "text", "p_li
 
 
 CREATE OR REPLACE FUNCTION "public"."get_directory_profiles_secure"("p_search" "text", "p_limit" integer, "p_offset" integer) RETURNS TABLE("id" "uuid", "first_name" "text", "last_name" "text", "full_name" "text", "graduation_year" integer, "degree_program" "text", "department" "text", "current_job_title" "text", "company_name" "text", "location" "text", "location_city" "text", "location_country" "text", "avatar_url" "text", "role" "text", "approval_status" "text", "is_active" boolean, "is_deleted" boolean, "show_in_directory" boolean, "total_count" bigint)
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  SELECT *
+  FROM public.get_directory_profiles_secure(
+    p_search,
+    p_limit,
+    p_offset,
+    'name',
+    'asc'
+  );
+$$;
+
+
+ALTER FUNCTION "public"."get_directory_profiles_secure"("p_search" "text", "p_limit" integer, "p_offset" integer) OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."get_directory_profiles_secure"("p_search" "text", "p_limit" integer, "p_offset" integer) IS 'Get directory profiles for secure view, ordered by first name (then full_name), never by last_name.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."get_directory_profiles_secure"("p_search" "text", "p_limit" integer, "p_offset" integer, "p_sort_field" "text", "p_sort_dir" "text") RETURNS TABLE("id" "uuid", "first_name" "text", "last_name" "text", "full_name" "text", "graduation_year" integer, "degree_program" "text", "department" "text", "current_job_title" "text", "company_name" "text", "location" "text", "location_city" "text", "location_country" "text", "avatar_url" "text", "role" "text", "approval_status" "text", "is_active" boolean, "is_deleted" boolean, "show_in_directory" boolean, "total_count" bigint)
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
 DECLARE
-  v_role     text    := public.get_user_role();
-  v_is_admin boolean := public.app_is_admin();
+  v_role       text    := public.get_user_role();
+  v_is_admin   boolean := public.app_is_admin();
+  v_sort_field text    := lower(coalesce(nullif(p_sort_field, ''), 'name'));
+  v_sort_dir   text    := case
+                             when lower(p_sort_dir) in ('asc','desc') then lower(p_sort_dir)
+                             else 'asc'
+                           end;
 BEGIN
   -- Employers: do not show people directory at all
   IF v_role = 'employer' THEN
     RETURN;
   END IF;
 
+  -- ADMIN / SUPER_ADMIN
   IF v_is_admin THEN
-    -- ADMIN / SUPER_ADMIN: see everything the view exposes
-    RETURN QUERY
-    SELECT *
-    FROM (
-      SELECT
-        d.id,
-        d.first_name,
-        d.last_name,
-        d.full_name,
-        d.graduation_year,
-        d.degree_program,
-        d.department,
-        d.current_job_title,
-        d.company_name,
-        d.location,
-        d.location_city,
-        d.location_country,
-        d.avatar_url,
-        d.role::text,
-        d.approval_status::text,
-        d.is_active,
-        d.is_deleted,
-        d.show_in_directory,
-        COUNT(*) OVER () AS total_count
-      FROM public.directory_profiles_public AS d
-      WHERE
-        COALESCE(p_search, '') = ''
-        OR d.full_name ILIKE '%' || p_search || '%'
-        OR (COALESCE(d.first_name, '') || ' ' || COALESCE(d.last_name, ''))
-             ILIKE '%' || p_search || '%'
-    ) counted
-    ORDER BY counted.last_name NULLS LAST, counted.first_name NULLS LAST
-    LIMIT COALESCE(p_limit, 50)
-    OFFSET COALESCE(p_offset, 0);
+
+    IF v_sort_field = 'graduation_year' THEN
+      -- Sort by graduation year globally (Newest/Oldest), tie-breaker by first name
+      IF v_sort_dir = 'desc' THEN
+        RETURN QUERY
+        SELECT *
+        FROM (
+          SELECT
+            d.id,
+            d.first_name,
+            d.last_name,
+            d.full_name,
+            d.graduation_year,
+            d.degree_program,
+            d.department,
+            d.current_job_title,
+            d.company_name,
+            d.location,
+            d.location_city,
+            d.location_country,
+            d.avatar_url,
+            d.role::text,
+            d.approval_status::text,
+            d.is_active,
+            d.is_deleted,
+            d.show_in_directory,
+            COUNT(*) OVER () AS total_count
+          FROM public.directory_profiles_public AS d
+          WHERE
+            COALESCE(p_search, '') = ''
+            OR d.full_name ILIKE '%' || p_search || '%'
+            OR (COALESCE(d.first_name, '') || ' ' || COALESCE(d.last_name, ''))
+                 ILIKE '%' || p_search || '%'
+        ) counted
+        ORDER BY
+          counted.graduation_year DESC,
+          COALESCE(NULLIF(trim(counted.first_name), ''), NULLIF(trim(counted.full_name), '')) ASC,
+          COALESCE(NULLIF(trim(counted.full_name), ''), '') ASC
+        LIMIT COALESCE(p_limit, 50)
+        OFFSET COALESCE(p_offset, 0);
+      ELSE
+        RETURN QUERY
+        SELECT *
+        FROM (
+          SELECT
+            d.id,
+            d.first_name,
+            d.last_name,
+            d.full_name,
+            d.graduation_year,
+            d.degree_program,
+            d.department,
+            d.current_job_title,
+            d.company_name,
+            d.location,
+            d.location_city,
+            d.location_country,
+            d.avatar_url,
+            d.role::text,
+            d.approval_status::text,
+            d.is_active,
+            d.is_deleted,
+            d.show_in_directory,
+            COUNT(*) OVER () AS total_count
+          FROM public.directory_profiles_public AS d
+          WHERE
+            COALESCE(p_search, '') = ''
+            OR d.full_name ILIKE '%' || p_search || '%'
+            OR (COALESCE(d.first_name, '') || ' ' || COALESCE(d.last_name, ''))
+                 ILIKE '%' || p_search || '%'
+        ) counted
+        ORDER BY
+          counted.graduation_year ASC,
+          COALESCE(NULLIF(trim(counted.first_name), ''), NULLIF(trim(counted.full_name), '')) ASC,
+          COALESCE(NULLIF(trim(counted.full_name), ''), '') ASC
+        LIMIT COALESCE(p_limit, 50)
+        OFFSET COALESCE(p_offset, 0);
+      END IF;
+
+    ELSE
+      -- Sort by name globally (A–Z / Z–A) using first_name as primary, fallback full_name
+      IF v_sort_dir = 'desc' THEN
+        RETURN QUERY
+        SELECT *
+        FROM (
+          SELECT
+            d.id,
+            d.first_name,
+            d.last_name,
+            d.full_name,
+            d.graduation_year,
+            d.degree_program,
+            d.department,
+            d.current_job_title,
+            d.company_name,
+            d.location,
+            d.location_city,
+            d.location_country,
+            d.avatar_url,
+            d.role::text,
+            d.approval_status::text,
+            d.is_active,
+            d.is_deleted,
+            d.show_in_directory,
+            COUNT(*) OVER () AS total_count
+          FROM public.directory_profiles_public AS d
+          WHERE
+            COALESCE(p_search, '') = ''
+            OR d.full_name ILIKE '%' || p_search || '%'
+            OR (COALESCE(d.first_name, '') || ' ' || COALESCE(d.last_name, ''))
+                 ILIKE '%' || p_search || '%'
+        ) counted
+        ORDER BY
+          COALESCE(NULLIF(trim(counted.first_name), ''), NULLIF(trim(counted.full_name), '')) DESC,
+          COALESCE(NULLIF(trim(counted.full_name), ''), '') DESC
+        LIMIT COALESCE(p_limit, 50)
+        OFFSET COALESCE(p_offset, 0);
+      ELSE
+        RETURN QUERY
+        SELECT *
+        FROM (
+          SELECT
+            d.id,
+            d.first_name,
+            d.last_name,
+            d.full_name,
+            d.graduation_year,
+            d.degree_program,
+            d.department,
+            d.current_job_title,
+            d.company_name,
+            d.location,
+            d.location_city,
+            d.location_country,
+            d.avatar_url,
+            d.role::text,
+            d.approval_status::text,
+            d.is_active,
+            d.is_deleted,
+            d.show_in_directory,
+            COUNT(*) OVER () AS total_count
+          FROM public.directory_profiles_public AS d
+          WHERE
+            COALESCE(p_search, '') = ''
+            OR d.full_name ILIKE '%' || p_search || '%'
+            OR (COALESCE(d.first_name, '') || ' ' || COALESCE(d.last_name, ''))
+                 ILIKE '%' || p_search || '%'
+        ) counted
+        ORDER BY
+          COALESCE(NULLIF(trim(counted.first_name), ''), NULLIF(trim(counted.full_name), '')) ASC,
+          COALESCE(NULLIF(trim(counted.full_name), ''), '') ASC
+        LIMIT COALESCE(p_limit, 50)
+        OFFSET COALESCE(p_offset, 0);
+      END IF;
+    END IF;
 
   ELSE
     -- NORMAL USERS: only active, visible profiles
-    RETURN QUERY
-    SELECT *
-    FROM (
-      SELECT
-        d.id,
-        d.first_name,
-        d.last_name,
-        d.full_name,
-        d.graduation_year,
-        d.degree_program,
-        d.department,
-        d.current_job_title,
-        d.company_name,
-        d.location,
-        d.location_city,
-        d.location_country,
-        d.avatar_url,
-        d.role::text,
-        d.approval_status::text,
-        d.is_active,
-        d.is_deleted,
-        d.show_in_directory,
-        COUNT(*) OVER () AS total_count
-      FROM public.directory_profiles_public AS d
-      WHERE
-        d.is_deleted = false
-        AND d.is_active = true
-        AND d.show_in_directory = true
-        AND (
-          COALESCE(p_search, '') = ''
-          OR d.full_name ILIKE '%' || p_search || '%'
-          OR (COALESCE(d.first_name, '') || ' ' || COALESCE(d.last_name, ''))
-               ILIKE '%' || p_search || '%'
-        )
-    ) counted
-    ORDER BY counted.last_name NULLS LAST, counted.first_name NULLS LAST
-    LIMIT COALESCE(p_limit, 50)
-    OFFSET COALESCE(p_offset, 0);
+
+    IF v_sort_field = 'graduation_year' THEN
+      IF v_sort_dir = 'desc' THEN
+        RETURN QUERY
+        SELECT *
+        FROM (
+          SELECT
+            d.id,
+            d.first_name,
+            d.last_name,
+            d.full_name,
+            d.graduation_year,
+            d.degree_program,
+            d.department,
+            d.current_job_title,
+            d.company_name,
+            d.location,
+            d.location_city,
+            d.location_country,
+            d.avatar_url,
+            d.role::text,
+            d.approval_status::text,
+            d.is_active,
+            d.is_deleted,
+            d.show_in_directory,
+            COUNT(*) OVER () AS total_count
+          FROM public.directory_profiles_public AS d
+          WHERE
+            d.is_deleted = false
+            AND d.is_active = true
+            AND d.show_in_directory = true
+            AND (
+              COALESCE(p_search, '') = ''
+              OR d.full_name ILIKE '%' || p_search || '%'
+              OR (COALESCE(d.first_name, '') || ' ' || COALESCE(d.last_name, ''))
+                   ILIKE '%' || p_search || '%'
+            )
+        ) counted
+        ORDER BY
+          counted.graduation_year DESC,
+          COALESCE(NULLIF(trim(counted.first_name), ''), NULLIF(trim(counted.full_name), '')) ASC,
+          COALESCE(NULLIF(trim(counted.full_name), ''), '') ASC
+        LIMIT COALESCE(p_limit, 50)
+        OFFSET COALESCE(p_offset, 0);
+      ELSE
+        RETURN QUERY
+        SELECT *
+        FROM (
+          SELECT
+            d.id,
+            d.first_name,
+            d.last_name,
+            d.full_name,
+            d.graduation_year,
+            d.degree_program,
+            d.department,
+            d.current_job_title,
+            d.company_name,
+            d.location,
+            d.location_city,
+            d.location_country,
+            d.avatar_url,
+            d.role::text,
+            d.approval_status::text,
+            d.is_active,
+            d.is_deleted,
+            d.show_in_directory,
+            COUNT(*) OVER () AS total_count
+          FROM public.directory_profiles_public AS d
+          WHERE
+            d.is_deleted = false
+            AND d.is_active = true
+            AND d.show_in_directory = true
+            AND (
+              COALESCE(p_search, '') = ''
+              OR d.full_name ILIKE '%' || p_search || '%'
+              OR (COALESCE(d.first_name, '') || ' ' || COALESCE(d.last_name, ''))
+                   ILIKE '%' || p_search || '%'
+            )
+        ) counted
+        ORDER BY
+          counted.graduation_year ASC,
+          COALESCE(NULLIF(trim(counted.first_name), ''), NULLIF(trim(counted.full_name), '')) ASC,
+          COALESCE(NULLIF(trim(counted.full_name), ''), '') ASC
+        LIMIT COALESCE(p_limit, 50)
+        OFFSET COALESCE(p_offset, 0);
+      END IF;
+
+    ELSE
+      IF v_sort_dir = 'desc' THEN
+        RETURN QUERY
+        SELECT *
+        FROM (
+          SELECT
+            d.id,
+            d.first_name,
+            d.last_name,
+            d.full_name,
+            d.graduation_year,
+            d.degree_program,
+            d.department,
+            d.current_job_title,
+            d.company_name,
+            d.location,
+            d.location_city,
+            d.location_country,
+            d.avatar_url,
+            d.role::text,
+            d.approval_status::text,
+            d.is_active,
+            d.is_deleted,
+            d.show_in_directory,
+            COUNT(*) OVER () AS total_count
+          FROM public.directory_profiles_public AS d
+          WHERE
+            d.is_deleted = false
+            AND d.is_active = true
+            AND d.show_in_directory = true
+            AND (
+              COALESCE(p_search, '') = ''
+              OR d.full_name ILIKE '%' || p_search || '%'
+              OR (COALESCE(d.first_name, '') || ' ' || COALESCE(d.last_name, ''))
+                   ILIKE '%' || p_search || '%'
+            )
+        ) counted
+        ORDER BY
+          COALESCE(NULLIF(trim(counted.first_name), ''), NULLIF(trim(counted.full_name), '')) DESC,
+          COALESCE(NULLIF(trim(counted.full_name), ''), '') DESC
+        LIMIT COALESCE(p_limit, 50)
+        OFFSET COALESCE(p_offset, 0);
+      ELSE
+        RETURN QUERY
+        SELECT *
+        FROM (
+          SELECT
+            d.id,
+            d.first_name,
+            d.last_name,
+            d.full_name,
+            d.graduation_year,
+            d.degree_program,
+            d.department,
+            d.current_job_title,
+            d.company_name,
+            d.location,
+            d.location_city,
+            d.location_country,
+            d.avatar_url,
+            d.role::text,
+            d.approval_status::text,
+            d.is_active,
+            d.is_deleted,
+            d.show_in_directory,
+            COUNT(*) OVER () AS total_count
+          FROM public.directory_profiles_public AS d
+          WHERE
+            d.is_deleted = false
+            AND d.is_active = true
+            AND d.show_in_directory = true
+            AND (
+              COALESCE(p_search, '') = ''
+              OR d.full_name ILIKE '%' || p_search || '%'
+              OR (COALESCE(d.first_name, '') || ' ' || COALESCE(d.last_name, ''))
+                   ILIKE '%' || p_search || '%'
+            )
+        ) counted
+        ORDER BY
+          COALESCE(NULLIF(trim(counted.first_name), ''), NULLIF(trim(counted.full_name), '')) ASC,
+          COALESCE(NULLIF(trim(counted.full_name), ''), '') ASC
+        LIMIT COALESCE(p_limit, 50)
+        OFFSET COALESCE(p_offset, 0);
+      END IF;
+    END IF;
   END IF;
 END;
 $$;
 
 
-ALTER FUNCTION "public"."get_directory_profiles_secure"("p_search" "text", "p_limit" integer, "p_offset" integer) OWNER TO "postgres";
+ALTER FUNCTION "public"."get_directory_profiles_secure"("p_search" "text", "p_limit" integer, "p_offset" integer, "p_sort_field" "text", "p_sort_dir" "text") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."get_directory_profiles_secure"("p_search" "text", "p_limit" integer, "p_offset" integer, "p_sort_field" "text", "p_sort_dir" "text") IS 'Get directory profiles for secure view with sort parameters (name/graduation_year + asc/desc).';
+
 
 
 CREATE OR REPLACE FUNCTION "public"."get_directory_profiles_secure_count"("p_search" "text") RETURNS bigint
@@ -4881,21 +6041,21 @@ CREATE OR REPLACE FUNCTION "public"."get_directory_role_counts"() RETURNS "jsonb
     SET "search_path" TO 'public'
     AS $$
   SELECT jsonb_build_object(
-    'alumni',   count(*) FILTER (
+    'alumni',   COUNT(*) FILTER (
                    WHERE p.role = 'alumni'
                      AND p.approval_status = 'approved'
                      AND COALESCE(p.is_deleted, false) = false
                      AND COALESCE(p.is_active, true) = true
                      AND COALESCE(p.show_in_directory, true) = true
                  ),
-    'student',  count(*) FILTER (
+    'student',  COUNT(*) FILTER (
                    WHERE p.role = 'student'
                      AND p.approval_status = 'approved'
                      AND COALESCE(p.is_deleted, false) = false
                      AND COALESCE(p.is_active, true) = true
                      AND COALESCE(p.show_in_directory, true) = true
                  ),
-    'employer', count(*) FILTER (
+    'employer', COUNT(*) FILTER (
                    WHERE p.role = 'employer'
                      AND p.approval_status = 'approved'
                      AND COALESCE(p.is_deleted, false) = false
@@ -5063,11 +6223,8 @@ CREATE OR REPLACE FUNCTION "public"."get_job_details"("p_id" "uuid") RETURNS TAB
   LEFT JOIN public.companies c ON c.id = j.company_id
   WHERE j.id = p_id
     AND (
-      -- Admins can see all
-      COALESCE(
-        current_setting('request.jwt.claims', true)::jsonb ->> 'role',
-        'alumni'
-      ) IN ('admin','super_admin')
+      -- Admins can see all (use unified helper, not raw JWT claim)
+      get_user_role(auth.uid()) IN ('admin','super_admin')
       -- Job owners
       OR j.posted_by = auth.uid()
       OR j.created_by = auth.uid()
@@ -5293,26 +6450,29 @@ $$;
 ALTER FUNCTION "public"."get_jobs_public_v5"("p_search" "text", "p_location" "text", "p_job_type" "text", "p_experience_level" "text", "p_offset" integer, "p_limit" integer) OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."get_jobs_public_v5"("p_search_query" "text" DEFAULT NULL::"text", "p_sort_by" "text" DEFAULT 'created_at'::"text", "p_sort_order" "text" DEFAULT 'desc'::"text", "p_limit" integer DEFAULT 12, "p_offset" integer DEFAULT 0, "p_department" "text" DEFAULT NULL::"text", "p_job_type" "text" DEFAULT NULL::"text", "p_experience_level" "text" DEFAULT NULL::"text", "p_location" "text" DEFAULT NULL::"text", "p_industry" "text" DEFAULT NULL::"text", "p_salary_min" integer DEFAULT NULL::integer, "p_salary_max" integer DEFAULT NULL::integer, "p_posted_since_days" integer DEFAULT NULL::integer) RETURNS TABLE("id" "uuid", "title" "text", "description" "text", "company_id" "uuid", "company_name" "text", "company_logo_url" "text", "application_url" "text", "external_url" "text", "apply_url" "text", "source_type" "text", "application_deadline" timestamp with time zone, "deadline" timestamp with time zone, "status" "text", "department" "text", "job_type" "text", "experience_level" "text", "industry" "text", "location" "text", "salary_min" integer, "salary_max" integer, "is_active" boolean, "is_approved" boolean, "created_at" timestamp with time zone, "total_count" bigint)
+CREATE OR REPLACE FUNCTION "public"."get_jobs_public_v5"("p_search_query" "text" DEFAULT NULL::"text", "p_sort_by" "text" DEFAULT 'created_at'::"text", "p_sort_order" "text" DEFAULT 'desc'::"text", "p_limit" integer DEFAULT 12, "p_offset" integer DEFAULT 0, "p_department" "text" DEFAULT NULL::"text", "p_job_type" "text" DEFAULT NULL::"text", "p_experience_level" "text" DEFAULT NULL::"text", "p_location" "text" DEFAULT NULL::"text", "p_industry" "text" DEFAULT NULL::"text", "p_salary_min" integer DEFAULT NULL::integer, "p_salary_max" integer DEFAULT NULL::integer, "p_posted_since_days" integer DEFAULT NULL::integer) RETURNS TABLE("id" "uuid", "title" "text", "description" "text", "company_id" "uuid", "company_name" "text", "company_logo_url" "text", "application_url" "text", "external_url" "text", "apply_url" "text", "source_type" "text", "application_deadline" timestamp with time zone, "deadline" timestamp with time zone, "status" "text", "department" "text", "job_type" "text", "experience_level" "text", "industry" "text", "location" "text", "salary_min" integer, "salary_max" integer, "skills" "text"[], "is_active" boolean, "is_approved" boolean, "created_at" timestamp with time zone, "total_count" bigint)
     LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
-with base as (
-  select 
+WITH base AS (
+  SELECT
     j.id,
     j.title,
     j.description,
     j.company_id,
-    coalesce(c.name, j.company_name) as company_name,
-    c.logo_url as company_logo_url,
+    COALESCE(c.name, j.company_name) AS company_name,
+    c.logo_url                       AS company_logo_url,
     j.application_url,
     j.external_url,
     j.apply_url,
-    case when coalesce(j.apply_url, j.application_url, j.external_url) is not null then 
-      case 
-        when j.apply_url is not null or j.application_url is not null then 'in_app'
-        else 'quick_link'
-      end
-    else null end as source_type,
+    CASE
+      WHEN COALESCE(j.apply_url, j.application_url, j.external_url) IS NOT NULL THEN
+        CASE
+          WHEN j.apply_url IS NOT NULL OR j.application_url IS NOT NULL THEN 'in_app'
+          ELSE 'quick_link'
+        END
+      ELSE NULL
+    END                               AS source_type,
     j.application_deadline,
     j.deadline,
     j.status,
@@ -5323,49 +6483,61 @@ with base as (
     j.location,
     j.salary_min,
     j.salary_max,
+    j.skills,                         -- NEW
     j.is_active,
     j.is_approved,
     j.created_at
-  from jobs j
-  left join companies c on c.id = j.company_id
-  where j.is_active = true and j.is_approved = true
-    and (p_department is null or j.department = p_department)
-    and (p_job_type is null or j.job_type = p_job_type)
-    and (p_experience_level is null or j.experience_level = p_experience_level)
-    and (p_location is null or j.location ilike ('%' || p_location || '%'))
-    and (p_industry is null or j.industry = p_industry)
-    and (
-      (p_salary_min is null and p_salary_max is null) or
-      ((j.salary_min is not null or j.salary_max is not null) and (
-        (p_salary_min is null or coalesce(j.salary_max, j.salary_min) >= p_salary_min) and
-        (p_salary_max is null or coalesce(j.salary_min, j.salary_max) <= p_salary_max)
-      ))
-    )
-    and (
-      p_posted_since_days is null or
-      j.created_at >= (now() - make_interval(days => p_posted_since_days))
-    )
-    and (
-      p_search_query is null or (
-        j.title ilike ('%' || p_search_query || '%') or
-        j.description ilike ('%' || p_search_query || '%') or
-        coalesce(c.name, j.company_name) ilike ('%' || p_search_query || '%') or
-        j.location ilike ('%' || p_search_query || '%')
+  FROM public.jobs j
+  LEFT JOIN public.companies c ON c.id = j.company_id
+  WHERE
+    j.is_active = TRUE
+    AND j.is_approved = TRUE
+    AND (p_department       IS NULL OR j.department       = p_department)
+    AND (p_job_type         IS NULL OR j.job_type         = p_job_type)
+    AND (p_experience_level IS NULL OR j.experience_level = p_experience_level)
+    AND (p_location         IS NULL OR j.location ILIKE ('%' || p_location || '%'))
+    AND (p_industry         IS NULL OR j.industry         = p_industry)
+    AND (
+      (p_salary_min IS NULL AND p_salary_max IS NULL) OR
+      (
+        (j.salary_min IS NOT NULL OR j.salary_max IS NOT NULL) AND
+        (p_salary_min IS NULL OR COALESCE(j.salary_max, j.salary_min) >= p_salary_min) AND
+        (p_salary_max IS NULL OR COALESCE(j.salary_min, j.salary_max) <= p_salary_max)
       )
     )
-), counted as (
-  select b.*, count(*) over() as total_count from base b
+    AND (
+      p_posted_since_days IS NULL OR
+      j.created_at >= (now() - make_interval(days => p_posted_since_days))
+    )
+    AND (
+      p_search_query IS NULL OR (
+        j.title ILIKE ('%' || p_search_query || '%')
+        OR j.description ILIKE ('%' || p_search_query || '%')
+        OR COALESCE(c.name, j.company_name) ILIKE ('%' || p_search_query || '%')
+        OR j.location ILIKE ('%' || p_search_query || '%')
+        OR EXISTS (
+          SELECT 1
+          FROM unnest(j.skills) AS s(skill)
+          WHERE s.skill ILIKE ('%' || p_search_query || '%')
+        )
+      )
+    )
+),
+counted AS (
+  SELECT b.*, count(*) OVER () AS total_count
+  FROM base b
 )
-select * from counted
-order by 
-  case when p_sort_by in ('created_at') and p_sort_order = 'asc' then created_at end asc nulls last,
-  case when p_sort_by in ('created_at') and p_sort_order = 'desc' then created_at end desc nulls last,
-  case when p_sort_by in ('title') and p_sort_order = 'asc' then title end asc nulls last,
-  case when p_sort_by in ('title') and p_sort_order = 'desc' then title end desc nulls last,
-  case when p_sort_by in ('deadline') and p_sort_order = 'asc' then application_deadline end asc nulls last,
-  case when p_sort_by in ('deadline') and p_sort_order = 'desc' then application_deadline end desc nulls last
-offset p_offset
-limit p_limit;
+SELECT *
+FROM counted
+ORDER BY
+  CASE WHEN p_sort_by IN ('created_at') AND p_sort_order = 'asc'  THEN created_at          END ASC  NULLS LAST,
+  CASE WHEN p_sort_by IN ('created_at') AND p_sort_order = 'desc' THEN created_at          END DESC NULLS LAST,
+  CASE WHEN p_sort_by IN ('title')      AND p_sort_order = 'asc'  THEN title               END ASC  NULLS LAST,
+  CASE WHEN p_sort_by IN ('title')      AND p_sort_order = 'desc' THEN title               END DESC NULLS LAST,
+  CASE WHEN p_sort_by IN ('deadline')   AND p_sort_order = 'asc'  THEN application_deadline END ASC  NULLS LAST,
+  CASE WHEN p_sort_by IN ('deadline')   AND p_sort_order = 'desc' THEN application_deadline END DESC NULLS LAST
+OFFSET p_offset
+LIMIT  p_limit;
 $$;
 
 
@@ -5657,6 +6829,83 @@ $$;
 
 
 ALTER FUNCTION "public"."get_mentor_contact"("mentor_uuid" "uuid") OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."mentorship_relationships" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "program_id" "uuid",
+    "mentor_id" "uuid",
+    "mentee_id" "uuid",
+    "status" "text",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "start_date" timestamp with time zone DEFAULT "now"(),
+    "end_date" timestamp with time zone,
+    "dm_thread_id" "uuid",
+    CONSTRAINT "mentorship_relationships_check_end_after_start" CHECK ((("end_date" IS NULL) OR ("end_date" > "start_date"))),
+    CONSTRAINT "mentorship_relationships_no_self_mentee" CHECK ((("mentor_id" IS NULL) OR ("mentee_id" IS NULL) OR ("mentor_id" <> "mentee_id"))),
+    CONSTRAINT "mentorship_relationships_status_allowed" CHECK ((("status" IS NULL) OR ("status" = ANY (ARRAY['active'::"text", 'completed'::"text", 'terminated'::"text", 'terminated_by_user'::"text", 'terminated_by_system'::"text"]))))
+);
+
+ALTER TABLE ONLY "public"."mentorship_relationships" FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."mentorship_relationships" OWNER TO "postgres";
+
+
+COMMENT ON COLUMN "public"."mentorship_relationships"."status" IS 'Allowed statuses: active | completed | terminated | terminated_by_user | terminated_by_system (enforced by CHECK constraint).';
+
+
+
+COMMENT ON COLUMN "public"."mentorship_relationships"."dm_thread_id" IS 'Canonical DM thread for this mentorship (mentor_id ↔ mentee_id). Created/maintained by ensure_dm_thread_for_mentorship().';
+
+
+
+CREATE OR REPLACE VIEW "public"."v_mentors_public" AS
+ SELECT "m"."id",
+    "m"."user_id",
+    "m"."status",
+    "m"."expertise",
+    "m"."created_at",
+    "p"."full_name",
+    "p"."avatar_url",
+    "p"."location",
+    "p"."is_available_for_mentorship",
+    "p"."approval_status",
+    "m"."mentoring_experience_years",
+    "m"."max_mentees",
+    "m"."updated_at",
+    "m"."mentoring_capacity_hours_per_month",
+    "m"."mentoring_preferences",
+    "m"."mentoring_statement",
+    "m"."mentoring_experience_description",
+    COALESCE("rel"."active_mentees_count", (0)::bigint) AS "current_mentees_count"
+   FROM (("public"."mentors" "m"
+     JOIN "public"."profiles" "p" ON (("p"."id" = "m"."user_id")))
+     LEFT JOIN ( SELECT "mentorship_relationships"."mentor_id",
+            "count"(DISTINCT "mentorship_relationships"."mentee_id") AS "active_mentees_count"
+           FROM "public"."mentorship_relationships"
+          WHERE (("mentorship_relationships"."status" = 'active'::"text") AND ("mentorship_relationships"."end_date" IS NULL))
+          GROUP BY "mentorship_relationships"."mentor_id") "rel" ON (("rel"."mentor_id" = "m"."user_id")))
+  WHERE (("m"."status" = 'approved'::"text") AND ("p"."approval_status" = 'approved'::"public"."profile_approval_status"));
+
+
+ALTER TABLE "public"."v_mentors_public" OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_mentors_for_current_mentee"("p_limit" integer DEFAULT 20, "p_offset" integer DEFAULT 0) RETURNS SETOF "public"."v_mentors_public"
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+  -- Later you can add filters / compatibility. For now, just wrap the view.
+  SELECT *
+  FROM public.v_mentors_public
+  ORDER BY created_at DESC
+  LIMIT p_limit OFFSET p_offset;
+$$;
+
+
+ALTER FUNCTION "public"."get_mentors_for_current_mentee"("p_limit" integer, "p_offset" integer) OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."get_my_expired_jobs"("p_limit" integer DEFAULT 50, "p_offset" integer DEFAULT 0, "p_search" "text" DEFAULT NULL::"text") RETURNS TABLE("id" "uuid", "title" "text", "company_name" "text", "location" "text", "job_type" "text", "deadline" timestamp with time zone, "is_approved" boolean, "is_active" boolean, "created_at" timestamp with time zone, "total_count" bigint)
@@ -5961,6 +7210,193 @@ $$;
 
 
 ALTER FUNCTION "public"."get_my_role"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_user_role"("p_user_id" "uuid") RETURNS "text"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_role text;
+  v_is_admin boolean;
+BEGIN
+  IF p_user_id IS NULL THEN RETURN 'anon'; END IF;
+
+  SELECT role, is_admin INTO v_role, v_is_admin
+  FROM public.profiles
+  WHERE id = p_user_id;
+
+  IF NOT FOUND THEN RETURN 'anon'; END IF;
+  IF v_is_admin THEN RETURN 'admin'; END IF;
+  IF v_role IS NULL OR trim(v_role) = '' OR v_role = 'user' THEN RETURN 'alumni'; END IF;
+
+  RETURN v_role;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_user_role"("p_user_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "text", "p_metadata" "jsonb" DEFAULT '{}'::"jsonb") RETURNS boolean
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+  v_role text := lower(coalesce(p_role, 'alumni'));
+  v_type text := lower(coalesce(p_type, 'system'));
+BEGIN
+  IF v_role IN ('', 'anon', 'user') THEN
+    v_role := 'alumni';
+  END IF;
+
+  IF v_type IN (
+    'rsvp_confirmation',
+    'application_submitted',
+    'mentorship_reminder',
+    'generic_toast'
+  ) THEN
+    RETURN FALSE;
+  END IF;
+
+  IF v_role IN ('alumni', 'student') THEN
+    IF v_type IN (
+      'connection', 'connection_request',
+      'message', 'chat_message',
+      'job', 'job_posted', 'job_approved', 'job_applied',
+      'application', 'application_status',
+      'event', 'event_created', 'event_published',
+      'mentorship',
+      'system', 'alert'
+    ) THEN RETURN TRUE; ELSE RETURN FALSE; END IF;
+  END IF;
+
+  IF v_role = 'employer' THEN
+    IF v_type IN (
+      'connection', 'connection_request',
+      'message', 'chat_message',
+      'job', 'job_posted', 'job_approved', 'job_applied',
+      'application', 'application_status',
+      'event', 'event_published',
+      'system', 'alert'
+    ) THEN RETURN TRUE; ELSE RETURN FALSE; END IF;
+  END IF;
+
+  IF v_role = 'mentor' THEN
+    IF v_type IN (
+      'mentorship',
+      'message', 'chat_message',
+      'event',
+      'system', 'alert'
+    ) THEN RETURN TRUE; ELSE RETURN FALSE; END IF;
+  END IF;
+
+  IF v_role IN ('admin', 'super_admin') THEN
+    IF v_type IN ('alert', 'system') THEN
+      RETURN TRUE;
+    ELSE
+      RETURN FALSE;
+    END IF;
+  END IF;
+
+  IF v_type IN (
+    'connection', 'connection_request',
+    'message', 'chat_message',
+    'job', 'job_posted', 'job_approved', 'job_applied',
+    'application', 'application_status',
+    'event', 'event_created', 'event_published',
+    'mentorship',
+    'system', 'alert'
+  ) THEN
+    RETURN TRUE;
+  END IF;
+
+  RETURN FALSE;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "text", "p_metadata" "jsonb") OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."notification_preferences" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid",
+    "notification_type" "text" NOT NULL,
+    "email_enabled" boolean DEFAULT true,
+    "push_enabled" boolean DEFAULT true,
+    "in_app_enabled" boolean DEFAULT true,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"()
+);
+
+
+ALTER TABLE "public"."notification_preferences" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."notifications" (
+    "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
+    "title" "text",
+    "message" "text" NOT NULL,
+    "link" "text",
+    "is_read" boolean DEFAULT false,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "type" "text" DEFAULT 'system'::"text" NOT NULL,
+    "recipient_id" "uuid" NOT NULL,
+    "sender_id" "uuid",
+    "event_id" "uuid",
+    "profile_id" "uuid",
+    "read_at" timestamp with time zone,
+    "user_id" "uuid",
+    "metadata" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL,
+    "body" "text",
+    "module" "public"."notification_module",
+    "type_enum" "public"."notification_type_enum",
+    "idempotency_key" "text",
+    CONSTRAINT "chk_notifications_type" CHECK (("btrim"("lower"("type")) = ANY (ARRAY['system'::"text", 'message'::"text", 'event'::"text", 'event_created'::"text", 'event_published'::"text", 'event_updated'::"text", 'job'::"text", 'job_posted'::"text", 'job_approved'::"text", 'job_applied'::"text", 'application'::"text", 'application_status'::"text", 'mentorship'::"text", 'group'::"text", 'connection'::"text", 'resume'::"text", 'alert'::"text"])))
+);
+
+
+ALTER TABLE "public"."notifications" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."notifications" IS 'Stores user notifications for the alumni management system';
+
+
+
+CREATE OR REPLACE VIEW "public"."bell_notifications" AS
+ SELECT "n"."id",
+    "n"."recipient_id",
+    "n"."type",
+    "n"."title",
+    "n"."message",
+    "n"."link",
+    "n"."metadata",
+    "n"."is_read",
+    "n"."read_at",
+    "n"."created_at"
+   FROM ("public"."notifications" "n"
+     LEFT JOIN "public"."notification_preferences" "p" ON ((("p"."user_id" = "n"."recipient_id") AND ("p"."notification_type" = "n"."type"))))
+  WHERE ((COALESCE("p"."in_app_enabled", true) = true) AND (NOT ("lower"(COALESCE("n"."title", ''::"text")) ~~ 'rsvp confirmed%'::"text")) AND "public"."is_bell_worthy"("public"."get_user_role"("n"."recipient_id"), "n"."type", "n"."metadata"))
+  ORDER BY "n"."created_at" DESC;
+
+
+ALTER TABLE "public"."bell_notifications" OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_notifications_paginated"("p_limit" integer DEFAULT 20, "p_offset" integer DEFAULT 0) RETURNS SETOF "public"."bell_notifications"
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  SELECT *
+  FROM public.bell_notifications
+  WHERE recipient_id = auth.uid()
+  ORDER BY created_at DESC
+  LIMIT p_limit OFFSET p_offset;
+$$;
+
+
+ALTER FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer) OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."get_or_create_conversation"("target_user_id" "uuid") RETURNS bigint
@@ -6461,6 +7897,37 @@ $$;
 ALTER FUNCTION "public"."get_role_by_name"("role_name" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_role_counts_for_user"() RETURNS "jsonb"
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  is_admin_user boolean;
+  result jsonb;
+BEGIN
+  -- Check if caller is admin
+  is_admin_user := public._is_admin(auth.uid());
+
+  IF is_admin_user THEN
+    -- Admin sees ALL profiles with breakdown
+    result := public.get_all_profiles_count_by_role_admin();
+  ELSE
+    -- Non-admin sees only approved, directory-visible counts
+    result := public.get_directory_role_counts();
+  END IF;
+
+  RETURN result;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_role_counts_for_user"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."get_role_counts_for_user"() IS 'Returns role counts based on caller privileges: admins see all (pending/approved/rejected), others see only approved directory-visible counts.';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."get_role_id_by_name"("role_name" "text") RETURNS "uuid"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -6944,32 +8411,6 @@ $$;
 ALTER FUNCTION "public"."get_user_role"() OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."get_user_role"("p_user_id" "uuid") RETURNS "text"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
-    AS $$
-DECLARE
-  v_role text;
-  v_is_admin boolean;
-BEGIN
-  IF p_user_id IS NULL THEN RETURN 'anon'; END IF;
-
-  SELECT role, is_admin INTO v_role, v_is_admin
-  FROM public.profiles
-  WHERE id = p_user_id;
-
-  IF NOT FOUND THEN RETURN 'anon'; END IF;
-  IF v_is_admin THEN RETURN 'admin'; END IF;
-  IF v_role IS NULL OR trim(v_role) = '' OR v_role = 'user' THEN RETURN 'alumni'; END IF;
-
-  RETURN v_role;
-END;
-$$;
-
-
-ALTER FUNCTION "public"."get_user_role"("p_user_id" "uuid") OWNER TO "postgres";
-
-
 CREATE OR REPLACE FUNCTION "public"."get_user_roles_bypass_rls"("profile_uuid" "uuid") RETURNS TABLE("role_name" "text", "role_description" "text")
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -7341,86 +8782,6 @@ $$;
 ALTER FUNCTION "public"."is_admin_like"("p_user_id" "uuid") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "text", "p_metadata" "jsonb" DEFAULT '{}'::"jsonb") RETURNS boolean
-    LANGUAGE "plpgsql"
-    AS $$
-DECLARE
-  v_role text := lower(coalesce(p_role, 'alumni'));
-  v_type text := lower(coalesce(p_type, 'system'));
-BEGIN
-  IF v_role IN ('', 'anon', 'user') THEN
-    v_role := 'alumni';
-  END IF;
-
-  IF v_type IN (
-    'rsvp_confirmation',
-    'application_submitted',
-    'mentorship_reminder',
-    'generic_toast'
-  ) THEN
-    RETURN FALSE;
-  END IF;
-
-  IF v_role IN ('alumni', 'student') THEN
-    IF v_type IN (
-      'connection', 'connection_request',
-      'message', 'chat_message',
-      'job', 'job_posted', 'job_approved', 'job_applied',
-      'application', 'application_status',
-      'event', 'event_created', 'event_published',
-      'mentorship',
-      'system', 'alert'
-    ) THEN RETURN TRUE; ELSE RETURN FALSE; END IF;
-  END IF;
-
-  IF v_role = 'employer' THEN
-    IF v_type IN (
-      'connection', 'connection_request',
-      'message', 'chat_message',
-      'job', 'job_posted', 'job_approved', 'job_applied',
-      'application', 'application_status',
-      'event', 'event_published',
-      'system', 'alert'
-    ) THEN RETURN TRUE; ELSE RETURN FALSE; END IF;
-  END IF;
-
-  IF v_role = 'mentor' THEN
-    IF v_type IN (
-      'mentorship',
-      'message', 'chat_message',
-      'event',
-      'system', 'alert'
-    ) THEN RETURN TRUE; ELSE RETURN FALSE; END IF;
-  END IF;
-
-  IF v_role IN ('admin', 'super_admin') THEN
-    IF v_type IN ('alert', 'system') THEN
-      RETURN TRUE;
-    ELSE
-      RETURN FALSE;
-    END IF;
-  END IF;
-
-  IF v_type IN (
-    'connection', 'connection_request',
-    'message', 'chat_message',
-    'job', 'job_posted', 'job_approved', 'job_applied',
-    'application', 'application_status',
-    'event', 'event_created', 'event_published',
-    'mentorship',
-    'system', 'alert'
-  ) THEN
-    RETURN TRUE;
-  END IF;
-
-  RETURN FALSE;
-END;
-$$;
-
-
-ALTER FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "text", "p_metadata" "jsonb") OWNER TO "postgres";
-
-
 CREATE OR REPLACE FUNCTION "public"."is_connected"("a" "uuid", "b" "uuid") RETURNS boolean
     LANGUAGE "sql" STABLE
     AS $$
@@ -7560,6 +8921,126 @@ $$;
 
 
 ALTER FUNCTION "public"."is_member_of_group"("p_group_id" "uuid", "p_user_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."is_mentee_below_program_limit"("p_mentee_id" "uuid") RETURNS boolean
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  WITH active_relationships AS (
+    SELECT DISTINCT mentor_id
+    FROM public.mentorship_relationships
+    WHERE mentee_id = p_mentee_id
+      AND status = 'active'
+  ),
+  pending_or_accepted_requests AS (
+    SELECT DISTINCT mentor_id
+    FROM public.mentorship_requests
+    WHERE mentee_id = p_mentee_id
+      AND status IN ('pending', 'accepted')
+  ),
+  all_programs AS (
+    SELECT mentor_id FROM active_relationships
+    UNION
+    SELECT mentor_id FROM pending_or_accepted_requests
+  )
+  SELECT COUNT(*) < 5
+  FROM all_programs;
+$$;
+
+
+ALTER FUNCTION "public"."is_mentee_below_program_limit"("p_mentee_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."is_mentor_selectable"("p_mentor_id" "uuid") RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  -- From profiles
+  v_profile_approved    boolean;
+  v_profile_deleted     boolean;
+  v_profile_active      boolean;
+  v_profile_available   boolean;
+  v_profile_max_mentees integer;
+
+  -- From mentors
+  v_has_mentor_row      boolean := false;
+  v_mentor_status       text;
+  v_mentor_max_mentees  integer;
+
+  -- Capacity
+  v_max_mentees         integer;
+  v_current_mentees     integer;
+BEGIN
+  -- 1) Basic profile health
+  SELECT
+    (approval_status = 'approved')         AS profile_approved,
+    COALESCE(is_deleted, false)           AS profile_deleted,
+    COALESCE(is_active, true)             AS profile_active,
+    COALESCE(is_available_for_mentorship, false) AS profile_available,
+    max_mentees
+  INTO
+    v_profile_approved,
+    v_profile_deleted,
+    v_profile_active,
+    v_profile_available,
+    v_profile_max_mentees
+  FROM public.profiles
+  WHERE id = p_mentor_id;
+
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+
+  IF NOT v_profile_approved OR v_profile_deleted OR NOT v_profile_active THEN
+    RETURN false;
+  END IF;
+
+  -- 2) Mentor row must exist and be approved
+  SELECT
+    TRUE,
+    status,
+    max_mentees
+  INTO
+    v_has_mentor_row,
+    v_mentor_status,
+    v_mentor_max_mentees
+  FROM public.mentors
+  WHERE user_id = p_mentor_id;
+
+  IF NOT v_has_mentor_row THEN
+    RETURN false;
+  END IF;
+
+  IF v_mentor_status <> 'approved' THEN
+    RETURN false;
+  END IF;
+
+  -- 3) Availability: use profiles.is_available_for_mentorship as the single toggle
+  IF NOT v_profile_available THEN
+    RETURN false;
+  END IF;
+
+  -- 4) Capacity: prefer mentors.max_mentees, fallback to profiles.max_mentees, then 5
+  v_max_mentees := COALESCE(v_mentor_max_mentees, v_profile_max_mentees, 5);
+
+  SELECT COUNT(*)
+  INTO v_current_mentees
+  FROM public.mentorship_relationships
+  WHERE mentor_id = p_mentor_id
+    AND status = 'active';
+
+  IF v_current_mentees >= v_max_mentees THEN
+    RETURN false;
+  END IF;
+
+  RETURN true;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."is_mentor_selectable"("p_mentor_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."is_platform_admin"("p_user_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
@@ -7877,39 +9358,6 @@ $$;
 ALTER FUNCTION "public"."jobs_sync_flags_from_status"() OWNER TO "postgres";
 
 
-CREATE TABLE IF NOT EXISTS "public"."group_members" (
-    "group_id" "uuid" NOT NULL,
-    "user_id" "uuid" NOT NULL,
-    "role" "text" DEFAULT 'member'::"text" NOT NULL,
-    "joined_at" timestamp with time zone DEFAULT "now"(),
-    "created_at" timestamp with time zone GENERATED ALWAYS AS ("joined_at") STORED,
-    "status" "text" DEFAULT 'active'::"text",
-    CONSTRAINT "group_members_role_check" CHECK (("role" = ANY (ARRAY['admin'::"text", 'member'::"text"]))),
-    CONSTRAINT "group_members_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'pending'::"text", 'left'::"text", 'removed'::"text"])))
-);
-
-ALTER TABLE ONLY "public"."group_members" REPLICA IDENTITY FULL;
-
-
-ALTER TABLE "public"."group_members" OWNER TO "postgres";
-
-
-COMMENT ON TABLE "public"."group_members" IS 'Manages memberships and roles of users in groups.';
-
-
-
-CREATE OR REPLACE FUNCTION "public"."join_group"("p_group_id" "uuid") RETURNS SETOF "public"."group_members"
-    LANGUAGE "sql"
-    AS $$
-  INSERT INTO public.group_members (group_id, user_id, status, role)
-  VALUES (p_group_id, auth.uid(), 'active', 'member')
-  RETURNING *;
-$$;
-
-
-ALTER FUNCTION "public"."join_group"("p_group_id" "uuid") OWNER TO "postgres";
-
-
 CREATE OR REPLACE FUNCTION "public"."join_group_v2"("p_group_id" "uuid") RETURNS "text"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -8048,10 +9496,7 @@ CREATE OR REPLACE FUNCTION "public"."log_profile_approval_change"() RETURNS "tri
     LANGUAGE "plpgsql"
     AS $$
 BEGIN
-  INSERT INTO profile_approval_audit
-    (profile_id, old_status, new_status, reason, changed_by)
-  VALUES
-    (NEW.id, OLD.approval_status, NEW.approval_status, NEW.rejection_reason, auth.uid());
+  -- Legacy trigger now a no-op: admin_update_profile_approval writes full audit rows.
   RETURN NEW;
 END;
 $$;
@@ -8126,6 +9571,27 @@ $$;
 ALTER FUNCTION "public"."mark_all_my_notifications_as_read"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."mark_all_notifications_read"() RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_count integer;
+BEGIN
+  UPDATE public.notifications
+     SET is_read = true,
+         read_at = now()
+   WHERE recipient_id = auth.uid()
+     AND is_read = false;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mark_all_notifications_read"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."mark_conversation_as_read"("p_conversation_id" "uuid", "p_user_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -8161,61 +9627,298 @@ $$;
 ALTER FUNCTION "public"."mark_notification_as_read"("notification_uuid" "uuid") OWNER TO "postgres";
 
 
-CREATE TABLE IF NOT EXISTS "public"."mentorship_requests" (
-    "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
-    "mentee_id" "uuid",
-    "mentor_id" "uuid",
-    "status" "text",
-    "message" "text",
-    "goals" "text",
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"(),
-    CONSTRAINT "mentorship_requests_no_self_mentee" CHECK ((("mentor_id" IS NULL) OR ("mentee_id" IS NULL) OR ("mentor_id" <> "mentee_id"))),
-    CONSTRAINT "mentorship_requests_status_check" CHECK (("status" = ANY (ARRAY['pending'::"text", 'accepted'::"text", 'rejected'::"text", 'cancelled_by_user'::"text", 'cancelled_by_system'::"text"])))
-);
+CREATE OR REPLACE FUNCTION "public"."mark_notification_read"("p_notification_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  UPDATE public.notifications
+     SET is_read = true, read_at = now()
+   WHERE id = p_notification_id
+     AND (recipient_id = auth.uid() OR public.fc_is_admin(auth.uid()) OR public.fc_is_super_admin(auth.uid()));
+END;
+$$;
 
 
-ALTER TABLE "public"."mentorship_requests" OWNER TO "postgres";
+ALTER FUNCTION "public"."mark_notification_read"("p_notification_id" "uuid") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."mentorship_request_cancel"("p_request_id" "uuid") RETURNS "public"."mentorship_requests"
-    LANGUAGE "plpgsql"
+CREATE OR REPLACE FUNCTION "public"."mentors_upsert_current"("p_expertise" "text"[], "p_mentoring_experience_years" integer, "p_max_mentees" integer, "p_mentoring_capacity_hours_per_month" integer, "p_mentoring_preferences" "jsonb", "p_mentoring_statement" "text", "p_mentoring_experience_description" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
     AS $$
 DECLARE
-  v_user uuid := auth.uid();
-  v_req  public.mentorship_requests;
+  v_user_id uuid := auth.uid();
 BEGIN
-  IF v_user IS NULL THEN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '28000';
+  END IF;
+
+  -- Basic sanity checks
+  IF p_max_mentees IS NOT NULL AND p_max_mentees < 0 THEN
+    RAISE EXCEPTION 'max_mentees cannot be negative'
+      USING ERRCODE = '22003';
+  END IF;
+
+  IF p_mentoring_experience_years IS NOT NULL AND p_mentoring_experience_years < 0 THEN
+    RAISE EXCEPTION 'experience years cannot be negative'
+      USING ERRCODE = '22003';
+  END IF;
+
+  INSERT INTO public.mentors (
+    user_id,
+    expertise,
+    mentoring_experience_years,
+    max_mentees,
+    mentoring_capacity_hours_per_month,
+    mentoring_preferences,
+    mentoring_statement,
+    mentoring_experience_description
+  )
+  VALUES (
+    v_user_id,
+    p_expertise,
+    p_mentoring_experience_years,
+    p_max_mentees,
+    p_mentoring_capacity_hours_per_month,
+    p_mentoring_preferences,
+    p_mentoring_statement,
+    p_mentoring_experience_description
+  )
+  ON CONFLICT (user_id)
+  DO UPDATE SET
+    expertise                        = EXCLUDED.expertise,
+    mentoring_experience_years       = EXCLUDED.mentoring_experience_years,
+    max_mentees                      = EXCLUDED.max_mentees,
+    mentoring_capacity_hours_per_month = EXCLUDED.mentoring_capacity_hours_per_month,
+    mentoring_preferences            = EXCLUDED.mentoring_preferences,
+    mentoring_statement              = EXCLUDED.mentoring_statement,
+    mentoring_experience_description = EXCLUDED.mentoring_experience_description,
+    updated_at                       = now();
+  -- NOTE: we deliberately do NOT touch `status` (pending/approved/rejected)
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mentors_upsert_current"("p_expertise" "text"[], "p_mentoring_experience_years" integer, "p_max_mentees" integer, "p_mentoring_capacity_hours_per_month" integer, "p_mentoring_preferences" "jsonb", "p_mentoring_statement" "text", "p_mentoring_experience_description" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mentorship_mark_user_unavailable"("p_user_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  -- 1) Turn off availability
+  UPDATE public.profiles
+     SET is_available_for_mentorship = false
+   WHERE id = p_user_id;
+
+  -- 2) Auto-cancel pending mentorship requests where this user is mentor
+  UPDATE public.mentorship_requests
+     SET status = 'cancelled_by_system'
+   WHERE mentor_id = p_user_id
+     AND status = 'pending';
+
+  -- 3) Terminate active mentorship relationships where this user is mentor
+  UPDATE public.mentorship_relationships
+     SET status = 'terminated_by_system',
+         end_date = now()
+   WHERE mentor_id = p_user_id
+     AND status = 'active';
+
+  -- nothing to return
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mentorship_mark_user_unavailable"("p_user_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mentorship_on_mentor_status_change"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  IF NEW.status IN ('rejected') 
+     AND OLD.status IS DISTINCT FROM NEW.status THEN
+    PERFORM public.mentorship_mark_user_unavailable(NEW.user_id);
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mentorship_on_mentor_status_change"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mentorship_on_profile_deactivated"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  -- When a profile becomes non-approved or deleted, mark user unavailable
+  PERFORM public.mentorship_mark_user_unavailable(OLD.id);
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mentorship_on_profile_deactivated"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mentorship_open_chat"("p_relationship_id" "uuid") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_actor_id  uuid := auth.uid();
+  v_rel       public.mentorship_relationships%ROWTYPE;
+  v_other_id  uuid;
+  v_conv_id   uuid;
+BEGIN
+  IF v_actor_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '28000';
+  END IF;
+
+  -- Load relationship
+  SELECT *
+  INTO v_rel
+  FROM public.mentorship_relationships
+  WHERE id = p_relationship_id
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Mentorship relationship not found';
+  END IF;
+
+  -- Must be active
+  IF v_rel.status <> 'active' THEN
+    RAISE EXCEPTION 'Mentorship relationship is not active'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Only mentor/mentee (or admin) can open chat
+  IF NOT public.is_site_admin()
+     AND v_actor_id <> v_rel.mentor_id
+     AND v_actor_id <> v_rel.mentee_id THEN
+    RAISE EXCEPTION 'You are not a participant in this mentorship relationship'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Figure out the "other party"
+  IF v_actor_id = v_rel.mentor_id THEN
+    v_other_id := v_rel.mentee_id;
+  ELSE
+    v_other_id := v_rel.mentor_id;
+  END IF;
+
+  -- Ensure / create DM thread (currently stubbed)
+  v_conv_id := public.ensure_dm_thread_with(
+    v_other_id,
+    'mentorship',
+    p_relationship_id
+  );
+
+  RETURN v_conv_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mentorship_open_chat"("p_relationship_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mentorship_relationship_end"("p_relationship_id" "uuid", "p_reason" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_rel     public.mentorship_relationships;
+BEGIN
+  IF v_user_id IS NULL THEN
     RAISE EXCEPTION 'Not authenticated'
       USING ERRCODE = '28000';
   END IF;
 
   SELECT *
+  INTO v_rel
+  FROM public.mentorship_relationships
+  WHERE id = p_relationship_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Mentorship relationship not found'
+      USING ERRCODE = 'P0002';
+  END IF;
+
+  -- Only mentor or mentee (or admin via is_user_admin) can end
+  IF NOT (v_user_id = v_rel.mentor_id
+          OR v_user_id = v_rel.mentee_id
+          OR is_user_admin(v_user_id)) THEN
+    RAISE EXCEPTION 'Not authorized to end this mentorship'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF v_rel.status <> 'active' THEN
+    RAISE EXCEPTION 'Only active mentorships can be ended'
+      USING ERRCODE = '40900';
+  END IF;
+
+  UPDATE public.mentorship_relationships
+  SET status   = 'terminated_by_user',
+      end_date = now()
+  WHERE id = v_rel.id;
+
+  -- Optional: insert into an audit log table for mentoring history
+  -- INSERT INTO mentorship_relationship_audit(...) VALUES (...);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mentorship_relationship_end"("p_relationship_id" "uuid", "p_reason" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mentorship_request_cancel"("p_request_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_req     public.mentorship_requests;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '28000';
+  END IF;
+
+  SELECT *
   INTO v_req
   FROM public.mentorship_requests
-  WHERE id = p_request_id;
+  WHERE id = p_request_id
+  FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Request not found'
-      USING ERRCODE = 'P0001';
+      USING ERRCODE = 'P0002';
   END IF;
 
-  IF v_req.mentee_id <> v_user THEN
-    RAISE EXCEPTION 'FORBIDDEN'
+  IF v_req.mentee_id <> v_user_id THEN
+    RAISE EXCEPTION 'You can only cancel your own requests'
       USING ERRCODE = '42501';
   END IF;
 
   IF v_req.status <> 'pending' THEN
-    RAISE EXCEPTION 'INVALID_STATUS_TRANSITION'
-      USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'Only pending requests can be cancelled'
+      USING ERRCODE = '40900';
   END IF;
 
   UPDATE public.mentorship_requests
-  SET status = 'cancelled_by_user'
-  WHERE id = p_request_id
-  RETURNING * INTO v_req;
-
-  RETURN v_req;
+  SET status       = 'cancelled_by_user',
+      responded_at = now(),
+      updated_at   = now()
+  WHERE id = v_req.id;
 END;
 $$;
 
@@ -8223,90 +9926,79 @@ $$;
 ALTER FUNCTION "public"."mentorship_request_cancel"("p_request_id" "uuid") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."mentorship_request_create"("p_mentor_id" "uuid", "p_message" "text" DEFAULT NULL::"text", "p_goals" "text" DEFAULT NULL::"text") RETURNS "public"."mentorship_requests"
-    LANGUAGE "plpgsql"
+CREATE OR REPLACE FUNCTION "public"."mentorship_request_create"("p_mentor_id" "uuid", "p_message" "text", "p_goals" "text") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
 DECLARE
-  v_mentee_id uuid := auth.uid();
-  v_mentee    public.profiles;
-  v_mentor    public.profiles;
-  v_existing  public.mentorship_requests;
-  v_new       public.mentorship_requests;
+  v_mentee_id     uuid := auth.uid();
+  v_mentee_ok     boolean;
+  v_mentor_ok     boolean;
+  v_programs_ok   boolean;
+  -- 🔧 use the column's type, not a hard-coded enum name
+  v_existing      public.mentorship_requests.status%TYPE;
+  v_request_id    uuid;
 BEGIN
   IF v_mentee_id IS NULL THEN
     RAISE EXCEPTION 'Not authenticated'
       USING ERRCODE = '28000';
   END IF;
 
-  -- Load mentee profile
-  SELECT *
-  INTO v_mentee
+  -- 1) Mentee must be approved & active
+  SELECT (approval_status = 'approved'
+          AND COALESCE(is_deleted, false) = false
+          AND COALESCE(is_active, true) = true)
+  INTO v_mentee_ok
   FROM public.profiles
   WHERE id = v_mentee_id;
 
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Mentee profile not found'
+  IF NOT v_mentee_ok THEN
+    RAISE EXCEPTION 'Mentee profile not eligible for mentorship';
+  END IF;
+
+  -- 2) NEW RULE: mentee cannot be in more than 5 mentorship programs
+  --    (pending + active, counted per distinct mentor)
+  v_programs_ok := public.is_mentee_below_program_limit(v_mentee_id);
+  IF NOT v_programs_ok THEN
+    RAISE EXCEPTION 'You have reached the maximum of 5 mentorship programs (active or pending).'
       USING ERRCODE = 'P0001';
   END IF;
 
-  -- Eligibility: mentee must be approved and allowed
-  IF v_mentee.approval_status <> 'approved'
-     OR COALESCE(v_mentee.mentee_status, 'pending') <> 'approved' THEN
-    RAISE EXCEPTION 'NOT_ELIGIBLE_MENTEE'
-      USING ERRCODE = 'P0001';
+  -- 3) Mentor must be selectable (approved, visible, not blocked, etc.)
+  v_mentor_ok := public.is_mentor_selectable(p_mentor_id);
+  IF NOT v_mentor_ok THEN
+    RAISE EXCEPTION 'Mentor not available for selection';
   END IF;
 
-  -- Load mentor profile
-  SELECT *
-  INTO v_mentor
-  FROM public.profiles
-  WHERE id = p_mentor_id;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Mentor profile not found'
-      USING ERRCODE = 'P0001';
-  END IF;
-
-  -- Mentor eligibility (adjust column names to your schema)
-  IF v_mentor.approval_status <> 'approved'
-     OR COALESCE(v_mentor.mentor_status, 'pending') <> 'approved'
-     OR COALESCE(v_mentor.is_available_for_mentorship, false) = false THEN
-    RAISE EXCEPTION 'MENTOR_UNAVAILABLE'
-      USING ERRCODE = 'P0001';
-  END IF;
-
-  -- Prevent duplicate active/pending requests
-  SELECT *
-  INTO v_existing
-  FROM public.mentorship_requests r
-  WHERE r.mentor_id = p_mentor_id
-    AND r.mentee_id = v_mentee_id
-    AND r.status IN ('pending', 'accepted')
+  -- 4) Check for existing pending/accepted request with this mentor
+  SELECT status INTO v_existing
+  FROM public.mentorship_requests
+  WHERE mentee_id = v_mentee_id
+    AND mentor_id = p_mentor_id
+  ORDER BY created_at DESC
   LIMIT 1;
 
-  IF FOUND THEN
-    RAISE EXCEPTION 'DUPLICATE_ACTIVE_REQUEST'
-      USING ERRCODE = 'P0001';
+  IF v_existing IN ('pending', 'accepted') THEN
+    RAISE EXCEPTION 'You already have a mentorship request in progress with this mentor.';
   END IF;
 
-  -- Insert new request; RLS will still enforce mentee ownership
+  -- 5) Create new request
   INSERT INTO public.mentorship_requests (
-    mentor_id,
     mentee_id,
+    mentor_id,
+    status,
     message,
-    goals,
-    status
-  )
-  VALUES (
-    p_mentor_id,
+    goals
+  ) VALUES (
     v_mentee_id,
+    p_mentor_id,
+    'pending',
     p_message,
-    p_goals,
-    'pending'
+    p_goals
   )
-  RETURNING * INTO v_new;
+  RETURNING id INTO v_request_id;
 
-  RETURN v_new;
+  RETURN v_request_id;
 END;
 $$;
 
@@ -8314,83 +10006,159 @@ $$;
 ALTER FUNCTION "public"."mentorship_request_create"("p_mentor_id" "uuid", "p_message" "text", "p_goals" "text") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."mentorship_request_update_status"("p_request_id" "uuid", "p_new_status" "text") RETURNS "public"."mentorship_requests"
-    LANGUAGE "plpgsql"
+CREATE OR REPLACE FUNCTION "public"."mentorship_request_respond"("p_request_id" "uuid", "p_new_status" "text") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
 DECLARE
-  v_user       uuid := auth.uid();
-  v_req        public.mentorship_requests;
-  v_mentor     public.profiles;
-  v_active_cnt integer;
-  v_max        integer;
+  v_action public.mentorship_request_status;
+  v_norm   text := lower(p_new_status);
 BEGIN
-  IF v_user IS NULL THEN
+  IF p_new_status IS NULL THEN
+    RAISE EXCEPTION 'Status is required'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- Normalize and validate incoming status text
+  IF v_norm = 'accepted' THEN
+    v_action := 'accepted';
+  ELSIF v_norm = 'rejected' THEN
+    v_action := 'rejected';
+  ELSIF v_norm = 'cancelled' OR v_norm = 'cancelled_by_user' THEN
+    v_action := 'cancelled_by_user';
+  ELSIF v_norm = 'cancelled_by_system' THEN
+    v_action := 'cancelled_by_system';
+  ELSE
+    RAISE EXCEPTION 'Invalid mentorship request status: %', p_new_status
+      USING ERRCODE = '23514';
+  END IF;
+
+  -- Delegate to canonical brain (enum-based)
+  RETURN public.mentorship_request_respond_v2(p_request_id, v_action, NULL);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mentorship_request_respond"("p_request_id" "uuid", "p_new_status" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mentorship_request_respond_v2"("p_request_id" "uuid", "p_action" "public"."mentorship_request_status", "p_reason" "text" DEFAULT NULL::"text") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_current_user_id uuid := auth.uid();
+  v_req             public.mentorship_requests%ROWTYPE;
+  v_relationship_id uuid;
+BEGIN
+  IF v_current_user_id IS NULL THEN
     RAISE EXCEPTION 'Not authenticated'
       USING ERRCODE = '28000';
   END IF;
 
+  -- 1) Load request
   SELECT *
   INTO v_req
-  FROM public.mentorship_requests
-  WHERE id = p_request_id;
+  FROM public.mentorship_requests r
+  WHERE r.id = p_request_id
+  LIMIT 1;
 
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'Request not found'
-      USING ERRCODE = 'P0001';
+    RAISE EXCEPTION 'Mentorship request not found';
   END IF;
 
-  -- Only mentor (or later an admin wrapper) may call this
-  IF v_req.mentor_id <> v_user THEN
-    RAISE EXCEPTION 'FORBIDDEN'
-      USING ERRCODE = '42501';
+  -- 2) Ensure caller has permission
+  IF v_current_user_id NOT IN (v_req.mentor_id, v_req.mentee_id)
+     AND NOT public.is_site_admin()
+  THEN
+    RAISE EXCEPTION 'You are not allowed to respond to this request';
   END IF;
 
-  -- Only allow certain transitions from pending
-  IF v_req.status <> 'pending' THEN
-    RAISE EXCEPTION 'INVALID_STATUS_TRANSITION'
-      USING ERRCODE = 'P0001';
+  -- 3) Only handle from pending
+  IF v_req.status <> 'pending'::public.mentorship_request_status THEN
+    RAISE EXCEPTION 'Only pending requests can be updated';
   END IF;
 
-  IF p_new_status NOT IN ('accepted', 'rejected', 'cancelled_by_user') THEN
-    RAISE EXCEPTION 'UNSUPPORTED_STATUS'
-      USING ERRCODE = 'P0001';
-  END IF;
-
-  -- If accepting, enforce capacity
-  IF p_new_status = 'accepted' THEN
-    -- load mentor to find max_mentees, adjust if stored elsewhere
-    SELECT *
-    INTO v_mentor
-    FROM public.profiles
-    WHERE id = v_req.mentor_id;
-
-    -- example: assume you have mentors.max_mentees or profiles.max_mentees
-    SELECT COALESCE(m.max_mentees, NULL)
-    INTO v_max
-    FROM public.mentors m
-    WHERE m.profile_id = v_req.mentor_id;
-
-    IF v_max IS NOT NULL THEN
-      SELECT COUNT(*)
-      INTO v_active_cnt
-      FROM public.mentorship_relationships rel
-      WHERE rel.mentor_id = v_req.mentor_id
-        AND rel.status = 'active';  -- adjust to your schema
-
-      IF v_active_cnt >= v_max THEN
-        RAISE EXCEPTION 'CAPACITY_REACHED'
-          USING ERRCODE = 'P0001';
-      END IF;
+  -- 4) Branch by action
+  IF p_action = 'accepted'::public.mentorship_request_status THEN
+    -- Only mentor (or admin) should be able to accept
+    IF v_current_user_id <> v_req.mentor_id AND NOT public.is_site_admin() THEN
+      RAISE EXCEPTION 'Only the mentor can accept a request';
     END IF;
+
+    UPDATE public.mentorship_requests
+    SET status       = 'accepted',
+        responded_at = now()
+    WHERE id = p_request_id;
+
+    INSERT INTO public.mentorship_relationships (
+      mentor_id,
+      mentee_id,
+      status,
+      start_date
+    )
+    VALUES (
+      v_req.mentor_id,
+      v_req.mentee_id,
+      'active',
+      now()
+    )
+    ON CONFLICT (mentor_id, mentee_id)
+    WHERE mentorship_relationships.status = 'active'
+      AND mentorship_relationships.end_date IS NULL
+    DO UPDATE
+    SET updated_at = now()
+    RETURNING id
+    INTO v_relationship_id;
+
+    PERFORM public.mentorship_open_chat(v_relationship_id);
+
+    RETURN v_relationship_id;
+
+  ELSIF p_action = 'rejected'::public.mentorship_request_status THEN
+    IF v_current_user_id <> v_req.mentor_id AND NOT public.is_site_admin() THEN
+      RAISE EXCEPTION 'Only the mentor can reject a request';
+    END IF;
+
+    UPDATE public.mentorship_requests
+    SET status       = 'rejected',
+        responded_at = now()
+    WHERE id = p_request_id;
+
+    RETURN NULL;
+
+  ELSIF p_action = 'cancelled'::public.mentorship_request_status THEN
+    IF v_current_user_id <> v_req.mentee_id AND NOT public.is_site_admin() THEN
+      RAISE EXCEPTION 'Only the mentee can cancel a request';
+    END IF;
+
+    UPDATE public.mentorship_requests
+    SET status       = 'cancelled_by_user',
+        responded_at = now()
+    WHERE id = p_request_id;
+
+    RETURN NULL;
+
+  ELSE
+    RAISE EXCEPTION 'Unsupported mentorship request action: %', p_action;
   END IF;
+END;
+$$;
 
-  -- Update request; triggers will handle relationships, connections, notifications
-  UPDATE public.mentorship_requests
-  SET status = p_new_status
-  WHERE id = p_request_id
-  RETURNING * INTO v_req;
 
-  RETURN v_req;
+ALTER FUNCTION "public"."mentorship_request_respond_v2"("p_request_id" "uuid", "p_action" "public"."mentorship_request_status", "p_reason" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mentorship_request_update_status"("p_request_id" "uuid", "p_new_status" "text") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_relationship_id uuid;
+BEGIN
+  -- Delegate to the new canonical brain
+  v_relationship_id := public.mentorship_request_respond(p_request_id, p_new_status);
+  RETURN v_relationship_id;
 END;
 $$;
 
@@ -8878,6 +10646,33 @@ end$$;
 ALTER FUNCTION "public"."notify_dm_participants"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."notify_event"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text" DEFAULT NULL::"text", "p_metadata" "jsonb" DEFAULT '{}'::"jsonb") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  IF p_recipient_id IS NULL THEN
+    RAISE NOTICE 'Skipping notify_event(): null recipient';
+    RETURN;
+  END IF;
+
+  INSERT INTO public.notifications (
+      id, recipient_id, type, title, message, link, metadata,
+      is_read, created_at
+  )
+  VALUES (
+      gen_random_uuid(), p_recipient_id, p_type,
+      p_title, p_message, p_link, p_metadata,
+      FALSE, now()
+  )
+  ON CONFLICT DO NOTHING;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_event"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."notify_event_rsvp"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -9020,6 +10815,31 @@ $$;
 
 
 ALTER FUNCTION "public"."notify_job_application_submitted"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_job_applied"("p_job_id" "uuid", "p_applicant" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_owner uuid;
+BEGIN
+  SELECT created_by INTO v_owner FROM public.jobs WHERE id = p_job_id;
+  IF v_owner IS NOT NULL THEN
+    PERFORM public.notify_event(
+      v_owner,
+      'job_applied',
+      'New Job Application',
+      format('A new application has been submitted for your job post.'),
+      '/jobs/%s',  -- link placeholder
+      jsonb_build_object('job_id', p_job_id, 'applicant_id', p_applicant)
+    );
+  END IF;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_job_applied"("p_job_id" "uuid", "p_applicant" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."notify_mentorship_request"() RETURNS "trigger"
@@ -9203,18 +11023,37 @@ CREATE OR REPLACE FUNCTION "public"."notify_on_request_update"() RETURNS "trigge
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-declare msg text;
+declare 
+  msg text;
 begin
   if new.status is distinct from old.status then
     msg := case new.status
       when 'accepted' then 'Your mentorship request was accepted.'
       when 'rejected' then 'Your mentorship request was rejected.'
-      else 'Your mentorship request status changed to: '||coalesce(new.status,'(unknown)')
+      else 'Your mentorship request status changed to: '
+           || coalesce(new.status::text, '(unknown)')
     end;
-    insert into public.notifications (recipient_id, sender_id, type, title, message, link, profile_id)
-    values (new.mentee_id, new.mentor_id, 'mentorship',
-            'Mentorship request update', msg, '/mentorship/requests', new.mentor_id);
+
+    insert into public.notifications (
+      recipient_id,
+      sender_id,
+      type,
+      title,
+      message,
+      link,
+      profile_id
+    )
+    values (
+      new.mentee_id,
+      new.mentor_id,
+      'mentorship',
+      'Mentorship request update',
+      msg,
+      '/mentorship/requests',
+      new.mentor_id
+    );
   end if;
+
   return new;
 end;
 $$;
@@ -9275,23 +11114,31 @@ ALTER FUNCTION "public"."notify_requests_on_rejection"() OWNER TO "postgres";
 
 CREATE OR REPLACE FUNCTION "public"."on_mentorship_request_status"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
-begin
-  -- Allow valid status transitions.
-  -- RLS already enforces who is allowed (mentee vs mentor vs admin).
+BEGIN
+  -- Ensure status is one of the allowed enum values
+  IF NEW.status NOT IN (
+    'pending',
+    'accepted',
+    'rejected',
+    'cancelled_by_user',
+    'cancelled_by_system'
+  ) THEN
+    RAISE EXCEPTION 'Invalid mentorship request status: %', NEW.status
+      USING ERRCODE = '23514';
+  END IF;
 
-  if new.status not in ('pending', 'accepted', 'rejected', 'cancelled') then
-    raise exception 'Invalid mentorship status: %', new.status;
-  end if;
+  -- Disallow reverting back to pending from any other state
+  IF OLD.status IS NOT NULL
+     AND OLD.status <> 'pending'
+     AND NEW.status = 'pending' THEN
+    RAISE EXCEPTION 'Cannot revert mentorship request back to pending'
+      USING ERRCODE = '23514';
+  END IF;
 
-  -- If you want to forbid changing mentor/mentee after creation, keep them fixed:
-  if tg_op = 'UPDATE' then
-    new.mentee_id := old.mentee_id;
-    new.mentor_id := old.mentor_id;
-  end if;
-
-  return new;
-end;
+  RETURN NEW;
+END;
 $$;
 
 
@@ -9353,6 +11200,86 @@ END$$;
 
 
 ALTER FUNCTION "public"."prevent_no_admins"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."process_notification_event_mentorship_v1"("p_event_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_event          public.notification_events;
+  v_request        public.mentorship_requests;
+  v_recipient_id   uuid;
+  v_title          text;
+  v_message        text;
+  v_link           text;
+BEGIN
+  SELECT *
+  INTO v_event
+  FROM public.notification_events
+  WHERE id = p_event_id
+    AND module = 'mentorship';
+
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+
+  -- Mark as processed at the end
+  SELECT *
+  INTO v_request
+  FROM public.mentorship_requests
+  WHERE id = v_event.entity_id;
+
+  IF NOT FOUND THEN
+    UPDATE public.notification_events
+      SET processed_at = now()
+    WHERE id = p_event_id;
+    RETURN;
+  END IF;
+
+  -- Handle a few key mentorship event types
+  IF v_event.event_type = 'mentorship_request' THEN
+    v_recipient_id := v_request.mentor_id;
+    v_title        := 'New mentorship request';
+    v_message      := 'You have a new mentorship request from a mentee.';
+    v_link         := '/mentorship/requests';
+  ELSIF v_event.event_type = 'mentorship_status' THEN
+    -- Notify the mentee about status change
+    v_recipient_id := v_request.mentee_id;
+    v_title        := 'Your mentorship request was updated';
+    v_message      := 'Your mentorship request status changed to: ' || v_request.status::text;
+    v_link         := '/mentorship';
+  ELSE
+    -- Other mentorship event types can be added later
+    UPDATE public.notification_events
+      SET processed_at = now()
+    WHERE id = p_event_id;
+    RETURN;
+  END IF;
+
+  -- Call existing notify() RPC (assumed to exist), with idempotency
+  PERFORM public.notify(
+    v_recipient_id,
+    v_event.event_type::text,
+    v_title,
+    v_message,
+    v_link,
+    v_event.metadata,
+    v_event.id::text             -- use event id as idempotency key
+  );
+
+  UPDATE public.notification_events
+    SET processed_at = now()
+  WHERE id = p_event_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."process_notification_event_mentorship_v1"("p_event_id" "uuid") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."process_notification_event_mentorship_v1"("p_event_id" "uuid") IS 'Minimal fan-out: turns mentorship notification_events into per-recipient notifications via notify().';
+
 
 
 CREATE OR REPLACE FUNCTION "public"."profiles_after_update_avatar"() RETURNS "trigger"
@@ -9497,6 +11424,28 @@ $$;
 
 
 ALTER FUNCTION "public"."public_directory_count"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."purge_notifications_admin"("p_user_id" "uuid" DEFAULT NULL::"uuid") RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_count integer;
+BEGIN
+  IF NOT (public.fc_is_admin() OR public.fc_is_super_admin()) THEN
+    RAISE EXCEPTION 'Not authorized';
+  END IF;
+
+  DELETE FROM public.notifications
+   WHERE p_user_id IS NULL OR recipient_id = p_user_id;
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."purge_notifications_admin"("p_user_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."purge_user_data"("uid" "uuid") RETURNS "void"
@@ -10171,6 +12120,62 @@ $$;
 ALTER FUNCTION "public"."search_events"("p_query" "text", "p_status" "text", "p_type" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."self_set_role"("p_role" "public"."app_role_enum") RETURNS "public"."profiles"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_old     public.profiles;
+  v_new     public.profiles;
+BEGIN
+  -- Must be logged in
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Unauthorized'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Only allow non-privileged role choices
+  IF p_role NOT IN ('alumni','student','employer') THEN
+    RAISE EXCEPTION 'Invalid self-service role'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Load current profile
+  SELECT *
+  INTO v_old
+  FROM public.profiles
+  WHERE id = v_user_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Profile % not found', v_user_id
+      USING ERRCODE = 'P0002';
+  END IF;
+
+  -- Block deleted or blocked accounts from changing roles
+  IF COALESCE(v_old.is_deleted, false)
+     OR COALESCE(v_old.is_active, true) = false THEN
+    RAISE EXCEPTION 'Cannot change role for deleted or blocked account'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Update role
+  UPDATE public.profiles p
+  SET role = p_role
+  WHERE p.id = v_user_id
+  RETURNING * INTO v_new;
+
+  -- NOTE: if you want logging, we can later wire this to admin_log_action()
+  -- or a dedicated activity_log table; skipped here to avoid schema mismatches.
+
+  RETURN v_new;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."self_set_role"("p_role" "public"."app_role_enum") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."send_dm_message"("p_thread_id" "uuid", "p_content" "text") RETURNS "uuid"
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -10530,6 +12535,22 @@ $$;
 ALTER FUNCTION "public"."set_member_role"("p_group_id" "uuid", "p_user_id" "uuid", "p_role" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."set_timestamps"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  NEW.updated_at = now();
+  IF TG_OP = 'INSERT' THEN
+    NEW.created_at = now();
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."set_timestamps"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."set_updated_at"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -10728,6 +12749,62 @@ $$;
 ALTER FUNCTION "public"."sync_membership_to_members"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."sync_resume_profile_to_job_alert"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_freq text;
+BEGIN
+  -- If there's no user_id, nothing to sync
+  IF NEW.user_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Normalise frequency to allowed values: daily / weekly / immediate
+  v_freq := COALESCE(NEW.job_alert_frequency, 'daily');
+  IF v_freq NOT IN ('daily', 'weekly', 'immediate') THEN
+    v_freq := 'daily';
+  END IF;
+
+  -- Upsert a single canonical alert row keyed by (user_id, alert_name)
+  INSERT INTO public.job_alerts AS ja (
+    user_id,
+    alert_name,
+    keywords,
+    locations,
+    is_active,
+    frequency,
+    alert_frequency,
+    created_at
+  )
+  VALUES (
+    NEW.user_id,
+    'profile-default',
+    COALESCE(NEW.job_alert_keywords, ARRAY[]::text[]),
+    COALESCE(NEW.preferred_locations, ARRAY[]::text[]),
+    COALESCE(NEW.job_alert_active, true),
+    v_freq,
+    v_freq,
+    now()
+  )
+  ON CONFLICT (user_id, alert_name)
+  DO UPDATE SET
+    keywords        = EXCLUDED.keywords,
+    locations       = EXCLUDED.locations,
+    is_active       = EXCLUDED.is_active,
+    frequency       = EXCLUDED.frequency,
+    alert_frequency = EXCLUDED.alert_frequency,
+    updated_at      = now();
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."sync_resume_profile_to_job_alert"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."tg_connections_timestamps"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -10783,25 +12860,37 @@ CREATE OR REPLACE FUNCTION "public"."toggle_job_bookmark"("p_job_id" "uuid") RET
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-declare
+DECLARE
   v_exists boolean;
-begin
-  select exists(
-    select 1 from public.job_bookmarks
-    where user_id = auth.uid() and job_id = p_job_id
-  ) into v_exists;
+BEGIN
+  -- Safety: must be logged in
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '28000';
+  END IF;
 
-  if v_exists then
-    delete from public.job_bookmarks
-    where user_id = auth.uid() and job_id = p_job_id;
-    return false; -- now unbookmarked
-  else
-    insert into public.job_bookmarks(user_id, job_id)
-    values (auth.uid(), p_job_id)
-    on conflict (user_id, job_id) do nothing;
-    return true; -- now bookmarked
-  end if;
-end
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.job_bookmarks
+    WHERE user_id = auth.uid()
+      AND job_id = p_job_id
+  )
+  INTO v_exists;
+
+  IF v_exists THEN
+    DELETE FROM public.job_bookmarks
+    WHERE user_id = auth.uid()
+      AND job_id = p_job_id;
+
+    RETURN FALSE; -- now unbookmarked
+  ELSE
+    INSERT INTO public.job_bookmarks(user_id, job_id)
+    VALUES (auth.uid(), p_job_id)
+    ON CONFLICT (job_id, user_id) DO NOTHING;
+
+    RETURN TRUE; -- now bookmarked
+  END IF;
+END;
 $$;
 
 
@@ -10977,6 +13066,23 @@ end $$;
 ALTER FUNCTION "public"."trg_groups_stamp_approval"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."trg_process_notification_event_mentorship"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  IF NEW.module = 'mentorship' THEN
+    PERFORM public.process_notification_event_mentorship_v1(NEW.id);
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."trg_process_notification_event_mentorship"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."update_conversation_last_message"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -11099,6 +13205,21 @@ $$;
 ALTER FUNCTION "public"."update_full_name"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."update_profile_timestamp_on_avatar_change"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  IF (OLD.avatar_url IS DISTINCT FROM NEW.avatar_url) THEN
+    NEW.updated_at = now();
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."update_profile_timestamp_on_avatar_change"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."update_updated_at"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -11138,6 +13259,9 @@ BEGIN
       USING ERRCODE = '28000';
   END IF;
 
+  -- Enforce upload rate limit (5 per hour)
+  PERFORM public.enforce_avatar_upload_rate(v_user_id);
+
   -- Construct full public URL for the avatars bucket
   v_full_url :=
     'https://gvbtfolcizkzihforqte.supabase.co/storage/v1/object/public/avatars/'
@@ -11149,6 +13273,10 @@ BEGIN
     avatar_source         = 'supabase',
     avatar_storage_bucket = 'avatars'
   WHERE id = v_user_id;
+
+  -- Log this upload
+  INSERT INTO public.avatar_upload_log (user_id)
+  VALUES (v_user_id);
 END;
 $$;
 
@@ -13078,6 +15206,33 @@ CREATE TABLE IF NOT EXISTS "public"."admin_actions" (
 ALTER TABLE "public"."admin_actions" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."admin_analytics_audit_log" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "admin_id" "uuid" NOT NULL,
+    "function_name" "text" NOT NULL,
+    "parameters" "jsonb" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."admin_analytics_audit_log" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."admin_deletion_audit_log" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "actor_id" "uuid" NOT NULL,
+    "target_user_id" "uuid" NOT NULL,
+    "deletion_type" "text" NOT NULL,
+    "reason" "text",
+    "context" "jsonb",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "admin_deletion_audit_log_deletion_type_check" CHECK (("deletion_type" = ANY (ARRAY['soft_delete'::"text", 'purge'::"text", 'auth_delete'::"text"])))
+);
+
+
+ALTER TABLE "public"."admin_deletion_audit_log" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."admin_invalid_degree_programs_audit" (
     "id" "uuid" NOT NULL,
     "old_degree_program" "text",
@@ -13118,30 +15273,6 @@ CREATE OR REPLACE VIEW "public"."admin_profiles_view" AS
 ALTER TABLE "public"."admin_profiles_view" OWNER TO "postgres";
 
 
-CREATE TABLE IF NOT EXISTS "public"."mentors" (
-    "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
-    "user_id" "uuid",
-    "status" "text" DEFAULT 'pending'::"text",
-    "expertise" "text"[],
-    "mentoring_experience_years" integer,
-    "max_mentees" integer DEFAULT 5,
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"(),
-    "mentoring_capacity_hours_per_month" integer,
-    "mentoring_preferences" "jsonb",
-    "mentoring_statement" "text",
-    "mentoring_experience_description" "text",
-    CONSTRAINT "mentors_status_check" CHECK (("status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"])))
-);
-
-
-ALTER TABLE "public"."mentors" OWNER TO "postgres";
-
-
-COMMENT ON TABLE "public"."mentors" IS 'Stores mentor profiles and expertise';
-
-
-
 CREATE OR REPLACE VIEW "public"."alumni_directory_public" AS
  SELECT "p"."id",
     COALESCE("p"."full_name", "concat_ws"(' '::"text", "p"."first_name", "p"."last_name")) AS "full_name",
@@ -13162,17 +15293,131 @@ CREATE OR REPLACE VIEW "public"."alumni_directory_public" AS
 ALTER TABLE "public"."alumni_directory_public" OWNER TO "postgres";
 
 
-CREATE TABLE IF NOT EXISTS "public"."avatar_audit_log" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "user_id" "uuid",
-    "action" "text" NOT NULL,
-    "file_path" "text",
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "metadata" "jsonb"
+CREATE TABLE IF NOT EXISTS "public"."avatar_oauth_backup" (
+    "id" "uuid",
+    "email" "text",
+    "first_name" "text",
+    "last_name" "text",
+    "full_name" "text",
+    "avatar_url" "text",
+    "graduation_year" integer,
+    "degree" "text",
+    "major" "text",
+    "current_company" "text",
+    "current_position" "text",
+    "location" "text",
+    "bio" "text",
+    "linkedin_url" "text",
+    "twitter_url" "text",
+    "website_url" "text",
+    "is_verified" boolean,
+    "is_mentor" boolean,
+    "created_at" timestamp with time zone,
+    "updated_at" timestamp with time zone,
+    "mentor_availability" "text",
+    "mentor_topics" "text"[],
+    "mentor_status" "text",
+    "mentee_status" "text",
+    "alumni_verification_status" "text",
+    "verification_document_url" "text",
+    "verification_notes" "text",
+    "verification_reviewed_by" "uuid",
+    "verification_reviewed_at" timestamp with time zone,
+    "department" "text",
+    "phone" "text",
+    "github_url" "text",
+    "skills" "jsonb",
+    "account_type" "text",
+    "student_id" "text",
+    "is_employer" boolean,
+    "company_name" "text",
+    "company_website" "text",
+    "industry" "text",
+    "phone_number" "text",
+    "is_admin" boolean,
+    "role" "public"."app_role_enum",
+    "job_title" "text",
+    "years_experience" integer,
+    "current_location" "text",
+    "degree_program" "text",
+    "current_job_title" "text",
+    "major_specialization" "text",
+    "biography" "text",
+    "privacy_level" "text",
+    "is_online" boolean,
+    "last_seen" timestamp with time zone,
+    "username" "text",
+    "about" "text",
+    "headline" "text",
+    "company" "text",
+    "experience" "text",
+    "specialization" "text",
+    "achievements" "jsonb",
+    "interests" "jsonb",
+    "languages" "text"[],
+    "social_links" "jsonb",
+    "verified" boolean,
+    "batch_year" integer,
+    "resume_url" "text",
+    "wants_job_alerts" boolean,
+    "website" "text",
+    "is_available_for_mentorship" boolean,
+    "mentorship_topics" "text"[],
+    "date_of_birth" "date",
+    "company_location" "text",
+    "primary_role" "text",
+    "batch" "text",
+    "is_profile_complete" boolean,
+    "show_in_directory" boolean,
+    "privacy_settings" "jsonb",
+    "rejection_comment" "text",
+    "rejected_by" "uuid",
+    "rejection_date" timestamp with time zone,
+    "admin_notes" "text",
+    "clarification_comment" "text",
+    "rejection_reason" "text",
+    "is_deleted" boolean,
+    "deleted_at" timestamp with time zone,
+    "deleted_by" "uuid",
+    "is_approved" boolean,
+    "verified_at" timestamp with time zone,
+    "degree_code" "text",
+    "education" "jsonb",
+    "work_experience" "jsonb",
+    "positions" "jsonb",
+    "profession" "text",
+    "location_city" "text",
+    "location_country" "text",
+    "company_size" "text",
+    "approval_status" "public"."profile_approval_status",
+    "is_hidden" boolean,
+    "visibility" "text",
+    "extra" "jsonb",
+    "is_active" boolean,
+    "verified_by" "uuid",
+    "approved_at" timestamp with time zone,
+    "approval_reason" "text",
+    "department_id" "uuid",
+    "avatar_path" "text",
+    "expected_graduation_year" integer,
+    "approval_reviewed_by" "uuid",
+    "approval_reviewed_at" timestamp with time zone,
+    "avatar_source" "text",
+    "avatar_storage_bucket" "text"
 );
 
 
-ALTER TABLE "public"."avatar_audit_log" OWNER TO "postgres";
+ALTER TABLE "public"."avatar_oauth_backup" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."avatar_upload_log" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "uploaded_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."avatar_upload_log" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."backup_bad_conversations_20250905" (
@@ -13259,70 +15504,7 @@ CREATE OR REPLACE VIEW "public"."basic_event_metrics" AS
 ALTER TABLE "public"."basic_event_metrics" OWNER TO "postgres";
 
 
-CREATE TABLE IF NOT EXISTS "public"."notification_preferences" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "user_id" "uuid",
-    "notification_type" "text" NOT NULL,
-    "email_enabled" boolean DEFAULT true,
-    "push_enabled" boolean DEFAULT true,
-    "in_app_enabled" boolean DEFAULT true,
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"()
-);
-
-
-ALTER TABLE "public"."notification_preferences" OWNER TO "postgres";
-
-
-CREATE TABLE IF NOT EXISTS "public"."notifications" (
-    "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
-    "title" "text",
-    "message" "text" NOT NULL,
-    "link" "text",
-    "is_read" boolean DEFAULT false,
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"(),
-    "type" "text" DEFAULT 'system'::"text" NOT NULL,
-    "recipient_id" "uuid" NOT NULL,
-    "sender_id" "uuid",
-    "event_id" "uuid",
-    "profile_id" "uuid",
-    "read_at" timestamp with time zone,
-    "user_id" "uuid",
-    "metadata" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL,
-    "body" "text",
-    CONSTRAINT "chk_notifications_type" CHECK (("btrim"("lower"("type")) = ANY (ARRAY['system'::"text", 'message'::"text", 'event'::"text", 'event_created'::"text", 'event_published'::"text", 'event_updated'::"text", 'job'::"text", 'job_posted'::"text", 'job_approved'::"text", 'job_applied'::"text", 'application'::"text", 'application_status'::"text", 'mentorship'::"text", 'group'::"text", 'connection'::"text", 'resume'::"text", 'alert'::"text"])))
-);
-
-
-ALTER TABLE "public"."notifications" OWNER TO "postgres";
-
-
-COMMENT ON TABLE "public"."notifications" IS 'Stores user notifications for the alumni management system';
-
-
-
-CREATE OR REPLACE VIEW "public"."bell_notifications" AS
- SELECT "n"."id",
-    "n"."recipient_id",
-    "n"."type",
-    "n"."title",
-    "n"."message",
-    "n"."link",
-    "n"."metadata",
-    "n"."is_read",
-    "n"."read_at",
-    "n"."created_at"
-   FROM ("public"."notifications" "n"
-     LEFT JOIN "public"."notification_preferences" "p" ON ((("p"."user_id" = "n"."recipient_id") AND ("p"."notification_type" = "n"."type"))))
-  WHERE ((COALESCE("p"."in_app_enabled", true) = true) AND (NOT ("lower"(COALESCE("n"."title", ''::"text")) ~~ 'rsvp confirmed%'::"text")) AND "public"."is_bell_worthy"("public"."get_user_role"("n"."recipient_id"), "n"."type", "n"."metadata"))
-  ORDER BY "n"."created_at" DESC;
-
-
-ALTER TABLE "public"."bell_notifications" OWNER TO "postgres";
-
-
-CREATE TABLE IF NOT EXISTS "public"."bookmarked_jobs" (
+CREATE TABLE IF NOT EXISTS "public"."bookmarked_jobs_legacy_do_not_use" (
     "id" bigint NOT NULL,
     "user_id" "uuid" NOT NULL,
     "job_id" "uuid" NOT NULL,
@@ -13330,30 +15512,30 @@ CREATE TABLE IF NOT EXISTS "public"."bookmarked_jobs" (
 );
 
 
-ALTER TABLE "public"."bookmarked_jobs" OWNER TO "postgres";
+ALTER TABLE "public"."bookmarked_jobs_legacy_do_not_use" OWNER TO "postgres";
 
 
-COMMENT ON TABLE "public"."bookmarked_jobs" IS 'Stores user bookmarks for job listings.';
-
-
-
-COMMENT ON COLUMN "public"."bookmarked_jobs"."id" IS 'Unique identifier for the bookmark entry.';
+COMMENT ON TABLE "public"."bookmarked_jobs_legacy_do_not_use" IS 'Stores user bookmarks for job listings.';
 
 
 
-COMMENT ON COLUMN "public"."bookmarked_jobs"."user_id" IS 'Foreign key referencing the user (from auth.users) who made the bookmark.';
+COMMENT ON COLUMN "public"."bookmarked_jobs_legacy_do_not_use"."id" IS 'Unique identifier for the bookmark entry.';
 
 
 
-COMMENT ON COLUMN "public"."bookmarked_jobs"."job_id" IS 'Foreign key referencing the bookmarked job (from public.jobs).';
+COMMENT ON COLUMN "public"."bookmarked_jobs_legacy_do_not_use"."user_id" IS 'Foreign key referencing the user (from auth.users) who made the bookmark.';
 
 
 
-COMMENT ON COLUMN "public"."bookmarked_jobs"."created_at" IS 'Timestamp of when the bookmark was created.';
+COMMENT ON COLUMN "public"."bookmarked_jobs_legacy_do_not_use"."job_id" IS 'Foreign key referencing the bookmarked job (from public.jobs).';
 
 
 
-ALTER TABLE "public"."bookmarked_jobs" ALTER COLUMN "id" ADD GENERATED BY DEFAULT AS IDENTITY (
+COMMENT ON COLUMN "public"."bookmarked_jobs_legacy_do_not_use"."created_at" IS 'Timestamp of when the bookmark was created.';
+
+
+
+ALTER TABLE "public"."bookmarked_jobs_legacy_do_not_use" ALTER COLUMN "id" ADD GENERATED BY DEFAULT AS IDENTITY (
     SEQUENCE NAME "public"."bookmarked_jobs_id_seq"
     START WITH 1
     INCREMENT BY 1
@@ -13458,7 +15640,8 @@ CREATE TABLE IF NOT EXISTS "public"."conversations" (
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "last_message_at" timestamp with time zone DEFAULT "now"(),
     "participant_1" "uuid",
-    "participant_2" "uuid"
+    "participant_2" "uuid",
+    "mentorship_relationship_id" "uuid"
 );
 
 ALTER TABLE ONLY "public"."conversations" FORCE ROW LEVEL SECURITY;
@@ -13964,6 +16147,27 @@ CREATE TABLE IF NOT EXISTS "public"."group_comments" (
 ALTER TABLE "public"."group_comments" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."group_members" (
+    "group_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "role" "text" DEFAULT 'member'::"text" NOT NULL,
+    "joined_at" timestamp with time zone DEFAULT "now"(),
+    "created_at" timestamp with time zone GENERATED ALWAYS AS ("joined_at") STORED,
+    "status" "text" DEFAULT 'active'::"text",
+    CONSTRAINT "group_members_role_check" CHECK (("role" = ANY (ARRAY['admin'::"text", 'member'::"text"]))),
+    CONSTRAINT "group_members_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'pending'::"text", 'left'::"text", 'removed'::"text"])))
+);
+
+ALTER TABLE ONLY "public"."group_members" REPLICA IDENTITY FULL;
+
+
+ALTER TABLE "public"."group_members" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."group_members" IS 'Manages memberships and roles of users in groups.';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."group_memberships" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "group_id" "uuid" NOT NULL,
@@ -14068,18 +16272,6 @@ ALTER TABLE "public"."group_posts" OWNER TO "postgres";
 
 COMMENT ON TABLE "public"."group_posts" IS 'Stores posts, comments, and replies within networking groups.';
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."job_alert_notifications" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "job_id" "uuid" NOT NULL,
-    "alert_id" "uuid" NOT NULL,
-    "user_id" "uuid" NOT NULL,
-    "sent_at" timestamp with time zone DEFAULT "now"()
-);
-
-
-ALTER TABLE "public"."job_alert_notifications" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."job_alerts" (
@@ -14240,6 +16432,8 @@ CREATE TABLE IF NOT EXISTS "public"."mentees" (
     CONSTRAINT "mentees_status_check" CHECK (("status" = ANY (ARRAY['pending'::"text", 'active'::"text", 'inactive'::"text"])))
 );
 
+ALTER TABLE ONLY "public"."mentees" FORCE ROW LEVEL SECURITY;
+
 
 ALTER TABLE "public"."mentees" OWNER TO "postgres";
 
@@ -14259,6 +16453,8 @@ CREATE TABLE IF NOT EXISTS "public"."mentor_availability" (
     "updated_at" timestamp with time zone DEFAULT "now"(),
     CONSTRAINT "time_range_check" CHECK (("start_time" < "end_time"))
 );
+
+ALTER TABLE ONLY "public"."mentor_availability" FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."mentor_availability" OWNER TO "postgres";
@@ -14282,6 +16478,8 @@ CREATE TABLE IF NOT EXISTS "public"."mentor_profiles" (
     "updated_at" timestamp with time zone DEFAULT "now"(),
     "default_meeting_link" "text"
 );
+
+ALTER TABLE ONLY "public"."mentor_profiles" FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."mentor_profiles" OWNER TO "postgres";
@@ -14326,6 +16524,8 @@ CREATE TABLE IF NOT EXISTS "public"."mentorship_appointments" (
     CONSTRAINT "mentorship_appointments_status_check" CHECK (("status" = ANY (ARRAY['scheduled'::"text", 'completed'::"text", 'cancelled'::"text", 'no_show'::"text"])))
 );
 
+ALTER TABLE ONLY "public"."mentorship_appointments" FORCE ROW LEVEL SECURITY;
+
 
 ALTER TABLE "public"."mentorship_appointments" OWNER TO "postgres";
 
@@ -14343,6 +16543,8 @@ CREATE TABLE IF NOT EXISTS "public"."mentorship_feedback" (
     "created_at" timestamp with time zone DEFAULT "now"(),
     CONSTRAINT "mentorship_feedback_rating_check" CHECK ((("rating" >= 1) AND ("rating" <= 5)))
 );
+
+ALTER TABLE ONLY "public"."mentorship_feedback" FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."mentorship_feedback" OWNER TO "postgres";
@@ -14363,6 +16565,10 @@ ALTER TABLE ONLY "public"."mentorship_messages" REPLICA IDENTITY FULL;
 ALTER TABLE "public"."mentorship_messages" OWNER TO "postgres";
 
 
+COMMENT ON TABLE "public"."mentorship_messages" IS 'LEGACY – mentorship chat now uses conversations + messages + mentorship_relationship_id. Do not use from FE.';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."mentorship_programs" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "title" "text" NOT NULL,
@@ -14378,43 +16584,25 @@ CREATE TABLE IF NOT EXISTS "public"."mentorship_programs" (
 ALTER TABLE "public"."mentorship_programs" OWNER TO "postgres";
 
 
-CREATE TABLE IF NOT EXISTS "public"."mentorship_relationships" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "program_id" "uuid",
-    "mentor_id" "uuid",
+CREATE TABLE IF NOT EXISTS "public"."mentorship_requests" (
+    "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
     "mentee_id" "uuid",
-    "status" "text" DEFAULT 'pending'::"text",
+    "mentor_id" "uuid",
+    "status" "public"."mentorship_request_status",
+    "message" "text",
+    "goals" "text",
     "created_at" timestamp with time zone DEFAULT "now"(),
     "updated_at" timestamp with time zone DEFAULT "now"(),
-    "start_date" timestamp with time zone DEFAULT "now"(),
-    "end_date" timestamp with time zone,
-    CONSTRAINT "mentorship_relationships_no_self_mentee" CHECK ((("mentor_id" IS NULL) OR ("mentee_id" IS NULL) OR ("mentor_id" <> "mentee_id"))),
-    CONSTRAINT "mentorship_relationships_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'completed'::"text", 'terminated_by_user'::"text", 'terminated_by_system'::"text"])))
+    "responded_at" timestamp with time zone,
+    CONSTRAINT "mentorship_requests_check_not_self" CHECK (("mentee_id" <> "mentor_id")),
+    CONSTRAINT "mentorship_requests_no_self_mentee" CHECK ((("mentor_id" IS NULL) OR ("mentee_id" IS NULL) OR ("mentor_id" <> "mentee_id"))),
+    CONSTRAINT "mentorship_requests_status_check" CHECK (("status" = ANY (ARRAY['pending'::"public"."mentorship_request_status", 'accepted'::"public"."mentorship_request_status", 'rejected'::"public"."mentorship_request_status", 'cancelled_by_user'::"public"."mentorship_request_status", 'cancelled_by_system'::"public"."mentorship_request_status"])))
 );
 
-
-ALTER TABLE "public"."mentorship_relationships" OWNER TO "postgres";
-
-
-CREATE OR REPLACE VIEW "public"."mentorship_requests_with_identities" AS
- SELECT "r"."id",
-    "r"."mentee_id",
-    "r"."mentor_id",
-    "r"."status",
-    "r"."message",
-    "r"."goals",
-    "r"."created_at",
-    "r"."updated_at",
-    "m"."full_name" AS "mentor_name",
-    COALESCE("m"."avatar_url", '/default-avatar.svg'::"text") AS "mentor_avatar",
-    "n"."full_name" AS "mentee_name",
-    COALESCE("n"."avatar_url", '/default-avatar.svg'::"text") AS "mentee_avatar"
-   FROM (("public"."mentorship_requests" "r"
-     LEFT JOIN "public"."profiles" "m" ON (("m"."id" = "r"."mentor_id")))
-     LEFT JOIN "public"."profiles" "n" ON (("n"."id" = "r"."mentee_id")));
+ALTER TABLE ONLY "public"."mentorship_requests" FORCE ROW LEVEL SECURITY;
 
 
-ALTER TABLE "public"."mentorship_requests_with_identities" OWNER TO "postgres";
+ALTER TABLE "public"."mentorship_requests" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."mentorship_sessions" (
@@ -14430,6 +16618,8 @@ CREATE TABLE IF NOT EXISTS "public"."mentorship_sessions" (
     "status" "text"
 );
 
+ALTER TABLE ONLY "public"."mentorship_sessions" FORCE ROW LEVEL SECURITY;
+
 
 ALTER TABLE "public"."mentorship_sessions" OWNER TO "postgres";
 
@@ -14439,9 +16629,9 @@ COMMENT ON COLUMN "public"."mentorship_sessions"."meeting_url" IS 'Join link for
 
 
 CREATE OR REPLACE VIEW "public"."mentorship_stats" AS
- SELECT "count"(*) FILTER (WHERE ("mentorship_requests"."status" = 'accepted'::"text")) AS "total_approved",
-    "count"(*) FILTER (WHERE ("mentorship_requests"."status" = 'pending'::"text")) AS "pending_requests",
-    "count"(*) FILTER (WHERE ("mentorship_requests"."status" = 'rejected'::"text")) AS "rejected_requests"
+ SELECT "count"(*) FILTER (WHERE ("mentorship_requests"."status" = 'accepted'::"public"."mentorship_request_status")) AS "total_approved",
+    "count"(*) FILTER (WHERE ("mentorship_requests"."status" = 'pending'::"public"."mentorship_request_status")) AS "pending_requests",
+    "count"(*) FILTER (WHERE ("mentorship_requests"."status" = 'rejected'::"public"."mentorship_request_status")) AS "rejected_requests"
    FROM "public"."mentorship_requests";
 
 
@@ -14458,8 +16648,14 @@ CREATE TABLE IF NOT EXISTS "public"."mentorships" (
     CONSTRAINT "mentorships_status_check" CHECK (("status" = ANY (ARRAY['requested'::"text", 'active'::"text", 'completed'::"text", 'declined'::"text"])))
 );
 
+ALTER TABLE ONLY "public"."mentorships" FORCE ROW LEVEL SECURITY;
+
 
 ALTER TABLE "public"."mentorships" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."mentorships" IS 'LEGACY – replaced by mentorship_requests + mentorship_relationships. Do not use from FE.';
+
 
 
 CREATE TABLE IF NOT EXISTS "public"."messages" (
@@ -14509,6 +16705,27 @@ CREATE TABLE IF NOT EXISTS "public"."networking_groups" (
 
 
 ALTER TABLE "public"."networking_groups" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."notification_events" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "event_type" "public"."notification_type_enum" NOT NULL,
+    "module" "public"."notification_module" NOT NULL,
+    "actor_profile_id" "uuid" NOT NULL,
+    "entity_table" "text" NOT NULL,
+    "entity_id" "uuid" NOT NULL,
+    "metadata" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL,
+    "idempotency_key" "text",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "processed_at" timestamp with time zone
+);
+
+
+ALTER TABLE "public"."notification_events" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."notification_events" IS 'Canonical log of notification-worthy events before fan-out to per-recipient notifications.';
+
 
 
 CREATE TABLE IF NOT EXISTS "public"."permissions" (
@@ -14861,7 +17078,8 @@ CREATE TABLE IF NOT EXISTS "public"."user_resumes" (
     "file_url" "text" NOT NULL,
     "file_size" integer,
     "is_primary" boolean DEFAULT false,
-    "uploaded_at" timestamp with time zone DEFAULT "now"()
+    "uploaded_at" timestamp with time zone DEFAULT "now"(),
+    "file_path" "text" NOT NULL
 );
 
 
@@ -15087,6 +17305,28 @@ CREATE OR REPLACE VIEW "public"."v_events_with_end_at" AS
 ALTER TABLE "public"."v_events_with_end_at" OWNER TO "postgres";
 
 
+CREATE OR REPLACE VIEW "public"."v_groups_for_list" AS
+ SELECT "g"."id",
+    "g"."name",
+    "g"."description",
+    "g"."name_norm",
+    "g"."group_avatar_url",
+    "g"."tags",
+    "g"."is_private",
+    "g"."visibility",
+    "g"."is_admin_only_posts",
+    "g"."is_archived",
+    "g"."is_approved",
+    "g"."approval_status",
+    "g"."created_at",
+    "g"."created_by"
+   FROM "public"."groups" "g"
+  WHERE (("g"."is_archived" = false) AND ((("g"."is_approved" = true) AND ("g"."visibility" = 'public'::"public"."group_visibility_enum")) OR "public"."is_member_of_group"("g"."id", "auth"."uid"()) OR "public"."is_platform_admin"("auth"."uid"())));
+
+
+ALTER TABLE "public"."v_groups_for_list" OWNER TO "postgres";
+
+
 CREATE OR REPLACE VIEW "public"."v_jobs_feed" AS
  SELECT "j"."id",
     "j"."title",
@@ -15296,38 +17536,6 @@ CREATE OR REPLACE VIEW "public"."v_jobs_public_with_qualification" AS
 ALTER TABLE "public"."v_jobs_public_with_qualification" OWNER TO "postgres";
 
 
-CREATE OR REPLACE VIEW "public"."v_mentors_public" AS
- SELECT "m"."id",
-    "m"."user_id",
-    "m"."status",
-    "m"."expertise",
-    "m"."created_at",
-    "p"."full_name",
-    "p"."avatar_url",
-    "p"."location",
-    "p"."is_available_for_mentorship",
-    "p"."approval_status",
-    "m"."mentoring_experience_years",
-    "m"."max_mentees",
-    "m"."updated_at",
-    "m"."mentoring_capacity_hours_per_month",
-    "m"."mentoring_preferences",
-    "m"."mentoring_statement",
-    "m"."mentoring_experience_description",
-    COALESCE("rel"."active_mentees_count", (0)::bigint) AS "current_mentees_count"
-   FROM (("public"."mentors" "m"
-     JOIN "public"."profiles" "p" ON (("p"."id" = "m"."user_id")))
-     LEFT JOIN ( SELECT "mentorship_relationships"."mentor_id",
-            "count"(DISTINCT "mentorship_relationships"."mentee_id") AS "active_mentees_count"
-           FROM "public"."mentorship_relationships"
-          WHERE (("mentorship_relationships"."status" = 'active'::"text") AND ("mentorship_relationships"."end_date" IS NULL))
-          GROUP BY "mentorship_relationships"."mentor_id") "rel" ON (("rel"."mentor_id" = "m"."user_id")))
-  WHERE (("m"."status" = 'approved'::"text") AND ("p"."approval_status" = 'approved'::"public"."profile_approval_status"));
-
-
-ALTER TABLE "public"."v_mentors_public" OWNER TO "postgres";
-
-
 CREATE OR REPLACE VIEW "public"."v_my_applications" AS
  SELECT "a"."id",
     "a"."applicant_id",
@@ -15405,6 +17613,88 @@ CREATE OR REPLACE VIEW "public"."v_my_event_rsvp" AS
 ALTER TABLE "public"."v_my_event_rsvp" OWNER TO "postgres";
 
 
+CREATE OR REPLACE VIEW "public"."v_my_groups" AS
+ SELECT "g"."id",
+    "g"."name",
+    "g"."description",
+    "g"."group_avatar_url",
+    "g"."tags",
+    "g"."is_private",
+    "g"."visibility",
+    "g"."is_admin_only_posts",
+    "g"."is_archived",
+    "g"."is_approved",
+    "gm"."role" AS "membership_role",
+    "gm"."status" AS "membership_status",
+    "gm"."joined_at"
+   FROM ("public"."group_members" "gm"
+     JOIN "public"."groups" "g" ON (("g"."id" = "gm"."group_id")))
+  WHERE (("gm"."user_id" = "auth"."uid"()) AND ("gm"."status" = 'active'::"text") AND ("g"."is_archived" = false));
+
+
+ALTER TABLE "public"."v_my_groups" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."v_my_mentorship_dashboard" AS
+ SELECT "r"."id",
+    "r"."mentee_id",
+    "r"."mentor_id",
+    "r"."status",
+    "r"."message",
+    "r"."goals",
+    "r"."created_at",
+    "r"."updated_at",
+    "r"."responded_at",
+    "me"."full_name" AS "mentee_full_name",
+    COALESCE("me"."avatar_url", '/default-avatar.svg'::"text") AS "mentee_avatar",
+    "me"."location" AS "mentee_location"
+   FROM ("public"."mentorship_requests" "r"
+     JOIN "public"."profiles" "me" ON (("me"."id" = "r"."mentee_id")));
+
+
+ALTER TABLE "public"."v_my_mentorship_dashboard" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."v_my_mentorship_relationships" AS
+ SELECT "r"."id",
+    "r"."program_id",
+    "r"."mentor_id",
+    "r"."mentee_id",
+    "r"."status",
+    "r"."created_at",
+    "r"."updated_at",
+    "r"."start_date",
+    "r"."end_date",
+    "mentor"."full_name" AS "mentor_name",
+    "mentee"."full_name" AS "mentee_name"
+   FROM (("public"."mentorship_relationships" "r"
+     JOIN "public"."profiles" "mentor" ON (("mentor"."id" = "r"."mentor_id")))
+     JOIN "public"."profiles" "mentee" ON (("mentee"."id" = "r"."mentee_id")));
+
+
+ALTER TABLE "public"."v_my_mentorship_relationships" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."v_my_mentorship_requests" AS
+ SELECT "r"."id",
+    "r"."mentee_id",
+    "r"."mentor_id",
+    "r"."status",
+    "r"."message",
+    "r"."goals",
+    "r"."created_at",
+    "r"."updated_at",
+    "r"."responded_at",
+    "m"."full_name" AS "mentor_full_name",
+    COALESCE("m"."avatar_url", '/default-avatar.svg'::"text") AS "mentor_avatar",
+    "m"."location" AS "mentor_location"
+   FROM ("public"."mentorship_requests" "r"
+     JOIN "public"."profiles" "m" ON (("m"."id" = "r"."mentor_id")));
+
+
+ALTER TABLE "public"."v_my_mentorship_requests" OWNER TO "postgres";
+
+
 CREATE OR REPLACE VIEW "public"."v_notification_prefs" AS
  SELECT "notification_preferences"."user_id",
     "notification_preferences"."notification_type" AS "type",
@@ -15475,10 +17765,12 @@ CREATE OR REPLACE VIEW "public"."v_recent_activities" AS
  SELECT "x"."user_id",
     "x"."activity_type",
     "x"."activity_text",
+    "x"."target_id",
     "x"."created_at"
    FROM ( SELECT "ea"."user_id",
             'event_rsvp'::"text" AS "activity_type",
             "e"."title" AS "activity_text",
+            "e"."id" AS "target_id",
             "ea"."created_at"
            FROM ("public"."event_attendees" "ea"
              JOIN "public"."events" "e" ON (("e"."id" = "ea"."event_id")))
@@ -15486,6 +17778,7 @@ CREATE OR REPLACE VIEW "public"."v_recent_activities" AS
          SELECT "ja"."applicant_id" AS "user_id",
             'job_application'::"text" AS "activity_type",
             "j"."title" AS "activity_text",
+            "j"."id" AS "target_id",
             "ja"."created_at"
            FROM ("public"."job_applications" "ja"
              JOIN "public"."jobs" "j" ON (("j"."id" = "ja"."job_id")))
@@ -15493,14 +17786,16 @@ CREATE OR REPLACE VIEW "public"."v_recent_activities" AS
          SELECT "c"."requester_id" AS "user_id",
             'connection_request'::"text" AS "activity_type",
             "p"."full_name" AS "activity_text",
+            "c"."recipient_id" AS "target_id",
             "c"."created_at"
            FROM ("public"."connections" "c"
-             JOIN "public"."profiles" "p" ON (("p"."id" = "c"."addressee_id")))
+             JOIN "public"."profiles" "p" ON (("p"."id" = "c"."recipient_id")))
           WHERE ("c"."status" = 'pending'::"text")
         UNION ALL
          SELECT "gm"."user_id",
             'group_joined'::"text" AS "activity_type",
             "g"."name" AS "activity_text",
+            "g"."id" AS "target_id",
             "gm"."created_at"
            FROM ("public"."group_members" "gm"
              JOIN "public"."groups" "g" ON (("g"."id" = "gm"."group_id")))
@@ -15509,13 +17804,14 @@ CREATE OR REPLACE VIEW "public"."v_recent_activities" AS
          SELECT "m"."mentee_id" AS "user_id",
             'mentorship_accepted'::"text" AS "activity_type",
             "p"."full_name" AS "activity_text",
+            "m"."mentor_id" AS "target_id",
             "m"."created_at"
            FROM ("public"."mentorships" "m"
              JOIN "public"."profiles" "p" ON (("p"."id" = "m"."mentor_id")))
           WHERE ("m"."status" = 'accepted'::"text")) "x"
   WHERE ("x"."user_id" = "auth"."uid"())
   ORDER BY "x"."created_at" DESC
- LIMIT 5;
+ LIMIT 10;
 
 
 ALTER TABLE "public"."v_recent_activities" OWNER TO "postgres";
@@ -15535,81 +17831,6 @@ PARTITION BY RANGE ("inserted_at");
 
 
 ALTER TABLE "realtime"."messages" OWNER TO "supabase_realtime_admin";
-
-
-CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_11_26" (
-    "topic" "text" NOT NULL,
-    "extension" "text" NOT NULL,
-    "payload" "jsonb",
-    "event" "text",
-    "private" boolean DEFAULT false,
-    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
-);
-
-
-ALTER TABLE "realtime"."messages_2025_11_26" OWNER TO "supabase_admin";
-
-
-CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_11_27" (
-    "topic" "text" NOT NULL,
-    "extension" "text" NOT NULL,
-    "payload" "jsonb",
-    "event" "text",
-    "private" boolean DEFAULT false,
-    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
-);
-
-
-ALTER TABLE "realtime"."messages_2025_11_27" OWNER TO "supabase_admin";
-
-
-CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_11_28" (
-    "topic" "text" NOT NULL,
-    "extension" "text" NOT NULL,
-    "payload" "jsonb",
-    "event" "text",
-    "private" boolean DEFAULT false,
-    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
-);
-
-
-ALTER TABLE "realtime"."messages_2025_11_28" OWNER TO "supabase_admin";
-
-
-CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_11_29" (
-    "topic" "text" NOT NULL,
-    "extension" "text" NOT NULL,
-    "payload" "jsonb",
-    "event" "text",
-    "private" boolean DEFAULT false,
-    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
-);
-
-
-ALTER TABLE "realtime"."messages_2025_11_29" OWNER TO "supabase_admin";
-
-
-CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_11_30" (
-    "topic" "text" NOT NULL,
-    "extension" "text" NOT NULL,
-    "payload" "jsonb",
-    "event" "text",
-    "private" boolean DEFAULT false,
-    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
-);
-
-
-ALTER TABLE "realtime"."messages_2025_11_30" OWNER TO "supabase_admin";
 
 
 CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_01" (
@@ -15640,6 +17861,81 @@ CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_02" (
 
 
 ALTER TABLE "realtime"."messages_2025_12_02" OWNER TO "supabase_admin";
+
+
+CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_03" (
+    "topic" "text" NOT NULL,
+    "extension" "text" NOT NULL,
+    "payload" "jsonb",
+    "event" "text",
+    "private" boolean DEFAULT false,
+    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
+);
+
+
+ALTER TABLE "realtime"."messages_2025_12_03" OWNER TO "supabase_admin";
+
+
+CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_04" (
+    "topic" "text" NOT NULL,
+    "extension" "text" NOT NULL,
+    "payload" "jsonb",
+    "event" "text",
+    "private" boolean DEFAULT false,
+    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
+);
+
+
+ALTER TABLE "realtime"."messages_2025_12_04" OWNER TO "supabase_admin";
+
+
+CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_05" (
+    "topic" "text" NOT NULL,
+    "extension" "text" NOT NULL,
+    "payload" "jsonb",
+    "event" "text",
+    "private" boolean DEFAULT false,
+    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
+);
+
+
+ALTER TABLE "realtime"."messages_2025_12_05" OWNER TO "supabase_admin";
+
+
+CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_06" (
+    "topic" "text" NOT NULL,
+    "extension" "text" NOT NULL,
+    "payload" "jsonb",
+    "event" "text",
+    "private" boolean DEFAULT false,
+    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
+);
+
+
+ALTER TABLE "realtime"."messages_2025_12_06" OWNER TO "supabase_admin";
+
+
+CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_07" (
+    "topic" "text" NOT NULL,
+    "extension" "text" NOT NULL,
+    "payload" "jsonb",
+    "event" "text",
+    "private" boolean DEFAULT false,
+    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
+);
+
+
+ALTER TABLE "realtime"."messages_2025_12_07" OWNER TO "supabase_admin";
 
 
 CREATE TABLE IF NOT EXISTS "realtime"."schema_migrations" (
@@ -15819,31 +18115,31 @@ CREATE TABLE IF NOT EXISTS "storage"."vector_indexes" (
 ALTER TABLE "storage"."vector_indexes" OWNER TO "supabase_storage_admin";
 
 
-ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_11_26" FOR VALUES FROM ('2025-11-26 00:00:00') TO ('2025-11-27 00:00:00');
-
-
-
-ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_11_27" FOR VALUES FROM ('2025-11-27 00:00:00') TO ('2025-11-28 00:00:00');
-
-
-
-ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_11_28" FOR VALUES FROM ('2025-11-28 00:00:00') TO ('2025-11-29 00:00:00');
-
-
-
-ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_11_29" FOR VALUES FROM ('2025-11-29 00:00:00') TO ('2025-11-30 00:00:00');
-
-
-
-ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_11_30" FOR VALUES FROM ('2025-11-30 00:00:00') TO ('2025-12-01 00:00:00');
-
-
-
 ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_01" FOR VALUES FROM ('2025-12-01 00:00:00') TO ('2025-12-02 00:00:00');
 
 
 
 ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_02" FOR VALUES FROM ('2025-12-02 00:00:00') TO ('2025-12-03 00:00:00');
+
+
+
+ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_03" FOR VALUES FROM ('2025-12-03 00:00:00') TO ('2025-12-04 00:00:00');
+
+
+
+ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_04" FOR VALUES FROM ('2025-12-04 00:00:00') TO ('2025-12-05 00:00:00');
+
+
+
+ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_05" FOR VALUES FROM ('2025-12-05 00:00:00') TO ('2025-12-06 00:00:00');
+
+
+
+ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_06" FOR VALUES FROM ('2025-12-06 00:00:00') TO ('2025-12-07 00:00:00');
+
+
+
+ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_07" FOR VALUES FROM ('2025-12-07 00:00:00') TO ('2025-12-08 00:00:00');
 
 
 
@@ -15875,6 +18171,16 @@ ALTER TABLE ONLY "public"."admin_actions"
 
 
 
+ALTER TABLE ONLY "public"."admin_analytics_audit_log"
+    ADD CONSTRAINT "admin_analytics_audit_log_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."admin_deletion_audit_log"
+    ADD CONSTRAINT "admin_deletion_audit_log_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."admin_invalid_degree_programs_audit"
     ADD CONSTRAINT "admin_invalid_degree_programs_audit_pkey" PRIMARY KEY ("id");
 
@@ -15885,12 +18191,12 @@ ALTER TABLE ONLY "public"."admin_notifications"
 
 
 
-ALTER TABLE ONLY "public"."avatar_audit_log"
-    ADD CONSTRAINT "avatar_audit_log_pkey" PRIMARY KEY ("id");
+ALTER TABLE ONLY "public"."avatar_upload_log"
+    ADD CONSTRAINT "avatar_upload_log_pkey" PRIMARY KEY ("id");
 
 
 
-ALTER TABLE ONLY "public"."bookmarked_jobs"
+ALTER TABLE ONLY "public"."bookmarked_jobs_legacy_do_not_use"
     ADD CONSTRAINT "bookmarked_jobs_pkey" PRIMARY KEY ("id");
 
 
@@ -16095,11 +18401,6 @@ ALTER TABLE ONLY "public"."groups"
 
 
 
-ALTER TABLE ONLY "public"."job_alert_notifications"
-    ADD CONSTRAINT "job_alert_notifications_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "public"."job_alerts"
     ADD CONSTRAINT "job_alerts_pkey" PRIMARY KEY ("id");
 
@@ -16107,11 +18408,6 @@ ALTER TABLE ONLY "public"."job_alerts"
 
 ALTER TABLE ONLY "public"."job_alerts"
     ADD CONSTRAINT "job_alerts_user_alert_name_key" UNIQUE ("user_id", "alert_name");
-
-
-
-ALTER TABLE ONLY "public"."job_alerts"
-    ADD CONSTRAINT "job_alerts_user_name_unique" UNIQUE ("user_id", "alert_name");
 
 
 
@@ -16245,6 +18541,16 @@ ALTER TABLE ONLY "public"."networking_groups"
 
 
 
+ALTER TABLE ONLY "public"."notification_events"
+    ADD CONSTRAINT "notification_events_idempotent" UNIQUE ("idempotency_key") DEFERRABLE INITIALLY DEFERRED;
+
+
+
+ALTER TABLE ONLY "public"."notification_events"
+    ADD CONSTRAINT "notification_events_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."notification_preferences"
     ADD CONSTRAINT "notification_preferences_pkey" PRIMARY KEY ("id");
 
@@ -16305,6 +18611,11 @@ ALTER TABLE ONLY "public"."resume_profiles"
 
 
 
+ALTER TABLE ONLY "public"."resume_profiles"
+    ADD CONSTRAINT "resume_profiles_user_id_key" UNIQUE ("user_id");
+
+
+
 ALTER TABLE ONLY "public"."role_permissions"
     ADD CONSTRAINT "role_permissions_pkey" PRIMARY KEY ("role_id", "permission_id");
 
@@ -16340,7 +18651,7 @@ ALTER TABLE ONLY "public"."system_analytics"
 
 
 
-ALTER TABLE ONLY "public"."bookmarked_jobs"
+ALTER TABLE ONLY "public"."bookmarked_jobs_legacy_do_not_use"
     ADD CONSTRAINT "unique_user_job_bookmark" UNIQUE ("user_id", "job_id");
 
 
@@ -16400,31 +18711,6 @@ ALTER TABLE ONLY "realtime"."messages"
 
 
 
-ALTER TABLE ONLY "realtime"."messages_2025_11_26"
-    ADD CONSTRAINT "messages_2025_11_26_pkey" PRIMARY KEY ("id", "inserted_at");
-
-
-
-ALTER TABLE ONLY "realtime"."messages_2025_11_27"
-    ADD CONSTRAINT "messages_2025_11_27_pkey" PRIMARY KEY ("id", "inserted_at");
-
-
-
-ALTER TABLE ONLY "realtime"."messages_2025_11_28"
-    ADD CONSTRAINT "messages_2025_11_28_pkey" PRIMARY KEY ("id", "inserted_at");
-
-
-
-ALTER TABLE ONLY "realtime"."messages_2025_11_29"
-    ADD CONSTRAINT "messages_2025_11_29_pkey" PRIMARY KEY ("id", "inserted_at");
-
-
-
-ALTER TABLE ONLY "realtime"."messages_2025_11_30"
-    ADD CONSTRAINT "messages_2025_11_30_pkey" PRIMARY KEY ("id", "inserted_at");
-
-
-
 ALTER TABLE ONLY "realtime"."messages_2025_12_01"
     ADD CONSTRAINT "messages_2025_12_01_pkey" PRIMARY KEY ("id", "inserted_at");
 
@@ -16432,6 +18718,31 @@ ALTER TABLE ONLY "realtime"."messages_2025_12_01"
 
 ALTER TABLE ONLY "realtime"."messages_2025_12_02"
     ADD CONSTRAINT "messages_2025_12_02_pkey" PRIMARY KEY ("id", "inserted_at");
+
+
+
+ALTER TABLE ONLY "realtime"."messages_2025_12_03"
+    ADD CONSTRAINT "messages_2025_12_03_pkey" PRIMARY KEY ("id", "inserted_at");
+
+
+
+ALTER TABLE ONLY "realtime"."messages_2025_12_04"
+    ADD CONSTRAINT "messages_2025_12_04_pkey" PRIMARY KEY ("id", "inserted_at");
+
+
+
+ALTER TABLE ONLY "realtime"."messages_2025_12_05"
+    ADD CONSTRAINT "messages_2025_12_05_pkey" PRIMARY KEY ("id", "inserted_at");
+
+
+
+ALTER TABLE ONLY "realtime"."messages_2025_12_06"
+    ADD CONSTRAINT "messages_2025_12_06_pkey" PRIMARY KEY ("id", "inserted_at");
+
+
+
+ALTER TABLE ONLY "realtime"."messages_2025_12_07"
+    ADD CONSTRAINT "messages_2025_12_07_pkey" PRIMARY KEY ("id", "inserted_at");
 
 
 
@@ -16555,6 +18866,10 @@ CREATE INDEX "idx_activity_logs_created_at" ON "public"."activity_logs" USING "b
 
 
 
+CREATE INDEX "idx_admin_actions_admin_created" ON "public"."admin_actions" USING "btree" ("admin_id", "created_at" DESC);
+
+
+
 CREATE INDEX "idx_admin_actions_admin_id" ON "public"."admin_actions" USING "btree" ("admin_id");
 
 
@@ -16563,7 +18878,19 @@ CREATE INDEX "idx_admin_actions_created_at" ON "public"."admin_actions" USING "b
 
 
 
+CREATE INDEX "idx_admin_actions_target" ON "public"."admin_actions" USING "btree" ("target_type", "target_id");
+
+
+
+CREATE INDEX "idx_admin_analytics_audit_log_admin_created" ON "public"."admin_analytics_audit_log" USING "btree" ("admin_id", "created_at" DESC);
+
+
+
 CREATE INDEX "idx_attendees_event" ON "public"."event_attendees" USING "btree" ("event_id");
+
+
+
+CREATE INDEX "idx_avatar_upload_log_user_time" ON "public"."avatar_upload_log" USING "btree" ("user_id", "uploaded_at" DESC);
 
 
 
@@ -16635,6 +18962,10 @@ CREATE INDEX "idx_conversations_last_message_at" ON "public"."conversations" USI
 
 
 
+CREATE INDEX "idx_conversations_mentorship_relationship_id" ON "public"."conversations" USING "btree" ("mentorship_relationship_id");
+
+
+
 CREATE INDEX "idx_cp_conv" ON "public"."conversation_participants" USING "btree" ("conversation_id");
 
 
@@ -16644,6 +18975,10 @@ CREATE INDEX "idx_cp_user" ON "public"."conversation_participants" USING "btree"
 
 
 CREATE INDEX "idx_deletion_queue_status" ON "public"."deletion_queue" USING "btree" ("status");
+
+
+
+CREATE INDEX "idx_deletion_queue_status_created" ON "public"."deletion_queue" USING "btree" ("status", "created_at");
 
 
 
@@ -16775,7 +19110,15 @@ CREATE INDEX "idx_group_comments_post" ON "public"."group_comments" USING "btree
 
 
 
+CREATE INDEX "idx_group_comments_post_created_at" ON "public"."group_comments" USING "btree" ("post_id", "created_at" DESC);
+
+
+
 CREATE INDEX "idx_group_members_group" ON "public"."group_members" USING "btree" ("group_id");
+
+
+
+CREATE INDEX "idx_group_members_group_user" ON "public"."group_members" USING "btree" ("group_id", "user_id");
 
 
 
@@ -16788,6 +19131,10 @@ CREATE INDEX "idx_group_members_user" ON "public"."group_members" USING "btree" 
 
 
 CREATE INDEX "idx_group_members_user_created" ON "public"."group_members" USING "btree" ("user_id", "created_at");
+
+
+
+CREATE INDEX "idx_group_members_user_status" ON "public"."group_members" USING "btree" ("user_id", "status");
 
 
 
@@ -16807,6 +19154,10 @@ CREATE INDEX "idx_group_posts_group_created" ON "public"."group_posts" USING "bt
 
 
 
+CREATE INDEX "idx_group_posts_group_created_at" ON "public"."group_posts" USING "btree" ("group_id", "created_at" DESC);
+
+
+
 CREATE INDEX "idx_group_posts_group_id" ON "public"."group_posts" USING "btree" ("group_id");
 
 
@@ -16816,6 +19167,10 @@ CREATE INDEX "idx_group_posts_id_group" ON "public"."group_posts" USING "btree" 
 
 
 CREATE INDEX "idx_groups_archived_created" ON "public"."groups" USING "btree" ("is_archived", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_groups_created_at" ON "public"."groups" USING "btree" ("created_at" DESC);
 
 
 
@@ -16839,6 +19194,10 @@ CREATE INDEX "idx_groups_tags_gin" ON "public"."groups" USING "gin" ("tags");
 
 
 
+CREATE INDEX "idx_groups_visibility_state" ON "public"."groups" USING "btree" ("is_archived", "visibility", "is_approved");
+
+
+
 CREATE INDEX "idx_ja_applicant_created_at" ON "public"."job_applications" USING "btree" ("applicant_id", "created_at" DESC);
 
 
@@ -16847,43 +19206,7 @@ CREATE INDEX "idx_ja_job_created_at" ON "public"."job_applications" USING "btree
 
 
 
-CREATE INDEX "idx_job_applications_applicant" ON "public"."job_applications" USING "btree" ("applicant_id");
-
-
-
-CREATE INDEX "idx_job_applications_applicant_id" ON "public"."job_applications" USING "btree" ("applicant_id");
-
-
-
-CREATE INDEX "idx_job_applications_applicant_job" ON "public"."job_applications" USING "btree" ("applicant_id", "job_id");
-
-
-
-CREATE INDEX "idx_job_applications_job" ON "public"."job_applications" USING "btree" ("job_id");
-
-
-
-CREATE INDEX "idx_job_applications_job_created" ON "public"."job_applications" USING "btree" ("job_id", "created_at");
-
-
-
-CREATE INDEX "idx_job_applications_job_created_at" ON "public"."job_applications" USING "btree" ("job_id", "created_at" DESC);
-
-
-
-CREATE INDEX "idx_job_applications_job_id" ON "public"."job_applications" USING "btree" ("job_id");
-
-
-
 CREATE INDEX "idx_job_applications_status" ON "public"."job_applications" USING "btree" ("status");
-
-
-
-CREATE INDEX "idx_job_applications_user_created" ON "public"."job_applications" USING "btree" ("applicant_id", "created_at");
-
-
-
-CREATE INDEX "idx_job_apps_job_id" ON "public"."job_applications" USING "btree" ("job_id");
 
 
 
@@ -16895,7 +19218,7 @@ CREATE INDEX "idx_job_bookmarks_user" ON "public"."job_bookmarks" USING "btree" 
 
 
 
-CREATE INDEX "idx_job_bookmarks_user_id" ON "public"."job_bookmarks" USING "btree" ("user_id");
+CREATE INDEX "idx_job_bookmarks_user_created" ON "public"."job_bookmarks" USING "btree" ("user_id", "created_at" DESC);
 
 
 
@@ -16959,6 +19282,10 @@ CREATE INDEX "idx_jobs_feed_filters" ON "public"."jobs" USING "btree" ("is_activ
 
 
 
+CREATE INDEX "idx_jobs_feed_state" ON "public"."jobs" USING "btree" ("is_active", "is_approved", COALESCE("is_rejected", false), "status", "deadline", "application_deadline", "expires_at");
+
+
+
 CREATE INDEX "idx_jobs_feed_status_approved_deadline" ON "public"."jobs" USING "btree" ("status", "is_approved", "application_deadline");
 
 
@@ -17019,11 +19346,19 @@ CREATE INDEX "idx_jobs_review" ON "public"."jobs" USING "btree" ("is_approved", 
 
 
 
+CREATE INDEX "idx_jobs_skills_gin" ON "public"."jobs" USING "gin" ("skills");
+
+
+
 CREATE INDEX "idx_jobs_status" ON "public"."jobs" USING "btree" ("status");
 
 
 
 CREATE INDEX "idx_jobs_status_active_approved_deadline" ON "public"."jobs" USING "btree" ("status", "is_active", "is_approved", "application_deadline", "deadline", "location", "job_type", "department");
+
+
+
+CREATE INDEX "idx_jobs_status_approved_active_expires" ON "public"."jobs" USING "btree" ("status", "is_approved", "is_active", "expires_at");
 
 
 
@@ -17035,7 +19370,27 @@ CREATE INDEX "idx_jobs_visibility" ON "public"."jobs" USING "btree" ("is_active"
 
 
 
-CREATE INDEX "idx_mentorship_relationships_active_parties" ON "public"."mentorship_relationships" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = 'active'::"text");
+CREATE UNIQUE INDEX "idx_mentors_user_id_unique" ON "public"."mentors" USING "btree" ("user_id");
+
+
+
+CREATE UNIQUE INDEX "idx_mentorship_relationships_active_unique" ON "public"."mentorship_relationships" USING "btree" ("mentor_id", "mentee_id") WHERE (("status" = 'active'::"text") AND ("end_date" IS NULL));
+
+
+
+CREATE INDEX "idx_mentorship_relationships_dm_thread_id" ON "public"."mentorship_relationships" USING "btree" ("dm_thread_id");
+
+
+
+CREATE INDEX "idx_mentorship_relationships_mentor_active" ON "public"."mentorship_relationships" USING "btree" ("mentor_id", "status") WHERE ("status" = 'active'::"text");
+
+
+
+CREATE INDEX "idx_mentorship_relationships_mentor_status_dm" ON "public"."mentorship_relationships" USING "btree" ("mentor_id", "status", "dm_thread_id");
+
+
+
+CREATE UNIQUE INDEX "idx_mentorship_relationships_unique_active" ON "public"."mentorship_relationships" USING "btree" ("mentee_id", "mentor_id") WHERE ("status" = 'active'::"text");
 
 
 
@@ -17051,7 +19406,15 @@ CREATE INDEX "idx_mentorship_requests_parties_status" ON "public"."mentorship_re
 
 
 
+CREATE UNIQUE INDEX "idx_mentorship_requests_pending_unique" ON "public"."mentorship_requests" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = 'pending'::"public"."mentorship_request_status");
+
+
+
 CREATE INDEX "idx_mentorship_requests_status" ON "public"."mentorship_requests" USING "btree" ("status");
+
+
+
+CREATE UNIQUE INDEX "idx_mentorship_requests_unique_pending" ON "public"."mentorship_requests" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = 'pending'::"public"."mentorship_request_status");
 
 
 
@@ -17083,7 +19446,23 @@ CREATE INDEX "idx_messages_parties" ON "public"."messages" USING "btree" ("sende
 
 
 
+CREATE INDEX "idx_mr_mentee_pending" ON "public"."mentorship_requests" USING "btree" ("mentee_id") WHERE ("status" = 'pending'::"public"."mentorship_request_status");
+
+
+
+CREATE INDEX "idx_mrships_mentee_active" ON "public"."mentorship_relationships" USING "btree" ("mentee_id") WHERE ("status" = 'active'::"text");
+
+
+
+CREATE INDEX "idx_notification_events_unprocessed" ON "public"."notification_events" USING "btree" ("processed_at", "created_at") WHERE ("processed_at" IS NULL);
+
+
+
 CREATE INDEX "idx_notifications_event_id" ON "public"."notifications" USING "btree" ("event_id");
+
+
+
+CREATE UNIQUE INDEX "idx_notifications_idempotency_key" ON "public"."notifications" USING "btree" ("idempotency_key") WHERE ("idempotency_key" IS NOT NULL);
 
 
 
@@ -17095,11 +19474,19 @@ CREATE INDEX "idx_notifications_metadata_gin" ON "public"."notifications" USING 
 
 
 
+CREATE INDEX "idx_notifications_module_type" ON "public"."notifications" USING "btree" ("module", "type");
+
+
+
 CREATE INDEX "idx_notifications_profile_id" ON "public"."notifications" USING "btree" ("profile_id");
 
 
 
 CREATE INDEX "idx_notifications_recipient_created" ON "public"."notifications" USING "btree" ("recipient_id", "is_read", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_notifications_recipient_created_at" ON "public"."notifications" USING "btree" ("recipient_id", "created_at" DESC);
 
 
 
@@ -17123,6 +19510,14 @@ CREATE INDEX "idx_notifications_sender_id" ON "public"."notifications" USING "bt
 
 
 
+CREATE INDEX "idx_notifications_type" ON "public"."notifications" USING "btree" ("type");
+
+
+
+CREATE INDEX "idx_notifications_unread_per_user" ON "public"."notifications" USING "btree" ("recipient_id", "type") WHERE ("is_read" = false);
+
+
+
 CREATE INDEX "idx_notifications_user_id" ON "public"."notifications" USING "btree" ("user_id");
 
 
@@ -17131,7 +19526,15 @@ CREATE INDEX "idx_notifications_user_read" ON "public"."notifications" USING "bt
 
 
 
+CREATE INDEX "idx_profile_approval_audit_admin_created" ON "public"."profile_approval_audit" USING "btree" ("admin_id", "created_at" DESC);
+
+
+
 CREATE INDEX "idx_profile_approval_audit_admin_created_at" ON "public"."profile_approval_audit" USING "btree" ("admin_id", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_profile_approval_audit_profile_created" ON "public"."profile_approval_audit" USING "btree" ("profile_id", "created_at" DESC);
 
 
 
@@ -17231,6 +19634,10 @@ CREATE INDEX "idx_profiles_major" ON "public"."profiles" USING "btree" ("major")
 
 
 
+CREATE INDEX "idx_profiles_mentor_directory" ON "public"."profiles" USING "btree" ("role", "approval_status", "is_available_for_mentorship") WHERE (("role" = 'mentor'::"public"."app_role_enum") AND ("approval_status" = 'approved'::"public"."profile_approval_status"));
+
+
+
 CREATE INDEX "idx_profiles_name" ON "public"."profiles" USING "btree" ("full_name");
 
 
@@ -17252,14 +19659,6 @@ CREATE INDEX "idx_profiles_skills_gin" ON "public"."profiles" USING "gin" ("skil
 
 
 CREATE INDEX "idx_profiles_soft_delete" ON "public"."profiles" USING "btree" ("is_deleted", "deleted_at");
-
-
-
-CREATE INDEX "idx_rel_active" ON "public"."mentorship_relationships" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = 'active'::"text");
-
-
-
-CREATE INDEX "idx_relationships_active" ON "public"."mentorship_relationships" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = 'active'::"text");
 
 
 
@@ -17299,14 +19698,6 @@ CREATE INDEX "ix_dm_messages_thread_created_at" ON "public"."dm_messages" USING 
 
 
 
-CREATE INDEX "job_applications_job_applicant_idx" ON "public"."job_applications" USING "btree" ("job_id", "applicant_id");
-
-
-
-CREATE INDEX "job_applications_job_idx" ON "public"."job_applications" USING "btree" ("job_id");
-
-
-
 CREATE INDEX "mentees_status_idx" ON "public"."mentees" USING "btree" ("status");
 
 
@@ -17339,6 +19730,10 @@ CREATE UNIQUE INDEX "mentors_user_id_key" ON "public"."mentors" USING "btree" ("
 
 
 
+CREATE UNIQUE INDEX "mentors_user_id_uidx" ON "public"."mentors" USING "btree" ("user_id");
+
+
+
 CREATE INDEX "mentorship_appointments_availability_id_idx" ON "public"."mentorship_appointments" USING "btree" ("availability_id");
 
 
@@ -17355,7 +19750,23 @@ CREATE INDEX "mentorship_appointments_status_idx" ON "public"."mentorship_appoin
 
 
 
-CREATE UNIQUE INDEX "mentorship_requests_unique_pending_or_accepted" ON "public"."mentorship_requests" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = ANY (ARRAY['pending'::"text", 'accepted'::"text"]));
+CREATE UNIQUE INDEX "mentorship_relationships_mentor_mentee_active_uidx" ON "public"."mentorship_relationships" USING "btree" ("mentor_id", "mentee_id") WHERE (("status" = 'active'::"text") AND ("end_date" IS NULL));
+
+
+
+CREATE UNIQUE INDEX "mentorship_relationships_unique_active" ON "public"."mentorship_relationships" USING "btree" ("mentor_id", "mentee_id") WHERE (("status" = 'active'::"text") AND ("end_date" IS NULL));
+
+
+
+CREATE UNIQUE INDEX "mentorship_requests_mentor_mentee_pending_uidx" ON "public"."mentorship_requests" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = 'pending'::"public"."mentorship_request_status");
+
+
+
+CREATE UNIQUE INDEX "mentorship_requests_unique_pending" ON "public"."mentorship_requests" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = 'pending'::"public"."mentorship_request_status");
+
+
+
+CREATE UNIQUE INDEX "mentorship_requests_unique_pending_or_accepted" ON "public"."mentorship_requests" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = ANY (ARRAY['pending'::"public"."mentorship_request_status", 'accepted'::"public"."mentorship_request_status"]));
 
 
 
@@ -17396,6 +19807,10 @@ CREATE UNIQUE INDEX "profiles_phone_unique" ON "public"."profiles" USING "btree"
 
 
 CREATE INDEX "profiles_search_idx" ON "public"."profiles" USING "gin" ("to_tsvector"('"english"'::"regconfig", ((((((COALESCE("full_name", ''::"text") || ' '::"text") || COALESCE("current_location", ''::"text")) || ' '::"text") || COALESCE("degree", ''::"text")) || ' '::"text") || COALESCE("department", ''::"text"))));
+
+
+
+CREATE INDEX "resume_profiles_user_idx" ON "public"."resume_profiles" USING "btree" ("user_id");
 
 
 
@@ -17475,7 +19890,27 @@ CREATE UNIQUE INDEX "ux_connections_pending_pair" ON "public"."connections" USIN
 
 
 
-CREATE UNIQUE INDEX "ux_mentorship_pending_once" ON "public"."mentorship_requests" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = 'pending'::"text");
+CREATE UNIQUE INDEX "ux_mentors_user_id" ON "public"."mentors" USING "btree" ("user_id");
+
+
+
+CREATE UNIQUE INDEX "ux_mentorship_pending_once" ON "public"."mentorship_requests" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = 'pending'::"public"."mentorship_request_status");
+
+
+
+CREATE UNIQUE INDEX "ux_mentorship_relationships_active" ON "public"."mentorship_relationships" USING "btree" ("mentor_id", "mentee_id") WHERE (("status" = 'active'::"text") AND ("end_date" IS NULL));
+
+
+
+CREATE UNIQUE INDEX "ux_mentorship_relationships_active_pair" ON "public"."mentorship_relationships" USING "btree" ("mentee_id", "mentor_id") WHERE ("status" = 'active'::"text");
+
+
+
+CREATE UNIQUE INDEX "ux_mentorship_requests_pending" ON "public"."mentorship_requests" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = 'pending'::"public"."mentorship_request_status");
+
+
+
+CREATE UNIQUE INDEX "ux_mentorship_requests_pending_or_accepted" ON "public"."mentorship_requests" USING "btree" ("mentee_id", "mentor_id") WHERE ("status" = ANY (ARRAY['pending'::"public"."mentorship_request_status", 'accepted'::"public"."mentorship_request_status"]));
 
 
 
@@ -17491,31 +19926,31 @@ CREATE INDEX "messages_inserted_at_topic_index" ON ONLY "realtime"."messages" US
 
 
 
-CREATE INDEX "messages_2025_11_26_inserted_at_topic_idx" ON "realtime"."messages_2025_11_26" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
-
-
-
-CREATE INDEX "messages_2025_11_27_inserted_at_topic_idx" ON "realtime"."messages_2025_11_27" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
-
-
-
-CREATE INDEX "messages_2025_11_28_inserted_at_topic_idx" ON "realtime"."messages_2025_11_28" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
-
-
-
-CREATE INDEX "messages_2025_11_29_inserted_at_topic_idx" ON "realtime"."messages_2025_11_29" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
-
-
-
-CREATE INDEX "messages_2025_11_30_inserted_at_topic_idx" ON "realtime"."messages_2025_11_30" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
-
-
-
 CREATE INDEX "messages_2025_12_01_inserted_at_topic_idx" ON "realtime"."messages_2025_12_01" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
 
 
 
 CREATE INDEX "messages_2025_12_02_inserted_at_topic_idx" ON "realtime"."messages_2025_12_02" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
+
+
+
+CREATE INDEX "messages_2025_12_03_inserted_at_topic_idx" ON "realtime"."messages_2025_12_03" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
+
+
+
+CREATE INDEX "messages_2025_12_04_inserted_at_topic_idx" ON "realtime"."messages_2025_12_04" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
+
+
+
+CREATE INDEX "messages_2025_12_05_inserted_at_topic_idx" ON "realtime"."messages_2025_12_05" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
+
+
+
+CREATE INDEX "messages_2025_12_06_inserted_at_topic_idx" ON "realtime"."messages_2025_12_06" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
+
+
+
+CREATE INDEX "messages_2025_12_07_inserted_at_topic_idx" ON "realtime"."messages_2025_12_07" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
 
 
 
@@ -17567,46 +20002,6 @@ CREATE UNIQUE INDEX "vector_indexes_name_bucket_id_idx" ON "storage"."vector_ind
 
 
 
-ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_11_26_inserted_at_topic_idx";
-
-
-
-ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_11_26_pkey";
-
-
-
-ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_11_27_inserted_at_topic_idx";
-
-
-
-ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_11_27_pkey";
-
-
-
-ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_11_28_inserted_at_topic_idx";
-
-
-
-ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_11_28_pkey";
-
-
-
-ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_11_29_inserted_at_topic_idx";
-
-
-
-ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_11_29_pkey";
-
-
-
-ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_11_30_inserted_at_topic_idx";
-
-
-
-ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_11_30_pkey";
-
-
-
 ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_01_inserted_at_topic_idx";
 
 
@@ -17620,6 +20015,46 @@ ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "real
 
 
 ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_02_pkey";
+
+
+
+ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_03_inserted_at_topic_idx";
+
+
+
+ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_03_pkey";
+
+
+
+ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_04_inserted_at_topic_idx";
+
+
+
+ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_04_pkey";
+
+
+
+ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_05_inserted_at_topic_idx";
+
+
+
+ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_05_pkey";
+
+
+
+ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_06_inserted_at_topic_idx";
+
+
+
+ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_06_pkey";
+
+
+
+ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_07_inserted_at_topic_idx";
+
+
+
+ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_07_pkey";
 
 
 
@@ -17653,11 +20088,15 @@ CREATE OR REPLACE VIEW "public"."profile_social_links" AS
 
 
 
+CREATE OR REPLACE TRIGGER "connections_ensure_thread_for_connection" AFTER INSERT OR UPDATE OF "status" ON "public"."connections" FOR EACH ROW EXECUTE FUNCTION "public"."ensure_thread_for_connection"();
+
+
+
 CREATE OR REPLACE TRIGGER "enforce_bookmark_limit" BEFORE INSERT ON "public"."job_bookmarks" FOR EACH ROW EXECUTE FUNCTION "public"."check_bookmark_limit"();
 
 
 
-CREATE OR REPLACE TRIGGER "enforce_bookmarked_jobs_limit" BEFORE INSERT ON "public"."bookmarked_jobs" FOR EACH ROW EXECUTE FUNCTION "public"."check_bookmarked_jobs_limit"();
+CREATE OR REPLACE TRIGGER "enforce_bookmarked_jobs_limit" BEFORE INSERT ON "public"."bookmarked_jobs_legacy_do_not_use" FOR EACH ROW EXECUTE FUNCTION "public"."check_bookmarked_jobs_limit"();
 
 
 
@@ -17727,6 +20166,14 @@ CREATE OR REPLACE TRIGGER "mentorship_chat_trigger" AFTER INSERT ON "public"."me
 
 
 
+CREATE OR REPLACE TRIGGER "mentorship_on_profile_deactivated" AFTER UPDATE OF "is_deleted", "approval_status" ON "public"."profiles" FOR EACH ROW WHEN ((("old"."is_deleted" IS DISTINCT FROM "new"."is_deleted") OR ("old"."approval_status" IS DISTINCT FROM "new"."approval_status"))) EXECUTE FUNCTION "public"."mentorship_on_profile_deactivated"();
+
+
+
+CREATE OR REPLACE TRIGGER "mentorship_relationships_ensure_dm_thread" BEFORE INSERT OR UPDATE OF "mentor_id", "mentee_id" ON "public"."mentorship_relationships" FOR EACH ROW EXECUTE FUNCTION "public"."ensure_dm_thread_for_mentorship"();
+
+
+
 CREATE OR REPLACE TRIGGER "on_group_posts_update" BEFORE UPDATE ON "public"."group_posts" FOR EACH ROW EXECUTE FUNCTION "public"."handle_updated_at"();
 
 
@@ -17744,6 +20191,10 @@ CREATE OR REPLACE TRIGGER "on_new_message" AFTER INSERT ON "public"."messages" F
 
 
 CREATE OR REPLACE TRIGGER "on_new_message_update_conversation_timestamp" AFTER INSERT ON "public"."messages" FOR EACH ROW EXECUTE FUNCTION "public"."update_conversation_last_message_at"();
+
+
+
+CREATE OR REPLACE TRIGGER "profiles_avatar_update_timestamp" BEFORE UPDATE OF "avatar_url" ON "public"."profiles" FOR EACH ROW EXECUTE FUNCTION "public"."update_profile_timestamp_on_avatar_change"();
 
 
 
@@ -17803,6 +20254,10 @@ CREATE OR REPLACE TRIGGER "trg_auto_assign_batch_group_on_approval" AFTER UPDATE
 
 
 
+CREATE OR REPLACE TRIGGER "trg_block_direct_role_updates" BEFORE UPDATE ON "public"."profiles" FOR EACH ROW EXECUTE FUNCTION "public"."block_direct_role_updates"();
+
+
+
 CREATE OR REPLACE TRIGGER "trg_block_quick_link_apps" BEFORE INSERT ON "public"."job_applications" FOR EACH ROW EXECUTE FUNCTION "public"."block_applications_for_quick_link"();
 
 
@@ -17812,10 +20267,6 @@ CREATE OR REPLACE TRIGGER "trg_bump_last_message" AFTER INSERT ON "public"."dm_m
 
 
 CREATE OR REPLACE TRIGGER "trg_companies_set_created_by" BEFORE INSERT ON "public"."companies" FOR EACH ROW EXECUTE FUNCTION "public"."companies_set_created_by"();
-
-
-
-CREATE OR REPLACE TRIGGER "trg_conn_on_mentorship_accept" AFTER UPDATE ON "public"."mentorship_requests" FOR EACH ROW WHEN ((("new"."status" = 'accepted'::"text") AND ("old"."status" IS DISTINCT FROM "new"."status"))) EXECUTE FUNCTION "public"."ensure_connection_on_mentorship_accept"();
 
 
 
@@ -17849,7 +20300,7 @@ CREATE OR REPLACE TRIGGER "trg_connections_updated_at" BEFORE UPDATE ON "public"
 
 
 
-CREATE OR REPLACE TRIGGER "trg_create_relationship_on_accept" AFTER UPDATE OF "status" ON "public"."mentorship_requests" FOR EACH ROW WHEN ((("new"."status" = 'accepted'::"text") AND ("old"."status" IS DISTINCT FROM 'accepted'::"text"))) EXECUTE FUNCTION "public"."create_relationship_on_accept"();
+CREATE OR REPLACE TRIGGER "trg_create_relationship_on_accept" AFTER UPDATE OF "status" ON "public"."mentorship_requests" FOR EACH ROW WHEN ((("old"."status" = 'pending'::"public"."mentorship_request_status") AND ("new"."status" = 'accepted'::"public"."mentorship_request_status"))) EXECUTE FUNCTION "public"."create_relationship_on_accept"();
 
 
 
@@ -17973,6 +20424,14 @@ CREATE OR REPLACE TRIGGER "trg_log_profile_approval_changes" AFTER UPDATE OF "ap
 
 
 
+CREATE OR REPLACE TRIGGER "trg_mentorship_on_mentor_status_change" AFTER UPDATE OF "status" ON "public"."mentors" FOR EACH ROW WHEN ((("old"."status" IS DISTINCT FROM "new"."status") AND ("new"."status" = 'rejected'::"text"))) EXECUTE FUNCTION "public"."mentorship_on_mentor_status_change"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_mentorship_on_profile_deactivated" AFTER UPDATE OF "approval_status", "is_deleted" ON "public"."profiles" FOR EACH ROW WHEN (((("old"."approval_status" IS DISTINCT FROM "new"."approval_status") AND ("new"."approval_status" <> 'approved'::"public"."profile_approval_status")) OR (("old"."is_deleted" IS DISTINCT FROM "new"."is_deleted") AND ("new"."is_deleted" IS TRUE)))) EXECUTE FUNCTION "public"."mentorship_on_profile_deactivated"();
+
+
+
 CREATE OR REPLACE TRIGGER "trg_no_early_feedback" BEFORE INSERT ON "public"."event_feedback" FOR EACH ROW EXECUTE FUNCTION "public"."prevent_early_event_feedback"();
 
 
@@ -17981,7 +20440,15 @@ CREATE OR REPLACE TRIGGER "trg_normalize_social_link" BEFORE INSERT OR UPDATE ON
 
 
 
+CREATE OR REPLACE TRIGGER "trg_notification_events_mentorship_fanout" AFTER INSERT ON "public"."notification_events" FOR EACH ROW WHEN (("new"."module" = 'mentorship'::"public"."notification_module")) EXECUTE FUNCTION "public"."trg_process_notification_event_mentorship"();
+
+
+
 CREATE OR REPLACE TRIGGER "trg_notifications_ensure_recipient" BEFORE INSERT ON "public"."notifications" FOR EACH ROW EXECUTE FUNCTION "public"."notifications_ensure_recipient"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_notifications_timestamps" BEFORE INSERT OR UPDATE ON "public"."notifications" FOR EACH ROW EXECUTE FUNCTION "public"."set_timestamps"();
 
 
 
@@ -18115,6 +20582,10 @@ CREATE OR REPLACE TRIGGER "trg_sync_membership_to_members" AFTER INSERT OR UPDAT
 
 
 
+CREATE OR REPLACE TRIGGER "trg_sync_resume_profile_to_job_alert" AFTER INSERT OR UPDATE OF "job_alert_active", "job_alert_frequency", "job_alert_keywords", "preferred_locations" ON "public"."resume_profiles" FOR EACH ROW EXECUTE FUNCTION "public"."sync_resume_profile_to_job_alert"();
+
+
+
 CREATE OR REPLACE TRIGGER "trg_touch_thread_after_message" AFTER INSERT ON "public"."dm_messages" FOR EACH ROW EXECUTE FUNCTION "public"."dm_threads_touch_after_message"();
 
 
@@ -18243,21 +20714,36 @@ ALTER TABLE ONLY "public"."activity_logs"
 
 
 ALTER TABLE ONLY "public"."admin_actions"
+    ADD CONSTRAINT "admin_actions_admin_fk" FOREIGN KEY ("admin_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."admin_actions"
     ADD CONSTRAINT "admin_actions_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
 
 
 
-ALTER TABLE ONLY "public"."avatar_audit_log"
-    ADD CONSTRAINT "avatar_audit_log_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+ALTER TABLE ONLY "public"."admin_analytics_audit_log"
+    ADD CONSTRAINT "admin_analytics_audit_log_admin_fk" FOREIGN KEY ("admin_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
 
 
 
-ALTER TABLE ONLY "public"."bookmarked_jobs"
+ALTER TABLE ONLY "public"."admin_analytics_audit_log"
+    ADD CONSTRAINT "admin_analytics_audit_log_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "public"."profiles"("id");
+
+
+
+ALTER TABLE ONLY "public"."avatar_upload_log"
+    ADD CONSTRAINT "avatar_upload_log_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."bookmarked_jobs_legacy_do_not_use"
     ADD CONSTRAINT "bookmarked_jobs_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "public"."jobs"("id") ON DELETE CASCADE;
 
 
 
-ALTER TABLE ONLY "public"."bookmarked_jobs"
+ALTER TABLE ONLY "public"."bookmarked_jobs_legacy_do_not_use"
     ADD CONSTRAINT "bookmarked_jobs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
@@ -18314,6 +20800,11 @@ ALTER TABLE ONLY "public"."conversation_participants"
 
 ALTER TABLE ONLY "public"."conversation_participants"
     ADD CONSTRAINT "conversation_participants_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."conversations"
+    ADD CONSTRAINT "conversations_mentorship_relationship_id_fkey" FOREIGN KEY ("mentorship_relationship_id") REFERENCES "public"."mentorship_relationships"("id") ON DELETE SET NULL;
 
 
 
@@ -18467,6 +20958,11 @@ ALTER TABLE ONLY "public"."dm_participants"
 
 
 
+ALTER TABLE ONLY "public"."mentorship_feedback"
+    ADD CONSTRAINT "fk_feedback_request" FOREIGN KEY ("mentorship_request_id") REFERENCES "public"."mentorship_requests"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."jobs"
     ADD CONSTRAINT "fk_jobs_company_id" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE SET NULL;
 
@@ -18489,6 +20985,11 @@ ALTER TABLE ONLY "public"."notifications"
 
 ALTER TABLE ONLY "public"."profiles"
     ADD CONSTRAINT "fk_profiles_degree_program" FOREIGN KEY ("degree_program") REFERENCES "public"."degree_programs"("code") ON UPDATE CASCADE ON DELETE RESTRICT;
+
+
+
+ALTER TABLE ONLY "public"."mentorship_sessions"
+    ADD CONSTRAINT "fk_sessions_request" FOREIGN KEY ("mentorship_request_id") REFERENCES "public"."mentorship_requests"("id") ON DELETE CASCADE;
 
 
 
@@ -18563,21 +21064,6 @@ COMMENT ON CONSTRAINT "groups_created_by_fkey" ON "public"."groups" IS 'Ensures 
 
 ALTER TABLE ONLY "public"."groups"
     ADD CONSTRAINT "groups_reviewed_by_fkey" FOREIGN KEY ("reviewed_by") REFERENCES "public"."profiles"("id");
-
-
-
-ALTER TABLE ONLY "public"."job_alert_notifications"
-    ADD CONSTRAINT "job_alert_notifications_alert_id_fkey" FOREIGN KEY ("alert_id") REFERENCES "public"."job_alerts"("id");
-
-
-
-ALTER TABLE ONLY "public"."job_alert_notifications"
-    ADD CONSTRAINT "job_alert_notifications_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "public"."jobs"("id");
-
-
-
-ALTER TABLE ONLY "public"."job_alert_notifications"
-    ADD CONSTRAINT "job_alert_notifications_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id");
 
 
 
@@ -18682,6 +21168,11 @@ ALTER TABLE ONLY "public"."mentorship_messages"
 
 
 ALTER TABLE ONLY "public"."mentorship_relationships"
+    ADD CONSTRAINT "mentorship_relationships_dm_thread_id_fkey" FOREIGN KEY ("dm_thread_id") REFERENCES "public"."dm_threads"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."mentorship_relationships"
     ADD CONSTRAINT "mentorship_relationships_mentee_id_fkey" FOREIGN KEY ("mentee_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
 
 
@@ -18746,6 +21237,11 @@ ALTER TABLE ONLY "public"."networking_group_members"
 
 
 
+ALTER TABLE ONLY "public"."notification_events"
+    ADD CONSTRAINT "notification_events_actor_profile_id_fkey" FOREIGN KEY ("actor_profile_id") REFERENCES "public"."profiles"("id");
+
+
+
 ALTER TABLE ONLY "public"."notification_preferences"
     ADD CONSTRAINT "notification_preferences_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
 
@@ -18757,7 +21253,17 @@ ALTER TABLE ONLY "public"."notifications"
 
 
 ALTER TABLE ONLY "public"."profile_approval_audit"
+    ADD CONSTRAINT "profile_approval_audit_admin_fk" FOREIGN KEY ("admin_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."profile_approval_audit"
     ADD CONSTRAINT "profile_approval_audit_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "public"."profiles"("id");
+
+
+
+ALTER TABLE ONLY "public"."profile_approval_audit"
+    ADD CONSTRAINT "profile_approval_audit_profile_fk" FOREIGN KEY ("profile_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
 
 
 
@@ -18871,6 +21377,16 @@ ALTER TABLE ONLY "storage"."vector_indexes"
 
 
 
+CREATE POLICY "Admin can insert analytics logs" ON "public"."admin_analytics_audit_log" FOR INSERT WITH CHECK (true);
+
+
+
+CREATE POLICY "Admin can view own analytics logs" ON "public"."admin_analytics_audit_log" FOR SELECT TO "authenticated" USING ((("admin_id" = "auth"."uid"()) AND (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p"
+  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])) AND (COALESCE("p"."is_deleted", false) = false))))));
+
+
+
 CREATE POLICY "Admins can delete any feedback" ON "public"."event_feedback" FOR DELETE TO "authenticated" USING ((EXISTS ( SELECT 1
    FROM "public"."profiles"
   WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."is_admin" = true)))));
@@ -18950,19 +21466,7 @@ CREATE POLICY "Allow users to create their own mentee profile" ON "public"."ment
 
 
 
-CREATE POLICY "Allow users to delete their own bookmarks" ON "public"."bookmarked_jobs" FOR DELETE TO "authenticated" USING (("auth"."uid"() = "user_id"));
-
-
-
-CREATE POLICY "Allow users to insert their own bookmarks" ON "public"."bookmarked_jobs" FOR INSERT TO "authenticated" WITH CHECK (("auth"."uid"() = "user_id"));
-
-
-
 CREATE POLICY "Allow users to update their own mentee profile" ON "public"."mentee_profiles" FOR UPDATE USING (("user_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "Allow users to view their own bookmarks" ON "public"."bookmarked_jobs" FOR SELECT TO "authenticated" USING (("auth"."uid"() = "user_id"));
 
 
 
@@ -19004,75 +21508,15 @@ CREATE POLICY "Import history visible to creator" ON "public"."csv_import_histor
 
 
 
-CREATE POLICY "Mentee can create request" ON "public"."mentorship_requests" FOR INSERT WITH CHECK (("auth"."uid"() = "mentee_id"));
-
-
-
-CREATE POLICY "Mentee can manage own data" ON "public"."mentees" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
-
-
-
 CREATE POLICY "Mentees can create appointments" ON "public"."mentorship_appointments" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
    FROM "public"."mentees"
   WHERE (("mentees"."id" = "mentorship_appointments"."mentee_id") AND ("mentees"."user_id" = "auth"."uid"())))));
 
 
 
-CREATE POLICY "Mentees can create requests only if approved" ON "public"."mentorship_requests" FOR INSERT TO "authenticated" WITH CHECK ((("auth"."uid"() = "mentee_id") AND (EXISTS ( SELECT 1
-   FROM "public"."profiles" "p"
-  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."approval_status" = 'approved'::"public"."profile_approval_status") AND ("p"."mentee_status" = 'approved'::"text")))) AND (EXISTS ( SELECT 1
-   FROM "public"."profiles" "pm"
-  WHERE (("pm"."id" = "mentorship_requests"."mentor_id") AND ("pm"."approval_status" = 'approved'::"public"."profile_approval_status") AND ("pm"."mentor_status" = 'approved'::"text"))))));
-
-
-
-CREATE POLICY "Mentees can request mentorship" ON "public"."mentorships" FOR INSERT WITH CHECK ((("auth"."uid"() = "mentee_id") AND (EXISTS ( SELECT 1
-   FROM "public"."profiles"
-  WHERE (("profiles"."id" = "mentorships"."mentor_id") AND ("profiles"."is_available_for_mentorship" = true))))));
-
-
-
-CREATE POLICY "Mentor or mentee can update request" ON "public"."mentorship_requests" FOR UPDATE USING ((("auth"."uid"() = "mentor_id") OR ("auth"."uid"() = "mentee_id")));
-
-
-
-CREATE POLICY "Mentor or mentee can view relationship" ON "public"."mentorship_relationships" FOR SELECT USING ((("auth"."uid"() = "mentor_id") OR ("auth"."uid"() = "mentee_id")));
-
-
-
-CREATE POLICY "Mentor or mentee can view request" ON "public"."mentorship_requests" FOR SELECT USING ((("auth"."uid"() = "mentor_id") OR ("auth"."uid"() = "mentee_id")));
-
-
-
-CREATE POLICY "Mentor/Mentee can view their requests if approved" ON "public"."mentorship_requests" FOR SELECT TO "authenticated" USING (((("auth"."uid"() = "mentee_id") OR ("auth"."uid"() = "mentor_id")) AND (EXISTS ( SELECT 1
-   FROM "public"."profiles" "p"
-  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."approval_status" = 'approved'::"public"."profile_approval_status"))))));
-
-
-
 CREATE POLICY "Mentors can manage their own availability" ON "public"."mentor_availability" USING ((EXISTS ( SELECT 1
    FROM "public"."mentors"
   WHERE (("mentors"."id" = "mentor_availability"."mentor_id") AND ("mentors"."user_id" = "auth"."uid"())))));
-
-
-
-CREATE POLICY "Mentors can respond to requests" ON "public"."mentorship_requests" FOR UPDATE USING (("auth"."uid"() = "mentor_id")) WITH CHECK ((("auth"."uid"() = "mentor_id") AND ("status" = ANY (ARRAY['accepted'::"text", 'rejected'::"text"]))));
-
-
-
-CREATE POLICY "Mentors can update mentorship requests" ON "public"."mentorships" FOR UPDATE USING (("auth"."uid"() = "mentor_id"));
-
-
-
-CREATE POLICY "Mentorship insert mentee" ON "public"."mentorship_requests" FOR INSERT WITH CHECK (("auth"."uid"() = "mentee_id"));
-
-
-
-CREATE POLICY "Mentorship select own" ON "public"."mentorship_requests" FOR SELECT USING ((("auth"."uid"() = "mentee_id") OR ("auth"."uid"() = "mentor_id") OR "public"."is_admin"("auth"."uid"())));
-
-
-
-CREATE POLICY "Mentorship update mentee cancel" ON "public"."mentorship_requests" FOR UPDATE USING (("auth"."uid"() = "mentee_id")) WITH CHECK ((("auth"."uid"() = "mentee_id") AND ("status" = ANY (ARRAY['pending'::"text", 'cancelled'::"text"]))));
 
 
 
@@ -19087,14 +21531,6 @@ CREATE POLICY "Public can view approved resources" ON "public"."resources" FOR S
 
 
 CREATE POLICY "Public can view published events" ON "public"."events" FOR SELECT USING (("status" = 'published'::"text"));
-
-
-
-CREATE POLICY "Resume profiles are viewable by everyone" ON "public"."resume_profiles" FOR SELECT USING (true);
-
-
-
-CREATE POLICY "Resumes are viewable by everyone" ON "public"."resume_profiles" FOR SELECT USING (true);
 
 
 
@@ -19139,10 +21575,6 @@ CREATE POLICY "Users can delete own social links" ON "public"."social_links" FOR
 
 
 CREATE POLICY "Users can delete their connection requests" ON "public"."connections" FOR DELETE USING ((("auth"."uid"() = "requester_id") OR ("auth"."uid"() = "recipient_id")));
-
-
-
-CREATE POLICY "Users can delete their mentorship requests" ON "public"."mentorship_requests" FOR DELETE USING ((("auth"."uid"() = "mentee_id") OR ("auth"."uid"() = "mentor_id")));
 
 
 
@@ -19192,15 +21624,7 @@ CREATE POLICY "Users can manage their own job bookmarks" ON "public"."job_bookma
 
 
 
-CREATE POLICY "Users can manage their own mentee profile" ON "public"."mentees" USING (("auth"."uid"() = "user_id"));
-
-
-
 CREATE POLICY "Users can read event groups" ON "public"."event_groups" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
-
-
-
-CREATE POLICY "Users can request mentorship" ON "public"."mentorship_requests" FOR INSERT WITH CHECK (("auth"."uid"() = "mentee_id"));
 
 
 
@@ -19230,19 +21654,11 @@ CREATE POLICY "Users can update own social links" ON "public"."social_links" FOR
 
 
 
-CREATE POLICY "Users can update read_at on their notifications" ON "public"."notifications" FOR UPDATE USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
-
-
-
 CREATE POLICY "Users can update their own achievements" ON "public"."achievements" USING (("auth"."uid"() = "profile_id"));
 
 
 
 CREATE POLICY "Users can update their own feedback" ON "public"."event_feedback" FOR UPDATE USING (("auth"."uid"() = "user_id"));
-
-
-
-CREATE POLICY "Users can update their own mentorship relationships" ON "public"."mentorship_relationships" FOR UPDATE USING ((("auth"."uid"() = "mentor_id") OR ("auth"."uid"() = "mentee_id")));
 
 
 
@@ -19262,12 +21678,6 @@ CREATE POLICY "Users can view all feedback" ON "public"."event_feedback" FOR SEL
 
 
 
-CREATE POLICY "Users can view mentees they are mentoring" ON "public"."mentees" FOR SELECT USING ((("auth"."uid"() = "user_id") OR (EXISTS ( SELECT 1
-   FROM "public"."mentorship_relationships"
-  WHERE (("mentorship_relationships"."mentee_id" = "mentees"."user_id") AND ("mentorship_relationships"."mentor_id" = "auth"."uid"()))))));
-
-
-
 CREATE POLICY "Users can view own social links" ON "public"."social_links" FOR SELECT USING (("profile_id" = "auth"."uid"()));
 
 
@@ -19281,14 +21691,6 @@ CREATE POLICY "Users can view their connections" ON "public"."connections" FOR S
 
 
 CREATE POLICY "Users can view their memberships" ON "public"."group_members" FOR SELECT USING (("auth"."uid"() = "user_id"));
-
-
-
-CREATE POLICY "Users can view their mentor/mentee requests" ON "public"."mentorship_requests" FOR SELECT USING ((("auth"."uid"() = "mentee_id") OR ("auth"."uid"() = "mentor_id")));
-
-
-
-CREATE POLICY "Users can view their notifications" ON "public"."notifications" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
 
@@ -19310,14 +21712,6 @@ CREATE POLICY "Users can view their own connections" ON "public"."connections" F
 
 
 CREATE POLICY "Users can view their own feedback" ON "public"."event_feedback" FOR SELECT USING (("auth"."uid"() = "user_id"));
-
-
-
-CREATE POLICY "Users can view their own mentorship relationships" ON "public"."mentorship_relationships" FOR SELECT USING ((("auth"."uid"() = "mentor_id") OR ("auth"."uid"() = "mentee_id")));
-
-
-
-CREATE POLICY "Users can view their own mentorships" ON "public"."mentorships" FOR SELECT USING ((("auth"."uid"() = "mentor_id") OR ("auth"."uid"() = "mentee_id")));
 
 
 
@@ -19361,6 +21755,12 @@ ALTER TABLE "public"."activity_logs" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."admin_actions" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."admin_analytics_audit_log" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."admin_deletion_audit_log" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."admin_notifications" ENABLE ROW LEVEL SECURITY;
 
 
@@ -19376,11 +21776,11 @@ CREATE POLICY "admin_notifications_update_admins" ON "public"."admin_notificatio
 
 
 
-CREATE POLICY "admin_select_all_jobs" ON "public"."jobs" FOR SELECT USING ("public"."fc_is_admin"());
+CREATE POLICY "admin_select_all_jobs" ON "public"."jobs" FOR SELECT TO "authenticated" USING ("public"."fc_is_admin"());
 
 
 
-CREATE POLICY "app can insert notifications" ON "public"."notifications" FOR INSERT WITH CHECK (true);
+CREATE POLICY "admins_read_deletion_logs" ON "public"."admin_deletion_audit_log" FOR SELECT TO "authenticated" USING ("public"."app_is_admin"());
 
 
 
@@ -19392,7 +21792,23 @@ CREATE POLICY "attendees_update_self" ON "public"."event_attendees" FOR UPDATE T
 
 
 
-ALTER TABLE "public"."bookmarked_jobs" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "bookmarked_jobs_legacy_delete" ON "public"."bookmarked_jobs_legacy_do_not_use" FOR DELETE USING (false);
+
+
+
+ALTER TABLE "public"."bookmarked_jobs_legacy_do_not_use" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "bookmarked_jobs_legacy_insert" ON "public"."bookmarked_jobs_legacy_do_not_use" FOR INSERT WITH CHECK (false);
+
+
+
+CREATE POLICY "bookmarked_jobs_legacy_select" ON "public"."bookmarked_jobs_legacy_do_not_use" FOR SELECT USING (("public"."fc_is_admin"() OR (("auth"."uid"() IS NOT NULL) AND "public"."is_super_admin"("auth"."uid"()))));
+
+
+
+CREATE POLICY "bookmarked_jobs_legacy_update" ON "public"."bookmarked_jobs_legacy_do_not_use" FOR UPDATE USING (false) WITH CHECK (false);
+
 
 
 CREATE POLICY "conn_delete_either" ON "public"."connections" FOR DELETE TO "authenticated" USING ((("requester_id" = "auth"."uid"()) OR ("recipient_id" = "auth"."uid"())));
@@ -19447,6 +21863,10 @@ CREATE POLICY "connections_update" ON "public"."connections" FOR UPDATE TO "auth
 
 
 CREATE POLICY "connections_update_participants" ON "public"."connections" FOR UPDATE TO "authenticated" USING ((("requester_id" = "auth"."uid"()) OR ("recipient_id" = "auth"."uid"()))) WITH CHECK ((("requester_id" = "auth"."uid"()) OR ("recipient_id" = "auth"."uid"())));
+
+
+
+CREATE POLICY "connections_update_self_edge" ON "public"."connections" FOR UPDATE TO "authenticated" USING ((("requester_id" = "auth"."uid"()) OR ("recipient_id" = "auth"."uid"()))) WITH CHECK ((("requester_id" = "auth"."uid"()) OR ("recipient_id" = "auth"."uid"())));
 
 
 
@@ -19566,6 +21986,18 @@ CREATE POLICY "dm_participants_select" ON "public"."dm_participants" FOR SELECT 
 
 
 ALTER TABLE "public"."dm_threads" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "dm_threads_insert_participants_or_admin" ON "public"."dm_threads" FOR INSERT WITH CHECK ((("auth"."uid"() IS NOT NULL) AND (("auth"."uid"() = "user_a") OR ("auth"."uid"() = "user_b") OR "public"."_is_admin"("auth"."uid"()))));
+
+
+
+CREATE POLICY "dm_threads_participants_rw" ON "public"."dm_threads" TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."dm_participants" "p"
+  WHERE (("p"."thread_id" = "dm_threads"."id") AND ("p"."user_id" = "auth"."uid"()))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."dm_participants" "p"
+  WHERE (("p"."thread_id" = "dm_threads"."id") AND ("p"."user_id" = "auth"."uid"())))));
+
 
 
 CREATE POLICY "dm_threads_select" ON "public"."dm_threads" FOR SELECT USING ((EXISTS ( SELECT 1
@@ -19758,7 +22190,9 @@ CREATE POLICY "gms_delete_self_or_admin" ON "public"."group_memberships" FOR DEL
 
 
 
-CREATE POLICY "gms_insert_self" ON "public"."group_memberships" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND (NOT "public"."is_employer"("auth"."uid"()))));
+CREATE POLICY "gms_insert_self" ON "public"."group_memberships" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND (NOT "public"."is_employer"("auth"."uid"())) AND ("status" = 'pending'::"public"."membership_status_enum") AND (EXISTS ( SELECT 1
+   FROM "public"."groups" "g"
+  WHERE (("g"."id" = "group_memberships"."group_id") AND ("g"."is_archived" = false) AND ("g"."is_rejected" = false))))));
 
 
 
@@ -19851,12 +22285,6 @@ CREATE POLICY "group_members_admin_add" ON "public"."group_members" FOR INSERT T
 
 
 
-CREATE POLICY "group_members_insert_no_employers" ON "public"."group_members" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND (( SELECT "profiles"."role"
-   FROM "public"."profiles"
-  WHERE ("profiles"."id" = "auth"."uid"())) <> 'employer'::"public"."app_role_enum")));
-
-
-
 CREATE POLICY "group_members_leave" ON "public"."group_members" FOR DELETE TO "authenticated" USING ((("user_id" = "auth"."uid"()) OR (EXISTS ( SELECT 1
    FROM "public"."profiles" "p"
   WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))));
@@ -19931,12 +22359,6 @@ CREATE POLICY "insert_own_social_links" ON "public"."social_links" FOR INSERT WI
 
 
 
-CREATE POLICY "insert_sessions_by_mentor" ON "public"."mentorship_sessions" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
-   FROM "public"."mentorship_requests" "r"
-  WHERE (("r"."id" = "mentorship_sessions"."mentorship_request_id") AND ("r"."status" = ANY (ARRAY['accepted'::"text", 'active'::"text"])) AND (("r"."mentor_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"()))))));
-
-
-
 CREATE POLICY "ja_applicant_self_select" ON "public"."job_applications" FOR SELECT TO "authenticated" USING (("applicant_id" = "auth"."uid"()));
 
 
@@ -19962,24 +22384,6 @@ CREATE POLICY "ja_select_company_owner" ON "public"."job_applications" FOR SELEC
 
 
 
-CREATE POLICY "ja_select_visible" ON "public"."job_applications" FOR SELECT TO "authenticated" USING ((("applicant_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR (EXISTS ( SELECT 1
-   FROM "public"."jobs" "j"
-  WHERE (("j"."id" = "job_applications"."job_id") AND (("j"."posted_by" = "auth"."uid"()) OR ("j"."created_by" = "auth"."uid"())))))));
-
-
-
-CREATE POLICY "ja_update_applicant" ON "public"."job_applications" FOR UPDATE TO "authenticated" USING ((("applicant_id" = "auth"."uid"()) AND ("public"."fc_is_fully_approved"("auth"."uid"()) OR "public"."fc_is_admin"()))) WITH CHECK ((("applicant_id" = "auth"."uid"()) AND ("public"."fc_is_fully_approved"("auth"."uid"()) OR "public"."fc_is_admin"())));
-
-
-
-CREATE POLICY "ja_update_owner_job" ON "public"."job_applications" FOR UPDATE TO "authenticated" USING (((EXISTS ( SELECT 1
-   FROM "public"."jobs" "j"
-  WHERE (("j"."id" = "job_applications"."job_id") AND (("j"."posted_by" = "auth"."uid"()) OR ("j"."created_by" = "auth"."uid"()))))) OR (COALESCE((("current_setting"('request.jwt.claims'::"text", true))::"jsonb" ->> 'role'::"text"), 'alumni'::"text") = ANY (ARRAY['admin'::"text", 'super_admin'::"text"])))) WITH CHECK (((EXISTS ( SELECT 1
-   FROM "public"."jobs" "j"
-  WHERE (("j"."id" = "job_applications"."job_id") AND (("j"."posted_by" = "auth"."uid"()) OR ("j"."created_by" = "auth"."uid"()))))) OR (COALESCE((("current_setting"('request.jwt.claims'::"text", true))::"jsonb" ->> 'role'::"text"), 'alumni'::"text") = ANY (ARRAY['admin'::"text", 'super_admin'::"text"]))));
-
-
-
 CREATE POLICY "jb_delete" ON "public"."job_bookmarks" FOR DELETE USING (("auth"."uid"() = "user_id"));
 
 
@@ -19999,7 +22403,15 @@ CREATE POLICY "job_alerts_delete" ON "public"."job_alerts" FOR DELETE TO "authen
 
 
 
+CREATE POLICY "job_alerts_delete_self_or_admin" ON "public"."job_alerts" FOR DELETE USING ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()));
+
+
+
 CREATE POLICY "job_alerts_insert" ON "public"."job_alerts" FOR INSERT TO "authenticated" WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "job_alerts_insert_self_or_admin" ON "public"."job_alerts" FOR INSERT WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()));
 
 
 
@@ -20007,26 +22419,60 @@ CREATE POLICY "job_alerts_select" ON "public"."job_alerts" FOR SELECT TO "authen
 
 
 
+CREATE POLICY "job_alerts_select_self_or_admin" ON "public"."job_alerts" FOR SELECT USING ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()));
+
+
+
 CREATE POLICY "job_alerts_update" ON "public"."job_alerts" FOR UPDATE TO "authenticated" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "job_alerts_update_self_or_admin" ON "public"."job_alerts" FOR UPDATE USING ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"())) WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()));
 
 
 
 ALTER TABLE "public"."job_applications" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "job_applications_insert_approved" ON "public"."job_applications" FOR INSERT TO "authenticated" WITH CHECK ((("applicant_id" = "auth"."uid"()) AND "public"."fc_is_fully_approved"("auth"."uid"())));
+CREATE POLICY "job_applications_delete_self" ON "public"."job_applications" FOR DELETE USING (("applicant_id" = "auth"."uid"()));
 
 
 
-CREATE POLICY "job_applications_select_employer" ON "public"."job_applications" FOR SELECT TO "authenticated" USING ((("public"."fc_is_employer_approved"("auth"."uid"()) AND (EXISTS ( SELECT 1
+CREATE POLICY "job_applications_insert_self" ON "public"."job_applications" FOR INSERT WITH CHECK ((("auth"."uid"() IS NOT NULL) AND (("applicant_id" = "auth"."uid"()) OR ("applicant_id" IS NULL)) AND "public"."fc_is_fully_approved"("auth"."uid"())));
+
+
+
+CREATE POLICY "job_applications_select_job_owner" ON "public"."job_applications" FOR SELECT USING ((("auth"."uid"() IS NOT NULL) AND (EXISTS ( SELECT 1
    FROM "public"."jobs" "j"
-  WHERE (("j"."id" = "job_applications"."job_id") AND ("j"."created_by" = "auth"."uid"()))))) OR (EXISTS ( SELECT 1
-   FROM "public"."profiles" "p"
-  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))));
+  WHERE (("j"."id" = "job_applications"."job_id") AND ((("auth"."uid"() = "j"."created_by") OR ("auth"."uid"() = "j"."posted_by")) OR ("auth"."uid"() = "j"."user_id")))))));
+
+
+
+CREATE POLICY "job_applications_select_self" ON "public"."job_applications" FOR SELECT USING (("applicant_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "job_applications_update_self" ON "public"."job_applications" FOR UPDATE USING (("applicant_id" = "auth"."uid"())) WITH CHECK (("applicant_id" = "auth"."uid"()));
 
 
 
 ALTER TABLE "public"."job_bookmarks" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "job_bookmarks_delete_self_or_admin" ON "public"."job_bookmarks" FOR DELETE USING ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()));
+
+
+
+CREATE POLICY "job_bookmarks_insert_self_or_admin" ON "public"."job_bookmarks" FOR INSERT WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()));
+
+
+
+CREATE POLICY "job_bookmarks_owner_rw" ON "public"."job_bookmarks" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "job_bookmarks_select_self_or_admin" ON "public"."job_bookmarks" FOR SELECT USING ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()));
+
 
 
 ALTER TABLE "public"."jobs" ENABLE ROW LEVEL SECURITY;
@@ -20038,41 +22484,23 @@ CREATE POLICY "jobs_delete_own" ON "public"."jobs" FOR DELETE TO "authenticated"
 
 
 
-CREATE POLICY "jobs_insert_employers" ON "public"."jobs" FOR INSERT TO "authenticated" WITH CHECK (("public"."fc_is_employer_approved"("auth"."uid"()) OR (EXISTS ( SELECT 1
-   FROM "public"."profiles" "p"
-  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))));
+CREATE POLICY "jobs_insert_employer_or_admin" ON "public"."jobs" FOR INSERT TO "authenticated" WITH CHECK (("public"."fc_is_employer_approved"("auth"."uid"()) OR "public"."fc_is_admin"()));
 
 
 
-CREATE POLICY "jobs_insert_owner" ON "public"."jobs" FOR INSERT TO "authenticated" WITH CHECK (("public"."fc_is_admin"() OR ("public"."fc_is_fully_approved"("auth"."uid"()) AND (EXISTS ( SELECT 1
-   FROM "public"."profiles" "p"
-  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = 'employer'::"public"."app_role_enum")))) AND ("created_by" = "auth"."uid"()))));
+CREATE POLICY "jobs_select_applied" ON "public"."jobs" FOR SELECT TO "authenticated" USING ((("auth"."uid"() IS NOT NULL) AND "public"."fc_has_applied_to_job"("id", "auth"."uid"())));
 
 
 
-CREATE POLICY "jobs_select" ON "public"."jobs" FOR SELECT TO "authenticated" USING (((COALESCE("is_active", false) = true) AND (COALESCE("is_approved", true) = true) AND ((("deadline" IS NULL) OR ("deadline" >= "now"())) AND (("application_deadline" IS NULL) OR ("application_deadline" >= "now"())) AND (("expires_at" IS NULL) OR ("expires_at" >= "now"())))));
+CREATE POLICY "jobs_select_owner" ON "public"."jobs" FOR SELECT TO "authenticated" USING ((("auth"."uid"() IS NOT NULL) AND ((("auth"."uid"() = "posted_by") OR ("auth"."uid"() = "created_by")) OR ("auth"."uid"() = "user_id"))));
 
 
 
-CREATE POLICY "jobs_select_applied" ON "public"."jobs" FOR SELECT TO "authenticated" USING ("public"."fc_has_applied_to_job"("id", "auth"."uid"()));
+CREATE POLICY "jobs_select_public_open" ON "public"."jobs" FOR SELECT TO "authenticated" USING (((COALESCE("is_active", false) = true) AND (COALESCE("is_approved", false) = true) AND (COALESCE("is_rejected", false) = false) AND (("deadline" IS NULL) OR ("deadline" >= "now"())) AND (("expires_at" IS NULL) OR ("expires_at" >= "now"()))));
 
 
 
-CREATE POLICY "jobs_select_own_employer" ON "public"."jobs" FOR SELECT TO "authenticated" USING ((("public"."fc_is_employer_approved"("auth"."uid"()) AND ("created_by" = "auth"."uid"())) OR (EXISTS ( SELECT 1
-   FROM "public"."profiles" "p"
-  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))));
-
-
-
-CREATE POLICY "jobs_select_owner" ON "public"."jobs" FOR SELECT TO "authenticated" USING ((("posted_by" = "auth"."uid"()) OR ("created_by" = "auth"."uid"())));
-
-
-
-CREATE POLICY "jobs_select_public_active" ON "public"."jobs" FOR SELECT TO "authenticated" USING (((COALESCE("is_active", false) = true) AND (COALESCE("is_approved", true) = true) AND ((("deadline" IS NULL) OR ("deadline" >= "now"())) AND (("application_deadline" IS NULL) OR ("application_deadline" >= "now"())) AND (("expires_at" IS NULL) OR ("expires_at" >= "now"())))));
-
-
-
-CREATE POLICY "jobs_update_owner" ON "public"."jobs" FOR UPDATE TO "authenticated" USING ((("posted_by" = "auth"."uid"()) OR ("created_by" = "auth"."uid"()) OR "public"."fc_is_admin"())) WITH CHECK ((("posted_by" = "auth"."uid"()) OR ("created_by" = "auth"."uid"()) OR "public"."fc_is_admin"()));
+CREATE POLICY "jobs_update_owner_or_admin" ON "public"."jobs" FOR UPDATE TO "authenticated" USING ((("auth"."uid"() IS NOT NULL) AND (((("auth"."uid"() = "posted_by") OR ("auth"."uid"() = "created_by")) OR ("auth"."uid"() = "user_id")) OR "public"."fc_is_admin"()))) WITH CHECK ((("auth"."uid"() IS NOT NULL) AND (((("auth"."uid"() = "posted_by") OR ("auth"."uid"() = "created_by")) OR ("auth"."uid"() = "user_id")) OR "public"."fc_is_admin"())));
 
 
 
@@ -20082,19 +22510,11 @@ ALTER TABLE "public"."mentee_profiles" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."mentees" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "mentees_insert_policy" ON "public"."mentees" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
+CREATE POLICY "mentees_owner_or_admin" ON "public"."mentees" TO "authenticated" USING ((("user_id" = "auth"."uid"()) OR "public"."is_site_admin"())) WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."is_site_admin"()));
 
 
 
-CREATE POLICY "mentees_select_policy" ON "public"."mentees" FOR SELECT USING (("auth"."uid"() = "user_id"));
-
-
-
-CREATE POLICY "mentees_update_policy" ON "public"."mentees" FOR UPDATE USING (("auth"."uid"() = "user_id"));
-
-
-
-CREATE POLICY "mentor can accept or reject requests" ON "public"."mentorship_requests" FOR UPDATE USING (("auth"."uid"() = "mentor_id")) WITH CHECK (("auth"."uid"() = "mentor_id"));
+CREATE POLICY "mentees_read_only_authenticated" ON "public"."mentees" FOR SELECT TO "authenticated" USING (true);
 
 
 
@@ -20106,6 +22526,12 @@ CREATE POLICY "mentor_availability_delete_policy" ON "public"."mentor_availabili
 
 
 CREATE POLICY "mentor_availability_insert_policy" ON "public"."mentor_availability" FOR INSERT WITH CHECK (("auth"."uid"() = "mentor_id"));
+
+
+
+CREATE POLICY "mentor_availability_read_owner_relationship_admin" ON "public"."mentor_availability" FOR SELECT TO "authenticated" USING ((("mentor_id" = "auth"."uid"()) OR "public"."is_site_admin"() OR (EXISTS ( SELECT 1
+   FROM "public"."mentorship_relationships" "r"
+  WHERE (("r"."mentor_id" = "mentor_availability"."mentor_id") AND ("r"."status" = 'active'::"text") AND (("r"."mentor_id" = "auth"."uid"()) OR ("r"."mentee_id" = "auth"."uid"())))))));
 
 
 
@@ -20121,30 +22547,18 @@ CREATE POLICY "mentor_availability_update_policy" ON "public"."mentor_availabili
 
 
 
-CREATE POLICY "mentor_ins_self" ON "public"."mentor_profiles" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"())));
-
-
-
-CREATE POLICY "mentor_insert_own_profile" ON "public"."mentor_profiles" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
+CREATE POLICY "mentor_availability_write_owner_or_admin" ON "public"."mentor_availability" TO "authenticated" USING ((("mentor_id" = "auth"."uid"()) OR "public"."is_site_admin"())) WITH CHECK ((("mentor_id" = "auth"."uid"()) OR "public"."is_site_admin"()));
 
 
 
 ALTER TABLE "public"."mentor_profiles" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "mentor_sel_self_or_admin" ON "public"."mentor_profiles" FOR SELECT TO "authenticated" USING ((("user_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"())));
+CREATE POLICY "mentor_profiles_owner_or_admin" ON "public"."mentor_profiles" TO "authenticated" USING ((("user_id" = "auth"."uid"()) OR "public"."is_site_admin"())) WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."is_site_admin"()));
 
 
 
-CREATE POLICY "mentor_select_own_profile" ON "public"."mentor_profiles" FOR SELECT USING (("user_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "mentor_upd_self_or_admin" ON "public"."mentor_profiles" FOR UPDATE TO "authenticated" USING ((("user_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"()))) WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"())));
-
-
-
-CREATE POLICY "mentor_update_own_profile_meeting_link" ON "public"."mentor_profiles" FOR UPDATE USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+CREATE POLICY "mentor_profiles_read_only_authenticated" ON "public"."mentor_profiles" FOR SELECT TO "authenticated" USING (true);
 
 
 
@@ -20159,31 +22573,19 @@ CREATE POLICY "mentor_update_own_sessions_link" ON "public"."mentorship_sessions
 ALTER TABLE "public"."mentors" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "mentors_i_u_d_owner_admin" ON "public"."mentors" TO "authenticated" USING ((("user_id" = "auth"."uid"()) OR "public"."app_is_admin"())) WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."app_is_admin"()));
+CREATE POLICY "mentors_insert_self" ON "public"."mentors" FOR INSERT TO "authenticated" WITH CHECK (("user_id" = "auth"."uid"()));
 
 
 
-CREATE POLICY "mentors_insert" ON "public"."mentors" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"())));
+CREATE POLICY "mentors_internal_upsert" ON "public"."mentors" TO "postgres" USING (true) WITH CHECK (true);
 
 
 
-CREATE POLICY "mentors_s_owner_admin" ON "public"."mentors" FOR SELECT TO "authenticated" USING ((("user_id" = "auth"."uid"()) OR "public"."app_is_admin"()));
+CREATE POLICY "mentors_select_self_approved_or_admin" ON "public"."mentors" FOR SELECT TO "authenticated" USING ((("user_id" = "auth"."uid"()) OR "public"."is_site_admin"() OR ("status" = 'approved'::"text")));
 
 
 
-CREATE POLICY "mentors_s_public_approved" ON "public"."mentors" FOR SELECT TO "authenticated", "anon" USING (("status" = 'approved'::"text"));
-
-
-
-CREATE POLICY "mentors_select" ON "public"."mentors" FOR SELECT TO "authenticated" USING ((("user_id" = "auth"."uid"()) OR ("status" = 'approved'::"text") OR "public"."is_user_admin"("auth"."uid"())));
-
-
-
-CREATE POLICY "mentors_select_public" ON "public"."mentors" FOR SELECT TO "authenticated" USING (("status" = 'approved'::"text"));
-
-
-
-CREATE POLICY "mentors_update" ON "public"."mentors" FOR UPDATE TO "authenticated" USING ((("user_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"()))) WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"())));
+CREATE POLICY "mentors_update_self_or_admin" ON "public"."mentors" FOR UPDATE TO "authenticated" USING ((("user_id" = "auth"."uid"()) OR "public"."is_site_admin"())) WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."is_site_admin"()));
 
 
 
@@ -20198,6 +22600,14 @@ CREATE POLICY "mentorship_appointments_insert_policy" ON "public"."mentorship_ap
 
 
 
+CREATE POLICY "mentorship_appointments_parties_or_admin" ON "public"."mentorship_appointments" TO "authenticated" USING ((("mentee_id" = "auth"."uid"()) OR "public"."is_site_admin"() OR (EXISTS ( SELECT 1
+   FROM "public"."mentorship_relationships" "r"
+  WHERE (("r"."mentee_id" = "mentorship_appointments"."mentee_id") AND ("r"."status" = 'active'::"text") AND ("r"."mentor_id" = "auth"."uid"())))))) WITH CHECK ((("mentee_id" = "auth"."uid"()) OR "public"."is_site_admin"() OR (EXISTS ( SELECT 1
+   FROM "public"."mentorship_relationships" "r"
+  WHERE (("r"."mentee_id" = "mentorship_appointments"."mentee_id") AND ("r"."status" = 'active'::"text") AND ("r"."mentor_id" = "auth"."uid"()))))));
+
+
+
 CREATE POLICY "mentorship_appointments_select_policy" ON "public"."mentorship_appointments" FOR SELECT USING (("auth"."uid"() = "mentee_id"));
 
 
@@ -20209,14 +22619,15 @@ CREATE POLICY "mentorship_appointments_update_policy" ON "public"."mentorship_ap
 ALTER TABLE "public"."mentorship_feedback" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "mentorship_feedback_parties_or_admin" ON "public"."mentorship_feedback" TO "authenticated" USING (("public"."is_site_admin"() OR (EXISTS ( SELECT 1
+   FROM "public"."mentorship_requests" "req"
+  WHERE (("req"."id" = "mentorship_feedback"."mentorship_request_id") AND (("req"."mentor_id" = "auth"."uid"()) OR ("req"."mentee_id" = "auth"."uid"()))))))) WITH CHECK (("public"."is_site_admin"() OR (EXISTS ( SELECT 1
+   FROM "public"."mentorship_requests" "req"
+  WHERE (("req"."id" = "mentorship_feedback"."mentorship_request_id") AND (("req"."mentor_id" = "auth"."uid"()) OR ("req"."mentee_id" = "auth"."uid"())))))));
+
+
+
 ALTER TABLE "public"."mentorship_messages" ENABLE ROW LEVEL SECURITY;
-
-
-CREATE POLICY "mentorship_messages_insert" ON "public"."mentorship_messages" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
-   FROM ("public"."mentorship_requests" "r"
-     JOIN "public"."mentorship_relationships" "rel" ON ((("rel"."mentor_id" = "r"."mentor_id") AND ("rel"."mentee_id" = "r"."mentee_id") AND ("rel"."status" = 'active'::"text"))))
-  WHERE (("r"."id" = "mentorship_messages"."mentorship_request_id") AND ("r"."status" = 'accepted'::"text") AND (("r"."mentor_id" = "auth"."uid"()) OR ("r"."mentee_id" = "auth"."uid"()))))));
-
 
 
 CREATE POLICY "mentorship_messages_select" ON "public"."mentorship_messages" FOR SELECT USING ((EXISTS ( SELECT 1
@@ -20235,30 +22646,46 @@ CREATE POLICY "mentorship_programs_insert_mentor_or_admin" ON "public"."mentorsh
 ALTER TABLE "public"."mentorship_relationships" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "mentorship_relationships_internal_update" ON "public"."mentorship_relationships" FOR UPDATE TO "postgres" USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "mentorship_relationships_parties_or_admin" ON "public"."mentorship_relationships" TO "authenticated" USING ((("mentor_id" = "auth"."uid"()) OR ("mentee_id" = "auth"."uid"()) OR "public"."is_site_admin"())) WITH CHECK ((("mentor_id" = "auth"."uid"()) OR ("mentee_id" = "auth"."uid"()) OR "public"."is_site_admin"()));
+
+
+
+CREATE POLICY "mentorship_relationships_select_own" ON "public"."mentorship_relationships" FOR SELECT TO "authenticated" USING ((("auth"."uid"() IS NOT NULL) AND (("auth"."uid"() = "mentee_id") OR ("auth"."uid"() = "mentor_id") OR "public"."is_user_admin"("auth"."uid"()))));
+
+
+
 ALTER TABLE "public"."mentorship_requests" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "mentorship_requests_insert" ON "public"."mentorship_requests" FOR INSERT TO "authenticated" WITH CHECK (((("mentee_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"()) OR "public"."is_super_admin"("auth"."uid"())) AND (EXISTS ( SELECT 1
-   FROM "public"."profiles" "p"
-  WHERE (("p"."id" = "mentorship_requests"."mentor_id") AND (COALESCE("p"."is_available_for_mentorship", false) = true))))));
+CREATE POLICY "mentorship_requests_insert_mentee" ON "public"."mentorship_requests" FOR INSERT TO "authenticated" WITH CHECK (("mentee_id" = "auth"."uid"()));
 
 
 
-CREATE POLICY "mentorship_requests_insert_approved" ON "public"."mentorship_requests" FOR INSERT TO "authenticated" WITH CHECK ((("mentee_id" = "auth"."uid"()) AND "public"."fc_is_fully_approved"("auth"."uid"())));
+CREATE POLICY "mentorship_requests_internal_delete" ON "public"."mentorship_requests" FOR DELETE TO "postgres" USING (true);
 
 
 
-CREATE POLICY "mentorship_requests_no_employers" ON "public"."mentorship_requests" FOR INSERT TO "authenticated" WITH CHECK ((("mentee_id" = "auth"."uid"()) AND (( SELECT "profiles"."role"
-   FROM "public"."profiles"
-  WHERE ("profiles"."id" = "auth"."uid"())) <> 'employer'::"public"."app_role_enum")));
+CREATE POLICY "mentorship_requests_internal_insert" ON "public"."mentorship_requests" FOR INSERT TO "postgres" WITH CHECK (true);
 
 
 
-CREATE POLICY "mentorship_requests_select" ON "public"."mentorship_requests" FOR SELECT TO "authenticated" USING ((("mentee_id" = "auth"."uid"()) OR ("mentor_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"())));
+CREATE POLICY "mentorship_requests_internal_update" ON "public"."mentorship_requests" FOR UPDATE TO "postgres" USING (true) WITH CHECK (true);
 
 
 
-CREATE POLICY "mentorship_requests_update" ON "public"."mentorship_requests" FOR UPDATE TO "authenticated" USING ((("mentee_id" = "auth"."uid"()) OR ("mentor_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"()))) WITH CHECK ((("mentee_id" = "auth"."uid"()) OR ("mentor_id" = "auth"."uid"()) OR "public"."is_user_admin"("auth"."uid"())));
+CREATE POLICY "mentorship_requests_select_own" ON "public"."mentorship_requests" FOR SELECT TO "authenticated" USING ((("auth"."uid"() IS NOT NULL) AND (("auth"."uid"() = "mentee_id") OR ("auth"."uid"() = "mentor_id") OR "public"."is_user_admin"("auth"."uid"()))));
+
+
+
+CREATE POLICY "mentorship_requests_select_parties_or_admin" ON "public"."mentorship_requests" FOR SELECT TO "authenticated" USING ((("mentor_id" = "auth"."uid"()) OR ("mentee_id" = "auth"."uid"()) OR "public"."is_site_admin"()));
+
+
+
+CREATE POLICY "mentorship_requests_update_parties_or_admin" ON "public"."mentorship_requests" FOR UPDATE TO "authenticated" USING ((("mentor_id" = "auth"."uid"()) OR ("mentee_id" = "auth"."uid"()) OR "public"."is_site_admin"())) WITH CHECK ((("mentor_id" = "auth"."uid"()) OR ("mentee_id" = "auth"."uid"()) OR "public"."is_site_admin"()));
 
 
 
@@ -20271,7 +22698,19 @@ CREATE POLICY "mentorship_sessions_delete_policy" ON "public"."mentorship_sessio
 
 
 
+CREATE POLICY "mentorship_sessions_parties_or_admin" ON "public"."mentorship_sessions" TO "authenticated" USING (("public"."is_site_admin"() OR (EXISTS ( SELECT 1
+   FROM "public"."mentorship_requests" "req"
+  WHERE (("req"."id" = "mentorship_sessions"."mentorship_request_id") AND (("req"."mentor_id" = "auth"."uid"()) OR ("req"."mentee_id" = "auth"."uid"()))))))) WITH CHECK (("public"."is_site_admin"() OR (EXISTS ( SELECT 1
+   FROM "public"."mentorship_requests" "req"
+  WHERE (("req"."id" = "mentorship_sessions"."mentorship_request_id") AND (("req"."mentor_id" = "auth"."uid"()) OR ("req"."mentee_id" = "auth"."uid"())))))));
+
+
+
 ALTER TABLE "public"."mentorships" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "mentorships_read_only_authenticated" ON "public"."mentorships" FOR SELECT TO "authenticated" USING (true);
+
 
 
 ALTER TABLE "public"."messages" ENABLE ROW LEVEL SECURITY;
@@ -20299,18 +22738,6 @@ CREATE POLICY "messages_participants_update" ON "public"."messages" FOR UPDATE T
 
 
 
-CREATE POLICY "mr_insert_mentee" ON "public"."mentorship_requests" FOR INSERT TO "authenticated" WITH CHECK (("mentee_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "mr_select_self" ON "public"."mentorship_requests" FOR SELECT TO "authenticated" USING ((("mentee_id" = "auth"."uid"()) OR ("mentor_id" = "auth"."uid"())));
-
-
-
-CREATE POLICY "mr_update_mentor" ON "public"."mentorship_requests" FOR UPDATE TO "authenticated" USING (("mentor_id" = "auth"."uid"())) WITH CHECK (("mentor_id" = "auth"."uid"()));
-
-
-
 CREATE POLICY "msg_insert_self" ON "public"."messages" FOR INSERT TO "authenticated" WITH CHECK (("sender_id" = "auth"."uid"()));
 
 
@@ -20319,69 +22746,45 @@ CREATE POLICY "msg_read_participants" ON "public"."messages" FOR SELECT TO "auth
 
 
 
-CREATE POLICY "notif_prefs_self_rw" ON "public"."notification_preferences" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "notif_select_mine" ON "public"."notifications" FOR SELECT USING (("recipient_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "notif_select_self" ON "public"."notifications" FOR SELECT USING (("recipient_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "notif_update_mark_read" ON "public"."notifications" FOR UPDATE USING (("recipient_id" = "auth"."uid"())) WITH CHECK (("recipient_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "notif_update_self" ON "public"."notifications" FOR UPDATE USING (("recipient_id" = "auth"."uid"()));
+CREATE POLICY "no_modify_deletion_logs" ON "public"."admin_deletion_audit_log" USING (false) WITH CHECK (false);
 
 
 
 ALTER TABLE "public"."notification_preferences" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "notification_prefs_insert_own" ON "public"."notification_preferences" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
+CREATE POLICY "notification_prefs_delete_self_or_admin" ON "public"."notification_preferences" FOR DELETE USING ((("auth"."uid"() IS NOT NULL) AND (("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"())));
 
 
 
-CREATE POLICY "notification_prefs_select_own" ON "public"."notification_preferences" FOR SELECT USING (("user_id" = "auth"."uid"()));
+CREATE POLICY "notification_prefs_insert_self_or_admin" ON "public"."notification_preferences" FOR INSERT WITH CHECK ((("auth"."uid"() IS NOT NULL) AND (("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"())));
 
 
 
-CREATE POLICY "notification_prefs_update_own" ON "public"."notification_preferences" FOR UPDATE USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+CREATE POLICY "notification_prefs_select_self_or_admin" ON "public"."notification_preferences" FOR SELECT USING ((("auth"."uid"() IS NOT NULL) AND (("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"())));
+
+
+
+CREATE POLICY "notification_prefs_update_self_or_admin" ON "public"."notification_preferences" FOR UPDATE USING ((("auth"."uid"() IS NOT NULL) AND (("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()))) WITH CHECK ((("auth"."uid"() IS NOT NULL) AND (("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"())));
 
 
 
 ALTER TABLE "public"."notifications" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "notifications.select.owner" ON "public"."notifications" FOR SELECT TO "authenticated" USING (("user_id" = "auth"."uid"()));
+CREATE POLICY "notifications_delete_admin_only" ON "public"."notifications" FOR DELETE USING ((("auth"."uid"() IS NOT NULL) AND ("public"."fc_is_admin"() OR "public"."fc_is_super_admin"())));
 
 
 
-CREATE POLICY "notifications_insert_policy" ON "public"."notifications" FOR INSERT WITH CHECK (true);
+CREATE POLICY "notifications_insert_for_self_or_admin" ON "public"."notifications" FOR INSERT WITH CHECK ((("auth"."uid"() IS NOT NULL) AND (("recipient_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"())));
 
 
 
-CREATE POLICY "notifications_insert_via_definer" ON "public"."notifications" FOR INSERT WITH CHECK (true);
+CREATE POLICY "notifications_select_self_or_admin" ON "public"."notifications" FOR SELECT USING ((("auth"."uid"() IS NOT NULL) AND (("recipient_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"())));
 
 
 
-CREATE POLICY "notifications_select_policy" ON "public"."notifications" FOR SELECT USING (("auth"."uid"() = COALESCE("profile_id", "recipient_id")));
-
-
-
-CREATE POLICY "notifications_select_self_or_admin" ON "public"."notifications" FOR SELECT USING ((("recipient_id" = "auth"."uid"()) OR COALESCE("public"."is_admin"("auth"."uid"()), false)));
-
-
-
-CREATE POLICY "notifications_update_policy" ON "public"."notifications" FOR UPDATE USING (("auth"."uid"() = COALESCE("profile_id", "recipient_id")));
-
-
-
-CREATE POLICY "notifications_update_self_or_admin" ON "public"."notifications" FOR UPDATE USING ((("recipient_id" = "auth"."uid"()) OR COALESCE("public"."is_admin"("auth"."uid"()), false))) WITH CHECK ((("recipient_id" = "auth"."uid"()) OR COALESCE("public"."is_admin"("auth"."uid"()), false)));
+CREATE POLICY "notifications_update_self_or_admin" ON "public"."notifications" FOR UPDATE USING ((("auth"."uid"() IS NOT NULL) AND (("recipient_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()))) WITH CHECK ((("auth"."uid"() IS NOT NULL) AND (("recipient_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"())));
 
 
 
@@ -20399,11 +22802,11 @@ CREATE POLICY "profiles_insert_self" ON "public"."profiles" FOR INSERT TO "authe
 
 
 
+CREATE POLICY "profiles_no_deleted_for_auth" ON "public"."profiles" AS RESTRICTIVE FOR SELECT TO "authenticated" USING (((COALESCE("is_deleted", false) = false) OR "public"."app_is_admin"()));
+
+
+
 CREATE POLICY "profiles_select_admin_all" ON "public"."profiles" FOR SELECT TO "authenticated" USING ("public"."app_is_admin"());
-
-
-
-CREATE POLICY "profiles_select_auth" ON "public"."profiles" FOR SELECT TO "authenticated" USING (true);
 
 
 
@@ -20457,15 +22860,9 @@ CREATE POLICY "realtime: conversations" ON "public"."conversations" FOR SELECT U
 
 
 
-CREATE POLICY "realtime: event_feedback" ON "public"."event_feedback" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
-
-
-
-CREATE POLICY "realtime: mentorship_requests" ON "public"."mentorship_requests" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
-
-
-
-CREATE POLICY "realtime: notifications" ON "public"."notifications" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
+CREATE POLICY "realtime: event_feedback" ON "public"."event_feedback" FOR SELECT USING (("public"."fc_is_admin"() OR (EXISTS ( SELECT 1
+   FROM "public"."events" "e"
+  WHERE (("e"."id" = "event_feedback"."event_id") AND ("e"."organizer_id" = "auth"."uid"()))))));
 
 
 
@@ -20477,10 +22874,6 @@ CREATE POLICY "realtime: rsvps" ON "public"."event_rsvps" FOR SELECT USING (("au
 
 
 
-CREATE POLICY "recipient can select notifications" ON "public"."notifications" FOR SELECT USING (("user_id" = "auth"."uid"()));
-
-
-
 CREATE POLICY "recipient can update their own connections" ON "public"."connections" FOR UPDATE USING (("recipient_id" = "auth"."uid"()));
 
 
@@ -20489,6 +22882,38 @@ ALTER TABLE "public"."resources" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."resume_profiles" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "resume_profiles_delete" ON "public"."resume_profiles" FOR DELETE USING ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR (("auth"."uid"() IS NOT NULL) AND "public"."is_super_admin"("auth"."uid"()))));
+
+
+
+CREATE POLICY "resume_profiles_employers" ON "public"."resume_profiles" FOR SELECT TO "authenticated" USING (("public"."get_user_role"("auth"."uid"()) = ANY (ARRAY['employer'::"text", 'admin'::"text", 'super_admin'::"text"])));
+
+
+
+CREATE POLICY "resume_profiles_insert" ON "public"."resume_profiles" FOR INSERT WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR (("auth"."uid"() IS NOT NULL) AND "public"."is_super_admin"("auth"."uid"()))));
+
+
+
+CREATE POLICY "resume_profiles_select" ON "public"."resume_profiles" FOR SELECT USING ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR (("auth"."uid"() IS NOT NULL) AND "public"."is_super_admin"("auth"."uid"()))));
+
+
+
+CREATE POLICY "resume_profiles_select_admin" ON "public"."resume_profiles" FOR SELECT TO "authenticated" USING ("public"."is_site_admin"());
+
+
+
+CREATE POLICY "resume_profiles_select_owner" ON "public"."resume_profiles" FOR SELECT TO "authenticated" USING (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "resume_profiles_self" ON "public"."resume_profiles" FOR SELECT USING (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "resume_profiles_update" ON "public"."resume_profiles" FOR UPDATE USING ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR (("auth"."uid"() IS NOT NULL) AND "public"."is_super_admin"("auth"."uid"())))) WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR (("auth"."uid"() IS NOT NULL) AND "public"."is_super_admin"("auth"."uid"()))));
+
 
 
 ALTER TABLE "public"."roles" ENABLE ROW LEVEL SECURITY;
@@ -20518,6 +22943,12 @@ CREATE POLICY "ual_select_admins" ON "public"."user_activity_logs" FOR SELECT TO
 
 
 
+CREATE POLICY "update_end_relationship" ON "public"."mentorship_relationships" FOR UPDATE USING ((("status" = 'active'::"text") AND (("auth"."uid"() = "mentor_id") OR ("auth"."uid"() = "mentee_id") OR (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p"
+  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))))) WITH CHECK (("status" = ANY (ARRAY['completed'::"text", 'terminated'::"text"])));
+
+
+
 CREATE POLICY "update_own_social_links" ON "public"."social_links" FOR UPDATE USING (("profile_id" = "auth"."uid"())) WITH CHECK (("profile_id" = "auth"."uid"()));
 
 
@@ -20541,6 +22972,26 @@ CREATE POLICY "user_feedback_update_super_only" ON "public"."user_feedback" FOR 
 
 
 ALTER TABLE "public"."user_resumes" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "user_resumes_delete_self_or_admin" ON "public"."user_resumes" FOR DELETE USING ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()));
+
+
+
+CREATE POLICY "user_resumes_insert_self_or_admin" ON "public"."user_resumes" FOR INSERT WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()));
+
+
+
+CREATE POLICY "user_resumes_select_admin" ON "public"."user_resumes" FOR SELECT TO "authenticated" USING ("public"."is_site_admin"());
+
+
+
+CREATE POLICY "user_resumes_select_self_or_admin" ON "public"."user_resumes" FOR SELECT USING ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()));
+
+
+
+CREATE POLICY "user_resumes_update_self_or_admin" ON "public"."user_resumes" FOR UPDATE USING ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"())) WITH CHECK ((("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"()));
+
 
 
 ALTER TABLE "public"."user_roles" ENABLE ROW LEVEL SECURITY;
@@ -20603,10 +23054,6 @@ CREATE POLICY "Allow public to view post images" ON "storage"."objects" FOR SELE
 
 
 
-CREATE POLICY "Anyone can upload cover letters" ON "storage"."objects" FOR INSERT WITH CHECK ((("bucket_id" = 'cover-letters'::"text") AND ("auth"."role"() = 'authenticated'::"text")));
-
-
-
 CREATE POLICY "Anyone can upload resumes" ON "storage"."objects" FOR INSERT WITH CHECK ((("bucket_id" = 'resumes'::"text") AND ("auth"."role"() = 'authenticated'::"text")));
 
 
@@ -20616,10 +23063,6 @@ CREATE POLICY "Authenticated users can upload" ON "storage"."objects" FOR INSERT
 
 
 CREATE POLICY "Authenticated users can upload post images" ON "storage"."objects" FOR INSERT TO "authenticated" WITH CHECK (("bucket_id" = 'post_images'::"text"));
-
-
-
-CREATE POLICY "Cover letters are publicly accessible" ON "storage"."objects" FOR SELECT USING (("bucket_id" = 'cover-letters'::"text"));
 
 
 
@@ -20679,10 +23122,6 @@ CREATE POLICY "Public read company logos" ON "storage"."objects" FOR SELECT USIN
 
 
 
-CREATE POLICY "Resumes are publicly accessible" ON "storage"."objects" FOR SELECT USING (("bucket_id" = 'resumes'::"text"));
-
-
-
 CREATE POLICY "Users can delete own files" ON "storage"."objects" FOR DELETE USING (((("auth"."uid"())::"text" = ("storage"."foldername"("name"))[1]) AND ("bucket_id" = 'bucket-name'::"text")));
 
 
@@ -20709,13 +23148,13 @@ CREATE POLICY "avatars_i_own_folder" ON "storage"."objects" FOR INSERT TO "authe
 
 
 
-CREATE POLICY "avatars_r_own" ON "storage"."objects" FOR SELECT TO "authenticated" USING ((("bucket_id" = 'avatars'::"text") AND (("name" ~~ ("auth"."uid"() || '/%'::"text")) OR ("owner" = "auth"."uid"()))));
+CREATE POLICY "avatars_r_own_always" ON "storage"."objects" FOR SELECT TO "authenticated" USING ((("bucket_id" = 'avatars'::"text") AND (("name" ~~ (("auth"."uid"())::"text" || '/%'::"text")) OR ("owner" = "auth"."uid"()))));
 
 
 
-CREATE POLICY "avatars_r_public_directory" ON "storage"."objects" FOR SELECT TO "authenticated", "anon" USING ((("bucket_id" = 'avatars'::"text") AND (EXISTS ( SELECT 1
+CREATE POLICY "avatars_r_public_approved" ON "storage"."objects" FOR SELECT TO "authenticated", "anon" USING ((("bucket_id" = 'avatars'::"text") AND (EXISTS ( SELECT 1
    FROM "public"."profiles" "p"
-  WHERE (("p"."id" = "objects"."owner") AND (COALESCE("p"."is_deleted", false) = false) AND (COALESCE("p"."show_in_directory", true) = true) AND (COALESCE(("p"."approval_status")::"text", 'pending'::"text") = 'approved'::"text"))))));
+  WHERE (("p"."id" = "objects"."owner") AND (COALESCE("p"."is_deleted", false) = false) AND (COALESCE(("p"."approval_status")::"text", 'pending'::"text") = 'approved'::"text"))))));
 
 
 
@@ -20730,6 +23169,14 @@ ALTER TABLE "storage"."buckets_analytics" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "storage"."buckets_vectors" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "cover_letters_owner_upload" ON "storage"."objects" FOR INSERT TO "authenticated" WITH CHECK ((("bucket_id" = 'cover-letters'::"text") AND (("storage"."foldername"("name"))[1] = ("auth"."uid"())::"text")));
+
+
+
+CREATE POLICY "cover_letters_read_owner_private" ON "storage"."objects" FOR SELECT TO "authenticated" USING ((("bucket_id" = 'cover-letters'::"text") AND ("owner" = "auth"."uid"())));
+
 
 
 CREATE POLICY "event-images-w-owner" ON "storage"."objects" FOR INSERT TO "authenticated" WITH CHECK ((("bucket_id" = 'event-images'::"text") AND (EXISTS ( SELECT 1
@@ -20762,7 +23209,9 @@ CREATE POLICY "ga_update_admins" ON "storage"."objects" FOR UPDATE TO "authentic
 
 
 
-CREATE POLICY "group_posts_upload" ON "storage"."objects" FOR INSERT TO "authenticated" WITH CHECK ((("bucket_id" = 'group-posts'::"text") AND ("auth"."role"() = 'authenticated'::"text")));
+CREATE POLICY "group_posts_upload" ON "storage"."objects" FOR INSERT TO "authenticated" WITH CHECK ((("bucket_id" = 'group-posts'::"text") AND (("storage"."foldername"("name"))[1] IN ( SELECT ("g"."id")::"text" AS "id"
+   FROM "public"."groups" "g"
+  WHERE (("g"."is_archived" = false) AND "public"."is_member_of_group"("g"."id", "auth"."uid"()))))));
 
 
 
@@ -20796,6 +23245,10 @@ CREATE POLICY "profile_images_r_own" ON "storage"."objects" FOR SELECT TO "authe
 
 
 CREATE POLICY "profile_images_u_own" ON "storage"."objects" FOR UPDATE TO "authenticated" USING ((("bucket_id" = 'profile-images'::"text") AND ("owner" = "auth"."uid"()))) WITH CHECK ((("bucket_id" = 'profile-images'::"text") AND ("owner" = "auth"."uid"())));
+
+
+
+CREATE POLICY "resumes_read_owner_private" ON "storage"."objects" FOR SELECT TO "authenticated" USING ((("bucket_id" = 'resumes'::"text") AND ("owner" = "auth"."uid"())));
 
 
 
@@ -20881,7 +23334,7 @@ GRANT ALL ON FUNCTION "public"."admin_delete_job"("p_job_id" "uuid") TO "service
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_delete_user_fallback"("target_user_id" "uuid") TO "anon";
+REVOKE ALL ON FUNCTION "public"."admin_delete_user_fallback"("target_user_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."admin_delete_user_fallback"("target_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_delete_user_fallback"("target_user_id" "uuid") TO "service_role";
 
@@ -20894,7 +23347,7 @@ GRANT ALL ON FUNCTION "public"."admin_delete_user_rpc"("target" "uuid") TO "serv
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_get_avatar"("p_user_id" "uuid") TO "anon";
+REVOKE ALL ON FUNCTION "public"."admin_get_avatar"("p_user_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."admin_get_avatar"("p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_get_avatar"("p_user_id" "uuid") TO "service_role";
 
@@ -20906,7 +23359,7 @@ GRANT ALL ON TABLE "public"."profile_approval_audit" TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_get_profile_approval_audit"("p_profile_id" "uuid", "p_limit" integer, "p_offset" integer) TO "anon";
+REVOKE ALL ON FUNCTION "public"."admin_get_profile_approval_audit"("p_profile_id" "uuid", "p_limit" integer, "p_offset" integer) FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."admin_get_profile_approval_audit"("p_profile_id" "uuid", "p_limit" integer, "p_offset" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_get_profile_approval_audit"("p_profile_id" "uuid", "p_limit" integer, "p_offset" integer) TO "service_role";
 
@@ -20924,7 +23377,7 @@ GRANT ALL ON TABLE "public"."profiles" TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status", "p_role" "public"."app_role_enum", "p_limit" integer, "p_offset" integer) TO "anon";
+REVOKE ALL ON FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status", "p_role" "public"."app_role_enum", "p_limit" integer, "p_offset" integer) FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status", "p_role" "public"."app_role_enum", "p_limit" integer, "p_offset" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_list_profiles_for_approval"("p_status" "public"."profile_approval_status", "p_role" "public"."app_role_enum", "p_limit" integer, "p_offset" integer) TO "service_role";
 
@@ -20974,13 +23427,13 @@ GRANT ALL ON FUNCTION "public"."admin_pending_feed"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_purge_user_data"("target" "uuid") TO "anon";
+REVOKE ALL ON FUNCTION "public"."admin_purge_user_data"("target" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."admin_purge_user_data"("target" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_purge_user_data"("target" "uuid") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_request_user_delete"("target" "uuid") TO "anon";
+REVOKE ALL ON FUNCTION "public"."admin_request_user_delete"("target" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."admin_request_user_delete"("target" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_request_user_delete"("target" "uuid") TO "service_role";
 
@@ -21024,11 +23477,12 @@ GRANT ALL ON FUNCTION "public"."admin_set_role"("p_user" "uuid", "p_role" "text"
 
 
 
+REVOKE ALL ON FUNCTION "public"."admin_set_roles"("p_user_ids" "uuid"[], "p_role" "public"."app_role_enum") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."admin_set_roles"("p_user_ids" "uuid"[], "p_role" "public"."app_role_enum") TO "service_role";
+GRANT ALL ON FUNCTION "public"."admin_set_roles"("p_user_ids" "uuid"[], "p_role" "public"."app_role_enum") TO "authenticated";
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "text") TO "service_role";
 
@@ -21044,19 +23498,16 @@ GRANT ALL ON FUNCTION "public"."admin_set_user_role_legacy"("target" "uuid", "ne
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_soft_delete_user"("target" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."admin_soft_delete_user"("target" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_soft_delete_user"("target" "uuid") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_soft_delete_user"("target" "uuid", "p_reason" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."admin_soft_delete_user"("target" "uuid", "p_reason" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_soft_delete_user"("target" "uuid", "p_reason" "text") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_toggle_active"("p_user_id" "uuid", "p_is_active" boolean, "p_reason" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."admin_toggle_active"("p_user_id" "uuid", "p_is_active" boolean, "p_reason" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_toggle_active"("p_user_id" "uuid", "p_is_active" boolean, "p_reason" "text") TO "service_role";
 
@@ -21069,13 +23520,22 @@ GRANT ALL ON FUNCTION "public"."admin_total_profiles"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_update_profile_approval"("p_profile_id" "uuid", "p_decision" "text", "p_notes" "text") TO "anon";
+GRANT ALL ON TABLE "public"."mentors" TO "service_role";
+GRANT SELECT,INSERT,UPDATE ON TABLE "public"."mentors" TO "authenticated";
+
+
+
+GRANT ALL ON FUNCTION "public"."admin_update_mentor_status"("p_user_id" "uuid", "p_status" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_update_mentor_status"("p_user_id" "uuid", "p_status" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_update_mentor_status"("p_user_id" "uuid", "p_status" "text") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."admin_update_profile_approval"("p_profile_id" "uuid", "p_decision" "text", "p_notes" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_update_profile_approval"("p_profile_id" "uuid", "p_decision" "text", "p_notes" "text") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_update_user_role"("p_user_id" "uuid", "p_role" "public"."app_role_enum", "p_reason" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."admin_update_user_role"("p_user_id" "uuid", "p_role" "public"."app_role_enum", "p_reason" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_update_user_role"("p_user_id" "uuid", "p_role" "public"."app_role_enum", "p_reason" "text") TO "service_role";
 
@@ -21150,14 +23610,14 @@ GRANT ALL ON FUNCTION "public"."assign_user_role"("profile_uuid" "uuid", "role_n
 
 
 
+REVOKE ALL ON FUNCTION "public"."attach_user_to_batch_group"("p_user_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."attach_user_to_batch_group"("p_user_id" "uuid") TO "anon";
-GRANT ALL ON FUNCTION "public"."attach_user_to_batch_group"("p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."attach_user_to_batch_group"("p_user_id" "uuid") TO "service_role";
 
 
 
+REVOKE ALL ON FUNCTION "public"."auto_assign_batch_group_for_profile"("p_user_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."auto_assign_batch_group_for_profile"("p_user_id" "uuid") TO "anon";
-GRANT ALL ON FUNCTION "public"."auto_assign_batch_group_for_profile"("p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."auto_assign_batch_group_for_profile"("p_user_id" "uuid") TO "service_role";
 
 
@@ -21189,6 +23649,12 @@ GRANT ALL ON FUNCTION "public"."backfill_profile_emails"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."block_applications_for_quick_link"() TO "anon";
 GRANT ALL ON FUNCTION "public"."block_applications_for_quick_link"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."block_applications_for_quick_link"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."block_direct_role_updates"() TO "anon";
+GRANT ALL ON FUNCTION "public"."block_direct_role_updates"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."block_direct_role_updates"() TO "service_role";
 
 
 
@@ -21312,6 +23778,12 @@ GRANT ALL ON FUNCTION "public"."companies_set_created_by"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."connection_accept"("p_connection_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."connection_accept"("p_connection_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."connection_accept"("p_connection_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."connections_fill_defaults"() TO "anon";
 GRANT ALL ON FUNCTION "public"."connections_fill_defaults"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."connections_fill_defaults"() TO "service_role";
@@ -21359,26 +23831,18 @@ GRANT ALL ON FUNCTION "public"."create_new_event"("event_data" "jsonb") TO "serv
 
 
 
-GRANT ALL ON FUNCTION "public"."create_notification"("user_id" "uuid", "notification_title" "text", "notification_message" "text", "notification_link" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."create_notification"("user_id" "uuid", "notification_title" "text", "notification_message" "text", "notification_link" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."create_notification"("user_id" "uuid", "notification_title" "text", "notification_message" "text", "notification_link" "text") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."create_notification"("target_profile_id" "uuid", "notif_title" "text", "notif_message" "text", "notif_link" "text", "notif_type" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."create_notification"("target_profile_id" "uuid", "notif_title" "text", "notif_message" "text", "notif_link" "text", "notif_type" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."create_notification"("target_profile_id" "uuid", "notif_title" "text", "notif_message" "text", "notif_link" "text", "notif_type" "text") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."create_notification"("recipient_id" "uuid", "sender_id" "uuid", "event_id" "uuid", "type" "text", "message" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."create_notification"("recipient_id" "uuid", "sender_id" "uuid", "event_id" "uuid", "type" "text", "message" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."create_notification"("recipient_id" "uuid", "sender_id" "uuid", "event_id" "uuid", "type" "text", "message" "text") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."create_notification"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_body" "text", "p_link" "text", "p_metadata" "jsonb") TO "anon";
-GRANT ALL ON FUNCTION "public"."create_notification"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_body" "text", "p_link" "text", "p_metadata" "jsonb") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."create_notification"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_body" "text", "p_link" "text", "p_metadata" "jsonb") TO "service_role";
 
 
@@ -21389,8 +23853,7 @@ GRANT ALL ON FUNCTION "public"."create_or_update_mentor_profile"("p_expertise" "
 
 
 
-GRANT ALL ON FUNCTION "public"."create_relationship_on_accept"() TO "anon";
-GRANT ALL ON FUNCTION "public"."create_relationship_on_accept"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."create_relationship_on_accept"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."create_relationship_on_accept"() TO "service_role";
 
 
@@ -21495,6 +23958,12 @@ GRANT ALL ON FUNCTION "public"."enforce_at_least_one_admin_deferred"() TO "servi
 
 
 
+GRANT ALL ON FUNCTION "public"."enforce_avatar_upload_rate"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."enforce_avatar_upload_rate"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."enforce_avatar_upload_rate"("p_user_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."enforce_feedback_after_end"() TO "anon";
 GRANT ALL ON FUNCTION "public"."enforce_feedback_after_end"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."enforce_feedback_after_end"() TO "service_role";
@@ -21513,7 +23982,19 @@ GRANT ALL ON FUNCTION "public"."enforce_requester_guard"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."enqueue_user_hard_delete"("target_user_id" "uuid", "reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."enqueue_notification_event"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb", "p_idempotency_key" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."enqueue_notification_event"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb", "p_idempotency_key" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."enqueue_notification_event"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb", "p_idempotency_key" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."enqueue_notification_event"("p_event_type" "public"."notification_type_enum", "p_module" "public"."notification_module", "p_actor_profile_id" "uuid", "p_entity_table" "text", "p_entity_id" "uuid", "p_metadata" "jsonb", "p_idempotency_key" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."enqueue_notification_event"("p_event_type" "public"."notification_type_enum", "p_module" "public"."notification_module", "p_actor_profile_id" "uuid", "p_entity_table" "text", "p_entity_id" "uuid", "p_metadata" "jsonb", "p_idempotency_key" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."enqueue_notification_event"("p_event_type" "public"."notification_type_enum", "p_module" "public"."notification_module", "p_actor_profile_id" "uuid", "p_entity_table" "text", "p_entity_id" "uuid", "p_metadata" "jsonb", "p_idempotency_key" "text") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."enqueue_user_hard_delete"("target_user_id" "uuid", "reason" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."enqueue_user_hard_delete"("target_user_id" "uuid", "reason" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."enqueue_user_hard_delete"("target_user_id" "uuid", "reason" "text") TO "service_role";
 
@@ -21525,9 +24006,21 @@ GRANT ALL ON FUNCTION "public"."ensure_connection_on_mentorship_accept"() TO "se
 
 
 
+GRANT ALL ON FUNCTION "public"."ensure_dm_thread_for_mentorship"() TO "anon";
+GRANT ALL ON FUNCTION "public"."ensure_dm_thread_for_mentorship"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."ensure_dm_thread_for_mentorship"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."ensure_dm_thread_with"("p_other" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."ensure_dm_thread_with"("p_other" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."ensure_dm_thread_with"("p_other" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."ensure_dm_thread_with"("p_other_user_id" "uuid", "p_context_type" "text", "p_context_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."ensure_dm_thread_with"("p_other_user_id" "uuid", "p_context_type" "text", "p_context_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."ensure_dm_thread_with"("p_other_user_id" "uuid", "p_context_type" "text", "p_context_id" "uuid") TO "service_role";
 
 
 
@@ -21586,6 +24079,12 @@ GRANT ALL ON FUNCTION "public"."fc_is_admin"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."fc_is_admin"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."fc_is_admin"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."fc_is_admin"("p_user_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."fc_is_employer"() TO "anon";
 GRANT ALL ON FUNCTION "public"."fc_is_employer"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."fc_is_employer"() TO "service_role";
@@ -21604,6 +24103,18 @@ GRANT ALL ON FUNCTION "public"."fc_is_fully_approved"("p_user_id" "uuid") TO "se
 
 
 
+GRANT ALL ON FUNCTION "public"."fc_is_super_admin"() TO "anon";
+GRANT ALL ON FUNCTION "public"."fc_is_super_admin"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."fc_is_super_admin"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."fc_is_super_admin"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."fc_is_super_admin"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."fc_is_super_admin"("p_user_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."find_or_create_conversation"("other_user_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."find_or_create_conversation"("other_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."find_or_create_conversation"("other_user_id" "uuid") TO "service_role";
@@ -21613,6 +24124,13 @@ GRANT ALL ON FUNCTION "public"."find_or_create_conversation"("other_user_id" "uu
 GRANT ALL ON FUNCTION "public"."format_inr"("val" bigint) TO "anon";
 GRANT ALL ON FUNCTION "public"."format_inr"("val" bigint) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."format_inr"("val" bigint) TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."get_admin_analytics_summary"("p_period" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."get_admin_analytics_summary"("p_period" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_admin_analytics_summary"("p_period" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_admin_analytics_summary"("p_period" "text") TO "service_role";
 
 
 
@@ -21645,7 +24163,12 @@ GRANT ALL ON FUNCTION "public"."get_admin_users"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."get_alumni_approved_count"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_all_profiles_count_by_role_admin"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_all_profiles_count_by_role_admin"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_all_profiles_count_by_role_admin"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_alumni_approved_count"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_alumni_approved_count"() TO "service_role";
 
@@ -21713,6 +24236,13 @@ GRANT ALL ON FUNCTION "public"."get_dashboard_stats"() TO "service_role";
 
 
 
+REVOKE ALL ON FUNCTION "public"."get_dashboard_summary_for_user"("p_user_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."get_dashboard_summary_for_user"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_dashboard_summary_for_user"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_dashboard_summary_for_user"("p_user_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_directory_cards"("p_search" "text", "p_limit" integer, "p_offset" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."get_directory_cards"("p_search" "text", "p_limit" integer, "p_offset" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_directory_cards"("p_search" "text", "p_limit" integer, "p_offset" integer) TO "service_role";
@@ -21768,13 +24298,18 @@ GRANT ALL ON FUNCTION "public"."get_directory_profiles_secure"("p_search" "text"
 
 
 
+GRANT ALL ON FUNCTION "public"."get_directory_profiles_secure"("p_search" "text", "p_limit" integer, "p_offset" integer, "p_sort_field" "text", "p_sort_dir" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_directory_profiles_secure"("p_search" "text", "p_limit" integer, "p_offset" integer, "p_sort_field" "text", "p_sort_dir" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_directory_profiles_secure"("p_search" "text", "p_limit" integer, "p_offset" integer, "p_sort_field" "text", "p_sort_dir" "text") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_directory_profiles_secure_count"("p_search" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_directory_profiles_secure_count"("p_search" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_directory_profiles_secure_count"("p_search" "text") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."get_directory_role_counts"() TO "anon";
 GRANT ALL ON FUNCTION "public"."get_directory_role_counts"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_directory_role_counts"() TO "service_role";
 
@@ -21840,6 +24375,7 @@ GRANT ALL ON FUNCTION "public"."get_jobs_public_v5"("p_search" "text", "p_locati
 
 
 
+REVOKE ALL ON FUNCTION "public"."get_jobs_public_v5"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer, "p_department" "text", "p_job_type" "text", "p_experience_level" "text", "p_location" "text", "p_industry" "text", "p_salary_min" integer, "p_salary_max" integer, "p_posted_since_days" integer) FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_jobs_public_v5"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer, "p_department" "text", "p_job_type" "text", "p_experience_level" "text", "p_location" "text", "p_industry" "text", "p_salary_min" integer, "p_salary_max" integer, "p_posted_since_days" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."get_jobs_public_v5"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer, "p_department" "text", "p_job_type" "text", "p_experience_level" "text", "p_location" "text", "p_industry" "text", "p_salary_min" integer, "p_salary_max" integer, "p_posted_since_days" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_jobs_public_v5"("p_search_query" "text", "p_sort_by" "text", "p_sort_order" "text", "p_limit" integer, "p_offset" integer, "p_department" "text", "p_job_type" "text", "p_experience_level" "text", "p_location" "text", "p_industry" "text", "p_salary_min" integer, "p_salary_max" integer, "p_posted_since_days" integer) TO "service_role";
@@ -21880,6 +24416,23 @@ REVOKE ALL ON FUNCTION "public"."get_mentor_contact"("mentor_uuid" "uuid") FROM 
 GRANT ALL ON FUNCTION "public"."get_mentor_contact"("mentor_uuid" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_mentor_contact"("mentor_uuid" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_mentor_contact"("mentor_uuid" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."mentorship_relationships" TO "service_role";
+GRANT SELECT ON TABLE "public"."mentorship_relationships" TO "authenticated";
+
+
+
+GRANT ALL ON TABLE "public"."v_mentors_public" TO "anon";
+GRANT ALL ON TABLE "public"."v_mentors_public" TO "authenticated";
+GRANT ALL ON TABLE "public"."v_mentors_public" TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_mentors_for_current_mentee"("p_limit" integer, "p_offset" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."get_mentors_for_current_mentee"("p_limit" integer, "p_offset" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_mentors_for_current_mentee"("p_limit" integer, "p_offset" integer) TO "service_role";
 
 
 
@@ -21946,6 +24499,43 @@ GRANT ALL ON FUNCTION "public"."get_my_role"() TO "service_role";
 
 
 
+REVOKE ALL ON FUNCTION "public"."get_user_role"("p_user_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."get_user_role"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_user_role"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_user_role"("p_user_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "text", "p_metadata" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "text", "p_metadata" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "text", "p_metadata" "jsonb") TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."notification_preferences" TO "anon";
+GRANT ALL ON TABLE "public"."notification_preferences" TO "authenticated";
+GRANT ALL ON TABLE "public"."notification_preferences" TO "service_role";
+
+
+
+GRANT SELECT,REFERENCES,DELETE,TRIGGER,TRUNCATE,UPDATE ON TABLE "public"."notifications" TO "anon";
+GRANT ALL ON TABLE "public"."notifications" TO "authenticated";
+GRANT ALL ON TABLE "public"."notifications" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."bell_notifications" TO "anon";
+GRANT ALL ON TABLE "public"."bell_notifications" TO "authenticated";
+GRANT ALL ON TABLE "public"."bell_notifications" TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer) TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_or_create_conversation"("target_user_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_or_create_conversation"("target_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_or_create_conversation"("target_user_id" "uuid") TO "service_role";
@@ -22000,7 +24590,6 @@ GRANT ALL ON FUNCTION "public"."get_profile_for_employer"("p_target_id" "uuid", 
 
 
 
-GRANT ALL ON FUNCTION "public"."get_recent_activity"("p_limit" integer) TO "anon";
 GRANT ALL ON FUNCTION "public"."get_recent_activity"("p_limit" integer) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_recent_activity"("p_limit" integer) TO "service_role";
 
@@ -22009,6 +24598,12 @@ GRANT ALL ON FUNCTION "public"."get_recent_activity"("p_limit" integer) TO "serv
 GRANT ALL ON FUNCTION "public"."get_role_by_name"("role_name" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_role_by_name"("role_name" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_role_by_name"("role_name" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_role_counts_for_user"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_role_counts_for_user"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_role_counts_for_user"() TO "service_role";
 
 
 
@@ -22085,7 +24680,6 @@ GRANT ALL ON FUNCTION "public"."get_unread_notifications_count_by_type"("type_fi
 
 
 
-GRANT ALL ON FUNCTION "public"."get_user_analytics"("p_user_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_user_analytics"("p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_user_analytics"("p_user_id" "uuid") TO "service_role";
 
@@ -22127,13 +24721,6 @@ GRANT ALL ON FUNCTION "public"."get_user_role"() TO "service_role";
 
 
 
-REVOKE ALL ON FUNCTION "public"."get_user_role"("p_user_id" "uuid") FROM PUBLIC;
-GRANT ALL ON FUNCTION "public"."get_user_role"("p_user_id" "uuid") TO "anon";
-GRANT ALL ON FUNCTION "public"."get_user_role"("p_user_id" "uuid") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."get_user_role"("p_user_id" "uuid") TO "service_role";
-
-
-
 GRANT ALL ON FUNCTION "public"."get_user_roles_bypass_rls"("profile_uuid" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."get_user_roles_bypass_rls"("profile_uuid" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_user_roles_bypass_rls"("profile_uuid" "uuid") TO "service_role";
@@ -22146,6 +24733,7 @@ GRANT ALL ON FUNCTION "public"."get_view_columns"("view_name" "text") TO "servic
 
 
 
+REVOKE ALL ON FUNCTION "public"."group_admin_set_membership"("p_group_id" "uuid", "p_user_id" "uuid", "p_status" "text", "p_role" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."group_admin_set_membership"("p_group_id" "uuid", "p_user_id" "uuid", "p_status" "text", "p_role" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."group_admin_set_membership"("p_group_id" "uuid", "p_user_id" "uuid", "p_status" "text", "p_role" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."group_admin_set_membership"("p_group_id" "uuid", "p_user_id" "uuid", "p_status" "text", "p_role" "text") TO "service_role";
@@ -22230,12 +24818,6 @@ GRANT ALL ON FUNCTION "public"."is_admin_like"("p_user_id" "uuid") TO "service_r
 
 
 
-GRANT ALL ON FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "text", "p_metadata" "jsonb") TO "anon";
-GRANT ALL ON FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "text", "p_metadata" "jsonb") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "text", "p_metadata" "jsonb") TO "service_role";
-
-
-
 GRANT ALL ON FUNCTION "public"."is_connected"("a" "uuid", "b" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."is_connected"("a" "uuid", "b" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."is_connected"("a" "uuid", "b" "uuid") TO "service_role";
@@ -22290,6 +24872,18 @@ GRANT ALL ON FUNCTION "public"."is_group_member"("p_user_id" "uuid", "p_group_id
 GRANT ALL ON FUNCTION "public"."is_member_of_group"("p_group_id" "uuid", "p_user_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."is_member_of_group"("p_group_id" "uuid", "p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."is_member_of_group"("p_group_id" "uuid", "p_user_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."is_mentee_below_program_limit"("p_mentee_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."is_mentee_below_program_limit"("p_mentee_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."is_mentee_below_program_limit"("p_mentee_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."is_mentor_selectable"("p_mentor_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."is_mentor_selectable"("p_mentor_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."is_mentor_selectable"("p_mentor_id" "uuid") TO "service_role";
 
 
 
@@ -22403,24 +24997,14 @@ GRANT ALL ON FUNCTION "public"."jobs_sync_flags_from_status"() TO "service_role"
 
 
 
-GRANT ALL ON TABLE "public"."group_members" TO "anon";
-GRANT ALL ON TABLE "public"."group_members" TO "authenticated";
-GRANT ALL ON TABLE "public"."group_members" TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."join_group"("p_group_id" "uuid") TO "anon";
-GRANT ALL ON FUNCTION "public"."join_group"("p_group_id" "uuid") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."join_group"("p_group_id" "uuid") TO "service_role";
-
-
-
+REVOKE ALL ON FUNCTION "public"."join_group_v2"("p_group_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."join_group_v2"("p_group_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."join_group_v2"("p_group_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."join_group_v2"("p_group_id" "uuid") TO "service_role";
 
 
 
+REVOKE ALL ON FUNCTION "public"."leave_group"("p_group_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."leave_group"("p_group_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."leave_group"("p_group_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."leave_group"("p_group_id" "uuid") TO "service_role";
@@ -22469,6 +25053,12 @@ GRANT ALL ON FUNCTION "public"."mark_all_my_notifications_as_read"() TO "service
 
 
 
+GRANT ALL ON FUNCTION "public"."mark_all_notifications_read"() TO "anon";
+GRANT ALL ON FUNCTION "public"."mark_all_notifications_read"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mark_all_notifications_read"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."mark_conversation_as_read"("p_conversation_id" "uuid", "p_user_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."mark_conversation_as_read"("p_conversation_id" "uuid", "p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."mark_conversation_as_read"("p_conversation_id" "uuid", "p_user_id" "uuid") TO "service_role";
@@ -22481,9 +25071,45 @@ GRANT ALL ON FUNCTION "public"."mark_notification_as_read"("notification_uuid" "
 
 
 
-GRANT ALL ON TABLE "public"."mentorship_requests" TO "anon";
-GRANT ALL ON TABLE "public"."mentorship_requests" TO "authenticated";
-GRANT ALL ON TABLE "public"."mentorship_requests" TO "service_role";
+GRANT ALL ON FUNCTION "public"."mark_notification_read"("p_notification_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."mark_notification_read"("p_notification_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mark_notification_read"("p_notification_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."mentors_upsert_current"("p_expertise" "text"[], "p_mentoring_experience_years" integer, "p_max_mentees" integer, "p_mentoring_capacity_hours_per_month" integer, "p_mentoring_preferences" "jsonb", "p_mentoring_statement" "text", "p_mentoring_experience_description" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."mentors_upsert_current"("p_expertise" "text"[], "p_mentoring_experience_years" integer, "p_max_mentees" integer, "p_mentoring_capacity_hours_per_month" integer, "p_mentoring_preferences" "jsonb", "p_mentoring_statement" "text", "p_mentoring_experience_description" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mentors_upsert_current"("p_expertise" "text"[], "p_mentoring_experience_years" integer, "p_max_mentees" integer, "p_mentoring_capacity_hours_per_month" integer, "p_mentoring_preferences" "jsonb", "p_mentoring_statement" "text", "p_mentoring_experience_description" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."mentorship_mark_user_unavailable"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."mentorship_mark_user_unavailable"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mentorship_mark_user_unavailable"("p_user_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."mentorship_on_mentor_status_change"() TO "anon";
+GRANT ALL ON FUNCTION "public"."mentorship_on_mentor_status_change"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mentorship_on_mentor_status_change"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."mentorship_on_profile_deactivated"() TO "anon";
+GRANT ALL ON FUNCTION "public"."mentorship_on_profile_deactivated"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mentorship_on_profile_deactivated"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."mentorship_open_chat"("p_relationship_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."mentorship_open_chat"("p_relationship_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mentorship_open_chat"("p_relationship_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."mentorship_relationship_end"("p_relationship_id" "uuid", "p_reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."mentorship_relationship_end"("p_relationship_id" "uuid", "p_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mentorship_relationship_end"("p_relationship_id" "uuid", "p_reason" "text") TO "service_role";
 
 
 
@@ -22493,9 +25119,21 @@ GRANT ALL ON FUNCTION "public"."mentorship_request_cancel"("p_request_id" "uuid"
 
 
 
-GRANT ALL ON FUNCTION "public"."mentorship_request_create"("p_mentor_id" "uuid", "p_message" "text", "p_goals" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."mentorship_request_create"("p_mentor_id" "uuid", "p_message" "text", "p_goals" "text") TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."mentorship_request_create"("p_mentor_id" "uuid", "p_message" "text", "p_goals" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."mentorship_request_create"("p_mentor_id" "uuid", "p_message" "text", "p_goals" "text") TO "service_role";
+GRANT ALL ON FUNCTION "public"."mentorship_request_create"("p_mentor_id" "uuid", "p_message" "text", "p_goals" "text") TO "authenticated";
+
+
+
+GRANT ALL ON FUNCTION "public"."mentorship_request_respond"("p_request_id" "uuid", "p_new_status" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."mentorship_request_respond"("p_request_id" "uuid", "p_new_status" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mentorship_request_respond"("p_request_id" "uuid", "p_new_status" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."mentorship_request_respond_v2"("p_request_id" "uuid", "p_action" "public"."mentorship_request_status", "p_reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."mentorship_request_respond_v2"("p_request_id" "uuid", "p_action" "public"."mentorship_request_status", "p_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mentorship_request_respond_v2"("p_request_id" "uuid", "p_action" "public"."mentorship_request_status", "p_reason" "text") TO "service_role";
 
 
 
@@ -22589,6 +25227,12 @@ GRANT ALL ON FUNCTION "public"."notify_dm_participants"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."notify_event"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_event"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_event"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."notify_event_rsvp"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."notify_event_rsvp"() TO "anon";
 GRANT ALL ON FUNCTION "public"."notify_event_rsvp"() TO "authenticated";
@@ -22617,6 +25261,12 @@ GRANT ALL ON FUNCTION "public"."notify_job_application"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."notify_job_application_submitted"() TO "anon";
 GRANT ALL ON FUNCTION "public"."notify_job_application_submitted"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."notify_job_application_submitted"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."notify_job_applied"("p_job_id" "uuid", "p_applicant" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_job_applied"("p_job_id" "uuid", "p_applicant" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_job_applied"("p_job_id" "uuid", "p_applicant" "uuid") TO "service_role";
 
 
 
@@ -22698,6 +25348,12 @@ GRANT ALL ON FUNCTION "public"."prevent_no_admins"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."process_notification_event_mentorship_v1"("p_event_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."process_notification_event_mentorship_v1"("p_event_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."process_notification_event_mentorship_v1"("p_event_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."profiles_after_update_avatar"() TO "anon";
 GRANT ALL ON FUNCTION "public"."profiles_after_update_avatar"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."profiles_after_update_avatar"() TO "service_role";
@@ -22746,8 +25402,13 @@ GRANT ALL ON FUNCTION "public"."public_directory_count"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."purge_user_data"("uid" "uuid") TO "anon";
-GRANT ALL ON FUNCTION "public"."purge_user_data"("uid" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."purge_notifications_admin"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."purge_notifications_admin"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."purge_notifications_admin"("p_user_id" "uuid") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."purge_user_data"("uid" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."purge_user_data"("uid" "uuid") TO "service_role";
 
 
@@ -22885,6 +25546,12 @@ GRANT ALL ON FUNCTION "public"."search_events"("p_query" "text", "p_status" "tex
 
 
 
+REVOKE ALL ON FUNCTION "public"."self_set_role"("p_role" "public"."app_role_enum") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."self_set_role"("p_role" "public"."app_role_enum") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."self_set_role"("p_role" "public"."app_role_enum") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."send_dm_message"("p_thread_id" "uuid", "p_content" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."send_dm_message"("p_thread_id" "uuid", "p_content" "text") TO "service_role";
 
@@ -22954,6 +25621,12 @@ GRANT ALL ON FUNCTION "public"."set_member_role"("p_group_id" "uuid", "p_user_id
 
 
 
+GRANT ALL ON FUNCTION "public"."set_timestamps"() TO "anon";
+GRANT ALL ON FUNCTION "public"."set_timestamps"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."set_timestamps"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."set_updated_at"() TO "anon";
 GRANT ALL ON FUNCTION "public"."set_updated_at"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."set_updated_at"() TO "service_role";
@@ -22999,6 +25672,12 @@ GRANT ALL ON FUNCTION "public"."sync_is_approved_from_status"() TO "service_role
 GRANT ALL ON FUNCTION "public"."sync_membership_to_members"() TO "anon";
 GRANT ALL ON FUNCTION "public"."sync_membership_to_members"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."sync_membership_to_members"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."sync_resume_profile_to_job_alert"() TO "anon";
+GRANT ALL ON FUNCTION "public"."sync_resume_profile_to_job_alert"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."sync_resume_profile_to_job_alert"() TO "service_role";
 
 
 
@@ -23068,6 +25747,12 @@ GRANT ALL ON FUNCTION "public"."trg_groups_stamp_approval"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."trg_process_notification_event_mentorship"() TO "anon";
+GRANT ALL ON FUNCTION "public"."trg_process_notification_event_mentorship"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."trg_process_notification_event_mentorship"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."update_conversation_last_message"() TO "anon";
 GRANT ALL ON FUNCTION "public"."update_conversation_last_message"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_conversation_last_message"() TO "service_role";
@@ -23107,6 +25792,12 @@ GRANT ALL ON FUNCTION "public"."update_event_status_rpc"("event_id" "uuid", "new
 GRANT ALL ON FUNCTION "public"."update_full_name"() TO "anon";
 GRANT ALL ON FUNCTION "public"."update_full_name"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_full_name"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_profile_timestamp_on_avatar_change"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_profile_timestamp_on_avatar_change"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_profile_timestamp_on_avatar_change"() TO "service_role";
 
 
 
@@ -23350,6 +26041,18 @@ GRANT ALL ON TABLE "public"."admin_actions" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."admin_analytics_audit_log" TO "anon";
+GRANT ALL ON TABLE "public"."admin_analytics_audit_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_analytics_audit_log" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_deletion_audit_log" TO "anon";
+GRANT ALL ON TABLE "public"."admin_deletion_audit_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_deletion_audit_log" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."admin_invalid_degree_programs_audit" TO "anon";
 GRANT ALL ON TABLE "public"."admin_invalid_degree_programs_audit" TO "authenticated";
 GRANT ALL ON TABLE "public"."admin_invalid_degree_programs_audit" TO "service_role";
@@ -23368,21 +26071,21 @@ GRANT ALL ON TABLE "public"."admin_profiles_view" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."mentors" TO "anon";
-GRANT ALL ON TABLE "public"."mentors" TO "authenticated";
-GRANT ALL ON TABLE "public"."mentors" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "public"."alumni_directory_public" TO "anon";
 GRANT ALL ON TABLE "public"."alumni_directory_public" TO "authenticated";
 GRANT ALL ON TABLE "public"."alumni_directory_public" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."avatar_audit_log" TO "anon";
-GRANT ALL ON TABLE "public"."avatar_audit_log" TO "authenticated";
-GRANT ALL ON TABLE "public"."avatar_audit_log" TO "service_role";
+GRANT ALL ON TABLE "public"."avatar_oauth_backup" TO "anon";
+GRANT ALL ON TABLE "public"."avatar_oauth_backup" TO "authenticated";
+GRANT ALL ON TABLE "public"."avatar_oauth_backup" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."avatar_upload_log" TO "anon";
+GRANT ALL ON TABLE "public"."avatar_upload_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."avatar_upload_log" TO "service_role";
 
 
 
@@ -23416,27 +26119,9 @@ GRANT ALL ON TABLE "public"."basic_event_metrics" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."notification_preferences" TO "anon";
-GRANT ALL ON TABLE "public"."notification_preferences" TO "authenticated";
-GRANT ALL ON TABLE "public"."notification_preferences" TO "service_role";
-
-
-
-GRANT SELECT,REFERENCES,DELETE,TRIGGER,TRUNCATE,UPDATE ON TABLE "public"."notifications" TO "anon";
-GRANT ALL ON TABLE "public"."notifications" TO "authenticated";
-GRANT ALL ON TABLE "public"."notifications" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."bell_notifications" TO "anon";
-GRANT ALL ON TABLE "public"."bell_notifications" TO "authenticated";
-GRANT ALL ON TABLE "public"."bell_notifications" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."bookmarked_jobs" TO "anon";
-GRANT ALL ON TABLE "public"."bookmarked_jobs" TO "authenticated";
-GRANT ALL ON TABLE "public"."bookmarked_jobs" TO "service_role";
+GRANT ALL ON TABLE "public"."bookmarked_jobs_legacy_do_not_use" TO "anon";
+GRANT ALL ON TABLE "public"."bookmarked_jobs_legacy_do_not_use" TO "authenticated";
+GRANT ALL ON TABLE "public"."bookmarked_jobs_legacy_do_not_use" TO "service_role";
 
 
 
@@ -23476,14 +26161,13 @@ GRANT ALL ON TABLE "public"."conversation_members" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."conversation_participants" TO "anon";
-GRANT ALL ON TABLE "public"."conversation_participants" TO "authenticated";
 GRANT ALL ON TABLE "public"."conversation_participants" TO "service_role";
+GRANT SELECT ON TABLE "public"."conversation_participants" TO "authenticated";
 
 
 
-GRANT ALL ON TABLE "public"."conversations" TO "authenticated";
 GRANT ALL ON TABLE "public"."conversations" TO "service_role";
+GRANT SELECT ON TABLE "public"."conversations" TO "authenticated";
 
 
 
@@ -23605,6 +26289,12 @@ GRANT ALL ON TABLE "public"."group_comments" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."group_members" TO "anon";
+GRANT ALL ON TABLE "public"."group_members" TO "authenticated";
+GRANT ALL ON TABLE "public"."group_members" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."group_memberships" TO "anon";
 GRANT ALL ON TABLE "public"."group_memberships" TO "authenticated";
 GRANT ALL ON TABLE "public"."group_memberships" TO "service_role";
@@ -23635,12 +26325,6 @@ GRANT ALL ON TABLE "public"."group_posts" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."job_alert_notifications" TO "anon";
-GRANT ALL ON TABLE "public"."job_alert_notifications" TO "authenticated";
-GRANT ALL ON TABLE "public"."job_alert_notifications" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "public"."job_alerts" TO "service_role";
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE "public"."job_alerts" TO "authenticated";
 
@@ -23664,21 +26348,18 @@ GRANT ALL ON TABLE "public"."mentee_profiles" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."mentees" TO "anon";
-GRANT ALL ON TABLE "public"."mentees" TO "authenticated";
 GRANT ALL ON TABLE "public"."mentees" TO "service_role";
+GRANT SELECT,INSERT,UPDATE ON TABLE "public"."mentees" TO "authenticated";
 
 
 
-GRANT ALL ON TABLE "public"."mentor_availability" TO "anon";
-GRANT ALL ON TABLE "public"."mentor_availability" TO "authenticated";
 GRANT ALL ON TABLE "public"."mentor_availability" TO "service_role";
+GRANT SELECT,INSERT,UPDATE ON TABLE "public"."mentor_availability" TO "authenticated";
 
 
 
-GRANT ALL ON TABLE "public"."mentor_profiles" TO "anon";
-GRANT ALL ON TABLE "public"."mentor_profiles" TO "authenticated";
 GRANT ALL ON TABLE "public"."mentor_profiles" TO "service_role";
+GRANT SELECT,INSERT,UPDATE ON TABLE "public"."mentor_profiles" TO "authenticated";
 
 
 
@@ -23688,20 +26369,16 @@ GRANT ALL ON TABLE "public"."mentors_directory" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."mentorship_appointments" TO "anon";
-GRANT ALL ON TABLE "public"."mentorship_appointments" TO "authenticated";
 GRANT ALL ON TABLE "public"."mentorship_appointments" TO "service_role";
+GRANT SELECT ON TABLE "public"."mentorship_appointments" TO "authenticated";
 
 
 
-GRANT ALL ON TABLE "public"."mentorship_feedback" TO "anon";
-GRANT ALL ON TABLE "public"."mentorship_feedback" TO "authenticated";
 GRANT ALL ON TABLE "public"."mentorship_feedback" TO "service_role";
+GRANT SELECT ON TABLE "public"."mentorship_feedback" TO "authenticated";
 
 
 
-GRANT ALL ON TABLE "public"."mentorship_messages" TO "anon";
-GRANT ALL ON TABLE "public"."mentorship_messages" TO "authenticated";
 GRANT ALL ON TABLE "public"."mentorship_messages" TO "service_role";
 
 
@@ -23712,21 +26389,13 @@ GRANT ALL ON TABLE "public"."mentorship_programs" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."mentorship_relationships" TO "anon";
-GRANT ALL ON TABLE "public"."mentorship_relationships" TO "authenticated";
-GRANT ALL ON TABLE "public"."mentorship_relationships" TO "service_role";
+GRANT ALL ON TABLE "public"."mentorship_requests" TO "service_role";
+GRANT SELECT ON TABLE "public"."mentorship_requests" TO "authenticated";
 
 
 
-GRANT ALL ON TABLE "public"."mentorship_requests_with_identities" TO "anon";
-GRANT ALL ON TABLE "public"."mentorship_requests_with_identities" TO "authenticated";
-GRANT ALL ON TABLE "public"."mentorship_requests_with_identities" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."mentorship_sessions" TO "anon";
-GRANT ALL ON TABLE "public"."mentorship_sessions" TO "authenticated";
 GRANT ALL ON TABLE "public"."mentorship_sessions" TO "service_role";
+GRANT SELECT ON TABLE "public"."mentorship_sessions" TO "authenticated";
 
 
 
@@ -23736,14 +26405,12 @@ GRANT ALL ON TABLE "public"."mentorship_stats" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."mentorships" TO "anon";
-GRANT ALL ON TABLE "public"."mentorships" TO "authenticated";
 GRANT ALL ON TABLE "public"."mentorships" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."messages" TO "authenticated";
 GRANT ALL ON TABLE "public"."messages" TO "service_role";
+GRANT SELECT ON TABLE "public"."messages" TO "authenticated";
 
 
 
@@ -23756,6 +26423,12 @@ GRANT ALL ON TABLE "public"."networking_group_members" TO "service_role";
 GRANT ALL ON TABLE "public"."networking_groups" TO "anon";
 GRANT ALL ON TABLE "public"."networking_groups" TO "authenticated";
 GRANT ALL ON TABLE "public"."networking_groups" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."notification_events" TO "anon";
+GRANT ALL ON TABLE "public"."notification_events" TO "authenticated";
+GRANT ALL ON TABLE "public"."notification_events" TO "service_role";
 
 
 
@@ -23957,6 +26630,12 @@ GRANT ALL ON TABLE "public"."v_events_with_end_at" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."v_groups_for_list" TO "anon";
+GRANT ALL ON TABLE "public"."v_groups_for_list" TO "authenticated";
+GRANT ALL ON TABLE "public"."v_groups_for_list" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."v_jobs_feed" TO "anon";
 GRANT ALL ON TABLE "public"."v_jobs_feed" TO "authenticated";
 GRANT ALL ON TABLE "public"."v_jobs_feed" TO "service_role";
@@ -23987,12 +26666,6 @@ GRANT ALL ON TABLE "public"."v_jobs_public_with_qualification" TO "service_role"
 
 
 
-GRANT ALL ON TABLE "public"."v_mentors_public" TO "anon";
-GRANT ALL ON TABLE "public"."v_mentors_public" TO "authenticated";
-GRANT ALL ON TABLE "public"."v_mentors_public" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "public"."v_my_applications" TO "anon";
 GRANT ALL ON TABLE "public"."v_my_applications" TO "authenticated";
 GRANT ALL ON TABLE "public"."v_my_applications" TO "service_role";
@@ -24008,6 +26681,30 @@ GRANT ALL ON TABLE "public"."v_my_dm_threads" TO "service_role";
 GRANT ALL ON TABLE "public"."v_my_event_rsvp" TO "anon";
 GRANT ALL ON TABLE "public"."v_my_event_rsvp" TO "authenticated";
 GRANT ALL ON TABLE "public"."v_my_event_rsvp" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."v_my_groups" TO "anon";
+GRANT ALL ON TABLE "public"."v_my_groups" TO "authenticated";
+GRANT ALL ON TABLE "public"."v_my_groups" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."v_my_mentorship_dashboard" TO "anon";
+GRANT ALL ON TABLE "public"."v_my_mentorship_dashboard" TO "authenticated";
+GRANT ALL ON TABLE "public"."v_my_mentorship_dashboard" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."v_my_mentorship_relationships" TO "anon";
+GRANT ALL ON TABLE "public"."v_my_mentorship_relationships" TO "authenticated";
+GRANT ALL ON TABLE "public"."v_my_mentorship_relationships" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."v_my_mentorship_requests" TO "anon";
+GRANT ALL ON TABLE "public"."v_my_mentorship_requests" TO "authenticated";
+GRANT ALL ON TABLE "public"."v_my_mentorship_requests" TO "service_role";
 
 
 
@@ -24029,7 +26726,6 @@ GRANT ALL ON TABLE "public"."v_programs" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."v_recent_activities" TO "anon";
 GRANT ALL ON TABLE "public"."v_recent_activities" TO "authenticated";
 GRANT ALL ON TABLE "public"."v_recent_activities" TO "service_role";
 
@@ -24043,31 +26739,6 @@ GRANT SELECT,INSERT,UPDATE ON TABLE "realtime"."messages" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "realtime"."messages_2025_11_26" TO "postgres";
-GRANT ALL ON TABLE "realtime"."messages_2025_11_26" TO "dashboard_user";
-
-
-
-GRANT ALL ON TABLE "realtime"."messages_2025_11_27" TO "postgres";
-GRANT ALL ON TABLE "realtime"."messages_2025_11_27" TO "dashboard_user";
-
-
-
-GRANT ALL ON TABLE "realtime"."messages_2025_11_28" TO "postgres";
-GRANT ALL ON TABLE "realtime"."messages_2025_11_28" TO "dashboard_user";
-
-
-
-GRANT ALL ON TABLE "realtime"."messages_2025_11_29" TO "postgres";
-GRANT ALL ON TABLE "realtime"."messages_2025_11_29" TO "dashboard_user";
-
-
-
-GRANT ALL ON TABLE "realtime"."messages_2025_11_30" TO "postgres";
-GRANT ALL ON TABLE "realtime"."messages_2025_11_30" TO "dashboard_user";
-
-
-
 GRANT ALL ON TABLE "realtime"."messages_2025_12_01" TO "postgres";
 GRANT ALL ON TABLE "realtime"."messages_2025_12_01" TO "dashboard_user";
 
@@ -24075,6 +26746,31 @@ GRANT ALL ON TABLE "realtime"."messages_2025_12_01" TO "dashboard_user";
 
 GRANT ALL ON TABLE "realtime"."messages_2025_12_02" TO "postgres";
 GRANT ALL ON TABLE "realtime"."messages_2025_12_02" TO "dashboard_user";
+
+
+
+GRANT ALL ON TABLE "realtime"."messages_2025_12_03" TO "postgres";
+GRANT ALL ON TABLE "realtime"."messages_2025_12_03" TO "dashboard_user";
+
+
+
+GRANT ALL ON TABLE "realtime"."messages_2025_12_04" TO "postgres";
+GRANT ALL ON TABLE "realtime"."messages_2025_12_04" TO "dashboard_user";
+
+
+
+GRANT ALL ON TABLE "realtime"."messages_2025_12_05" TO "postgres";
+GRANT ALL ON TABLE "realtime"."messages_2025_12_05" TO "dashboard_user";
+
+
+
+GRANT ALL ON TABLE "realtime"."messages_2025_12_06" TO "postgres";
+GRANT ALL ON TABLE "realtime"."messages_2025_12_06" TO "dashboard_user";
+
+
+
+GRANT ALL ON TABLE "realtime"."messages_2025_12_07" TO "postgres";
+GRANT ALL ON TABLE "realtime"."messages_2025_12_07" TO "dashboard_user";
 
 
 

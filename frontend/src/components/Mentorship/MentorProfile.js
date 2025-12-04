@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
@@ -7,9 +7,13 @@ import MentorContactPanel from './MentorContactPanel';
 import ApprovedGuard from '../guards/ApprovedGuard';
 import { useApproval } from '../../hooks/useApproval';
 import { createMentorshipRequest, mapMentorshipError } from '../../services/mentorship';
+import { useMentorshipSummary } from '../../hooks/useMentorshipSummary';
+import { getPublicIdentity } from '../../lib/hydrateIdentity';
+import { useOpenMentorshipChat } from '../../hooks/useOpenMentorshipChat';
 
 const MentorProfile = () => {
   const { id: mentorId } = useParams();
+  const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
   const [mentor, setMentor] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -20,6 +24,25 @@ const MentorProfile = () => {
   const [existingRequest, setExistingRequest] = useState(null);
 
   const { isApprovedMentee } = useApproval();
+  const { relationships } = useMentorshipSummary();
+  const { openChat, loadingId } = useOpenMentorshipChat();
+
+  const { activeRelationship, relationshipState } = useMemo(() => {
+    if (!user?.id) return { activeRelationship: null, relationshipState: 'none' };
+
+    // Prefer the mentor.user_id when we have loaded the mentors row; fall back to the
+    // route param so existing URLs using the user id still work.
+    const effectiveMentorUserId = mentor?.user_id || mentorId;
+
+    const rels = relationships.filter(
+      (r) => r.mentor_id === effectiveMentorUserId && r.mentee_id === user.id
+    );
+
+    const activeRel = rels.find((r) => r.status === 'active');
+    if (activeRel) return { activeRelationship: activeRel, relationshipState: 'accepted' };
+
+    return { activeRelationship: null, relationshipState: 'none' };
+  }, [relationships, mentorId, user?.id, mentor?.user_id]);
 
   const handleRequestSubmit = async () => {
     if (!requestMessage.trim() && !requestGoals.trim()) {
@@ -37,11 +60,14 @@ const MentorProfile = () => {
 
     setIsSubmitting(true);
     try {
+      // Resolve the canonical mentor profile id (profiles.id) to use everywhere
+      const effectiveMentorUserId = mentor?.user_id || mentorId;
+
       // Prevent duplicate pending requests from this mentee to this mentor (extra UX guard; RPC also enforces)
       const { data: dup, error: dupErr } = await supabase
         .from('mentorship_requests')
         .select('id, status')
-        .eq('mentor_id', mentorId)
+        .eq('mentor_id', effectiveMentorUserId)
         .eq('mentee_id', user.id)
         .eq('status', 'pending')
         .maybeSingle();
@@ -51,7 +77,7 @@ const MentorProfile = () => {
         return;
       }
 
-      const data = await createMentorshipRequest(mentorId, {
+      const data = await createMentorshipRequest(effectiveMentorUserId, {
         message: requestMessage || undefined,
         goals: requestGoals || undefined,
       });
@@ -75,34 +101,59 @@ const MentorProfile = () => {
 
       try {
         setLoading(true);
-        // Fetch mentor core row (no profiles join)
-        const { data: mentorRow, error: mentorError } = await supabase
-          .from('mentors')
-          .select(`*`)
-          .eq('user_id', mentorId)
-          .single();
+        // 1) Hydrate identity using the shared helper so we always get the
+        // canonical name/avatar from alumni_directory_public or profiles.
+        const ident = await getPublicIdentity(mentorId).catch((e) => {
+          console.warn('MentorProfile: getPublicIdentity failed', e);
+          return null;
+        });
 
-        if (mentorError) throw mentorError;
-        if (!mentorRow) {
+        // 2) Try to fetch mentor core row (capacity, expertise, etc.).
+        // We support both URL shapes:
+        // - /mentorship/mentor/:id where :id = mentors.user_id (new)
+        // - /mentorship/mentor/:id where :id = mentors.id (legacy)
+        // RLS may block this for some viewers, so treat errors as "no row"
+        // and still render a profile shell using just the public identity.
+        let mentorRow = null;
+
+        // Primary: assume route param is user_id
+        const { data: mentorByUser, error: errByUser } = await supabase
+          .from('mentors')
+          .select('*')
+          .eq('user_id', mentorId)
+          .maybeSingle();
+
+        if (!errByUser && mentorByUser) {
+          mentorRow = mentorByUser;
+        } else {
+          // Fallback: try treating param as mentors.id
+          const { data: mentorById, error: errById } = await supabase
+            .from('mentors')
+            .select('*')
+            .eq('id', mentorId)
+            .maybeSingle();
+
+          if (!errById && mentorById) {
+            mentorRow = mentorById;
+          } else if (errByUser || errById) {
+            console.warn('MentorProfile: mentors row not accessible', errByUser || errById);
+          }
+        }
+
+        if (!mentorRow && !ident) {
           toast.error('Mentor not found.');
           setLoading(false);
           return;
         }
 
-        // Hydrate identity from public directory (no PII)
-        const { data: ident } = await supabase
-          .from('alumni_directory_public')
-          .select('id, full_name, avatar_url')
-          .eq('id', mentorId)
-          .maybeSingle();
+        setMentor({ ...(mentorRow || {}), profile: ident || { full_name: 'Mentor', avatar_url: null } });
 
-        setMentor({ ...mentorRow, profile: ident || { full_name: 'Mentor', avatar_url: null } });
-
-        // Check for an existing mentorship request
+        // Check for an existing mentorship request (pending or accepted)
+        const effectiveMentorUserId = mentorRow?.user_id || mentorId;
         const { data: requestData, error: requestError } = await supabase
           .from('mentorship_requests')
           .select('*')
-          .eq('mentor_id', mentorId)
+          .eq('mentor_id', effectiveMentorUserId)
           .eq('mentee_id', user.id)
           .in('status', ['pending', 'accepted'])
           .maybeSingle();
@@ -128,42 +179,87 @@ const MentorProfile = () => {
     return <div className="text-center p-8">Mentor not found.</div>;
   }
 
+  const pendingRequest = existingRequest && existingRequest.status === 'pending';
+  const acceptedRequest = existingRequest && existingRequest.status === 'accepted';
+  const hasActiveMentorship = !!activeRelationship || acceptedRequest;
+  const isOpening = !!activeRelationship && loadingId === activeRelationship.id;
+
   return (
     <div className="container mx-auto p-4 md:p-8">
       <div className="bg-white rounded-lg shadow-lg p-6">
         <div className="flex items-center space-x-4 mb-6">
-          <img 
-            src={mentor.profile?.avatar_url || '/default-avatar.svg'} 
+          <img
+            src={mentor.profile?.avatar_url || '/default-avatar.svg'}
             alt={mentor.profile?.full_name}
             className="w-24 h-24 rounded-full object-cover"
           />
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">{mentor.profile?.full_name}</h1>
+            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+              {mentor.profile?.full_name}
+              {hasActiveMentorship && (
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                  Your mentor
+                </span>
+              )}
+            </h1>
             <p className="text-xl text-gray-600">Maritime Professional</p>
+            {activeRelationship?.start_date && (
+              <p className="mt-1 text-sm text-gray-500">
+                Mentoring you since{' '}
+                {new Date(activeRelationship.start_date).toLocaleDateString('en-US', {
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </p>
+            )}
           </div>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="md:col-span-2">
             <h2 className="text-2xl font-semibold text-gray-800 mb-4">About Me</h2>
-            <p className="text-gray-700 whitespace-pre-wrap">{mentor.mentoring_statement}</p>
+            <p className="text-gray-700 whitespace-pre-wrap">
+              {mentor.mentoring_statement && String(mentor.mentoring_statement).trim().length > 0
+                ? mentor.mentoring_statement
+                : 'This mentor has not added a bio yet.'}
+            </p>
 
             <h3 className="text-xl font-semibold text-gray-800 mt-6 mb-3">Expertise</h3>
-            <div className="flex flex-wrap gap-2">
-              {mentor.expertise?.map((skill, index) => (
-                <span key={index} className="bg-ocean-100 text-ocean-800 px-3 py-1 rounded-full text-sm font-medium">
-                  {skill}
-                </span>
-              ))}
-            </div>
+            {Array.isArray(mentor.expertise) && mentor.expertise.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {mentor.expertise.map((skill, index) => (
+                  <span
+                    key={index}
+                    className="bg-ocean-100 text-ocean-800 px-3 py-1 rounded-full text-sm font-medium"
+                  >
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">No expertise tags added yet.</p>
+            )}
           </div>
 
           <div className="bg-gray-50 rounded-lg p-4">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Mentorship Details</h3>
             <ul className="space-y-3 text-gray-700">
-              <li><strong>Experience:</strong> {mentor.mentoring_experience_years} years</li>
-              <li><strong>Max Mentees:</strong> {mentor.max_mentees}</li>
-              <li><strong>Capacity:</strong> {mentor.mentoring_capacity_hours_per_month} hours/month</li>
+              <li>
+                <strong>Experience:</strong>{' '}
+                {mentor.mentoring_experience_years != null
+                  ? `${mentor.mentoring_experience_years} years`
+                  : 'Not specified'}
+              </li>
+              <li>
+                <strong>Max Mentees:</strong>{' '}
+                {mentor.max_mentees != null ? mentor.max_mentees : 'Not specified'}
+              </li>
+              <li>
+                <strong>Capacity:</strong>{' '}
+                {mentor.mentoring_capacity_hours_per_month != null
+                  ? `${mentor.mentoring_capacity_hours_per_month} hours/month`
+                  : 'Not specified'}
+              </li>
               <li>
                 <strong>Preferences:</strong>
                 {typeof mentor.mentoring_preferences === 'object' && mentor.mentoring_preferences ? (
@@ -184,13 +280,44 @@ const MentorProfile = () => {
             </div>
 
             {hasPermission?.('request:mentorship') && mentor?.status === 'approved' && (
-              <button 
-                className="btn-ocean w-full mt-6 py-2 disabled:opacity-50"
-                onClick={() => setShowRequestModal(true)}
-                disabled={loading || !!existingRequest || user?.id === mentorId}
-              >
-                {user?.id === mentorId ? 'This is your profile' : existingRequest ? `Request ${existingRequest.status}` : 'Request Mentorship'}
-              </button>
+              <div className="mt-6 space-y-3">
+                {user?.id === mentorId ? (
+                  <button className="btn-ocean w-full py-2" disabled>
+                    This is your profile
+                  </button>
+                ) : hasActiveMentorship && activeRelationship ? (
+                  <button
+                    className="btn-ocean w-full py-2"
+                    onClick={() =>
+                      openChat(activeRelationship.id)
+                    }
+                    disabled={isOpening}
+                  >
+                    {isOpening ? 'Opening chat…' : 'Go to chat'}
+                  </button>
+                ) : pendingRequest ? (
+                  <div className="space-y-2">
+                    <button className="btn-secondary-outline w-full py-2" disabled>
+                      Request pending
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/mentorship/my-requests')}
+                      className="w-full px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-sm"
+                    >
+                      View your request
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="btn-ocean w-full py-2 disabled:opacity-50"
+                    onClick={() => setShowRequestModal(true)}
+                    disabled={loading}
+                  >
+                    Request mentorship
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

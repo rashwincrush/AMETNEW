@@ -236,7 +236,16 @@ export async function acceptPending(meId, otherId) {
   const edge = await getLatestEdge(meId, otherId);
   if (edge?.status === 'pending' && edge.recipient_id === meId) {
     try {
-      await updateEdge(edge.id, 'accepted');
+      // Use server-side RPC which runs as SECURITY DEFINER and lets
+      // triggers safely manage dm_threads without direct table access.
+      const { error } = await supabase.rpc('connection_accept', {
+        p_connection_id: edge.id,
+      });
+      if (error) {
+        console.error('connection_accept RPC error', error);
+        throw error;
+      }
+
       toast.success('Connection accepted');
     } catch (e) {
       console.error('acceptPending error', e);

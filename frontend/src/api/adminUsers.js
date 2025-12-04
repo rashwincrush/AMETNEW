@@ -17,9 +17,9 @@ import { supabase } from '../utils/supabase';
 export async function fetchAdminUserGrid({ search, role, status, page, pageSize }) {
   const limit = pageSize;
   const offset = (page - 1) * pageSize;
-
-  // Today: use admin_list_profiles_for_approval as the backing RPC.
-  const { data, error } = await supabase.rpc('admin_list_profiles_for_approval', {
+  // Primary: admin_list_profiles_for_approval remains the grid source so we
+  // preserve all profile fields (including mentorship statuses).
+  const profilesResult = await supabase.rpc('admin_list_profiles_for_approval', {
     p_status: status ?? null,
     p_role: role ?? null,
     p_search: search ?? null,
@@ -27,9 +27,47 @@ export async function fetchAdminUserGrid({ search, role, status, page, pageSize 
     p_offset: offset,
   });
 
-  if (error) throw error;
+  if (profilesResult.error) throw profilesResult.error;
 
-  const rows = Array.isArray(data) ? data : [];
+  const profileRows = Array.isArray(profilesResult.data) ? profilesResult.data : [];
+
+  // Secondary: fetch last_sign_in_at data to power the "Last Login" column.
+  // We intentionally ignore paging here and fetch a reasonably large slice
+  // for the current search term to avoid mismatches in pagination/sort
+  // between the two RPCs.
+  const loginsResult = await supabase.rpc('admin_list_users_with_last_login', {
+    // We intentionally do not filter by search here, because the search
+    // semantics differ between the two RPCs (full_name vs first/last name).
+    // Instead, we fetch a large slice and join purely by id.
+    p_search: null,
+    p_limit: 10000,
+    p_offset: 0,
+  });
+
+  if (loginsResult.error) {
+    // eslint-disable-next-line no-console
+    console.error('admin_list_users_with_last_login failed:', loginsResult.error);
+  }
+
+  const loginRows = Array.isArray(loginsResult.data) ? loginsResult.data : [];
+
+  const loginById = new Map(
+    loginRows.map((row) => [row.id, row.last_sign_in_at || row.created_at || null])
+  );
+
+  const rows = profileRows.map((row) => {
+    const mergedLastLogin =
+      row.last_sign_in_at ??
+      loginById.get(row.id) ??
+      // Fallback: use profile created_at so Last Login is never blindly N/A
+      row.created_at ??
+      null;
+
+    return {
+      ...row,
+      last_sign_in_at: mergedLastLogin,
+    };
+  });
 
   // Future-friendly: if/when the grid RPC returns total_count per row,
   // we can surface it here without changing callers.

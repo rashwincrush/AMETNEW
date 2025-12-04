@@ -2,7 +2,7 @@ import { supabase } from '../../utils/supabase';
 
 export async function fetchMenteeRequests(userId, opt = {}) {
   let q = supabase
-    .from('mentorship_requests')
+    .from('v_my_mentorship_requests')
     .select('id, mentor_id, mentee_id, status, message, goals, created_at')
     .eq('mentee_id', userId)
     .order('created_at', { ascending: opt.order?.ascending ?? false });
@@ -17,7 +17,7 @@ export async function fetchMenteeRequests(userId, opt = {}) {
 
 export async function fetchMentorRequests(userId, opt = {}) {
   let q = supabase
-    .from('mentorship_requests')
+    .from('v_my_mentorship_dashboard')
     .select('id, mentor_id, mentee_id, status, message, goals, created_at')
     .eq('mentor_id', userId)
     .order('created_at', { ascending: opt.order?.ascending ?? false });

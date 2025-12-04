@@ -74,6 +74,12 @@ import JobApplication from './components/Jobs/JobApplication';
 import ApplicationTracking from './components/Jobs/ApplicationTracking';
 import EditJob from './components/Jobs/EditJob';
 import Mentorship from './components/Mentorship/Mentorship';
+// New mentorship module components
+import MentorshipLayout from './components/Mentorship/MentorshipLayout';
+import FindMentorsPage from './pages/mentorship/FindMentorsPage';
+import MyRequestsPage from './pages/mentorship/MyRequestsPage';
+import RequestsToMePage from './pages/mentorship/RequestsToMePage';
+import MyMentorshipPage from './pages/mentorship/MyMentorshipPage';
 // import NetworkingGroups from './components/Networking/NetworkingGroups';
 // import NetworkingGroupsDirectory from './components/NetworkingGroups/NetworkingGroupsDirectory';
 // import NetworkingGroupDetail from './components/NetworkingGroups/NetworkingGroupDetail';
@@ -250,16 +256,31 @@ function AppContent() {
             <Route path="/directory/:id" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:alumni_directory"><AlumniProfile /></ProtectedRoute></RequireCompleteProfile>} />
             
             <Route path="/notifications" element={<Notifications />} />
-            <Route path="/mentorship/become-mentor" element={<ProtectedRoute requiredPermission="manage:mentor_profile"><MentorRegistrationForm /></ProtectedRoute>} />
-            <Route path="/mentorship/become-mentee" element={<ProtectedRoute requiredPermission="request:mentorship"><MenteeRegistrationForm /></ProtectedRoute>} />
-            <Route path="/mentorship" element={<ProtectedRoute requiredPermission="request:mentorship"><Mentorship /></ProtectedRoute>} />
-            <Route path="/mentorship/me" element={<ProtectedRoute requiredPermission="request:mentorship"><MyMentorship /></ProtectedRoute>} />
-            { /* Removed dead MentorshipDashboard route */ }
-            { /* Deprecated: MentorDirectory route removed */ }
-            <Route path="/mentorship/requests" element={<ProtectedRoute requiredPermission="manage:mentee_requests"><MentorshipStatus /></ProtectedRoute>} />
-            { /* Deprecated: MentorMatching route removed */ }
+            
+            {/* Mentorship Module - Canonical UUX-∞ Atomic Structure */}
+            {/* Canonical route: single hub with query params */}
+            <Route 
+              path="/mentorship" 
+              element={
+                <ProtectedRoute requiredPermission="request:mentorship">
+                  <MentorshipLayout />
+                </ProtectedRoute>
+              } 
+            />
+            
+            {/* Legacy route redirects - maintain backwards compatibility */}
+            <Route path="/mentorship/find" element={<Navigate to="/mentorship?tab=find" replace />} />
+            <Route path="/mentorship/my-requests" element={<Navigate to="/mentorship?tab=requests&sub=sent" replace />} />
+            <Route path="/mentorship/requests-to-me" element={<Navigate to="/mentorship?tab=requests&sub=received" replace />} />
+            <Route path="/mentorship/requests" element={<Navigate to="/mentorship?tab=requests&sub=sent" replace />} />
+            <Route path="/mentorship/me" element={<Navigate to="/mentorship?tab=mentee" replace />} />
+            <Route path="/mentorship/my-mentorships" element={<Navigate to="/mentorship?tab=mentee" replace />} />
+            
+            {/* Standalone mentor profile routes (outside hub) */}
+            <Route path="/mentorship/become-mentor" element={<Navigate to="/mentorship?tab=settings&mode=mentor" replace />} />
+            <Route path="/mentorship/become-mentee" element={<Navigate to="/mentorship?tab=settings&mode=mentee" replace />} />
             <Route path="/mentorship/mentor/:id" element={<ProtectedRoute requiredPermission="view:alumni_directory"><MentorProfile /></ProtectedRoute>} />
-            <Route path="/mentorship/mentor-settings" element={<ProtectedRoute requiredPermission="manage:mentor_profile"><MentorSettings /></ProtectedRoute>} />
+            <Route path="/mentorship/mentor-settings" element={<Navigate to="/mentorship?tab=settings&mode=mentor" replace />} />
             <Route
               path="/groups/*"
               element={
