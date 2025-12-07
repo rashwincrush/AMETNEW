@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import toast from 'react-hot-toast';
@@ -61,7 +62,7 @@ const ConnectionManager = ({ currentUser }) => {
       }
 
     } catch (error) {
-      console.error('Error fetching connection requests:', error);
+      logger.error('Error fetching connection requests:', error);
       if (isMountedRef.current) {
         toast.error('Failed to load connection requests.');
       }
@@ -75,7 +76,7 @@ const ConnectionManager = ({ currentUser }) => {
   // Create a callback function for connection updates
   const handleConnectionUpdate = useCallback((payload) => {
     if (!isMountedRef.current) return;
-    console.log('Realtime connection update:', payload);
+    logger.log('Realtime connection update:', payload);
     fetchRequests();
   }, [fetchRequests]);
   
@@ -111,7 +112,7 @@ const ConnectionManager = ({ currentUser }) => {
       if (error) throw error;
       toast.success(`Request ${newStatus === 'accepted' ? 'accepted' : 'declined'}.`);
     } catch (error) {
-      console.error('Error responding to request:', error);
+      logger.error('Error responding to request:', error);
       toast.error('Failed to update connection.');
     }
   };
@@ -129,7 +130,7 @@ const ConnectionManager = ({ currentUser }) => {
       if (error) throw error;
       toast.success('Request cancelled.');
     } catch (error) {
-      console.error('Error cancelling request:', error);
+      logger.error('Error cancelling request:', error);
       toast.error('Failed to cancel request.');
     }
   };

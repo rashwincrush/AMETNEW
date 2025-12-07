@@ -1,20 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BellIcon } from '@heroicons/react/24/outline';
 import NotificationsPanel from './NotificationsPanel';
-import { useNotifications, useBellUnreadCount } from '../../hooks/useNotifications.js';
+import { useBellUnreadCount } from '../../hooks/useNotifications';
 import { useLocation } from 'react-router-dom';
 
 export default function Bell() {
-  const { unreadCount: localUnread } = useNotifications();
-  const { data: rpcUnreadCount, error: rpcError } = useBellUnreadCount();
+  const { count: badgeCount } = useBellUnreadCount();
   const [open, setOpen] = useState(false);
+  const [showNewAlert, setShowNewAlert] = useState(false);
   const ref = useRef(null);
+  const lastCountRef = useRef(null);
+  const timeoutRef = useRef(null);
   const location = useLocation();
 
   // Close on route change
   useEffect(() => {
     setOpen(false);
-  }, [location.pathname, location.search, location.hash]);
+  }, [location.pathname]);
 
   // Click outside
   useEffect(() => {
@@ -26,7 +28,31 @@ export default function Bell() {
     return () => document.removeEventListener('click', onClick);
   }, []);
 
-  const badgeCount = (!rpcError && typeof rpcUnreadCount === 'number') ? rpcUnreadCount : localUnread;
+  useEffect(() => {
+    if (lastCountRef.current === null) {
+      lastCountRef.current = badgeCount;
+      return;
+    }
+
+    if (badgeCount > lastCountRef.current) {
+      setShowNewAlert(true);
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = window.setTimeout(() => {
+        setShowNewAlert(false);
+      }, 2000);
+    }
+
+    lastCountRef.current = badgeCount;
+
+    return () => {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+  }, [badgeCount]);
 
   return (
     <div className="relative" ref={ref}>
@@ -34,7 +60,10 @@ export default function Bell() {
         type="button"
         className="relative p-2 rounded-full hover:bg-gray-100"
         aria-label="Open notifications"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setOpen((v) => !v);
+          setShowNewAlert(false);
+        }}
       >
         <BellIcon className="w-6 h-6 text-gray-700" />
         {badgeCount > 0 && badgeCount <= 9 && (
@@ -45,7 +74,18 @@ export default function Bell() {
         )}
         {badgeCount >= 10 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-ocean-500 text-white text-[10px] leading-[18px] text-center shadow-sm">
-            9+
+            {badgeCount}
+          </span>
+        )}
+        {showNewAlert && (
+          <span
+            className="absolute -bottom-1 -right-1 px-2 py-0.5 rounded-full bg-blue-500 text-white text-[10px] leading-none shadow-sm cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowNewAlert(false);
+            }}
+          >
+            New
           </span>
         )}
       </button>

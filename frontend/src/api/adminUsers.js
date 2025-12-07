@@ -1,4 +1,5 @@
 import { supabase } from '../utils/supabase';
+import logger from '../utils/logger';
 
 // Admin Users API client built on top of existing admin RPCs.
 // Currently uses admin_list_profiles_for_approval as the grid source,
@@ -46,7 +47,7 @@ export async function fetchAdminUserGrid({ search, role, status, page, pageSize 
 
   if (loginsResult.error) {
     // eslint-disable-next-line no-console
-    console.error('admin_list_users_with_last_login failed:', loginsResult.error);
+    logger.error('admin_list_users_with_last_login failed:', loginsResult.error);
   }
 
   const loginRows = Array.isArray(loginsResult.data) ? loginsResult.data : [];

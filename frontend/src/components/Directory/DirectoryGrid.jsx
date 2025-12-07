@@ -58,11 +58,11 @@ function DirectoryGrid({ items = [], meId, currentTab = 'all', onChanged, compac
   if (isLoading) {
     const count = Math.max(6, items.length || 0);
     return (
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" role="status" aria-label="Loading alumni profiles">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" role="status" aria-label="Loading profiles">
         {Array.from({ length: count }).map((_, i) => (
           <Skeleton key={`sk-${i}`} />
         ))}
-        <span className="sr-only">Loading alumni profiles...</span>
+        <span className="sr-only">Loading profiles...</span>
       </div>
     );
   }
@@ -78,10 +78,10 @@ function DirectoryGrid({ items = [], meId, currentTab = 'all', onChanged, compac
             </svg>
           </div>
           {/* Title */}
-          <h3 className="text-lg font-bold text-slate-900 mb-2">No alumni found</h3>
+          <h3 className="text-lg font-bold text-slate-900 mb-2">No members found</h3>
           {/* Description */}
           <p className="text-sm text-slate-600 mb-4">
-            Try adjusting your filters or search criteria to find more alumni.
+            Try adjusting your filters or search criteria to find more people in the AMET community.
           </p>
         </div>
       </div>

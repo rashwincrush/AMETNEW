@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import { approveEvent, rejectEvent, fetchPendingEvents } from '../../utils/moderationApi';
+import logger from '../../utils/logger';
 
 const StatusBadge = ({ status }) => {
   const cls = (() => {
@@ -35,7 +36,7 @@ export default function EventModerationPanel() {
       if (error) throw error;
       setEvents(data || []);
     } catch (e) {
-      console.error('Failed to load pending events:', e);
+      logger.error('Failed to load pending events:', e);
       toast.error('Could not load pending events');
     } finally {
       setLoading(false);
@@ -55,7 +56,7 @@ export default function EventModerationPanel() {
       toast.success('Event approved successfully');
       setEvents((prev) => prev.filter((e) => e.id !== ev.id));
     } catch (e) {
-      console.error('Approve failed:', e);
+      logger.error('Approve failed:', e);
       toast.error(e?.message || 'Failed to approve event');
     } finally {
       setBusyId(null);
@@ -75,7 +76,7 @@ export default function EventModerationPanel() {
       setEvents((prev) => prev.filter((e) => e.id !== ev.id));
       setRejecting({ id: null, reason: '' });
     } catch (e) {
-      console.error('Reject failed:', e);
+      logger.error('Reject failed:', e);
       toast.error(e?.message || 'Failed to reject event');
     } finally {
       setBusyId(null);

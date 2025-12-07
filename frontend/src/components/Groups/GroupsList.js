@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase, fetchGroups, joinGroup, leaveGroup, requestGroupMembership } from '../../utils/supabase';
+import { supabase } from '../../utils/supabase';
+import { fetchGroupsRpc, joinGroupRpc, leaveGroupRpc } from '../../api/groups';
 import { fetchMembershipMap } from '../../utils/memberships';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApproval } from '../../hooks/useApproval';
-import { canCreateGroup } from '../../utils/acl';
-import { Users, Search, Tag, Calendar, Filter } from 'lucide-react';
+import { canCreateGroup, canJoinGroup, getGroupStatus, isEmployer } from '../../utils/acl';
+import { Users, Search, Calendar, AlertCircle, RefreshCw, Lock, CheckCircle, GraduationCap } from 'lucide-react';
 import ImageWithFallback from '../common/ImageWithFallback';
 import { getFriendlyErrorMessage } from '../../utils/errors';
+import logger from '../../utils/logger';
 
 // Skeleton loader component for a better loading experience
 const GroupCardSkeleton = () => (
@@ -22,27 +24,70 @@ const GroupCardSkeleton = () => (
 );
 
 // Group card component
-const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, canManageAllGroups, userRole, isUserApproved }) => {
+const GroupCard = ({ group, isMember, isGroupAdmin, hasPendingRequest, onJoinLeave, currentUserId, canManageAllGroups, userRole, isUserApproved }) => {
   const [imgSrc, setImgSrc] = useState('');
   const isCreator = group.created_by === currentUserId;
   const formattedDate = new Date(group.created_at).toLocaleDateString();
   const showModeration = isCreator || canManageAllGroups;
-  const moderationState = group.is_rejected
-    ? 'rejected'
-    : (group.is_approved === true || group.approval_status === 'approved')
-      ? 'approved'
-      : 'pending';
-  const isApproved = group.is_approved === true || group.approval_status === 'approved';
+  
+  // Use centralized status helper
+  const groupStatus = getGroupStatus(group);
+  const isApproved = groupStatus.isApproved;
   const isPrivate = group.is_private === true;
   const isSiteAdmin = !!canManageAllGroups;
-  const isStudentRole = userRole === 'student';
-  const isAlumniOnlyGroup = Array.isArray(group.tags) && group.tags.some((tag) => String(tag).toLowerCase() === 'alumni-only');
-  const blockedForStudent = isStudentRole && isAlumniOnlyGroup;
+  
+  // Alumni-only: check DB column first, fall back to tag
+  const isAlumniOnlyGroup = group.alumni_only === true || 
+    (Array.isArray(group.tags) && group.tags.some((tag) => String(tag).toLowerCase() === 'alumni-only'));
+  
+  // Use centralized join check
+  const joinCheck = canJoinGroup(group, userRole, isMember);
   const showManage = (isGroupAdmin || isSiteAdmin) && !group.is_archived;
-  const employer = userRole === 'employer';
-  const showJoin = !employer && !blockedForStudent && isUserApproved && !group.is_archived && !isMember && isApproved && !isPrivate;
-  const showLeave = !group.is_archived && isMember && !(isGroupAdmin || isSiteAdmin);
-  const showRequest = !employer && !blockedForStudent && isUserApproved && !group.is_archived && !isMember && isPrivate;
+  const employer = isEmployer(userRole);
+  
+  // Determine membership state for CTA using centralized logic
+  let membershipState = 'none'; // none | joined | pending | manage
+  let ctaLabel = '';
+  let ctaClass = '';
+  let ctaDisabled = false;
+  
+  // P1: Increased text size from text-xs to text-sm for better accessibility
+  if (isMember) {
+    if (showManage) {
+      membershipState = 'manage';
+      ctaLabel = 'Manage';
+      ctaClass = 'text-sm px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1';
+    } else {
+      membershipState = 'joined';
+      ctaLabel = 'Joined';
+      ctaClass = 'text-sm px-3 py-1.5 rounded-md bg-green-50 text-green-700 border border-green-200';
+    }
+  } else if (!isUserApproved) {
+    membershipState = 'unapproved';
+    ctaLabel = 'Approval required';
+    ctaDisabled = true;
+    ctaClass = 'text-sm px-3 py-1.5 rounded-md bg-gray-200 text-gray-600 cursor-not-allowed';
+  } else if (hasPendingRequest) {
+    membershipState = 'pending_request';
+    ctaLabel = 'Request pending';
+    ctaDisabled = true;
+    ctaClass = 'text-sm px-3 py-1.5 rounded-md bg-yellow-100 text-yellow-700 border border-yellow-300 cursor-not-allowed';
+  } else if (!joinCheck.allowed) {
+    // Use centralized join check reason
+    membershipState = 'blocked';
+    ctaLabel = joinCheck.reason || 'Cannot join';
+    ctaDisabled = true;
+    ctaClass = 'text-sm px-3 py-1.5 rounded-md bg-gray-200 text-gray-600 cursor-not-allowed';
+  } else if (isPrivate) {
+    // Private groups require request/invite
+    membershipState = 'request';
+    ctaLabel = 'Request to Join';
+    ctaClass = 'text-sm px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1';
+  } else {
+    membershipState = 'join';
+    ctaLabel = 'Join';
+    ctaClass = 'text-sm px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1';
+  }
   
   // Build avatar image src: prefer stored public URL; otherwise fetch a signed URL
   useEffect(() => {
@@ -59,7 +104,7 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
   }, [group?.group_avatar_url, group?.updated_at, group?.id]);
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-md overflow-hidden transform transition-transform hover:-translate-y-1 hover:shadow-xl">
+    <article className="bg-white border border-gray-200 rounded-lg shadow-md overflow-hidden transform transition-transform hover:-translate-y-1 hover:shadow-xl focus-within:ring-2 focus-within:ring-blue-500" aria-label={`Group: ${group.name}`}>
       <Link to={`/groups/${group.id}`}>
         <div className="w-full h-40 bg-gray-100 flex items-center justify-center overflow-hidden">
           <ImageWithFallback
@@ -103,29 +148,40 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
             <Users className="w-3 h-3 mr-1" />
             <span>Members</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1 justify-end">
+            {/* Primary status chips */}
+            <span className={`px-2 py-1 rounded-full flex items-center gap-1 ${isPrivate ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+              {isPrivate && <Lock className="w-3 h-3" />}
+              {isPrivate ? 'Private' : 'Public'}
+            </span>
             {group.is_admin_only_posts && (
-              <span className="px-2 py-1 rounded-full bg-purple-50 text-purple-700">Admin-only Posts</span>
+              <span className="px-2 py-1 rounded-full bg-purple-50 text-purple-700" title="Only admins can post">Admin Posts</span>
             )}
             {group.is_archived && (
               <span className="px-2 py-1 rounded-full bg-red-100 text-red-700">Archived</span>
             )}
             {isAlumniOnlyGroup && (
-              <span className="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700" title="Alumni-only group">
-                Alumni only
+              <span className="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 flex items-center gap-1" title="Alumni-only group">
+                <GraduationCap className="w-3 h-3" />Alumni only
               </span>
             )}
-            <span className={`px-2 py-1 rounded-full ${isPrivate ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
-              {isPrivate ? 'Private' : 'Public'}
-            </span>
-            {showModeration && (
-              moderationState === 'approved' ? (
-                <span className="px-2 py-1 rounded-full bg-green-100 text-green-700">Approved</span>
-              ) : moderationState === 'pending' ? (
-                <span className="px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">Pending</span>
-              ) : (
-                <span className="px-2 py-1 rounded-full bg-red-100 text-red-700" title={group.rejection_reason || ''}>Rejected</span>
-              )
+            {isMember && !showManage && (
+              <span className="px-2 py-1 rounded-full bg-green-100 text-green-700 flex items-center gap-1">
+                <CheckCircle className="w-3 h-3" />Joined
+              </span>
+            )}
+            {showModeration && !groupStatus.isActive && (
+              <span 
+                className={`px-2 py-1 rounded-full ${
+                  groupStatus.statusColor === 'green' ? 'bg-green-100 text-green-700' :
+                  groupStatus.statusColor === 'yellow' ? 'bg-yellow-100 text-yellow-700' :
+                  groupStatus.statusColor === 'red' ? 'bg-red-100 text-red-700' :
+                  'bg-gray-100 text-gray-700'
+                }`}
+                title={group.rejection_reason || ''}
+              >
+                {groupStatus.statusLabel}
+              </span>
             )}
           </div>
         </div>
@@ -136,128 +192,152 @@ const GroupCard = ({ group, isMember, isGroupAdmin, onJoinLeave, currentUserId, 
             {formattedDate}
           </span>
           
-          {showJoin && (
-            <button
-              onClick={() => onJoinLeave(group.id, isMember, group.is_private)}
-              className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700"
+          {/* Single unified CTA */}
+          {membershipState === 'manage' ? (
+            <Link 
+              to={`/groups/${group.id}/manage`}
+              className={ctaClass}
+              aria-label={`Manage ${group.name}`}
             >
-              Join
+              {ctaLabel}
+            </Link>
+          ) : (membershipState === 'join' || membershipState === 'request') ? (
+            <button
+              onClick={() => onJoinLeave(group.id, false, isPrivate)}
+              className={ctaClass}
+              aria-label={`${ctaLabel} ${group.name}`}
+            >
+              {ctaLabel}
             </button>
-          )}
-          {showLeave && (
+          ) : (
             <button
-              onClick={() => onJoinLeave(group.id, isMember, group.is_private)}
-              className="text-xs px-3 py-1.5 rounded-md bg-red-50 text-red-600 hover:bg-red-100"
+              disabled={ctaDisabled}
+              className={ctaClass}
+              aria-label={ctaLabel}
+              title={joinCheck.reason || ''}
             >
-              Leave
-            </button>
-          )}
-          {!isMember && !employer && !group.is_archived && (
-            blockedForStudent ? (
-              <button
-                disabled
-                className="px-4 py-2 bg-gray-300 text-gray-600 rounded-lg cursor-not-allowed"
-                title="This is an alumni-only group"
-              >
-                Alumni Only
-              </button>
-            ) : (
-              <button
-                onClick={() => onJoinLeave(group.id, false)}
-                className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700"
-              >
-                Join
-              </button>
-            )
-          )}
-          {!showJoin && !showLeave && showRequest && !isSiteAdmin && !isCreator && (
-            <button
-              onClick={() => onJoinLeave(group.id, false, true)}
-              className="text-xs px-3 py-1.5 rounded-md bg-gray-800 text-white hover:bg-gray-900"
-            >
-              Request to join
+              {ctaLabel}
             </button>
           )}
         </div>
-        
-        {showManage && (
-          <div className="mt-2 text-right">
-            <Link 
-              to={`/groups/${group.id}/manage`}
-              className="text-xs text-blue-600 hover:underline"
-            >
-              Manage Group
-            </Link>
-          </div>
-        )}
       </div>
-    </div>
+    </article>
   );
 };
 
 const GroupsList = () => {
   const { user, isAdmin, hasPermission, profile, userRole } = useAuth();
   const { isApproved: isUserApproved } = useApproval();
-  const [groups, setGroups] = useState([]);
+  // P2: Store raw fetched groups separately so errors don't clear existing data
+  const [allFetchedGroups, setAllFetchedGroups] = useState([]);
   const [userMemberships, setUserMemberships] = useState([]);
   const [membershipMap, setMembershipMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // P0: Separate transient feedback messages from blocking errors
+  const [feedbackMessage, setFeedbackMessage] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTags, setSelectedTags] = useState([]);
-  const [filter, setFilter] = useState('all'); // 'all', 'joined', 'created'
-  const [privacyFilter, setPrivacyFilter] = useState('all'); // 'all', 'public', 'private'
+  const [filter, setFilter] = useState('all'); // 'all', 'joined', 'created' (used primarily by My Groups CTA)
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const itemsPerPage = 12;
+  const [myGroups, setMyGroups] = useState([]);
+  const [sortDirection, setSortDirection] = useState('asc'); // 'asc' | 'desc' alphabetical
   // Check if user can manage all groups (admin privilege)
   const canManageAllGroups = isAdmin || hasPermission('manage:all_groups');
   
-  // Get all unique tags from groups
-  const allTags = [...new Set(groups.flatMap(group => group.tags || []))];
-
+  // P0: Ref for aria-live announcements
+  const liveRegionRef = useRef(null);
+  
+  // P0: Client-side filtering on allFetchedGroups using search, membership filter, and alphabetical sort
+  const filteredGroups = useMemo(() => {
+    let result = [...allFetchedGroups];
+    
+    // Apply membership filter (joined/created)
+    if (user && filter !== 'all') {
+      if (filter === 'joined') {
+        result = result.filter(group => group.is_member === true);
+      } else if (filter === 'created') {
+        result = result.filter(group => group.created_by === user.id);
+      }
+    }
+    
+    // P0 FIX: Apply search query filter on name and description
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      result = result.filter(group => {
+        const name = (group.name || '').toLowerCase();
+        const description = (group.description || '').toLowerCase();
+        return name.includes(query) || description.includes(query);
+      });
+    }
+    
+    // Sort alphabetically by group name (A–Z or Z–A)
+    result = [...result].sort((a, b) => {
+      const nameA = (a.name || '').toLowerCase();
+      const nameB = (b.name || '').toLowerCase();
+      if (nameA === nameB) return 0;
+      return sortDirection === 'asc'
+        ? nameA.localeCompare(nameB)
+        : nameB.localeCompare(nameA);
+    });
+    
+    return result;
+  }, [allFetchedGroups, user, filter, searchQuery, sortDirection]);
+  
+  // Derive groups from filteredGroups for backward compatibility
+  const groups = filteredGroups;
+  
+  // P1 FIX: Remove searchQuery from useEffect deps - filtering is now client-side via useMemo
+  // This prevents re-fetch + skeleton jitter on every keystroke
   useEffect(() => {
     const getGroups = async () => {
       // Employers should not see or fetch groups; keep loading false and list empty
       if (userRole === 'employer') {
-        setGroups([]);
+        setAllFetchedGroups([]);
         setLoading(false);
         setError(null);
         return;
       }
 
       setLoading(true);
-      setError(null);
+      // P2: Don't clear error immediately - only clear on success
       try {
-        // Fetch groups with proper filters based on role and permissions
-        const { data, error } = await fetchGroups({
-          searchQuery: searchQuery,
-          tags: selectedTags.length > 0 ? selectedTags : undefined,
-          isAdmin: canManageAllGroups, // Admins can see all
-          currentUserId: user?.id || null, // Non-admins: include private groups where member
-          userRole: userRole || null,
-        });
-        
-        if (error) throw error;
-        
-        let filteredData = data || [];
-        
-        // Apply client-side filtering based on the selected filter
-        if (user && filter !== 'all' && filteredData.length > 0) {
-          if (filter === 'joined') {
-            // Show only groups the user is a member of (via is_member flag)
-            filteredData = filteredData.filter(group => group.is_member === true);
-          } else if (filter === 'created') {
-            // Show only groups created by the user
-            filteredData = filteredData.filter(group => group.created_by === user.id);
-          }
+        // Fetch groups via secure RPC (handles role-aware filtering)
+        let data;
+        try {
+          data = await fetchGroupsRpc();
+        } catch (rpcErr) {
+          logger.warn('fetchGroupsRpc failed, will fall back to direct query:', rpcErr);
+          data = null;
         }
 
-        // Apply privacy filter for admins, or for non-admins on the merged view
-        if (privacyFilter !== 'all') {
-          filteredData = filteredData.filter(g =>
-            privacyFilter === 'public' ? g.is_private === false : g.is_private === true
-          );
+        // TEMPORARY LEGACY FALLBACK:
+        // If RPC returns no groups (e.g., older data with pending approval_status),
+        // fall back to a direct groups table query so existing groups remain visible.
+        if (!data || data.length === 0) {
+          const { data: legacy, error: legacyError } = await supabase
+            .from('groups')
+            .select('id,name,description,is_private,is_admin_only_posts,is_archived,is_approved,approval_status,created_by,group_avatar_url,tags,created_at,alumni_only')
+            .order('created_at', { ascending: false });
+          if (legacyError) {
+            throw legacyError;
+          }
+          data = legacy || [];
         }
+
+        // P0/P1: Store raw data; filtering is done via useMemo
+        setAllFetchedGroups(data || []);
+        setHasMore((data || []).length >= itemsPerPage);
+        setError(null); // Clear error only on success
         
-        setGroups(filteredData);
+        // Extract "My Groups" for top strip from raw data
+        if (user && data && data.length > 0) {
+          const mine = data.filter(g => g.is_member === true).slice(0, 3);
+          setMyGroups(mine);
+        } else {
+          setMyGroups([]);
+        }
         
         // If user is logged in, identify their group memberships via is_member flag
         if (user) {
@@ -266,30 +346,38 @@ const GroupsList = () => {
             .map(group => group.id);
           setUserMemberships(memberships);
           // Build membership map for all visible groups to drive accurate CTAs
-          const ids = (filteredData || []).map(g => g.id);
+          const ids = (data || []).map(g => g.id);
           try {
             const mm = await fetchMembershipMap(supabase, ids);
             setMembershipMap(mm);
           } catch (mmErr) {
-            console.warn('Failed to load membership map:', mmErr);
+            logger.warn('Failed to load membership map:', mmErr);
             setMembershipMap({});
           }
         }
       } catch (err) {
         const msg = String(err?.message || '');
-        if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
-          setError('Some groups may be hidden right now due to policy changes. Please try again later.');
+        // P2: Only set error if we have no existing data to show
+        const errorMsg = /JSON object requested, multiple \(or no\) rows returned/i.test(msg)
+          ? 'Some groups may be hidden right now due to policy changes. Please try again later.'
+          : 'Failed to load groups. Please try again.';
+        
+        if (allFetchedGroups.length === 0) {
+          setError(errorMsg);
         } else {
-          setError('Failed to load groups. Please try again.');
+          // P2: Show inline feedback instead of blocking error when we have existing data
+          setFeedbackMessage({ type: 'error', text: errorMsg });
+          setTimeout(() => setFeedbackMessage(null), 5000);
         }
-        console.error("Error fetching groups:", err);
+        logger.error("Error fetching groups:", err);
       } finally {
         setLoading(false);
       }
     };
 
     getGroups();
-  }, [user, userRole, searchQuery, selectedTags, filter, privacyFilter, canManageAllGroups]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, userRole, canManageAllGroups]); // P1: Removed searchQuery, selectedTags, filter, privacyFilter, page from deps
 
   const handleJoinLeave = async (groupId, isMember, isPrivate) => {
     if (!user) {
@@ -297,51 +385,11 @@ const GroupsList = () => {
       window.location.href = '/login?redirect=/groups';
       return;
     }
-    
-    // For private groups: submit a membership request when not an admin
-    if (!isMember && isPrivate && !canManageAllGroups) {
-      try {
-        const { error } = await requestGroupMembership(groupId);
-        if (error) {
-          if (String(error.code) === '23505' || error.status === 409) {
-            setError('Your request is already pending or you are already a member.');
-          } else if (String(error.code) === '42501') {
-            setError("You don't have permission to request this group.");
-          } else {
-            setError(error.message);
-          }
-        } else {
-          setError('Join request sent to group admins.');
-        }
-      } catch (e) {
-        console.error('Request to join failed', e);
-        setError('Failed to send join request.');
-      } finally {
-        setTimeout(() => setError(null), 3000);
-      }
-      return;
-    }
-    
+
     try {
       if (isMember) {
-        // If member is an admin, ensure another admin exists before leaving
-        const mm = membershipMap[groupId];
-        if (mm?.isAdmin) {
-          const { count, error } = await supabase
-            .from('group_members')
-            .select('role', { count: 'exact', head: true })
-            .eq('group_id', groupId)
-            .eq('role', 'admin')
-            .neq('user_id', user.id);
-          if (!error && ((count ?? 0) === 0)) {
-            setError('Every group needs at least one admin. Transfer admin role before leaving.');
-            setTimeout(() => setError(null), 3000);
-            return;
-          }
-        }
-        // Leave group - need to pass both groupId and userId
-        const { error } = await leaveGroup(groupId, user.id);
-        if (error) throw error;
+        // Leave group via secure RPC (DB enforces last-admin guard)
+        await leaveGroupRpc(groupId);
         
         setUserMemberships(prev => prev.filter(id => id !== groupId));
         setMembershipMap(prev => {
@@ -351,39 +399,46 @@ const GroupsList = () => {
           }
           return next;
         });
-        console.log(`User left group ${groupId}`);
+        // P0: Announce success to screen readers
+        setFeedbackMessage({ type: 'success', text: 'You have left the group.' });
+        setTimeout(() => setFeedbackMessage(null), 3000);
+        logger.log(`User left group ${groupId}`);
       } else {
-        // Join public approved group - backend handles current user assignment
-        const { error } = await joinGroup(groupId);
-        
-        // Handle potential errors
-        if (error) {
-          setError(getFriendlyErrorMessage(error, 'Unable to join this group right now. Please try again.'));
-          return;
+        // Join via hardened join_group_v2 RPC; returns 'active' | 'pending'
+        const status = await joinGroupRpc(groupId);
+
+        if (status === 'active') {
+          setUserMemberships(prev => [...prev, groupId]);
+          setMembershipMap(prev => {
+            const next = { ...prev };
+            const current = next[groupId] || {};
+            next[groupId] = { ...current, isMember: true };
+            return next;
+          });
+          // P0: Announce success to screen readers
+          setFeedbackMessage({ type: 'success', text: 'You have joined the group!' });
+          setTimeout(() => setFeedbackMessage(null), 3000);
+          logger.log(`User joined group ${groupId}`);
+        } else {
+          // Private groups or cases where membership is pending approval
+          // P0: Use feedbackMessage instead of error for non-blocking feedback
+          setFeedbackMessage({ type: 'info', text: 'Join request sent to group admins. You will be notified when approved.' });
+          // Update membership map to show pending state
+          setMembershipMap(prev => {
+            const next = { ...prev };
+            const current = next[groupId] || {};
+            next[groupId] = { ...current, isPending: true };
+            return next;
+          });
+          setTimeout(() => setFeedbackMessage(null), 4000);
         }
-        
-        setUserMemberships(prev => [...prev, groupId]);
-        setMembershipMap(prev => {
-          const next = { ...prev };
-          const current = next[groupId] || {};
-          next[groupId] = { ...current, isMember: true };
-          return next;
-        });
-        console.log(`User joined group ${groupId}`);
       }
     } catch (err) {
-      console.error("Error joining/leaving group:", err);
-      setError(getFriendlyErrorMessage(err, 'An error occurred while trying to join/leave the group.'));
-      setTimeout(() => setError(null), 3000);
+      logger.error("Error joining/leaving group:", err);
+      // P0: Use feedbackMessage for non-blocking error feedback
+      setFeedbackMessage({ type: 'error', text: getFriendlyErrorMessage(err, 'An error occurred while trying to join/leave the group.') });
+      setTimeout(() => setFeedbackMessage(null), 4000);
     }
-  };
-
-  const handleTagSelect = (tag) => {
-    setSelectedTags(prev => 
-      prev.includes(tag) 
-        ? prev.filter(t => t !== tag) 
-        : [...prev, tag]
-    );
   };
 
   if (userRole === 'employer') {
@@ -399,26 +454,133 @@ const GroupsList = () => {
     );
   }
 
-  if (error) return <div className="text-red-500 text-center p-4">Error: {error}</div>;
+  // P2: Only show full-page blocking error if we have NO data at all
+  if (error && allFetchedGroups.length === 0) {
+    return (
+      <div className="container mx-auto p-4 md:p-6">
+        <div className="bg-red-50 border-l-4 border-red-400 p-6 rounded-lg" role="alert" aria-live="assertive">
+          <div className="flex items-start">
+            <AlertCircle className="w-6 h-6 text-red-600 mr-3 mt-0.5 flex-shrink-0" aria-hidden="true" />
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-red-800 mb-2">Failed to load groups</h3>
+              <p className="text-sm text-red-700 mb-4">{error}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              >
+                <RefreshCw className="w-4 h-4" aria-hidden="true" />
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const displayedGroups = groups.slice(0, page * itemsPerPage);
+  const canLoadMore = groups.length > displayedGroups.length;
 
   return (
     <div className="container mx-auto p-4 md:p-6">
+      {/* P0: Aria-live region for screen reader announcements */}
+      <div
+        ref={liveRegionRef}
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {feedbackMessage?.text}
+      </div>
+      
+      {/* P0/P2: Inline feedback banner (non-blocking) */}
+      {feedbackMessage && (
+        <div
+          role="status"
+          className={`mb-4 p-4 rounded-lg flex items-center gap-3 ${
+            feedbackMessage.type === 'error' ? 'bg-red-50 border border-red-200 text-red-800' :
+            feedbackMessage.type === 'success' ? 'bg-green-50 border border-green-200 text-green-800' :
+            'bg-blue-50 border border-blue-200 text-blue-800'
+          }`}
+        >
+          {feedbackMessage.type === 'error' && <AlertCircle className="w-5 h-5 flex-shrink-0" aria-hidden="true" />}
+          {feedbackMessage.type === 'success' && <CheckCircle className="w-5 h-5 flex-shrink-0" aria-hidden="true" />}
+          <span className="text-sm font-medium">{feedbackMessage.text}</span>
+          <button
+            onClick={() => setFeedbackMessage(null)}
+            className="ml-auto text-current opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-current rounded p-1"
+            aria-label="Dismiss message"
+          >
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+      )}
+      
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800 mb-4 md:mb-0">Networking Groups</h1>
         {user && canCreateGroup(userRole) && (
           <Link
             to="/groups/new"
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
             Create Group
           </Link>
         )}
       </div>
 
-      {/* Search and filters */}
+      {/* My Groups Strip */}
+      {user && myGroups.length > 0 && filter === 'all' && (
+        <section className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 mb-6" aria-labelledby="my-groups-heading">
+          <h2 id="my-groups-heading" className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
+            <Users className="w-5 h-5 mr-2 text-blue-600" />
+            My Groups
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {myGroups.map(g => {
+              const mm = membershipMap[g.id] || { isMember: true, isAdmin: false };
+              return (
+                <Link
+                  key={g.id}
+                  to={`/groups/${g.id}`}
+                  className="bg-white rounded-lg p-3 border border-gray-200 hover:shadow-md transition-shadow flex items-center gap-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  aria-label={`View ${g.name} group${mm.isAdmin ? ', you are an admin' : ''}`}
+                >
+                  <div className="w-12 h-12 rounded-md bg-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {g.group_avatar_url ? (
+                      // P1: Decorative image - name is in link label; use empty alt
+                      <img src={g.group_avatar_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <Users className="w-6 h-6 text-gray-400" aria-hidden="true" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-gray-900 truncate">{g.name}</div>
+                    <div className="text-xs text-gray-500 flex items-center gap-2 mt-1">
+                      {g.is_private ? 'Private' : 'Public'}
+                      {mm.isAdmin && (
+                        <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Admin</span>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+          <div className="mt-3 text-right">
+            <button
+              onClick={() => setFilter('joined')}
+              className="text-sm text-blue-600 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-2 py-1"
+            >
+              View all my groups →
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* Search and sort */}
       <div className="bg-white p-4 rounded-lg shadow-sm mb-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
+        <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+          <div className="flex-1 w-full">
             <div className="relative">
               <input
                 type="text"
@@ -426,82 +588,67 @@ const GroupsList = () => {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-label="Search groups"
               />
               <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
             </div>
           </div>
-          
-          {/* Filter pills */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Privacy pills */}
-            <div className="flex items-center gap-1">
-              {['all','public','private'].map(p => (
-                <button
-                  key={p}
-                  onClick={() => setPrivacyFilter(p)}
-                  className={`text-xs px-3 py-1 rounded-full border ${privacyFilter === p ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                >
-                  {p === 'all' ? 'All' : p[0].toUpperCase() + p.slice(1)}
-                </button>
-              ))}
-            </div>
 
-            {/* Membership pills (if logged in) */}
-            {user && (
-              <div className="flex items-center gap-1 ml-2">
-                {[{k:'all',label:'All'},{k:'joined',label:'Joined'},{k:'created',label:'Created'}].map(opt => (
-                  <button
-                    key={opt.k}
-                    onClick={() => setFilter(opt.k)}
-                    className={`text-xs px-3 py-1 rounded-full border ${filter === opt.k ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Sort:</span>
+            <div className="inline-flex rounded-full bg-gray-50 p-0.5" role="group" aria-label="Sort groups alphabetically">
+              <button
+                type="button"
+                onClick={() => setSortDirection('asc')}
+                aria-pressed={sortDirection === 'asc'}
+                className={`text-xs md:text-sm px-3 py-1.5 rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+                  sortDirection === 'asc'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                A → Z
+              </button>
+              <button
+                type="button"
+                onClick={() => setSortDirection('desc')}
+                aria-pressed={sortDirection === 'desc'}
+                className={`text-xs md:text-sm px-3 py-1.5 rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ml-1 ${
+                  sortDirection === 'desc'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                Z → A
+              </button>
+            </div>
           </div>
         </div>
-        
-        {/* Tags filter */}
-        {allTags.length > 0 && (
-          <div className="mt-4">
-            <div className="flex items-center mb-2">
-              <Tag className="w-4 h-4 text-gray-500 mr-2" />
-              <span className="text-sm font-medium text-gray-700">Filter by tags:</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {allTags.map((tag, index) => (
-                <button
-                  key={index}
-                  onClick={() => handleTagSelect(tag)}
-                  className={`text-xs px-3 py-1 rounded-full transition-colors ${
-                    selectedTags.includes(tag)
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
+      {/* Active filters summary for screen readers */}
+      {(searchQuery || sortDirection === 'desc') && (
+        <div className="sr-only" aria-live="polite">
+          Showing {groups.length} groups
+          {searchQuery && ` matching "${searchQuery}"`}
+          {sortDirection === 'desc' && ' sorted Z to A'}
+        </div>
+      )}
+      
       {/* Groups grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" role="list" aria-label="Groups list">
         {loading ? (
           Array.from({ length: 8 }).map((_, index) => <GroupCardSkeleton key={index} />)
-        ) : groups.length > 0 ? (
-          groups.map(group => {
-            const mm = membershipMap[group.id] || { isMember: group.is_member === true || userMemberships.includes(group.id), isAdmin: false };
+        ) : displayedGroups.length > 0 ? (
+          displayedGroups.map(group => {
+            const mm = membershipMap[group.id] || { isMember: group.is_member === true || userMemberships.includes(group.id), isAdmin: false, isPending: false };
             return (
               <GroupCard 
                 key={group.id} 
                 group={group} 
                 isMember={!!mm.isMember}
                 isGroupAdmin={!!mm.isAdmin}
+                hasPendingRequest={!!mm.isPending}
                 onJoinLeave={handleJoinLeave}
                 currentUserId={user?.id}
                 canManageAllGroups={canManageAllGroups}
@@ -511,18 +658,55 @@ const GroupsList = () => {
             );
           })
         ) : (
-          <div className="col-span-full text-center py-12">
-            <h2 className="text-xl text-gray-600">No groups found.</h2>
-            <p className="text-gray-500 mt-2">
-              {searchQuery || selectedTags.length > 0
-                ? 'Try adjusting your search or filters.'
+          <div className="col-span-full text-center py-16 bg-gray-50 rounded-lg">
+            <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-gray-700 mb-2">No groups found</h2>
+            <p className="text-gray-500 mb-4">
+              {searchQuery
+                ? 'No groups match your search.'
                 : user
-                  ? 'Why not be the first to create one?'
-                  : 'Sign in to create a new group.'}
+                  ? 'Be the first to create a group!'
+                  : 'Sign in to discover and join groups.'}
             </p>
+            {searchQuery && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setFilter('all');
+                  setSortDirection('asc');
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Clear search
+              </button>
+            )}
+            {user && canCreateGroup(userRole) && !searchQuery && (
+              <Link
+                to="/groups/new"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              >
+                Create your first group
+              </Link>
+            )}
           </div>
         )}
       </div>
+
+      {/* Load More */}
+      {!loading && canLoadMore && (
+        <div className="mt-8 text-center">
+          <button
+            onClick={() => setPage(prev => prev + 1)}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-white border-2 border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+          >
+            Load more groups
+          </button>
+          <p className="text-sm text-gray-500 mt-2">
+            Showing {displayedGroups.length} of {groups.length} groups
+          </p>
+        </div>
+      )}
     </div>
   );
 };

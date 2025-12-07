@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import logger from '../../utils/logger';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
@@ -38,8 +39,8 @@ export default function RequestsToMePage() {
       if (error) throw error;
       setRequests(data || []);
     } catch (error) {
-      console.error('Error fetching requests:', error);
-      toast.error('Failed to load requests');
+      logger.error('Error fetching requests:', error);
+      toast.error('We could not load your requests. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -58,18 +59,18 @@ export default function RequestsToMePage() {
       if (error) {
         // Check for capacity error
         if (error.message?.includes('capacity')) {
-          toast.error("You've reached your mentee limit. Free up space or increase your capacity.");
+          toast.error('You have reached your mentee limit. End an existing mentorship or increase your capacity.');
         } else {
           throw error;
         }
         return;
       }
 
-      toast.success('Request accepted! You can now chat with your new mentee.');
+      toast.success('Request accepted. You can now chat with your new mentee.');
       fetchRequests(); // Refresh list
     } catch (error) {
-      console.error('Error accepting request:', error);
-      toast.error('Failed to accept request');
+      logger.error('Error accepting request:', error);
+      toast.error('We could not accept this request. Please try again.');
     } finally {
       setActionLoading(null);
       setActionType(null);
@@ -90,11 +91,11 @@ export default function RequestsToMePage() {
 
       if (error) throw error;
 
-      toast.success('Request declined');
+      toast.success('Request declined.');
       fetchRequests(); // Refresh list
     } catch (error) {
-      console.error('Error declining request:', error);
-      toast.error('Failed to decline request');
+      logger.error('Error declining request:', error);
+      toast.error('We could not decline this request. Please try again.');
     } finally {
       setActionLoading(null);
       setActionType(null);
@@ -116,7 +117,7 @@ export default function RequestsToMePage() {
         <div className="max-w-md mx-auto">
           <h2 className="text-xl font-semibold text-gray-900 mb-2">Become a mentor to receive requests</h2>
           <p className="text-sm text-gray-600 mb-4">
-            Once you create a mentor profile and it’s approved, juniors can request mentorship from you here.
+            Once you create a mentor profile and it is approved, students and early-career members can request mentorship from you here.
           </p>
           <button
             onClick={() => navigate('/mentorship/become-mentor')}
@@ -133,7 +134,7 @@ export default function RequestsToMePage() {
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-gray-900">Requests I received</h2>
+        <h2 className="text-xl font-semibold text-gray-900">Requests I have received</h2>
         <p className="mt-1 text-sm text-gray-600">
           Requests from mentees asking you to be their mentor.
         </p>
@@ -143,12 +144,12 @@ export default function RequestsToMePage() {
 
         {mentorProfileStatus === 'pending' && (
           <p className="mt-2 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-md px-3 py-2">
-            Your mentor profile is under review. You’ll start receiving requests once it’s approved.
+            Your mentor profile is under review. You will start receiving requests once it is approved.
           </p>
         )}
         {mentorProfileStatus === 'rejected' && (
           <p className="mt-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-            Your mentor profile is not currently live. Please update your details and resubmit.
+            Your mentor profile is not currently live. Please update your details and resubmit it for approval.
           </p>
         )}
       </div>
@@ -198,13 +199,13 @@ export default function RequestsToMePage() {
             </svg>
             <h3 className="text-lg font-medium text-gray-900 mb-2">
               {statusFilter === 'pending'
-                ? 'No pending requests'
+                ? 'No pending mentorship requests'
                 : `No ${statusFilter} requests`}
             </h3>
             <p className="text-gray-600 mb-3">
               {statusFilter === 'pending'
-                ? 'When mentees send you requests, they will appear here.'
-                : `You don't have any ${statusFilter} requests.`}
+                ? 'When mentees send you mentorship requests, they will appear here.'
+                : `You do not have any ${statusFilter} requests.`}
             </p>
             {statusFilter === 'pending' && isApprovedMentor && acceptedCount > 0 && (
               <p className="text-xs text-gray-500">
@@ -214,7 +215,7 @@ export default function RequestsToMePage() {
                   onClick={() => navigate('/mentorship/me')}
                   className="underline text-blue-600 hover:text-blue-800"
                 >
-                  My Mentors &amp; Mentees
+                  My mentorships
                 </button>
                 .
               </p>
@@ -275,8 +276,8 @@ export default function RequestsToMePage() {
 
                     {/* Status Message */}
                     <p className="mt-2 text-sm text-gray-600">
-                      {isPending && 'Mentor this student?'}
-                      {isAccepted && 'You accepted. Chat anytime.'}
+                      {isPending && 'Would you like to mentor this member?'}
+                      {isAccepted && 'You have accepted this mentee. You can chat anytime.'}
                       {request.status === 'rejected' && 'You declined this request.'}
                     </p>
 

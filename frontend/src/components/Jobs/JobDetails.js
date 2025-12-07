@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
+import logger from '../../utils/logger';
 import { 
   MapPinIcon,
   BriefcaseIcon,
@@ -98,13 +99,13 @@ const JobDetails = () => {
           };
 
           setJob(processedData);
-          console.log('Fetched job data:', processedData);
+          logger.log('Fetched job data:', processedData);
         } else {
           setError('Job not found');
           toast.error('Job not found');
         }
       } catch (err) {
-        console.error('Error fetching job details:', err);
+        logger.error('Error fetching job details:', err);
         setError(err.message || 'Failed to load job details');
         toast.error('Failed to load job details');
       } finally {
@@ -121,7 +122,7 @@ const JobDetails = () => {
   useEffect(() => {
     const fetchBookmarkStatus = async () => {
       if (job && job.id && user && user.id) {
-        // console.log(`Fetching bookmark status for job ${job.id} and user ${user.id}`); // For debugging
+        // logger.log(`Fetching bookmark status for job ${job.id} and user ${user.id}`); // For debugging
         try {
           const { data: bookmark, error } = await supabase
             .from('job_bookmarks')
@@ -131,14 +132,14 @@ const JobDetails = () => {
             .maybeSingle();
 
           if (error) {
-            console.error('Error fetching bookmark status:', error.message);
+            logger.error('Error fetching bookmark status:', error.message);
             // toast.error('Could not check bookmark status.');
             return;
           }
           setIsBookmarked(!!bookmark);
-          // console.log('Bookmark status set to:', !!bookmark); // For debugging
+          // logger.log('Bookmark status set to:', !!bookmark); // For debugging
         } catch (err) {
-          console.error('Exception fetching bookmark status:', err.message);
+          logger.error('Exception fetching bookmark status:', err.message);
         }
       }
     };
@@ -164,7 +165,7 @@ const JobDetails = () => {
       setIsBookmarked(nowBookmarked);
       toast.success(nowBookmarked ? 'Job bookmarked!' : 'Bookmark removed!');
     } catch (error) {
-      console.error('Error handling bookmark:', error.message || error);
+      logger.error('Error handling bookmark:', error.message || error);
       toast.error(error.message || 'Failed to update bookmark. Please try again.');
     } finally {
       setBookmarking(false);
@@ -185,13 +186,13 @@ const JobDetails = () => {
           text: `Check out this job opportunity: ${job.title} at ${companyName}`,
           url: window.location.href
         });
-        // console.log('Shared successfully'); // Optional: log success
+        // logger.log('Shared successfully'); // Optional: log success
       } catch (error) {
         if (error.name === 'AbortError') {
-          console.log('Share canceled by user.'); // Not an actual error, user dismissed UI
+          logger.log('Share canceled by user.'); // Not an actual error, user dismissed UI
           // toast.info('Share canceled.'); // Optional: inform user
         } else {
-          console.error('Error sharing:', error);
+          logger.error('Error sharing:', error);
           toast.error('Could not share. Please try again.');
         }
       } finally {
@@ -203,7 +204,7 @@ const JobDetails = () => {
         await navigator.clipboard.writeText(window.location.href);
         toast.success('Link copied to clipboard!');
       } catch (err) {
-        console.error('Failed to copy link:', err);
+        logger.error('Failed to copy link:', err);
         toast.error('Could not copy link.');
       }
     }

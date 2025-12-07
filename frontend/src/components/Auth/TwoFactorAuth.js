@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
@@ -44,7 +45,7 @@ const TwoFactorAuth = () => {
       
       setIs2FAEnabled(data?.two_factor_enabled || false);
     } catch (err) {
-      console.error('Error checking 2FA status:', err);
+      logger.error('Error checking 2FA status:', err);
     }
   };
 
@@ -66,7 +67,7 @@ const TwoFactorAuth = () => {
       setSetupMode(true);
       setVerifyMode(false);
     } catch (err) {
-      console.error('Error setting up 2FA:', err);
+      logger.error('Error setting up 2FA:', err);
       setError('Failed to set up two-factor authentication. Please try again.');
     } finally {
       setLoading(false);
@@ -125,7 +126,7 @@ const TwoFactorAuth = () => {
       
       toast.success('Two-factor authentication has been enabled!');
     } catch (err) {
-      console.error('Error verifying 2FA:', err);
+      logger.error('Error verifying 2FA:', err);
       setError('Failed to verify and enable two-factor authentication. Please try again.');
     } finally {
       setLoading(false);
@@ -182,7 +183,7 @@ const TwoFactorAuth = () => {
       
       toast.success('Two-factor authentication has been disabled.');
     } catch (err) {
-      console.error('Error disabling 2FA:', err);
+      logger.error('Error disabling 2FA:', err);
       setError('Failed to disable two-factor authentication. Please try again.');
     } finally {
       setLoading(false);

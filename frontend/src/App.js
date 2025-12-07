@@ -86,8 +86,6 @@ import MyMentorshipPage from './pages/mentorship/MyMentorshipPage';
 import BecomeMentorForm from './components/Mentorship/BecomeMentorForm';
 import MentorProfile from './components/Mentorship/MentorProfile';
 import MentorSettings from './components/Mentorship/MentorSettings';
-import CreateGroup from './components/Networking/CreateGroup';
-import GroupDetails from './components/Networking/GroupDetails';
 import Analytics from './components/Admin/Analytics';
 import AdminGate from './components/Admin/AdminGate';
 import UserManagement from './components/Admin/UserManagement';
@@ -104,6 +102,7 @@ import MentorshipStatus from './components/Mentorship/MentorshipStatus';
 import ApprovedGuard from './components/guards/ApprovedGuard.jsx';
 import AdminMentorApprovals from './components/Mentorship/AdminMentorApprovals.js';
 import DataVerificationDashboard from './components/Admin/DataVerificationDashboard.jsx';
+import AdminGroupsPage from './pages/AdminGroupsPage';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import AboutPage from './pages/AboutPage';
@@ -225,7 +224,7 @@ function AppContent() {
             <Route path="/jobs/create" element={<ApprovedGuard require="approved-employer" skeleton={<div/>}><ProtectedRoute requiredPermission="post:jobs"><JobPostingForm /></ProtectedRoute></ApprovedGuard>} />
             <Route path="/jobs/applications" element={<ProtectedRoute requiredPermission="apply:jobs"><ApplicationTracking /></ProtectedRoute>} />
             <Route path="/jobs/applications/:id" element={<ProtectedRoute requiredPermission="apply:jobs"><ApplicationTracking /></ProtectedRoute>} />
-            <Route path="/jobs/:jobId/apply" element={<JobApplication />} />
+            <Route path="/jobs/:jobId/apply" element={<Navigate to="/jobs/:jobId" replace />} />
             <Route path="/jobs/:jobId/application-success" element={<Navigate to="/jobs/applications" />} />
             <Route path="/jobs/:id" element={<ProtectedRoute requiredPermission="view:jobs"><JobDetails /></ProtectedRoute>} />
             {/* Support canonical edit route used by details components */}
@@ -235,7 +234,7 @@ function AppContent() {
 
             <Route path="/jobs/:jobId/manage" element={<ProtectedRoute requiredPermission="view:job_applications"><ManageJobApplications /></ProtectedRoute>} />
             <Route path="/jobs/:id/applications" element={<ProtectedRoute requiredPermission="view:job_applications"><ManageJobApplications /></ProtectedRoute>} />
-            <Route path="/my-applications" element={<ProtectedRoute><JobApplicationStatus /></ProtectedRoute>} />
+            <Route path="/my-applications" element={<ProtectedRoute requiredPermission="apply:jobs"><JobApplicationStatus /></ProtectedRoute>} />
             <Route path="/profile/:userId" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:alumni_directory"><UserProfilePage /></ProtectedRoute></RequireCompleteProfile>} />
             <Route
               path="/directory"
@@ -317,6 +316,7 @@ function AppContent() {
             <Route path="/admin/events/:id/feedback" element={<ProtectedRoute requiredPermission="access:all"><EventFeedbackReport /></ProtectedRoute>} />
             <Route path="/admin/mentor-approvals" element={<ProtectedRoute requiredPermission="access:all"><AdminMentorApprovals /></ProtectedRoute>} />
             <Route path="/admin/verify" element={<ProtectedRoute requiredPermission="access:all"><DataVerificationDashboard /></ProtectedRoute>} />
+            <Route path="/admin/groups" element={<ProtectedRoute requiredPermission="access:all"><AdminGroupsPage /></ProtectedRoute>} />
             <Route path="/admin/feedback" element={<ProtectedRoute requiredPermission="view:feedback_reports"><FeedbackReport /></ProtectedRoute>} />
             <Route path="/rejection" element={<RejectionPage />} />
             <Route path="/access-denied" element={<AccessDenied />} />
@@ -335,7 +335,7 @@ function AppContent() {
       <Route path="/privacy-policy" element={<PrivacyPolicy />} />
       <Route path="/help" element={<HelpCenter />} />
       <Route path="/contact" element={<ContactUs />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
+      {/* Legacy networking group routes removed; use /groups instead */}
       <Route path="/update-password" element={<UpdatePassword />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/directory" element={<Navigate to="/login" />} />

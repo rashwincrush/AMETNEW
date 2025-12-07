@@ -3,6 +3,7 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { XMarkIcon, PaperAirplaneIcon, ChatBubbleLeftIcon, CameraIcon } from '@heroicons/react/24/solid';
+import logger from '../../utils/logger';
 
 const FEEDBACK_TYPES = [
   { id: 'bug', name: 'Bug Report', color: 'bg-red-500' },
@@ -50,14 +51,14 @@ const FeedbackWidget = () => {
         .upload(filePath, file);
         
       if (uploadError) {
-        console.error('Error uploading screenshot:', uploadError);
+        logger.error('Error uploading screenshot:', uploadError);
         return null;
       }
       
       const { data } = supabase.storage.from('feedback').getPublicUrl(filePath);
       return data.publicUrl;
     } catch (error) {
-      console.error('Error handling screenshot upload:', error);
+      logger.error('Error handling screenshot upload:', error);
       return null;
     }
   };
@@ -104,7 +105,7 @@ const FeedbackWidget = () => {
         });
         
       if (error) {
-        console.error('Error submitting feedback:', error);
+        logger.error('Error submitting feedback:', error);
         toast.error('Failed to submit feedback. Please try again.');
       } else {
         toast.success('Feedback submitted successfully! Thank you.');
@@ -112,7 +113,7 @@ const FeedbackWidget = () => {
         setIsOpen(false);
       }
     } catch (error) {
-      console.error('Error in feedback submission:', error);
+      logger.error('Error in feedback submission:', error);
       toast.error('An error occurred. Please try again.');
     } finally {
       setIsSubmitting(false);

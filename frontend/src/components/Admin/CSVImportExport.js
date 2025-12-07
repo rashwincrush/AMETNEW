@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabase';
+import logger from '../../utils/logger';
 import { 
   Box, 
   Button, 
@@ -85,7 +86,7 @@ const CSVImportExport = () => {
       if (error) throw error;
       setImportHistory(data || []);
     } catch (err) {
-      console.error('Error fetching import history:', err);
+      logger.error('Error fetching import history:', err);
       setError('Failed to load import history');
     } finally {
       setHistoryLoading(false);
@@ -154,7 +155,7 @@ const CSVImportExport = () => {
         setLoading(false);
         setActiveStep(1);
       } catch (err) {
-        console.error('Error parsing CSV:', err);
+        logger.error('Error parsing CSV:', err);
         setError(`Error parsing CSV file: ${err.message}`);
         setLoading(false);
       }
@@ -185,7 +186,7 @@ const CSVImportExport = () => {
       
       setTableColumns(filteredColumns);
     } catch (err) {
-      console.error('Error fetching table columns:', err);
+      logger.error('Error fetching table columns:', err);
       setError(`Failed to fetch columns for table ${tableName}`);
     } finally {
       setLoading(false);
@@ -248,7 +249,7 @@ const CSVImportExport = () => {
       fetchImportHistory();
       resetForm();
     } catch (err) {
-      console.error('Error submitting CSV import:', err);
+      logger.error('Error submitting CSV import:', err);
       setError(`Failed to import CSV: ${err.message}`);
     } finally {
       setLoading(false);
@@ -305,7 +306,7 @@ const CSVImportExport = () => {
       URL.revokeObjectURL(url);
       setSuccess(`${tableName} data exported successfully`);
     } catch (err) {
-      console.error('Error exporting data:', err);
+      logger.error('Error exporting data:', err);
       setError(`Failed to export data: ${err.message}`);
     } finally {
       setLoading(false);

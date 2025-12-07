@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import logger from '../../utils/logger';
 import { toFriendlyToast } from '../../utils/errors';
 
 const ResumeUploadForm = () => {
@@ -49,7 +50,7 @@ const ResumeUploadForm = () => {
           .single();
           
         if (error && error.code !== 'PGRST116') {
-          console.error('Error fetching resume profile:', error);
+          logger.error('Error fetching resume profile:', error);
           throw error;
         }
         
@@ -127,7 +128,7 @@ const ResumeUploadForm = () => {
       
       // We don't need to check if bucket exists - we just try to upload
       // If bucket doesn't exist, it will fail with appropriate error
-      console.log(`Attempting to upload to ${bucket} bucket...`);
+      logger.log(`Attempting to upload to ${bucket} bucket...`);
       
       // Try to upload the file
       const { data, error } = await supabase.storage
@@ -138,7 +139,7 @@ const ResumeUploadForm = () => {
         });
         
       if (error) {
-        console.error(`Error uploading ${bucket} file:`, error);
+        logger.error(`Error uploading ${bucket} file:`, error);
         
         // Handle common storage errors
         if (error.message.includes('JWT')) {
@@ -168,7 +169,7 @@ const ResumeUploadForm = () => {
         
       return urlData.publicUrl;
     } catch (error) {
-      console.error(`Error in uploadFile:`, error);
+      logger.error(`Error in uploadFile:`, error);
       throw error;
     }
   };
@@ -208,16 +209,16 @@ const ResumeUploadForm = () => {
     toast.loading('Uploading your profile...', { id: 'profile-upload' });
     
     try {
-      console.log('Starting resume profile submission...');
+      logger.log('Starting resume profile submission...');
       
       // Upload resume if provided (wrapped in try/catch for better error handling)
       let resumeUrl = existingProfile?.resume_url || null;
       if (resumeFile) {
         try {
           resumeUrl = await uploadFile(resumeFile, 'resumes');
-          console.log('Resume uploaded successfully');
+          logger.log('Resume uploaded successfully');
         } catch (uploadError) {
-          console.error('Resume upload failed:', uploadError);
+          logger.error('Resume upload failed:', uploadError);
           toFriendlyToast(toast, uploadError, 'Resume upload failed. Please try again.');
           setIsSubmitting(false);
           toast.dismiss('profile-upload');
@@ -230,9 +231,9 @@ const ResumeUploadForm = () => {
       if (coverLetterFile) {
         try {
           coverLetterUrl = await uploadFile(coverLetterFile, 'cover-letters');
-          console.log('Cover letter uploaded successfully');
+          logger.log('Cover letter uploaded successfully');
         } catch (uploadError) {
-          console.error('Cover letter upload failed:', uploadError);
+          logger.error('Cover letter upload failed:', uploadError);
           toFriendlyToast(toast, uploadError, 'Cover letter upload failed. Please try again.');
           setIsSubmitting(false);
           toast.dismiss('profile-upload');
@@ -294,18 +295,18 @@ const ResumeUploadForm = () => {
       const { data, error } = result;
       
       if (error) {
-        console.error('Error saving resume profile:', error);
+        logger.error('Error saving resume profile:', error);
         throw error;
       }
       
-      console.log('Resume profile saved successfully:', data);
+      logger.log('Resume profile saved successfully:', data);
       toast.dismiss('profile-upload');
       toast.success(`Resume profile ${existingProfile ? 'updated' : 'created'} successfully!`);
       
       // Short delay before navigation to ensure toast is seen
       setTimeout(() => navigate('/jobs'), 1000);
     } catch (error) {
-      console.error('Error saving resume profile:', error);
+      logger.error('Error saving resume profile:', error);
       toast.dismiss('profile-upload');
       toFriendlyToast(toast, error, 'Could not save your profile. Please try again.');
     } finally {

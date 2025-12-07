@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getInitials, getCacheBustedUrl, getAvatarSizeClasses, getRoundedClass, getRoleBadgeColor } from '../../utils/ui';
+import logger from '../../utils/logger';
 
 /**
  * Universal Avatar Component
@@ -70,7 +71,7 @@ const Avatar = ({
         rawSrc.includes('/storage/v1/object/public/avatars/')
       ) {
         // eslint-disable-next-line no-console
-        console.warn('[Avatar] image load failed for Supabase avatar URL', rawSrc);
+        logger.warn('[Avatar] image load failed for Supabase avatar URL', rawSrc);
       }
     }
   };

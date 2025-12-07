@@ -36,6 +36,7 @@ import {
   Instagram
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import logger from '../../utils/logger';
 
 const PublicCompanyProfile = () => {
   const { id } = useParams();
@@ -93,7 +94,7 @@ const PublicCompanyProfile = () => {
 
       setLoading(false);
     } catch (err) {
-      console.error('Error fetching company data:', err);
+      logger.error('Error fetching company data:', err);
       setError('Failed to load company profile');
       setLoading(false);
     }

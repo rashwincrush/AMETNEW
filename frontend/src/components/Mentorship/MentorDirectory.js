@@ -31,7 +31,7 @@ const MentorDirectory = () => {
         setMentors(mentorData);
       } catch (err) {
         setError(err.message);
-        console.error('Error fetching mentors:', err);
+        logger.error('Error fetching mentors:', err);
       } finally {
         setLoading(false);
       }

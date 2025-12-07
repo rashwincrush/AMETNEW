@@ -64,7 +64,7 @@ const EventDetails = () => {
           toast.error('Event not found.');
         }
       } catch (err) {
-        console.error('Error fetching event details:', err);
+        logger.error('Error fetching event details:', err);
         setError(getFriendlyErrorMessage(err, 'Could not load this event.'));
         toast.error('Could not load event details.');
       } finally {
@@ -137,7 +137,7 @@ const EventDetails = () => {
   const handleRSVP = () => {
     setIsRSVPed(!isRSVPed);
     // Mock RSVP logic
-    console.log(isRSVPed ? 'Cancelled RSVP' : 'Registered for event');
+    logger.log(isRSVPed ? 'Cancelled RSVP' : 'Registered for event');
   };
 
   const handleShare = () => {

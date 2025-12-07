@@ -68,7 +68,7 @@ const SessionsCalendar = () => {
 
       setSessions(hydrated);
     } catch (error) {
-      console.error('Error fetching mentorship sessions:', error);
+      logger.error('Error fetching mentorship sessions:', error);
       toast.error('Failed to load mentorship sessions');
     } finally {
       setLoading(false);
@@ -78,7 +78,7 @@ const SessionsCalendar = () => {
   // Handle session updates
   const handleSessionUpdate = useCallback((payload) => {
     if (!isMountedRef.current) return;
-    console.log('Realtime session update:', payload);
+    logger.log('Realtime session update:', payload);
     fetchSessions(); // Refresh sessions when there are changes
   }, [fetchSessions]);
   
@@ -127,7 +127,7 @@ const SessionsCalendar = () => {
           setHasFutureAvailability(true);
         }
       } catch (e) {
-        console.warn('Availability banner checks failed', e);
+        logger.warn('Availability banner checks failed', e);
       }
     })();
 
@@ -165,7 +165,7 @@ const SessionsCalendar = () => {
       
       toast.success(`Session marked as ${newStatus}`);
     } catch (error) {
-      console.error(`Error updating session to ${newStatus}:`, error);
+      logger.error(`Error updating session to ${newStatus}:`, error);
       toast.error('Failed to update session status');
     }
   };

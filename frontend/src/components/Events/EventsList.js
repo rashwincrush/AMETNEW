@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
+import logger from '../../utils/logger';
 import { 
   Box, 
   Button, 
@@ -97,7 +98,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
       if (error) throw error;
       setFeaturedEvents(data || []);
     } catch (e) {
-      console.error('Error fetching featured events:', e);
+      logger.error('Error fetching featured events:', e);
       setFeaturedEvents([]);
     } finally {
       setFeaturedLoading(false);
@@ -109,14 +110,14 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
   
   // Handle events updates
   const handleEventsUpdate = useCallback((payload) => {
-    console.log('Real-time change received for events:', payload);
+    logger.log('Real-time change received for events:', payload);
     fetchEvents();
     fetchFeaturedEvents();
   }, []);
   
   // Handle attendance updates
   const handleAttendanceUpdate = useCallback((payload) => {
-    console.log('Real-time change received for event_attendees:', payload);
+    logger.log('Real-time change received for event_attendees:', payload);
     fetchEvents();
   }, []);
   
@@ -270,7 +271,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
             }, {});
           }
         } catch (e) {
-          console.warn('Counts RPC not available:', e?.message || e);
+          logger.warn('Counts RPC not available:', e?.message || e);
         }
 
         // Fallback: RSVPs
@@ -290,7 +291,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
             for (const id of eventIds) counts[id] = Math.max(counts[id] || 0, rsvpCounts[id] || 0);
           }
         } catch (e) {
-          console.warn('RSVP counts fallback failed:', e?.message || e);
+          logger.warn('RSVP counts fallback failed:', e?.message || e);
         }
 
         // Fallback: attendees table
@@ -310,7 +311,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
             for (const id of eventIds) counts[id] = Math.max(counts[id] || 0, attCounts[id] || 0);
           }
         } catch (e) {
-          console.warn('Attendees table fallback failed:', e?.message || e);
+          logger.warn('Attendees table fallback failed:', e?.message || e);
         }
 
         const eventsWithCounts = eventsData.map(ev => ({
@@ -361,7 +362,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
         setCalendarEvents([]);
       }
     } catch (err) {
-      console.error('Error fetching events:', err);
+      logger.error('Error fetching events:', err);
       setError('Failed to load events');
     } finally {
       setLoading(false);

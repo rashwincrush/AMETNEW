@@ -1,11 +1,12 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { getDeadline, isExpired } from '../../utils/jobs';
+import { getDeadline, computeJobApplyState } from '../../utils/jobs';
 import { isAdmin } from '../../utils/roles';
 import dayjs from 'dayjs';
 
 export default function JobCard({ row, role }) {
-  const expired = isExpired(row);
+  const applyState = computeJobApplyState(row);
+  const expired = applyState.isClosed;
   const deadline = getDeadline(row);
   const deadlineLabel = deadline ? dayjs(deadline).format('DD MMM YYYY') : '—';
 

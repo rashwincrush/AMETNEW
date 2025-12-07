@@ -2,16 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 
+// Canonical notification preference groups aligned with normalized types
 const NOTIFICATION_GROUPS = [
   {
     id: 'connections',
     label: 'Connections & Networking',
-    types: ['connection', 'connection_request', 'system'],
+    types: ['connection', 'group'], // Removed connection_request (normalized), added group
   },
   {
     id: 'messages',
     label: 'Messages & Chat',
-    types: ['message', 'chat_message'],
+    types: ['message'], // Removed chat_message (normalized to message)
   },
   {
     id: 'jobs',
@@ -26,12 +27,12 @@ const NOTIFICATION_GROUPS = [
   {
     id: 'events',
     label: 'Events',
-    types: ['event', 'event_created', 'event_published'],
+    types: ['event', 'event_created', 'event_published', 'event_updated'], // Added event_updated
   },
   {
     id: 'system_alerts',
     label: 'System Alerts',
-    types: ['alert'],
+    types: ['alert', 'system'], // Added system for user-facing system messages
   },
 ];
 

@@ -2,11 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
+import logger from '../../utils/logger';
 import { 
   fetchGroupDetails, 
   fetchGroupPosts, 
-  leaveGroup, 
-  requestGroupMembership,
   createGroupPost,
   deleteGroupPost,
   removeGroupMember,
@@ -16,7 +15,6 @@ import {
   updateGroupPost,
   reportGroupPost,
   setMemberRole,
-  deleteGroup,
   fetchGroupMembers
 } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -32,15 +30,24 @@ import {
   Trash2, 
   UserMinus, 
   Camera, 
-  Shield
+  Shield,
+  Search,
+  Filter,
+  AlertTriangle,
+  Send,
+  Loader2,
+  ChevronDown,
+  ArrowUp,
+  ArrowDown,
+  GraduationCap
 } from 'lucide-react';
 import ShareButtons from '../common/ShareButtons';
 import ImageWithFallback from '../common/ImageWithFallback';
 import { format } from 'date-fns';
 import CommentsThread from './CommentsThread';
-import { joinGroup } from '../../api/groups';
+import { joinGroupRpc, withdrawJoinRequest, leaveGroupRpc, deleteGroupRpc } from '../../api/groups';
 import { ROLE_LABELS } from '../../utils/roles';
-import { canPostToGroup } from '../../utils/acl';
+import { canPostToGroup, canJoinGroup, getGroupStatus, isEmployer, canViewGroupContent } from '../../utils/acl';
 import { getFriendlyErrorMessage } from '../../utils/errors';
 import { isMember as checkMemberPresence } from '../../utils/membershipPresence';
 
@@ -98,6 +105,9 @@ const GroupDetail = () => {
   const [hasMore, setHasMore] = useState(true);
   // Comments per post: { [postId]: { open, loading, items: [], input: '' } }
   const [comments, setComments] = useState({});
+  const [memberSearch, setMemberSearch] = useState('');
+  const [memberRoleFilter, setMemberRoleFilter] = useState('all'); // 'all', 'admin', 'member'
+  const [confirmDialogData, setConfirmDialogData] = useState(null); // { type, title, message, onConfirm }
   // Edit group modal
   const [showEditGroup, setShowEditGroup] = useState(false);
   const [editGroupName, setEditGroupName] = useState('');
@@ -109,47 +119,82 @@ const GroupDetail = () => {
   // Refs
   const fileInputRef = useRef(null);
   const avatarInputRef = useRef(null);
+  const confirmDialogRef = useRef(null);
+  const confirmTriggerRef = useRef(null);
+  const editModalRef = useRef(null);
+  const editTriggerRef = useRef(null);
 
   const loadGroupData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const { data: groupData, error: groupError } = await fetchGroupDetails(id);
+      // PERFORMANCE: Fetch group details (without members - we'll get count separately)
+      const { data: groupData, error: groupError } = await fetchGroupDetails(id, { includeMembers: false });
       if (groupError) throw groupError;
       setGroup(groupData);
-      // Initialize members from fetched group data (if present) so count shows immediately
-      if (Array.isArray(groupData?.members)) {
-        setMembers(groupData.members);
-        setMemberCount(groupData.members.length || 0);
-      }
       
-      // Determine membership presence using group_memberships and admin role via group_members
-      let memberCheck = false;
-      let adminCheck = false;
-      if (user?.id) {
-        const presence = await checkMemberPresence(supabase, id, user.id);
-        memberCheck = !!presence;
-        const mem = await getMyMembership(supabase, id);
-        const isSiteAdmin = profile?.is_admin === true;
-        adminCheck = (mem?.role === 'admin') || isSiteAdmin;
-      }
-      setIsMember(memberCheck);
-      setIsAdmin(adminCheck);
-
-      // console debug removed to avoid referencing undefined variables
-
-      // Fetch a lightweight members count (head-only) for the header tab badge
-      try {
-        const { count } = await supabase
+      // PERFORMANCE: Parallelize all user-specific and secondary queries
+      const isSiteAdmin = profile?.is_admin === true;
+      const userId = user?.id;
+      
+      // Build parallel promises array
+      const parallelPromises = [
+        // 1. Member count (lightweight head-only query)
+        supabase
           .from('group_members')
           .select('user_id', { count: 'exact', head: true })
-          .eq('group_id', id);
-        if (typeof count === 'number') setMemberCount(count);
-      } catch (e) {
-        // ignore count failures; UI will fall back
+          .eq('group_id', id),
+      ];
+      
+      if (userId) {
+        // 2. Check membership presence
+        parallelPromises.push(checkMemberPresence(supabase, id, userId));
+        // 3. Get my membership role
+        parallelPromises.push(getMyMembership(supabase, id));
+        // 4. Check pending join request
+        parallelPromises.push(
+          supabase
+            .from('group_memberships')
+            .select('status')
+            .eq('group_id', id)
+            .eq('user_id', userId)
+            .eq('status', 'pending')
+        );
       }
+      
+      const results = await Promise.all(parallelPromises);
+      
+      // Process results
+      const countResult = results[0];
+      if (typeof countResult?.count === 'number') {
+        setMemberCount(countResult.count);
+      }
+      
+      let memberCheck = false;
+      let adminCheck = isSiteAdmin; // Site admin is always admin
+      let pendingCheck = false;
+      
+      if (userId) {
+        // Membership presence (result[1])
+        memberCheck = !!results[1];
+        
+        // My membership role (result[2])
+        const mem = results[2];
+        if (mem?.role === 'admin') adminCheck = true;
+        
+        // Pending check (result[3])
+        const pendingResult = results[3];
+        if (!pendingResult?.error && (pendingResult?.data?.length ?? 0) > 0) {
+          pendingCheck = true;
+        }
+      }
+      
+      setIsMember(memberCheck);
+      setIsAdmin(adminCheck);
+      setJoinPending(pendingCheck);
 
       // Fetch posts if user is a member or the group is public (paged)
+      // This is done after membership check since it depends on the result
       if (memberCheck || !groupData.is_private) {
         const { data: postsData, error: postsError } = await fetchGroupPosts(id, { limit: 10 });
         if (postsError) throw postsError;
@@ -163,11 +208,11 @@ const GroupDetail = () => {
       } else {
         setError('Failed to load this group. Please try again.');
       }
-      console.error("Error loading group data:", err);
+      logger.error("Error loading group data:", err);
     } finally {
       setLoading(false);
     }
-  }, [id, user?.id]);
+  }, [id, user?.id, profile?.is_admin]);
 
   useEffect(() => {
     loadGroupData();
@@ -198,7 +243,7 @@ const GroupDetail = () => {
         const { data, error } = await fetchGroupMembers(id, 200, 0);
         if (!error) setMembers(data || []);
       } catch(e) {
-        console.error('Failed to load members', e);
+        logger.error('Failed to load members', e);
       }
     };
     loadMembers();
@@ -211,15 +256,11 @@ const GroupDetail = () => {
         window.location.href = `/login?redirect=/groups/${id}`;
         return;
       }
-      if (userRole === 'employer') {
-        setError('Employers cannot perform this action.');
-        return;
-      }
-      // Check for alumni-only restriction for students
-      const isAlumniOnlyGroup = Array.isArray(group?.tags) && group.tags.some((tag) => String(tag).toLowerCase() === 'alumni-only');
-      if (userRole === 'student' && isAlumniOnlyGroup && !isMember) {
-        setError('This is an alumni-only group. Students cannot join.');
-        toast.error('This is an alumni-only group. Students cannot join.');
+      // Use centralized join check
+      const joinCheck = canJoinGroup(group, userRole, isMember);
+      if (!joinCheck.allowed && !isMember) {
+        setError(joinCheck.reason || 'You cannot join this group.');
+        toast.error(joinCheck.reason || 'You cannot join this group.');
         return;
       }
       if (!isUserApproved && !isMember) {
@@ -246,43 +287,67 @@ const GroupDetail = () => {
         }
       }
       
-      // Private or public join via RPC
+      // Join is only allowed for public, approved groups. Private groups are invite-only.
       if (!isMember) {
-        const status = await joinGroup(id);
+        if (isPrivate) {
+          setError('This is a private, invite-only group. Ask a member or group admin to invite you.');
+          toast.error('This is a private, invite-only group. Ask a member or group admin to invite you.');
+          return;
+        }
+
+        const status = await joinGroupRpc(id);
         if (status === 'active') {
           toast.success('Joined group');
           setJoinPending(false);
           await loadGroupData();
         } else {
-          // pending
+          // Pending approval (e.g., private group or special moderation case)
           setJoinPending(true);
-          toast.success('Request sent');
+          toast.success('Join request sent to group admins.');
         }
         return;
       }
 
-      // Leave (block last admin handled server-side; we still run UI check above)
-      const { error } = await leaveGroup(id, user.id);
-      if (error) throw error;
+      // Leave via secure RPC (DB enforces last-admin guard)
+      await leaveGroupRpc(id);
       await loadGroupData();
     } catch (err) {
-      console.error("Error handling membership change:", err);
+      logger.error("Error handling membership change:", err);
       setError(getFriendlyErrorMessage(err, 'An unexpected error occurred. Please try again.'));
     }
   };
 
-  // Delete group (site admin only)
+  const handleWithdrawRequest = async () => {
+    try {
+      if (!user) {
+        window.location.href = `/login?redirect=/groups/${id}`;
+        return;
+      }
+      await withdrawJoinRequest(id);
+      setJoinPending(false);
+      toast.success('Join request withdrawn');
+      await loadGroupData();
+    } catch (err) {
+      logger.error('Error withdrawing join request:', err);
+      setError(getFriendlyErrorMessage(err, 'Failed to withdraw join request. Please try again.'));
+    }
+  };
+
+  // Delete group (super_admin only) - uses hardened RPC
   const handleDeleteGroup = async () => {
     try {
-      const { error } = await deleteGroup(id);
-      if (error) throw error;
+      await deleteGroupRpc(id);
+      toast.success('Group deleted permanently');
       window.location.href = '/groups';
     } catch (err) {
-      console.error('Error deleting group:', err);
-      if (err?.message?.includes('Each group must have at least one admin')) {
-        alert('Cannot delete: archive the group instead (safer), or ask a site admin.');
+      logger.error('Error deleting group:', err);
+      const msg = String(err?.message || '');
+      if (/super.?admin/i.test(msg) || /permission denied/i.test(msg)) {
+        toast.error('Only super admins can delete groups.');
+      } else if (/archive/i.test(msg)) {
+        toast.error('Cannot delete: archive the group instead.');
       } else {
-        setError('Failed to delete group.');
+        toast.error(getFriendlyErrorMessage(err, 'Failed to delete group.'));
       }
     } finally {
       setShowConfirmDialog(false);
@@ -301,7 +366,7 @@ const GroupDetail = () => {
       setMemberToRemove(null);
       setShowConfirmDialog(false);
     } catch (err) {
-      console.error("Error removing member:", err);
+      logger.error("Error removing member:", err);
       setError("Failed to remove member.");
     }
   };
@@ -318,7 +383,7 @@ const GroupDetail = () => {
       setPostToDelete(null);
       setShowConfirmDialog(false);
     } catch (err) {
-      console.error("Error deleting post:", err);
+      logger.error("Error deleting post:", err);
       setError("Failed to delete post.");
     }
   };
@@ -339,7 +404,7 @@ const GroupDetail = () => {
       setPostToEdit(null);
       setEditText('');
     } catch (err) {
-      console.error('Error updating post:', err);
+      logger.error('Error updating post:', err);
       setError('Failed to update post.');
     }
   };
@@ -360,7 +425,7 @@ const GroupDetail = () => {
       setReportReason('');
       alert('Report sent to admins.');
     } catch (err) {
-      console.error('Error reporting post:', err);
+      logger.error('Error reporting post:', err);
       setError('Failed to submit report.');
     }
   };
@@ -374,7 +439,7 @@ const GroupDetail = () => {
       setPosts(prev => [...prev, ...(data || [])]);
       setHasMore((data || []).length === 10);
     } catch (err) {
-      console.error('Error loading more posts:', err);
+      logger.error('Error loading more posts:', err);
     }
   };
   
@@ -410,6 +475,33 @@ const GroupDetail = () => {
     setPostToDelete(null);
     setConfirmAction(null);
   };
+
+  // Focus management for confirmation dialog
+  useEffect(() => {
+    if (showConfirmDialog) {
+      confirmTriggerRef.current = document.activeElement;
+      // Focus the dialog after render
+      setTimeout(() => {
+        confirmDialogRef.current?.focus();
+      }, 50);
+    } else if (confirmTriggerRef.current) {
+      confirmTriggerRef.current.focus();
+      confirmTriggerRef.current = null;
+    }
+  }, [showConfirmDialog]);
+
+  // Focus management for edit modal
+  useEffect(() => {
+    if (showEditModal) {
+      editTriggerRef.current = document.activeElement;
+      setTimeout(() => {
+        editModalRef.current?.focus();
+      }, 50);
+    } else if (editTriggerRef.current) {
+      editTriggerRef.current.focus();
+      editTriggerRef.current = null;
+    }
+  }, [showEditModal]);
 
   // Handle post image selection
   const handlePostImageChange = (e) => {
@@ -477,7 +569,7 @@ const GroupDetail = () => {
         .update({ group_avatar_url: publicUrl, updated_at: new Date().toISOString() })
         .eq('id', id);
       if (updErr) {
-        console.error('Failed to persist avatar URL to groups:', updErr);
+        logger.error('Failed to persist avatar URL to groups:', updErr);
         setError('Avatar uploaded but could not be saved to the group (permissions).');
         return;
       }
@@ -485,7 +577,7 @@ const GroupDetail = () => {
       const busted = publicUrl ? `${publicUrl}?t=${Date.now()}` : '';
       setGroup(prev => ({ ...prev, group_avatar_url: busted }));
     } catch (err) {
-      console.error('Error uploading avatar:', err);
+      logger.error('Error uploading avatar:', err);
       setError('Failed to upload group avatar.');
     } finally {
       setUploadingAvatar(false);
@@ -533,7 +625,7 @@ const GroupDetail = () => {
       setNewPostContent('');
       removeSelectedImage();
     } catch (err) {
-      console.error("Error creating post:", err);
+      logger.error("Error creating post:", err);
       setError(getFriendlyErrorMessage(err, 'Failed to create post.'));
     } finally {
       setUploadingPost(false);
@@ -556,55 +648,75 @@ const GroupDetail = () => {
         <div className="bg-white rounded-lg shadow-md p-8 text-center">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Access denied</h1>
           <p className="text-gray-600 mb-6">This is a private group. You must be a member to view its content.</p>
-          {userRole !== 'employer' && (
-            <button
-              onClick={async () => {
-                try {
-                  const { error } = await requestGroupMembership(id);
-                  if (error) throw error;
-                  alert('Join request sent to group admins.');
-                } catch (e) {
-                  alert('Failed to send join request.');
-                }
-              }}
-              className="px-4 py-2 rounded bg-gray-900 text-white"
-            >
-              Request to join
-            </button>
-          )}
         </div>
       </div>
     );
   }
 
+  // Header CTA state: join/leave/manage/invite-only
+  const headerIsApproved = group.is_approved === true;
+  const headerIsPrivate = group.is_private === true;
+  const headerShowManage = isAdmin && !group.is_archived;
+  const headerShowJoin = userRole !== 'employer' && !group.is_archived && !isMember && headerIsApproved && !headerIsPrivate;
+  const headerShowLeave = !group.is_archived && isMember && !isAdmin;
+  const headerShowRequest = userRole !== 'employer' && !group.is_archived && !isMember && headerIsPrivate && !isAdmin;
+
   return (
-    <div className="bg-gray-100 min-h-screen">
-      {/* Confirmation Dialog */}
+    <div className="min-h-screen bg-gray-50">
+      {/* Confirmation Dialog (legacy, used by showConfirm) */}
       {showConfirmDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
-            <h3 className="text-lg font-bold mb-4">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+          onClick={cancelConfirmAction}
+          role="presentation"
+        >
+          <div 
+            ref={confirmDialogRef}
+            className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="confirm-dialog-title"
+            aria-describedby="confirm-dialog-desc"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') cancelConfirmAction();
+              if (e.key === 'Tab') {
+                const focusable = e.currentTarget.querySelectorAll('button');
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (e.shiftKey && document.activeElement === first) {
+                  e.preventDefault();
+                  last.focus();
+                } else if (!e.shiftKey && document.activeElement === last) {
+                  e.preventDefault();
+                  first.focus();
+                }
+              }
+            }}
+            tabIndex={-1}
+          >
+            <h3 id="confirm-dialog-title" className="text-lg font-bold mb-4">
               {confirmAction === 'removeMember' ? 'Remove Member' : confirmAction === 'deleteGroup' ? 'Delete Group' : 'Delete Post'}
             </h3>
-            <p className="mb-6">
+            <p id="confirm-dialog-desc" className="mb-6 text-gray-600">
               {confirmAction === 'removeMember'
-                ? 'Are you sure you want to remove this member from the group?'
+                ? 'Are you sure you want to remove this member from the group? They will lose access to all group content.'
                 : confirmAction === 'deleteGroup'
-                  ? 'Are you sure you want to delete this group? This action cannot be undone.'
+                  ? 'Are you sure you want to permanently delete this group? This action cannot be undone.'
                   : 'Are you sure you want to delete this post? This action cannot be undone.'}
             </p>
             <div className="flex justify-end space-x-3">
               <button
                 onClick={cancelConfirmAction}
-                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100"
+                className="px-4 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 font-medium focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 min-h-[44px]"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmAction}
-                className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
+                className="px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 min-h-[44px]"
               >
-                {confirmAction === 'removeMember' ? 'Remove' : 'Delete'}
+                {confirmAction === 'removeMember' ? 'Remove Member' : confirmAction === 'deleteGroup' ? 'Delete Group' : 'Delete Post'}
               </button>
             </div>
           </div>
@@ -613,18 +725,46 @@ const GroupDetail = () => {
 
       {/* Edit Post Modal */}
       {showEditModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
-            <h3 className="text-lg font-bold mb-4">Edit Post</h3>
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowEditModal(false)}
+          role="presentation"
+        >
+          <div 
+            ref={editModalRef}
+            className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-post-title"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setShowEditModal(false);
+            }}
+            tabIndex={-1}
+          >
+            <h3 id="edit-post-title" className="text-lg font-bold mb-4">Edit Post</h3>
+            <label htmlFor="edit-post-content" className="sr-only">Post content</label>
             <textarea
+              id="edit-post-content"
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
-              className="w-full p-2 border rounded mb-4"
+              className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               maxLength={1000}
+              rows={4}
             />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowEditModal(false)} className="px-4 py-2 border rounded">Cancel</button>
-              <button onClick={submitEditPost} className="px-4 py-2 bg-blue-600 text-white rounded">Save</button>
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setShowEditModal(false)} 
+                className="px-4 py-2.5 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 min-h-[44px]"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={submitEditPost} 
+                className="px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 min-h-[44px]"
+              >
+                Save Changes
+              </button>
             </div>
           </div>
         </div>
@@ -632,19 +772,48 @@ const GroupDetail = () => {
 
       {/* Report Post Modal */}
       {showReportModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
-            <h3 className="text-lg font-bold mb-4">Report Post</h3>
-            <p className="text-sm text-gray-600 mb-2">Please describe the issue (max 240 chars).</p>
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowReportModal(false)}
+          role="presentation"
+        >
+          <div 
+            className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="report-post-title"
+            aria-describedby="report-post-desc"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setShowReportModal(false);
+            }}
+            tabIndex={-1}
+          >
+            <h3 id="report-post-title" className="text-lg font-bold mb-4">Report Post</h3>
+            <p id="report-post-desc" className="text-sm text-gray-600 mb-2">Please describe the issue (max 240 characters).</p>
+            <label htmlFor="report-reason" className="sr-only">Report reason</label>
             <textarea
+              id="report-reason"
               value={reportReason}
               onChange={(e) => setReportReason(e.target.value)}
-              className="w-full p-2 border rounded mb-4"
+              className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
               maxLength={240}
+              rows={3}
             />
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setShowReportModal(false)} className="px-4 py-2 border rounded">Cancel</button>
-              <button onClick={submitReportPost} disabled={!reportReason.trim()} className="px-4 py-2 bg-red-600 text-white rounded disabled:opacity-50">Submit</button>
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setShowReportModal(false)} 
+                className="px-4 py-2.5 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 min-h-[44px]"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={submitReportPost} 
+                disabled={!reportReason.trim()} 
+                className="px-4 py-2.5 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 min-h-[44px]"
+              >
+                Submit Report
+              </button>
             </div>
           </div>
         </div>
@@ -652,29 +821,70 @@ const GroupDetail = () => {
 
       {/* Edit Group Modal */}
       {showEditGroup && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-lg w-full">
-            <h3 className="text-lg font-bold mb-4">Edit Group</h3>
-            <div className="space-y-3">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowEditGroup(false)}
+          role="presentation"
+        >
+          <div 
+            className="bg-white rounded-lg shadow-xl p-6 max-w-lg w-full"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-group-title"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setShowEditGroup(false);
+            }}
+            tabIndex={-1}
+          >
+            <h3 id="edit-group-title" className="text-lg font-bold mb-4">Edit Group</h3>
+            <div className="space-y-4">
               <div>
-                <label className="text-sm text-gray-700">Name</label>
-                <input value={editGroupName} onChange={(e) => setEditGroupName(e.target.value)} className="w-full p-2 border rounded" />
+                <label htmlFor="edit-group-name" className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <input 
+                  id="edit-group-name"
+                  value={editGroupName} 
+                  onChange={(e) => setEditGroupName(e.target.value)} 
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
+                />
               </div>
               <div>
-                <label className="text-sm text-gray-700">Description</label>
-                <textarea value={editGroupDesc} onChange={(e) => setEditGroupDesc(e.target.value)} className="w-full p-2 border rounded" />
+                <label htmlFor="edit-group-desc" className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea 
+                  id="edit-group-desc"
+                  value={editGroupDesc} 
+                  onChange={(e) => setEditGroupDesc(e.target.value)} 
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
+                  rows={3}
+                />
               </div>
               <div>
-                <label className="text-sm text-gray-700">Tags (comma-separated)</label>
-                <input value={editGroupTags} onChange={(e) => setEditGroupTags(e.target.value)} className="w-full p-2 border rounded" />
+                <label htmlFor="edit-group-tags" className="block text-sm font-medium text-gray-700 mb-1">Tags (comma-separated)</label>
+                <input 
+                  id="edit-group-tags"
+                  value={editGroupTags} 
+                  onChange={(e) => setEditGroupTags(e.target.value)} 
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
+                />
               </div>
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editGroupPrivate} onChange={(e) => setEditGroupPrivate(e.target.checked)} /> Private</label>
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editGroupAdminOnly} onChange={(e) => setEditGroupAdminOnly(e.target.checked)} /> Admin-only Posts</label>
+              <div className="flex items-center gap-6">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" checked={editGroupPrivate} onChange={(e) => setEditGroupPrivate(e.target.checked)} className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                  <span className="font-medium">Private</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" checked={editGroupAdminOnly} onChange={(e) => setEditGroupAdminOnly(e.target.checked)} className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                  <span className="font-medium">Admin-only Posts</span>
+                </label>
               </div>
             </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setShowEditGroup(false)} className="px-4 py-2 border rounded">Cancel</button>
+            <div className="flex justify-end gap-3 mt-5">
+              <button 
+                onClick={() => setShowEditGroup(false)} 
+                className="px-4 py-2.5 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 min-h-[44px]"
+              >
+                Cancel
+              </button>
               <button
                 onClick={async () => {
                   try {
@@ -690,27 +900,27 @@ const GroupDetail = () => {
                     setGroup(prev => ({ ...prev, ...data }));
                     setShowEditGroup(false);
                   } catch (err) {
-                    console.error('Error updating group:', err);
+                    logger.error('Error updating group:', err);
                     setError('Failed to update group');
                   }
                 }}
-                className="px-4 py-2 bg-blue-600 text-white rounded"
+                className="px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 min-h-[44px]"
               >
-                Save
+                Save Changes
               </button>
             </div>
           </div>
         </div>
       )}
-      
-      <div className="container mx-auto p-4">
-        <Link to="/groups" className="flex items-center text-sm font-medium text-gray-600 hover:text-gray-900 mb-4">
+
+      <div className="max-w-7xl mx-auto p-4 md:p-6">
+        <Link to="/groups" className="inline-flex items-center text-sm font-medium text-gray-600 hover:text-gray-900 mb-6 px-3 py-2 rounded-lg hover:bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to All Groups
         </Link>
 
         {/* Group Header */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
           <div className="flex flex-col md:flex-row md:items-start justify-between">
             <div className="flex md:flex-row flex-col">
               {/* Group Avatar with upload option for admins */}
@@ -737,14 +947,14 @@ const GroupDetail = () => {
                     />
                     <button
                       onClick={() => avatarInputRef.current.click()}
-                      className="bg-blue-500 hover:bg-blue-600 text-white rounded-full p-1.5 shadow-md"
-                      title="Change group avatar"
+                      className="bg-blue-500 hover:bg-blue-600 text-white rounded-full p-2 shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 min-w-[36px] min-h-[36px] flex items-center justify-center"
+                      aria-label="Change group avatar"
                       disabled={uploadingAvatar}
                     >
                       {uploadingAvatar ? (
-                        <div className="w-5 h-5 border-2 border-t-transparent border-white rounded-full animate-spin"></div>
+                        <div className="w-5 h-5 border-2 border-t-transparent border-white rounded-full animate-spin" aria-label="Uploading"></div>
                       ) : (
-                        <Camera size={16} />
+                        <Camera size={16} aria-hidden="true" />
                       )}
                     </button>
                   </div>
@@ -752,19 +962,25 @@ const GroupDetail = () => {
               </div>
               
               <div className="flex-grow">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h1 className="text-3xl font-bold text-gray-800 mr-2">{group.name}</h1>
+                <div className="flex items-center gap-2 flex-wrap mb-3">
+                  <h1 className="text-3xl font-bold text-gray-900">{group.name}</h1>
                   {/* Privacy badge */}
-                  <span className={`px-2 py-1 rounded-full text-xs ${group.is_private ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${group.is_private ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
                     {group.is_private ? 'Private' : 'Public'}
                   </span>
+                  {/* Alumni-only badge */}
+                  {(group.alumni_only === true || (Array.isArray(group.tags) && group.tags.some(t => String(t).toLowerCase() === 'alumni-only'))) && (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
+                      <GraduationCap className="w-3 h-3" />Alumni only
+                    </span>
+                  )}
                   {/* Archived badge */}
                   {group.is_archived && (
-                    <span className="px-2 py-1 rounded-full text-xs bg-red-100 text-red-700">Archived</span>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200">Archived</span>
                   )}
                   {/* Admin-only posts badge */}
                   {group.is_admin_only_posts && (
-                    <span className="px-2 py-1 rounded-full text-xs bg-purple-50 text-purple-700">Admin-only Posts</span>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200">Admin-only Posts</span>
                   )}
                   {/* Moderation chip (creator/admin only) */}
                   {(user?.id === group.created_by || isAdmin) && (
@@ -777,74 +993,81 @@ const GroupDetail = () => {
                     )
                   )}
                 </div>
-                <p className="text-gray-600 mt-1">{group.description}</p>
+                <p className="text-gray-600 text-base leading-relaxed">{group.description}</p>
               </div>
             </div>
             
-            <div className="flex-shrink-0 mt-4 md:mt-0 md:ml-4 flex items-center gap-2">
-                  {(() => {
-                    const isSiteAdmin = profile?.is_admin === true;
-                    const isApproved = group.is_approved === true;
-                    const isPrivate = group.is_private === true;
-                    const showManage = isAdmin && !group.is_archived;
-                    const showJoin = userRole !== 'employer' && !group.is_archived && !isMember && isApproved && !isPrivate;
-                    const showLeave = !group.is_archived && isMember && !isAdmin;
-                    const showRequest = userRole !== 'employer' && !group.is_archived && !isMember && isPrivate && !isAdmin;
-                    return (
-                      <>
-                    {showJoin && (
-                      <button 
-                        onClick={handleMembership}
-                        disabled={joinPending}
-                        className={`px-6 py-2 rounded-lg font-semibold text-white transition-all ${joinPending ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}>
-                        {joinPending ? 'Request sent' : 'Join Group'}
-                      </button>
-                    )}
-                    {showLeave && (
-                      <button 
-                        onClick={handleMembership}
-                        className="px-6 py-2 rounded-lg font-semibold text-white transition-all bg-red-500 hover:bg-red-600">
-                        Leave Group
-                      </button>
-                    )}
-                    {!showJoin && !showLeave && isMember && (
-                      <span className="px-3 py-1 rounded bg-gray-100 text-gray-600 text-sm">Member</span>
-                    )}
-                    {showRequest && (
-                      <button 
-                        onClick={handleMembership}
-                        className="px-6 py-2 rounded-lg font-semibold text-white transition-all bg-gray-800 hover:bg-gray-900">
-                        Request to join
-                      </button>
-                    )}
-                    {showManage && (
-                      <>
-                        <Link
-                          to={`/groups/${id}/manage`}
-                          className="px-4 py-2 rounded border text-sm hover:bg-gray-50"
-                        >
-                          Manage
-                        </Link>
-                        {profile?.is_admin === true && (
-                          <button
-                            onClick={() => showConfirm('deleteGroup')}
-                            className="px-4 py-2 rounded border border-red-600 text-red-600 text-sm hover:bg-red-50"
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </>
-                );
-              })()}
-              
+            <div className="flex-shrink-0 mt-4 md:mt-0 md:ml-4 flex items-center gap-3">
+              {headerShowJoin && !joinPending && (
+                <button
+                  onClick={handleMembership}
+                  className="px-6 py-2.5 rounded-lg font-semibold text-white transition-all bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 min-h-[44px]"
+                >
+                  Join Group
+                </button>
+              )}
+              {headerShowJoin && joinPending && (
+                <>
+                  <span className="px-4 py-2.5 rounded-lg font-semibold bg-gray-100 text-gray-700 text-sm min-h-[44px] flex items-center">
+                    Request sent
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleWithdrawRequest}
+                    className="px-4 py-2.5 rounded-lg font-semibold text-sm border border-gray-300 text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 min-h-[44px]"
+                  >
+                    Withdraw request
+                  </button>
+                </>
+              )}
+              {headerShowLeave && (
+                <button
+                  onClick={handleMembership}
+                  className="px-6 py-2.5 rounded-lg font-semibold text-white transition-all bg-red-500 hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 min-h-[44px]"
+                >
+                  Leave Group
+                </button>
+              )}
+              {!headerShowJoin && !headerShowLeave && isMember && (
+                <span className="px-4 py-2.5 rounded-lg bg-gray-100 text-gray-700 text-sm font-semibold min-h-[44px] flex items-center">
+                  Member
+                </span>
+              )}
+              {headerShowRequest && (
+                <span className="px-4 py-2.5 rounded-lg bg-gray-100 text-gray-700 text-sm font-semibold min-h-[44px] flex items-center">
+                  Invite-only group. Ask a member or group admin to invite you.
+                </span>
+              )}
+              {headerShowManage && (
+                <>
+                  <Link
+                    to={`/groups/${id}/manage`}
+                    className="px-5 py-2.5 rounded-lg border-2 border-gray-300 text-sm font-semibold hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 min-h-[44px] flex items-center"
+                  >
+                    Manage Group
+                  </Link>
+                  {/* Delete button: super_admin only */}
+                  {userRole === 'super_admin' && (
+                    <button
+                      onClick={() => showConfirm('deleteGroup')}
+                      className="px-5 py-2.5 rounded-lg border-2 border-red-600 text-red-600 text-sm font-semibold hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 min-h-[44px]"
+                      aria-label="Permanently delete this group (super admin only)"
+                    >
+                      Delete Group
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
           {/* Pending approval banner for creator/admins */}
           {((user?.id === group.created_by) || (profile?.is_admin === true)) && !group.is_approved && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-800 p-3 mt-4">
-              Awaiting admin approval. Only you and admins can see this group for now.
+            <div className="rounded-lg border-2 border-amber-300 bg-amber-50 text-amber-800 p-4 mt-6 flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold mb-1">Pending Approval</p>
+                <p className="text-sm">This group is awaiting admin approval. Only you and site admins can see it for now.</p>
+              </div>
             </div>
           )}
           {(!group.is_private && group.is_approved && !group.is_archived) && (
@@ -855,20 +1078,49 @@ const GroupDetail = () => {
         </div>
 
         {/* Tabs */}
-        <div className="mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-              <button onClick={() => setActiveTab('posts')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'posts' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}><MessageSquare className="inline-block w-5 h-5 mr-2"/>Posts</button>
-              <button onClick={() => setActiveTab('members')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'members' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}><Users className="inline-block w-5 h-5 mr-2"/>Members ({memberCount || members?.length || group?.members?.length || 0})</button>
-              <button onClick={() => setActiveTab('about')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'about' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}><Info className="inline-block w-5 h-5 mr-2"/>About</button>
-            </nav>
-          </div>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+          <nav className="flex" aria-label="Group content tabs" role="tablist">
+            <button 
+              id="tab-posts"
+              onClick={() => setActiveTab('posts')} 
+              className={`flex-1 py-4 px-4 border-b-2 font-semibold text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 min-h-[48px] ${activeTab === 'posts' ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}
+              role="tab"
+              aria-selected={activeTab === 'posts'}
+              aria-controls="tabpanel-posts"
+            >
+              <MessageSquare className="inline-block w-5 h-5 mr-2" aria-hidden="true" />Posts
+            </button>
+            <button 
+              id="tab-members"
+              onClick={() => setActiveTab('members')} 
+              className={`flex-1 py-4 px-4 border-b-2 font-semibold text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 min-h-[48px] ${activeTab === 'members' ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}
+              role="tab"
+              aria-selected={activeTab === 'members'}
+              aria-controls="tabpanel-members"
+            >
+              <Users className="inline-block w-5 h-5 mr-2" aria-hidden="true" />Members
+              <span className="ml-1 px-2 py-0.5 bg-gray-200 text-gray-700 rounded-full text-xs font-bold" aria-label={`${memberCount || members?.length || 0} members`}>
+                {memberCount || members?.length || 0}
+              </span>
+            </button>
+            <button 
+              id="tab-about"
+              onClick={() => setActiveTab('about')} 
+              className={`flex-1 py-4 px-4 border-b-2 font-semibold text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 min-h-[48px] ${activeTab === 'about' ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50'}`}
+              role="tab"
+              aria-selected={activeTab === 'about'}
+              aria-controls="tabpanel-about"
+            >
+              <Info className="inline-block w-5 h-5 mr-2" aria-hidden="true" />About
+            </button>
+          </nav>
         </div>
 
         {/* Tab Content */}
         <div>
           {activeTab === 'posts' && (
-            (() => {
+            <div id="tabpanel-posts" role="tabpanel" aria-labelledby="tab-posts">
+            {(() => {
               const adminOnlyPost = group.is_admin_only_posts === true;
               const publicApproved = (group.is_private === false && group.is_approved === true);
               const canViewPosts = (isMember || publicApproved) && !group.is_archived;
@@ -891,20 +1143,24 @@ const GroupDetail = () => {
                       <div className="mb-3 text-sm text-purple-700 bg-purple-50 border border-purple-200 rounded p-2">Only group admins can post in this group.</div>
                     )}
                     <form onSubmit={handleCreatePost}>
+                      <label htmlFor="new-post-content" className="sr-only">Write your post</label>
                       <textarea
+                        id="new-post-content"
                         value={newPostContent}
                         onChange={(e) => setNewPostContent(e.target.value)}
-                        className="w-full p-2 border rounded"
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         disabled={!canPost}
+                        placeholder="What's on your mind?"
+                        rows={3}
                       />
-                      <div className="flex items-center justify-between mt-2">
+                      <div className="flex items-center justify-between mt-3">
                         <div>
                           {/* Image upload for posts is temporarily disabled */}
                         </div>
                         <button
                           type="submit"
                           disabled={!canPost || uploadingPost || (!newPostContent.trim() && !postImage)}
-                          className={`px-4 py-2 text-white rounded ${uploadingPost ? 'bg-gray-400' : 'bg-green-500 hover:bg-green-600'}`}
+                          className={`px-5 py-2.5 text-white rounded-lg font-medium focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 min-h-[44px] ${uploadingPost ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'}`}
                         >
                           {uploadingPost ? 'Posting...' : 'Post'}
                         </button>
@@ -933,23 +1189,23 @@ const GroupDetail = () => {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
                             {(isAdmin || post.user_id === user.id) && (
                               <button
                                 onClick={() => openEditModal(post)}
-                                className="text-gray-500 hover:text-gray-700"
-                                title="Edit post"
+                                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                aria-label={`Edit post by ${post.author?.full_name || 'user'}`}
                               >
-                                <Edit size={18} />
+                                <Edit size={18} aria-hidden="true" />
                               </button>
                             )}
                             {(isAdmin || post.user_id === user.id) && (
                               <button
                                 onClick={() => showConfirm('deletePost', post.id)}
-                                className="text-red-500 hover:text-red-700"
-                                title="Delete post"
+                                className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-500"
+                                aria-label={`Delete post by ${post.author?.full_name || 'user'}`}
                               >
-                                <Trash2 size={18} />
+                                <Trash2 size={18} aria-hidden="true" />
                               </button>
                             )}
                             {/* Report post option removed */}
@@ -972,106 +1228,160 @@ const GroupDetail = () => {
                           <CommentsThread postId={post.id} group={group} isMember={isMember} />
                         </div>
                       </div>
-                    )) : <p>No posts yet. Be the first!</p>}
+                    )) : (
+                      <div className="text-center py-12 bg-white rounded-lg shadow-sm border border-gray-200">
+                        <MessageSquare className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-gray-900 font-medium mb-1">No posts yet</p>
+                        <p className="text-gray-500 text-sm">Be the first to share something with the group!</p>
+                      </div>
+                    )}
                     {hasMore && (
                       <div className="text-center">
-                        <button onClick={loadMorePosts} className="px-4 py-2 text-sm rounded bg-gray-100 hover:bg-gray-200">Load more</button>
+                        <button 
+                          onClick={loadMorePosts} 
+                          className="px-4 py-2.5 text-sm rounded-lg bg-gray-100 hover:bg-gray-200 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 min-h-[44px]"
+                        >
+                          Load more posts
+                        </button>
                       </div>
                     )}
                   </div>
                 </div>
               );
-            })()
+            })()}
+            </div>
           )}
 
           {activeTab === 'members' && (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {members.map(member => (
-                <div key={member.user.id} className="bg-white p-4 rounded-lg shadow relative">
-                  {/* Admin badge */}
-                  {member.role === 'admin' && (
-                    <span className="absolute top-2 right-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full flex items-center">
-                      <Shield size={12} className="mr-1" /> Admin
-                    </span>
-                  )}
-                  
-                  <div className="text-center">
-                    <img 
-                      src={member.user.avatar_url || '/default-avatar.svg'} 
-                      alt={member.user.full_name} 
-                      className="w-20 h-20 rounded-full mx-auto mb-2"
-                      onError={(e) => {
-                        e.target.onerror = null;
-                        e.target.src = '/default-avatar.svg';
-                      }}
-                    />
-                    <p className="font-semibold">{member.user.full_name}</p>
-                    <p className="text-sm text-gray-600">
-                      {(ROLE_LABELS[member?.user?.role] || 'Alumni')}
-                      {" • "}
-                      {member.role === 'admin' ? 'Group Admin' : 'Member'}
-                    </p>
-                  </div>
-                  
-                  {/* Remove member button (admin only, can't remove self or other admins) */}
-                  {isAdmin && member.user.id !== user.id && (
-                    <div className="mt-2 text-center space-y-2">
-                      {member.role !== 'admin' ? (
-                        <button
-                          onClick={async () => {
-                            try {
-                              await setMemberRole(id, member.user.id, 'admin');
-                              setMembers(prev => prev.map(m => m.user.id === member.user.id ? { ...m, role: 'admin' } : m));
-                            } catch (e) {
-                              setError('Failed to promote member');
-                            }
-                          }}
-                          className="text-blue-600 hover:text-blue-800 text-sm flex items-center justify-center mx-auto"
-                        >
-                          Promote to Admin
-                        </button>
-                      ) : (
-                        <button
-                          onClick={async () => {
-                            try {
-                              await setMemberRole(id, member.user.id, 'member');
-                              setMembers(prev => prev.map(m => m.user.id === member.user.id ? { ...m, role: 'member' } : m));
-                            } catch (e) {
-                              setError('Failed to demote member');
-                            }
-                          }}
-                          className="text-gray-600 hover:text-gray-800 text-sm flex items-center justify-center mx-auto"
-                        >
-                          Demote to Member
-                        </button>
-                      )}
-                      {member.role !== 'admin' && (
-                        <button
-                          onClick={() => showConfirm('removeMember', member.user.id)}
-                          className="text-red-500 hover:text-red-700 text-sm flex items-center justify-center mx-auto"
-                        >
-                          <UserMinus size={14} className="mr-1" />
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  )}
+            <div id="tabpanel-members" role="tabpanel" aria-labelledby="tab-members">
+              {members.length === 0 ? (
+                <div className="text-center py-12 bg-white rounded-lg shadow-sm border border-gray-200">
+                  <Users className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-900 font-medium mb-1">No members to display</p>
+                  <p className="text-gray-500 text-sm">Members will appear here once they join the group.</p>
                 </div>
-              ))}
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {members.map(member => (
+                    <article key={member.user.id} className="bg-white p-4 rounded-lg shadow relative" aria-label={`Member: ${member.user.full_name}`}>
+                      {/* Admin badge */}
+                      {member.role === 'admin' && (
+                        <span className="absolute top-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded-full flex items-center font-medium">
+                          <Shield size={12} className="mr-1" aria-hidden="true" /> Admin
+                        </span>
+                      )}
+                      
+                      <div className="text-center">
+                        <img 
+                          src={member.user.avatar_url || '/default-avatar.svg'} 
+                          alt=""
+                          className="w-20 h-20 rounded-full mx-auto mb-2 border-2 border-gray-200"
+                          onError={(e) => {
+                            e.target.onerror = null;
+                            e.target.src = '/default-avatar.svg';
+                          }}
+                        />
+                        <p className="font-semibold text-gray-900">{member.user.full_name}</p>
+                        <p className="text-sm text-gray-600">
+                          {(ROLE_LABELS[member?.user?.role] || 'Alumni')}
+                          {" • "}
+                          {member.role === 'admin' ? 'Group Admin' : 'Member'}
+                        </p>
+                      </div>
+                      
+                      {/* Admin actions (admin only, can't act on self) */}
+                      {isAdmin && member.user.id !== user.id && (
+                        <div className="mt-3 text-center space-y-2">
+                          {member.role !== 'admin' ? (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await setMemberRole(id, member.user.id, 'admin');
+                                  setMembers(prev => prev.map(m => m.user.id === member.user.id ? { ...m, role: 'admin' } : m));
+                                  toast.success(`${member.user.full_name} promoted to admin`);
+                                } catch (e) {
+                                  setError('Failed to promote member');
+                                  toast.error('Failed to promote member');
+                                }
+                              }}
+                              className="text-blue-600 hover:text-blue-800 text-sm flex items-center justify-center mx-auto px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              aria-label={`Promote ${member.user.full_name} to admin`}
+                            >
+                              <ArrowUp size={14} className="mr-1" aria-hidden="true" />
+                              Promote to Admin
+                            </button>
+                          ) : (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await setMemberRole(id, member.user.id, 'member');
+                                  setMembers(prev => prev.map(m => m.user.id === member.user.id ? { ...m, role: 'member' } : m));
+                                  toast.success(`${member.user.full_name} demoted to member`);
+                                } catch (e) {
+                                  setError('Failed to demote member');
+                                  toast.error('Failed to demote member');
+                                }
+                              }}
+                              className="text-gray-600 hover:text-gray-800 text-sm flex items-center justify-center mx-auto px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500"
+                              aria-label={`Demote ${member.user.full_name} to member`}
+                            >
+                              <ArrowDown size={14} className="mr-1" aria-hidden="true" />
+                              Demote to Member
+                            </button>
+                          )}
+                          {member.role !== 'admin' && (
+                            <button
+                              onClick={() => showConfirm('removeMember', member.user.id)}
+                              className="text-red-500 hover:text-red-700 text-sm flex items-center justify-center mx-auto px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500"
+                              aria-label={`Remove ${member.user.full_name} from group`}
+                            >
+                              <UserMinus size={14} className="mr-1" aria-hidden="true" />
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
           {activeTab === 'about' && (
-            <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-bold mb-4">About this group</h2>
-              <p>{group.description}</p>
-              <div className="mt-4">
-                <p><strong>Privacy:</strong> {group.is_private ? 'Private' : 'Public'}</p>
-                <p><strong>Created:</strong> {format(new Date(group.created_at), 'PPP')}</p>
+            <div id="tabpanel-about" role="tabpanel" aria-labelledby="tab-about">
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <h2 className="text-xl font-bold mb-4 text-gray-900">About this group</h2>
+                <p className="text-gray-700 leading-relaxed">{group.description || 'No description provided.'}</p>
+                <dl className="mt-6 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <dt className="font-semibold text-gray-900">Privacy:</dt>
+                    <dd className={`px-2.5 py-1 rounded-full text-xs font-semibold ${group.is_private ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
+                      {group.is_private ? 'Private' : 'Public'}
+                    </dd>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <dt className="font-semibold text-gray-900">Created:</dt>
+                    <dd className="text-gray-600">{format(new Date(group.created_at), 'PPP')}</dd>
+                  </div>
+                  {group.tags && group.tags.length > 0 && (
+                    <div>
+                      <dt className="font-semibold text-gray-900 mb-2">Tags:</dt>
+                      <dd className="flex flex-wrap gap-2">
+                        {group.tags.map((tag, i) => (
+                          <span key={i} className="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">
+                            {tag}
+                          </span>
+                        ))}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
               </div>
             </div>
           )}
         </div>
+
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../../utils/supabase';
-import { Box, Typography, Paper, Button, Chip, Grid, CircularProgress, TextField, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Alert, IconButton, Tooltip } from '@mui/material';
-import { Edit as EditIcon, Delete as DeleteIcon, CheckCircle as ApproveIcon, ShieldCheck as VerifyIcon, Cancel as RejectIcon } from '@mui/icons-material';
+import { Box, Typography, Paper, Button, Chip, Grid, CircularProgress, TextField, Divider, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { Edit as EditIcon, Delete as DeleteIcon, CheckCircle as ApproveIcon, ShieldCheck as VerifyIcon } from '@mui/icons-material';
 import { toast } from 'react-hot-toast';
 import { toFriendlyToast } from '../../utils/errors';
 
@@ -37,30 +37,64 @@ const JobAdminPanel = () => {
     (job.company && job.company.name.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const handleUpdateJobStatus = async (jobId, newStatus) => {
-    const { data, error } = await supabase
-      .from('jobs')
-      .update(newStatus)
-      .eq('id', jobId)
-      .select();
+  const handleApproveJob = async (jobId) => {
+    try {
+      const { error } = await supabase.rpc('admin_set_job_approval', {
+        p_job_id: jobId,
+        p_approved: true,
+        p_rejected: false,
+      });
 
-    if (error) {
-      toFriendlyToast(toast, error, 'Failed to update job. Please try again.');
-    } else {
-      toast.success('Job status updated successfully!');
+      if (error) throw error;
+
+      toast.success('Job approved successfully!');
       fetchJobs();
+    } catch (err) {
+      logger.error('Error approving job via admin_set_job_approval:', err);
+      const msg = (err?.code === '42501' || err?.status === 403 || /RLS|permission|not allowed/i.test(err?.message || ''))
+        ? 'You are not allowed to approve this job.'
+        : 'Failed to approve job. Please try again.';
+      toast.error(msg);
     }
-    return { data, error };
+  };
+
+  const handleToggleVerification = async (job) => {
+    try {
+      const { error } = await supabase.rpc('admin_toggle_job_verification', {
+        p_job_id: job.id,
+        p_verified: !job.is_verified,
+      });
+
+      if (error) throw error;
+
+      toast.success(job.is_verified ? 'Job un-verified successfully!' : 'Job verified successfully!');
+      fetchJobs();
+    } catch (err) {
+      logger.error('Error toggling job verification via admin_toggle_job_verification:', err);
+      const msg = (err?.code === '42501' || err?.status === 403 || /RLS|permission|not allowed/i.test(err?.message || ''))
+        ? 'You are not allowed to verify this job.'
+        : 'Failed to update verification status. Please try again.';
+      toast.error(msg);
+    }
   };
 
   const handleDelete = async (jobId) => {
     if (!window.confirm('Are you sure you want to delete this job permanently?')) return;
-    const { error } = await supabase.from('jobs').delete().eq('id', jobId);
-    if (error) {
-      toFriendlyToast(toast, error, 'Failed to delete job. Please try again.');
-    } else {
+    try {
+      const { error } = await supabase.rpc('admin_delete_job', {
+        p_job_id: jobId,
+      });
+
+      if (error) throw error;
+
       toast.success('Job deleted successfully!');
       fetchJobs();
+    } catch (err) {
+      logger.error('Error deleting job via admin_delete_job:', err);
+      const msg = (err?.code === '42501' || err?.status === 403 || /RLS|permission|not allowed/i.test(err?.message || ''))
+        ? 'You are not allowed to delete this job.'
+        : 'Failed to delete job. Please try again.';
+      toast.error(msg);
     }
   };
 
@@ -110,11 +144,21 @@ const JobAdminPanel = () => {
               <Divider sx={{ my: 1 }} />
               <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
                 {!job.is_approved && (
-                  <Button variant="outlined" size="small" startIcon={<ApproveIcon />} onClick={() => handleUpdateJobStatus(job.id, { is_approved: true })}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<ApproveIcon />}
+                    onClick={() => handleApproveJob(job.id)}
+                  >
                     Approve
                   </Button>
                 )}
-                <Button variant="outlined" size="small" startIcon={<VerifyIcon />} onClick={() => handleUpdateJobStatus(job.id, { is_verified: !job.is_verified })}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<VerifyIcon />}
+                  onClick={() => handleToggleVerification(job)}
+                >
                   {job.is_verified ? 'Un-verify' : 'Verify'}
                 </Button>
                 <Button variant="outlined" size="small" startIcon={<EditIcon />} onClick={() => openEditDialog(job)}>Edit</Button>

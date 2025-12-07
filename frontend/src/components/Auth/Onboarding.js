@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
@@ -25,7 +26,7 @@ const Onboarding = () => {
         if (error) throw error;
         setHasProfile(!!data);
       } catch (e) {
-        console.error('Onboarding error:', e);
+        logger.error('Onboarding error:', e);
         setError('Unable to load onboarding.');
       } finally {
         setLoading(false);

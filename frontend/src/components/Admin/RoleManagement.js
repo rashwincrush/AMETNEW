@@ -51,7 +51,7 @@ const RoleManagement = () => {
         // roles are static from ROLE_OPTIONS; no fetch
         setUsers(userData || []);
       } catch (error) {
-        console.error('Error fetching data:', error);
+        logger.error('Error fetching data:', error);
         setError(error.message);
       } finally {
         setLoading(false);
@@ -142,7 +142,7 @@ const RoleManagement = () => {
       setIsRoleModalOpen(false);
       setSelectedUser(null);
     } catch (error) {
-      console.error('Error updating role:', error);
+      logger.error('Error updating role:', error);
       toast.error(`Failed to update role: ${getFriendlyErrorMessage(error, 'Unable to update role.')}`);
     }
   };

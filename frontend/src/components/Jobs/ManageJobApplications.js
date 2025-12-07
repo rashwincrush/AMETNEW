@@ -48,8 +48,6 @@ const DB_TO_LABEL = {
   'hired': 'Offered',
 };
 
-const CANONICAL_LABELS = Object.keys(STATUS_MAP);
-
 function getLabelForStatus(status) {
   return DB_TO_LABEL[status] || (status ? String(status) : 'Submitted');
 }
@@ -200,7 +198,7 @@ const ManageJobApplications = () => {
       }
     } catch (err) {
       setError(err.message);
-      console.error('Error fetching applications:', err);
+      log.group('[APPS] fetch error', { error: err });
     } finally {
       setLoading(false);
     }
@@ -214,7 +212,7 @@ const ManageJobApplications = () => {
     try {
       setSavingIds(prev => new Set(prev).add(applicationId));
       if (!CANONICAL_DB_VALUES.has(newStatus)) {
-        console.error('Invalid status for DB:', newStatus);
+        log.group('[APPS] invalid status for DB', { newStatus });
         throw new Error('Invalid status');
       }
       const { error } = await supabase.rpc('set_application_status', {
@@ -227,13 +225,13 @@ const ManageJobApplications = () => {
       setApplications(apps =>
         apps.map(app => (app.id === applicationId ? { ...app, status: newStatus } : app))
       );
-      toast.success('Application status updated successfully!');
+      toast.success('Application status updated.');
     } catch (err) {
       const msg = (err?.code === '42501' || err?.code === 'P0001' || err?.status === 403 || /RLS|permission|not allowed/i.test(err?.message || ''))
         ? 'Only the job owner can manage applications.'
-        : 'Failed to update status.';
+        : 'We could not update the status. Please try again.';
       toast.error(msg);
-      console.error('Error updating status:', err);
+      log.group('[APPS] error updating status', { error: err });
     }
     finally {
       setSavingIds(prev => {
@@ -248,7 +246,7 @@ const ManageJobApplications = () => {
     if (!user?.id || !otherId) return;
     try {
       await idempotentConnect(user.id, otherId);
-      toast.success('Connection request sent');
+      toast.success('Connection request sent.');
       // Refresh connection map for this applicant
       const edge = await getLatestEdge(user.id, otherId);
       setConnMap(prev => new Map(prev).set(otherId, edge?.status || 'pending'));
@@ -305,18 +303,18 @@ const ManageJobApplications = () => {
             </div>
           );
         }
+
         const ownerIds = [job?.posted_by, job?.user_id, job?.created_by].filter(Boolean);
-        console.debug('[MANAGE DEBUG] auth.user.id =', user?.id);
-        console.debug('[MANAGE DEBUG] job ownerIds =', ownerIds);
         const isOwner = ownerIds.includes(user.id) || isAdmin;
+
         if (!isOwner && !isAdmin) {
           return (
             <div className="mb-6 p-4 rounded-md bg-yellow-50 text-yellow-800 border border-yellow-100">
-              You’re not authorized to view applications for this job.
+              You are not authorized to view applications for this job.
             </div>
           );
         }
-        const totalPages = Math.ceil(totalCount / pageSize);
+
         return (
           applications.length === 0 ? (
             <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">
@@ -325,8 +323,8 @@ const ManageJobApplications = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Applications Yet</h3>
-              <p className="text-gray-600 mb-4">No one has applied to this job posting yet.</p>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No applications yet</h3>
+              <p className="text-gray-600 mb-4">No one has applied to this job yet.</p>
               <div className="text-sm text-gray-500 space-y-1">
                 <p>• Share this job on social media to attract more applicants</p>
                 <p>• Consider reviewing your job requirements and salary</p>
@@ -371,22 +369,22 @@ const ManageJobApplications = () => {
                             : mapLabelToDb(currentLabel);
                           const isNonCanonical = !CANONICAL_DB_VALUES.has(app.status);
                           return (
-                        <select
-                          value={currentDb}
-                          onChange={(e) => handleStatusChange(app.id, e.target.value)}
-                          disabled={savingIds.has(app.id)}
-                          aria-label={`Update status for ${app.applicant_name || 'applicant'}`}
-                          className="block w-full pl-3 pr-10 py-2 text-sm border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 rounded-md disabled:opacity-60"
-                        >
-                          {isNonCanonical && (
-                            <option value={app.status} disabled>{currentLabel} (legacy)</option>
-                          )}
-                          <option value="submitted">Submitted</option>
-                          <option value="reviewed">Under review</option>
-                          <option value="interviewing">Shortlisted</option>
-                          <option value="offered">Offered</option>
-                          <option value="rejected">Rejected</option>
-                        </select>
+                            <select
+                              value={currentDb}
+                              onChange={(e) => handleStatusChange(app.id, e.target.value)}
+                              disabled={savingIds.has(app.id)}
+                              aria-label={`Update status for ${app.applicant_name || 'applicant'}`}
+                              className="block w-full pl-3 pr-10 py-2 text-sm border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 rounded-md disabled:opacity-60"
+                            >
+                              {isNonCanonical && (
+                                <option value={app.status} disabled>{currentLabel} (legacy)</option>
+                              )}
+                              <option value="submitted">Submitted</option>
+                              <option value="reviewed">Under review</option>
+                              <option value="interviewing">Shortlisted</option>
+                              <option value="offered">Offered</option>
+                              <option value="rejected">Rejected</option>
+                            </select>
                           );
                         })()}
                         {savingIds.has(app.id) && (
@@ -451,22 +449,22 @@ const ManageJobApplications = () => {
                               : mapLabelToDb(currentLabel);
                             const isNonCanonical = !CANONICAL_DB_VALUES.has(app.status);
                             return (
-                          <select
-                            value={currentDb}
-                            onChange={(e) => handleStatusChange(app.id, e.target.value)}
-                            disabled={savingIds.has(app.id)}
-                            aria-label={`Update status for ${app.applicant_name || 'applicant'}`}
-                            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md disabled:opacity-60"
-                          >
-                            {isNonCanonical && (
-                              <option value={app.status} disabled>{currentLabel} (legacy)</option>
-                            )}
-                            <option value="submitted">Submitted</option>
-                            <option value="reviewed">Under review</option>
-                            <option value="interviewing">Shortlisted</option>
-                            <option value="offered">Offered</option>
-                            <option value="rejected">Rejected</option>
-                          </select>
+                              <select
+                                value={currentDb}
+                                onChange={(e) => handleStatusChange(app.id, e.target.value)}
+                                disabled={savingIds.has(app.id)}
+                                aria-label={`Update status for ${app.applicant_name || 'applicant'}`}
+                                className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md disabled:opacity-60"
+                              >
+                                {isNonCanonical && (
+                                  <option value={app.status} disabled>{currentLabel} (legacy)</option>
+                                )}
+                                <option value="submitted">Submitted</option>
+                                <option value="reviewed">Under review</option>
+                                <option value="interviewing">Shortlisted</option>
+                                <option value="offered">Offered</option>
+                                <option value="rejected">Rejected</option>
+                              </select>
                             );
                           })()}
                           {savingIds.has(app.id) && (

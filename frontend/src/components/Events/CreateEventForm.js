@@ -138,7 +138,7 @@ const CreateEventForm = () => {
       setSuccess('Event created successfully!');
       setTimeout(() => navigate(`/events/${data?.id || ''}`), 1500);
     } catch (err) {
-      console.error('Error creating event:', err);
+      logger.error('Error creating event:', err);
       setError(getFriendlyErrorMessage(err, 'Unable to create event. Please try again.'));
     } finally {
       setLoading(false);

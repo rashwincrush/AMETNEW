@@ -10,17 +10,11 @@ export default function NotificationsPanel({ onClose }: Props) {
   const {
     items,
     isLoading,
-    isFetching,
     error,
-    unreadCount,
-    filterTab,
-    setFilterTab,
-    typeFilter,
-    toggleType,
     loadMore,
     markOne,
     markAll,
-  } = useNotifications();
+  } = useNotifications({ unreadOnly: true });
 
   return (
     <div className="w-full max-w-md bg-white shadow-xl rounded-lg overflow-hidden flex flex-col" role="dialog" aria-label="Notifications">
@@ -32,33 +26,7 @@ export default function NotificationsPanel({ onClose }: Props) {
         </div>
       </div>
 
-      <div className="px-3 pt-2">
-        <div className="flex gap-2 text-sm">
-          {(['all','unread','read'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setFilterTab(t)}
-              className={`px-3 py-1 rounded-full border ${filterTab===t?'bg-ocean-600 text-white border-ocean-600':'border-gray-300 text-gray-700'}`}
-              aria-pressed={filterTab===t}
-            >
-              {t[0].toUpperCase()+t.slice(1)}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap gap-2 mt-3">
-          {TYPES.map((t) => (
-            <button
-              key={t}
-              onClick={() => toggleType(t)}
-              className={`px-2 py-1 rounded-full text-xs border ${typeFilter.has(t)?'bg-gray-800 text-white border-gray-800':'border-gray-300 text-gray-700'}`}
-              aria-pressed={typeFilter.has(t)}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Tabs removed: we always show a single flat list of notifications */}
 
       <div className="max-h-[70vh] overflow-auto divide-y mt-2" role="list">
         {isLoading && <div className="p-4 text-sm text-gray-500">Loading...</div>}

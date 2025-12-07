@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
@@ -38,7 +39,7 @@ export default function MenteeRegistrationForm() {
           .single();
           
         if (error && error.code !== 'PGRST116') { // PGRST116 is not found error
-          console.error('Error fetching mentee data:', error);
+          logger.error('Error fetching mentee data:', error);
         }
         
         if (data) {
@@ -54,7 +55,7 @@ export default function MenteeRegistrationForm() {
           });
         }
       } catch (err) {
-        console.error('Error checking mentee status:', err);
+        logger.error('Error checking mentee status:', err);
       } finally {
         setLoading(false);
       }

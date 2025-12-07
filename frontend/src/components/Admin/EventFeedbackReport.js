@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { ArrowLeft, Star } from 'lucide-react';
+import logger from '../../utils/logger';
 
 const EventFeedbackReport = () => {
   const { id } = useParams();
@@ -30,7 +31,7 @@ const EventFeedbackReport = () => {
       setFeedback(feedbackData);
 
     } catch (err) {
-      console.error("Error fetching feedback data:", err);
+      logger.error("Error fetching feedback data:", err);
       setError('Failed to fetch feedback data.');
     } finally {
       setLoading(false);

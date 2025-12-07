@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
+import logger from '../../utils/logger';
 import MentorContactPanel from './MentorContactPanel';
 import ApprovedGuard from '../guards/ApprovedGuard';
 import { useApproval } from '../../hooks/useApproval';
@@ -104,7 +105,7 @@ const MentorProfile = () => {
         // 1) Hydrate identity using the shared helper so we always get the
         // canonical name/avatar from alumni_directory_public or profiles.
         const ident = await getPublicIdentity(mentorId).catch((e) => {
-          console.warn('MentorProfile: getPublicIdentity failed', e);
+          logger.warn('MentorProfile: getPublicIdentity failed', e);
           return null;
         });
 
@@ -136,7 +137,7 @@ const MentorProfile = () => {
           if (!errById && mentorById) {
             mentorRow = mentorById;
           } else if (errByUser || errById) {
-            console.warn('MentorProfile: mentors row not accessible', errByUser || errById);
+            logger.warn('MentorProfile: mentors row not accessible', errByUser || errById);
           }
         }
 

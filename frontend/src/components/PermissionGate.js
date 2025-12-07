@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import logger from '../utils/logger';
 
 /**
  * PermissionGate - A component that conditionally renders children based on user permissions
@@ -47,7 +48,7 @@ const PermissionGate = ({
         
         setHasAccess(result);
       } catch (error) {
-        console.error('Error checking permissions:', error);
+        logger.error('Error checking permissions:', error);
         setHasAccess(false);
       } finally {
         setChecking(false);

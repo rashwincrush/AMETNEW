@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
@@ -82,7 +83,7 @@ const Register = () => {
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
-      console.error('Registration error:', err);
+      logger.error('Registration error:', err);
     } finally {
       setIsLoading(false);
     }
@@ -97,7 +98,7 @@ const Register = () => {
       }
     } catch (err) {
       setError('Failed to sign up with Google');
-      console.error('Google signup error:', err);
+      logger.error('Google signup error:', err);
     }
   };
 
@@ -110,7 +111,7 @@ const Register = () => {
       }
     } catch (err) {
       setError('Failed to sign up with LinkedIn');
-      console.error('LinkedIn signup error:', err);
+      logger.error('LinkedIn signup error:', err);
     }
   };
 

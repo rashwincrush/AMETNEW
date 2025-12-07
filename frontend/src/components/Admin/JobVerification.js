@@ -21,7 +21,7 @@ const JobVerification = () => {
       if (error) throw error;
       setPendingJobs(data);
     } catch (err) {
-      console.error('Error fetching pending jobs:', err);
+      logger.error('Error fetching pending jobs:', err);
       setError('Failed to load jobs for verification.');
       toast.error('Could not fetch pending jobs.');
     } finally {
@@ -35,18 +35,22 @@ const JobVerification = () => {
 
   const handleJobAction = async (jobId, isApproved) => {
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .update({ is_approved: isApproved, is_active: isApproved })
-        .eq('id', jobId);
+      const { error } = await supabase.rpc('admin_set_job_approval', {
+        p_job_id: jobId,
+        p_approved: isApproved,
+        p_rejected: !isApproved,
+      });
 
       if (error) throw error;
 
       setPendingJobs(prevJobs => prevJobs.filter(job => job.id !== jobId));
       toast.success(`Job has been ${isApproved ? 'approved' : 'rejected'}.`);
     } catch (err) {
-      console.error('Error updating job status:', err);
-      toast.error('Failed to update job status.');
+      logger.error('Error updating job status via admin_set_job_approval:', err);
+      const msg = (err?.code === '42501' || err?.status === 403 || /RLS|permission|not allowed/i.test(err?.message || ''))
+        ? 'You are not allowed to perform this action.'
+        : 'Failed to update job status.';
+      toast.error(msg);
     }
   };
 

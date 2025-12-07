@@ -1,25 +1,59 @@
 import { supabase } from '../utils/supabase';
 
 /** Create (pending) via SECURITY DEFINER RPC */
-type CreateGroupInput = { name: string; description?: string; isPrivate?: boolean; tags?: string[] };
-export async function createGroup({ name, description = '', isPrivate = false, tags = [] }: CreateGroupInput) {
+type CreateGroupInput = {
+  name: string;
+  description?: string;
+  isPrivate?: boolean;
+  tags?: string[];
+  alumniOnly?: boolean;
+};
+export async function createGroup({
+  name,
+  description = '',
+  isPrivate = false,
+  tags = [],
+  alumniOnly = false,
+}: CreateGroupInput) {
   await guardEmployers();
   const { data, error } = await supabase.rpc('create_group_and_add_admin', {
     group_name: name.trim(),
     group_description: (description || '').trim(),
     group_is_private: !!isPrivate,
-    group_tags: Array.isArray(tags) ? tags : []
+    group_tags: Array.isArray(tags) ? tags : [],
+    group_alumni_only: !!alumniOnly,
   });
   if (error) throw error;
   return data as string; // group_id
 }
 
-/** Load groups visible to the current user (RLS will filter). For non-admins, ensure approved, not archived, and public. */
+/**
+ * Load groups visible to the current user via the secure RPC.
+ * The RPC handles role-aware filtering (employer exclusion, alumni_only, etc.)
+ */
+export async function fetchGroupsRpc(): Promise<any[]> {
+  const { data, error } = await supabase.rpc('list_groups_for_current_user');
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Legacy fetchGroups - kept for backward compatibility.
+ * Prefer fetchGroupsRpc for new code.
+ */
 export async function fetchGroups(options?: { isAdmin?: boolean }) {
+  // Try the secure RPC first
+  try {
+    const rpcData = await fetchGroupsRpc();
+    if (rpcData && rpcData.length >= 0) return rpcData;
+  } catch (_) {
+    // Fall back to direct query if RPC not available
+  }
+  
   const isAdmin = !!options?.isAdmin || (await isSiteAdmin()).value;
   const { data, error } = await supabase
     .from('groups')
-    .select('id,name,description,is_private,is_admin_only_posts,is_archived,is_approved,approval_status,created_by,group_avatar_url,tags,created_at')
+    .select('id,name,description,is_private,is_admin_only_posts,is_archived,is_approved,approval_status,created_by,group_avatar_url,tags,created_at,alumni_only')
     .order('created_at', { ascending: false });
   if (error) throw error;
   if (isAdmin) return data;
@@ -40,46 +74,9 @@ export async function fetchGroup(groupId: string, userId?: string) {
   return { group: g.data, myMembership: m.data } as { group: any; myMembership: { role?: 'admin' | 'member'; status?: string } | null };
 }
 
-/** Public self-join */
-export async function joinPublicGroup(groupId: string, userId: string) {
-  await guardEmployers();
-  const { error } = await supabase.from('group_members').insert({ group_id: groupId, user_id: userId, role: 'member', status: 'active' });
-  if (error) throw error;
-}
-
-/** Private: request to join (creates pending request) */
-export async function requestJoinPrivateGroup(groupId: string, userId: string) {
-  await guardEmployers();
-  const { error } = await supabase.from('group_memberships').insert({ group_id: groupId, user_id: userId, status: 'pending' });
-  if (error) throw error;
-}
-
-/** Admin: approve/deny a pending request */
-export async function decideJoinRequest(id: string, status: 'approved' | 'rejected') {
-  const { error } = await supabase.from('group_memberships').update({ status }).eq('id', id);
-  if (error) throw error;
-}
-
-/** Admin/Group-admin: invite/add member directly */
-export async function addMember(groupId: string, userId: string, role: 'member' | 'admin' = 'member') {
-  await guardEmployers();
-  const { error } = await supabase.from('group_members').insert({ group_id: groupId, user_id: userId, role, status: 'active' });
-  if (error) throw error;
-}
-
-/** Leave group (self) */
-export async function leaveGroup(groupId: string, userId: string) {
-  await guardEmployers();
-  const { error } = await supabase.from('group_members').delete().eq('group_id', groupId).eq('user_id', userId);
-  if (error) throw error; // may throw "Each group must have at least one active admin"
-}
-
-/** Promote/Demote (admin or group-admin) */
-export async function setMemberRole(groupId: string, userId: string, role: 'member' | 'admin') {
-  await guardEmployers();
-  const { error } = await supabase.from('group_members').update({ role }).eq('group_id', groupId).eq('user_id', userId);
-  if (error) throw error;
-}
+// Note: All membership mutations must go through RPCs below. Direct writes to
+// group_members / group_memberships from the frontend are intentionally
+// removed to ensure RLS and SECURITY DEFINER functions enforce permissions.
 
 /** Toggle admin-only posts (creator/group-admin/site-admin) */
 export async function setAdminOnlyPosts(groupId: string, on: boolean) {
@@ -135,12 +132,17 @@ export async function deleteComment(id: string) {
   if (error) throw error;
 }
 
-/** Moderation RPCs */
-export async function joinGroupV2(groupId: string): Promise<'active' | 'pending'> {
+/** Join group via secure RPC (handles alumni_only, employer ban, etc.) */
+export async function joinGroupRpc(groupId: string): Promise<'active' | 'pending'> {
   await guardEmployers();
-  const { data, error } = await supabase.rpc('join_group_v2', { p_group_id: groupId });
+  const { data, error } = await supabase.rpc('join_group', { p_group_id: groupId });
   if (error) throw error;
   return (data as any) as 'active' | 'pending';
+}
+
+/** Legacy alias for backward compatibility */
+export async function joinGroupV2(groupId: string): Promise<'active' | 'pending'> {
+  return joinGroupRpc(groupId);
 }
 
 export async function inviteMemberByEmail(groupId: string, email: string) {
@@ -176,6 +178,47 @@ export async function removeMemberRpc(groupId: string, userId: string) {
 
 export async function leaveGroupRpc(groupId: string) {
   const { error } = await supabase.rpc('leave_group', { p_group_id: groupId });
+  if (error) throw error;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Group Lifecycle RPCs (admin actions)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Approve a group (site admin only) */
+export async function approveGroupRpc(groupId: string) {
+  const { error } = await supabase.rpc('approve_group', { p_group_id: groupId });
+  if (error) throw error;
+}
+
+/** Reject a group (site admin only) */
+export async function rejectGroupRpc(groupId: string, reason?: string) {
+  const { error } = await supabase.rpc('reject_group', {
+    p_group_id: groupId,
+    p_reason: reason || null,
+  });
+  if (error) throw error;
+}
+
+/** Archive a group (site admin or group admin) */
+export async function archiveGroupRpc(groupId: string) {
+  const { error } = await supabase.rpc('archive_group', { p_group_id: groupId });
+  if (error) throw error;
+}
+
+/** Delete a group securely (site admin only) */
+export async function deleteGroupRpc(groupId: string) {
+  const { error } = await supabase.rpc('delete_group_secure', { p_group_id: groupId });
+  if (error) throw error;
+}
+
+/** Update alumni_only flag on a group */
+export async function setAlumniOnly(groupId: string, alumniOnly: boolean) {
+  await guardEmployers();
+  const { error } = await supabase
+    .from('groups')
+    .update({ alumni_only: alumniOnly })
+    .eq('id', groupId);
   if (error) throw error;
 }
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { addComment, editComment, fetchComments } from '../../api/comments'
 import { onPostgresChangesOnce, waitForRealtimeReady } from '../../utils/supabase'
-import { canCommentOnGroup } from '../../utils/acl'
+import { canCommentOnGroup, isEmployer, getGroupStatus } from '../../utils/acl'
 import { useAuth } from '../../contexts/AuthContext'
 import { useApproval } from '../../hooks/useApproval'
 import { useAvatars } from '../../hooks/useAvatar'
@@ -21,7 +21,17 @@ export default function CommentsThread({ postId, group, isMember }) {
   const [comments, setComments] = useState([])
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState('')
-  const canComment = isMember && isApproved && canCommentOnGroup(group, userRole, isMember) && !group?.is_archived
+  
+  // Use centralized ACL check for commenting
+  // - Employers cannot comment
+  // - Archived groups are read-only
+  // - Both public and private groups require membership to comment
+  const groupStatus = getGroupStatus(group)
+  const canComment = !isEmployer(userRole) && 
+    isApproved && 
+    isMember && 
+    canCommentOnGroup(group, userRole, isMember)
+  
   const channelRef = useRef(null)
 
   // Fetch avatars for all comment authors
@@ -134,6 +144,7 @@ export default function CommentsThread({ postId, group, isMember }) {
             placeholder="Write a comment…"
             className="flex-1 rounded-xl border px-3 py-2 text-sm"
             maxLength={5000}
+            aria-label="Write a comment"
           />
           <button
             type="submit"
@@ -144,8 +155,18 @@ export default function CommentsThread({ postId, group, isMember }) {
           </button>
         </form>
       ) : (
-        <div className="text-xs opacity-70">
-          {group?.is_archived ? 'Group is archived. Comments are read-only.' : 'Join the group to comment.'}
+        <div className="text-xs opacity-70 bg-gray-50 rounded-lg p-3 border border-gray-200">
+          {isEmployer(userRole) 
+            ? 'Employers cannot comment on group posts.'
+            : groupStatus.isArchived 
+              ? 'This group is archived. Comments are read-only.' 
+              : groupStatus.isRejected
+                ? 'This group has been rejected. Comments are disabled.'
+                : !isMember 
+                  ? 'Join the group to comment on posts.'
+                  : !isApproved
+                    ? 'Your account is pending approval.'
+                    : 'You cannot comment on this post.'}
         </div>
       )}
     </div>

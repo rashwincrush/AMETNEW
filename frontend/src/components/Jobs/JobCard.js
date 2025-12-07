@@ -60,7 +60,7 @@ function JobCard({ job }) {
       setIsBookmarked(nowBookmarked);
       toast.success(nowBookmarked ? 'Job bookmarked' : 'Bookmark removed');
     } catch (e) {
-      console.error('Bookmark error:', e);
+      logger.error('Bookmark error:', e);
       toast.error('Failed to update bookmark');
     }
   };
@@ -193,7 +193,7 @@ function JobCard({ job }) {
             <button
               className="px-3 py-2 rounded-lg text-sm bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 transition-colors"
               onClick={async () => {
-                try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (e) { console.error('Failed to request connection:', e); }
+                try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (e) { logger.error('Failed to request connection:', e); }
                 navigate(`/messages?peer=${employerId}&job=${job.id}`);
               }}
             >

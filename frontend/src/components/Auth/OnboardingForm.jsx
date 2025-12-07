@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
@@ -49,7 +50,7 @@ export default function OnboardingForm() {
           existingProfile = data || null;
         } catch (e) {
           // Log error but continue; profile may not exist yet
-          console.warn('Error fetching existing profile for onboarding:', e);
+          logger.warn('Error fetching existing profile for onboarding:', e);
         }
         // Derive names from profile or user metadata
         const meta = user.user_metadata || {};
@@ -171,7 +172,7 @@ export default function OnboardingForm() {
       }
 
       // Update existing profile (row is created by backend trigger)
-      console.log('Submitting onboarding payload:', payload);
+      logger.log('Submitting onboarding payload:', payload);
       const { data, error } = await supabase
         .from('profiles')
         .upsert({ ...payload, id: authData.user.id })
@@ -179,11 +180,11 @@ export default function OnboardingForm() {
         .maybeSingle();
       
       if (error) {
-        console.error('Profile update error:', error);
+        logger.error('Profile update error:', error);
         throw error;
       }
       
-      console.log('Profile update result:', data);
+      logger.log('Profile update result:', data);
       clearOnboardingDraft();
       setStatus({ state: 'done' });
       

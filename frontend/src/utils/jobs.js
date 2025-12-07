@@ -1,3 +1,5 @@
+import { parseDeadline, isDeadlinePassed } from './deadlines.ts';
+
 export const coalesceAppUrl = (j) => {
   if (!j) return '';
   const a = (j.application_url && String(j.application_url).trim()) || '';
@@ -67,19 +69,22 @@ export const hasOverviewData = (j) => {
   );
 };
 
-// Deadline helpers for expired logic
+// Deadline helpers for expired logic (centralized via IST-aware utilities)
 export const getDeadline = (row) =>
   row?.deadline ?? row?.application_deadline ?? row?.expires_at ?? null;
 
-export const isExpired = (row) => {
+export const isExpired = (row, now = new Date()) => {
   const d = getDeadline(row);
-  return d ? new Date(d) < new Date() : false;
+  return isDeadlinePassed(d, now);
 };
 
 // Minimal client-side sorting (three modes)
 export const sortJobs = (rows, sort = 'newest') => {
   const byTitleAZ = (a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' });
-  const dateOrNull = (d) => (d ? new Date(d).getTime() : Number.POSITIVE_INFINITY);
+  const dateOrNull = (d) => {
+    const parsed = parseDeadline(d);
+    return parsed ? parsed.getTime() : Number.POSITIVE_INFINITY;
+  };
 
   switch (sort) {
     case 'alpha': // Title (A–Z)
@@ -119,11 +124,7 @@ export const computeJobApplyState = (job, now = new Date()) => {
     job.expires_at ||
     null;
 
-  let deadlinePassed = false;
-  if (deadline) {
-    const d = new Date(deadline);
-    deadlinePassed = d.getTime() < now.getTime();
-  }
+  const deadlinePassed = isDeadlinePassed(deadline, now);
 
   const baseOpen =
     isApproved &&

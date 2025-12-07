@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { CheckCircleIcon } from '@heroicons/react/24/outline';
 import { iconForType } from './NotificationIcons';
+import { getNotificationLink } from '../../api/notifications';
 
 const labelForType = (type) => {
   const t = (type || '').toLowerCase();
@@ -13,7 +14,8 @@ const labelForType = (type) => {
   if (['application', 'application_status'].includes(t)) return 'Applications';
   if (t === 'mentorship') return 'Mentorship';
   if (t.startsWith('event')) return 'Events';
-  if (t === 'group') return 'Groups';
+  // Group-related notification types
+  if (t === 'group' || t.startsWith('group_')) return 'Groups';
   if (['alert'].includes(t)) return 'Alerts';
   if (t === 'system') return 'System';
 
@@ -27,9 +29,17 @@ export default function NotificationItem({ n, onToggleRead, onNavigate }) {
   const title = n.title || 'New activity';
   const message = n.message || '';
 
+  // Use secure link getter (sanitizes and derives safe links)
+  const safeLink = getNotificationLink(n);
+
   const open = () => {
-    if (n.link) {
-      navigate(n.link);
+    // When opening an unread notification from the list, mark it as read first
+    if (onToggleRead && !n.is_read) {
+      onToggleRead(n.id, true);
+    }
+
+    if (safeLink && safeLink !== '#') {
+      navigate(safeLink);
       if (onNavigate) onNavigate();
     }
   };

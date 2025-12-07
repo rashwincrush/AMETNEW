@@ -23,6 +23,13 @@ export async function fetchGroups() {
   return data;
 }
 
+// Role-aware listing via secure RPC (preferred for new code)
+export async function fetchGroupsRpc() {
+  const { data, error } = await supabase.rpc('list_groups_for_current_user');
+  if (error) throw error;
+  return data || [];
+}
+
 // One group + my membership (if any)
 export async function fetchGroup(groupId, userId) {
   const [g, m] = await Promise.all([
@@ -35,40 +42,38 @@ export async function fetchGroup(groupId, userId) {
   return { group: g.data, myMembership: m.data };
 }
 
-// Public self-join
+// NOTE: Legacy helpers below are kept for backward compatibility but should
+// not be used for new code. All membership mutations must go through the
+// RPC-based helpers further down (joinGroup, approveGroupMember, etc.).
+
+// Public self-join (deprecated) – use joinGroup instead
 export async function joinPublicGroup(groupId, userId) {
-  const { error } = await supabase.from('group_members').insert({ group_id: groupId, user_id: userId, role: 'member', status: 'active' });
-  if (error) throw error;
+  return joinGroup(groupId);
 }
 
-// Private: request to join (creates pending request)
+// Private request to join (deprecated) – use joinGroup instead
 export async function requestJoinPrivateGroup(groupId, userId) {
-  const { error } = await supabase.from('group_memberships').insert({ group_id: groupId, user_id: userId, status: 'pending' });
-  if (error) throw error;
+  return joinGroup(groupId);
 }
 
-// Admin: approve/deny a pending request
+// Admin: approve/deny a pending request (deprecated) – use approveGroupMember / rejectGroupMember
 export async function decideJoinRequest(id, status) {
-  const { error } = await supabase.from('group_memberships').update({ status }).eq('id', id);
-  if (error) throw error;
+  throw new Error('decideJoinRequest is no longer supported. Use approveGroupMember / rejectGroupMember.');
 }
 
-// Admin/Group-admin: invite/add member directly
+// Admin/Group-admin: invite/add member directly (deprecated) – use inviteMemberByEmail or approveGroupMember
 export async function addMember(groupId, userId, role = 'member') {
-  const { error } = await supabase.from('group_members').insert({ group_id: groupId, user_id: userId, role, status: 'active' });
-  if (error) throw error;
+  return approveGroupMember(groupId, userId);
 }
 
-// Leave group (self)
+// Leave group (self) (deprecated) – use leaveGroupRpc
 export async function leaveGroup(groupId, userId) {
-  const { error } = await supabase.from('group_members').delete().eq('group_id', groupId).eq('user_id', userId);
-  if (error) throw error; // may throw "Each group must have at least one active admin"
+  return leaveGroupRpc(groupId);
 }
 
-// Promote/Demote (admin or group-admin)
+// Promote/Demote (admin or group-admin) (deprecated) – use setMemberRoleRpc
 export async function setMemberRole(groupId, userId, role) {
-  const { error } = await supabase.from('group_members').update({ role }).eq('group_id', groupId).eq('user_id', userId);
-  if (error) throw error;
+  return setMemberRoleRpc(groupId, userId, role);
 }
 
 // Toggle admin-only posts (creator/group-admin/site-admin)
@@ -118,10 +123,17 @@ export async function deleteComment(id) {
 }
 
 // Moderation RPCs (JS build uses this file by default when importing '../api/groups')
+// Join a group using the hardened join_group_v2 RPC.
+// Returns a membership state string: 'active' | 'pending'.
 export async function joinGroup(groupId) {
-  const { data, error } = await supabase.rpc('join_group', { p_group_id: groupId });
+  const { data, error } = await supabase.rpc('join_group_v2', { p_group_id: groupId });
   if (error) throw error;
-  return data;
+  return data; // expected to be 'active' or 'pending'
+}
+
+// Alias matching the TypeScript helper name
+export async function joinGroupRpc(groupId) {
+  return joinGroup(groupId);
 }
 
 export async function inviteMemberByEmail(groupId, email) {
@@ -157,5 +169,71 @@ export async function removeMemberRpc(groupId, userId) {
 
 export async function leaveGroupRpc(groupId) {
   const { error } = await supabase.rpc('leave_group', { p_group_id: groupId });
+  if (error) throw error;
+}
+
+// Lifecycle RPC helpers matching TS API
+export async function approveGroupRpc(groupId) {
+  const { error } = await supabase.rpc('approve_group', { p_group_id: groupId });
+  if (error) throw error;
+}
+
+export async function rejectGroupRpc(groupId, reason) {
+  const { error } = await supabase.rpc('reject_group', {
+    p_group_id: groupId,
+    p_reason: reason || null,
+  });
+  if (error) throw error;
+}
+
+export async function archiveGroupRpc(groupId) {
+  const { error } = await supabase.rpc('archive_group', { p_group_id: groupId });
+  if (error) throw error;
+}
+
+export async function setAlumniOnly(groupId, alumniOnly) {
+  const { error } = await supabase
+    .from('groups')
+    .update({ alumni_only: !!alumniOnly })
+    .eq('id', groupId);
+  if (error) throw error;
+}
+
+// Allow a user to withdraw their own pending join request for a group.
+// This assumes a SECURITY DEFINER RPC cancel_group_join_request(p_group_id uuid)
+// that deletes or updates the caller's row in group_memberships where status = 'pending'.
+export async function withdrawJoinRequest(groupId) {
+	const { error } = await supabase.rpc('cancel_group_join_request', { p_group_id: groupId });
+	if (error) throw error;
+}
+
+// Accept a pending group invite or join request for the current user.
+// This calls the accept_group_invite(p_group_id uuid) RPC, which promotes the
+// membership row in group_memberships from 'pending' to 'approved' and relies
+// on triggers to sync to group_members.
+export async function acceptGroupInvite(groupId) {
+  const { data, error } = await supabase.rpc('accept_group_invite', { p_group_id: groupId });
+  if (error) throw error;
+  return data;
+}
+
+// Reject/decline a pending group invite for the current user.
+export async function rejectGroupInvite(groupId) {
+  const { data, error } = await supabase.rpc('reject_group_invite', { p_group_id: groupId });
+  if (error) throw error;
+  return data;
+}
+
+// Cancel a group invite (by inviter or group admin).
+export async function cancelGroupInvite(inviteId) {
+  const { data, error } = await supabase.rpc('cancel_group_invite', { p_invite_id: inviteId });
+  if (error) throw error;
+  return data;
+}
+
+// Delete a group permanently (super_admin only).
+// Uses the hardened delete_group_secure RPC.
+export async function deleteGroupRpc(groupId) {
+  const { error } = await supabase.rpc('delete_group_secure', { p_group_id: groupId });
   if (error) throw error;
 }

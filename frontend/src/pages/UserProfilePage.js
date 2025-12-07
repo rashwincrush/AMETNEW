@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import logger from '../utils/logger';
 import { supabase } from '../utils/supabase';
 import { MapPinIcon, BriefcaseIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
 import Avatar from '../components/common/Avatar';
@@ -49,7 +50,7 @@ const UserProfilePage = () => {
       setProfile(data);
     } catch (err) {
       setError('Failed to fetch user profile.');
-      console.error(err);
+      logger.error(err);
     } finally {
       setLoading(false);
     }
@@ -242,7 +243,7 @@ const UserProfilePage = () => {
                         await fetchProfile();
                         toast.success('User has been approved.');
                       } catch (err) {
-                        console.error('Error approving user from profile page:', err);
+                        logger.error('Error approving user from profile page:', err);
                         toast.error(
                           `Failed to approve user: ${getFriendlyErrorMessage(
                             err,
@@ -274,7 +275,7 @@ const UserProfilePage = () => {
                         await fetchProfile();
                         toast.success('User has been rejected.');
                       } catch (err) {
-                        console.error('Error rejecting user from profile page:', err);
+                        logger.error('Error rejecting user from profile page:', err);
                         toast.error(
                           `Failed to reject user: ${getFriendlyErrorMessage(
                             err,
@@ -316,7 +317,7 @@ const UserProfilePage = () => {
                         await fetchProfile();
                         toast.success(currentlyActive ? 'User has been blocked.' : 'User has been unblocked.');
                       } catch (err) {
-                        console.error('Error toggling active from profile page:', err);
+                        logger.error('Error toggling active from profile page:', err);
                         toast.error(
                           getFriendlyErrorMessage(err, 'Unable to change user active status.')
                         );
@@ -356,7 +357,7 @@ const UserProfilePage = () => {
                         await fetchProfile();
                         toast.success('User soft-deleted');
                       } catch (err) {
-                        console.error('Error soft-deleting user from profile page:', err);
+                        logger.error('Error soft-deleting user from profile page:', err);
                         toast.error(
                           `Failed to delete user: ${getFriendlyErrorMessage(
                             err,
@@ -399,7 +400,7 @@ const UserProfilePage = () => {
                           await fetchProfile();
                           toast.success('User data purged');
                         } catch (err) {
-                          console.error('Error purging user data from profile page:', err);
+                          logger.error('Error purging user data from profile page:', err);
                           toast.error(
                             `Failed to purge user data: ${getFriendlyErrorMessage(
                               err,
@@ -443,7 +444,7 @@ const UserProfilePage = () => {
                           await fetchProfile();
                           toast.success('Auth user deleted successfully');
                         } catch (err) {
-                          console.error('Error deleting auth user from profile page:', err);
+                          logger.error('Error deleting auth user from profile page:', err);
                           toast.error(
                             `Failed to delete auth user: ${getFriendlyErrorMessage(
                               err,
@@ -476,7 +477,7 @@ const UserProfilePage = () => {
                         await fetchProfile();
                         toast.success('Mentee status set to approved.');
                       } catch (err) {
-                        console.error('Error approving mentee from profile page:', err);
+                        logger.error('Error approving mentee from profile page:', err);
                         toast.error(
                           `Failed to update mentee status: ${getFriendlyErrorMessage(
                             err,
@@ -501,7 +502,7 @@ const UserProfilePage = () => {
                         await fetchProfile();
                         toast.success('Mentee status set to rejected.');
                       } catch (err) {
-                        console.error('Error rejecting mentee from profile page:', err);
+                        logger.error('Error rejecting mentee from profile page:', err);
                         toast.error(
                           `Failed to update mentee status: ${getFriendlyErrorMessage(
                             err,
@@ -526,7 +527,7 @@ const UserProfilePage = () => {
                         await fetchProfile();
                         toast.success('Mentor status set to approved.');
                       } catch (err) {
-                        console.error('Error approving mentor from profile page:', err);
+                        logger.error('Error approving mentor from profile page:', err);
                         toast.error(
                           `Failed to update mentor status: ${getFriendlyErrorMessage(
                             err,
@@ -551,7 +552,7 @@ const UserProfilePage = () => {
                         await fetchProfile();
                         toast.success('Mentor status set to rejected.');
                       } catch (err) {
-                        console.error('Error rejecting mentor from profile page:', err);
+                        logger.error('Error rejecting mentor from profile page:', err);
                         toast.error(
                           `Failed to update mentor status: ${getFriendlyErrorMessage(
                             err,

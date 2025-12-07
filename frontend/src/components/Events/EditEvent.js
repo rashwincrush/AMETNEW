@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import logger from '../../utils/logger';
 import { 
   PhotoIcon,
   CalendarIcon,
@@ -136,17 +137,17 @@ const EditEvent = () => {
         agenda: data.agenda && data.agenda.length > 0 ? data.agenda : [{ time: '', activity: '' }]
       };
       
-      console.log('Formatted event data:', eventData); // Debug log
+      logger.log('Formatted event data:', eventData); // Debug log
 
       setFormData(eventData);
       
       // If there's an image, set the preview
       if (data.featured_image_url) {
         setPreviewImage(data.featured_image_url);
-        console.log('Setting preview image:', data.featured_image_url); // Debug log
+        logger.log('Setting preview image:', data.featured_image_url); // Debug log
       }
     } catch (err) {
-      console.error('Error fetching event:', err);
+      logger.error('Error fetching event:', err);
       toast.error('Failed to load event details');
     } finally {
       setLoading(false);
@@ -283,7 +284,7 @@ const EditEvent = () => {
       
       // Filter out any fields that don't exist in the Supabase schema
       const validEventData = filterValidFields(eventData);
-      console.log('Submitting filtered event data:', validEventData); // Debug log
+      logger.log('Submitting filtered event data:', validEventData); // Debug log
       
       // Update event in database
       const { error: updateError } = await supabase
@@ -345,7 +346,7 @@ const EditEvent = () => {
       toast.success('Event updated successfully!');
       navigate(`/events/${id}`);
     } catch (err) {
-      console.error('Error updating event:', err);
+      logger.error('Error updating event:', err);
       toast.error('Failed to update event');
     } finally {
       setIsSubmitting(false);

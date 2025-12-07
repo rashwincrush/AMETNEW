@@ -42,6 +42,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import MentorRegistrationForm from './MentorRegistrationForm';
 import CreateSessionModal from './CreateSessionModal';
 import { getPublicIdentity } from '../../lib/hydrateIdentity';
+import logger from '../../utils/logger';
 import { idempotentConnect, acceptPending } from '../../utils/connections';
 import { RequestStatusChip } from '../../lib/statusChips';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -187,7 +188,7 @@ export default function MyMentorship() {
       const threadId = await ensureDmThreadWith(otherUserId);
       navigate(`/messages?threadId=${encodeURIComponent(threadId)}&source=mentorship&requestId=${encodeURIComponent(req.id)}`);
     } catch (e) {
-      console.error(e);
+      logger.error(e);
       toast.error('Could not open chat. Please try again.');
     }
   }, [user?.id, navigate]);
@@ -321,7 +322,7 @@ export default function MyMentorship() {
       toast.success('Availability updated');
 
     } catch (e) {
-      console.error('Failed to update availability', e);
+      logger.error('Failed to update availability', e);
       toast.error('Failed to update availability');
       // Revert optimistic state
       setIsAvailable(!next);
@@ -546,7 +547,7 @@ export default function MyMentorship() {
                                 const threadId = await ensureDmThreadWith(otherId);
                                 navigate(`/messages?threadId=${encodeURIComponent(threadId)}&source=mentorship&relationshipId=${encodeURIComponent(r.id)}`);
                               } catch (e) {
-                                console.error(e);
+                                logger.error(e);
                                 toast.error('Could not open chat. Please try again.');
                               }
                             }}

@@ -8,6 +8,7 @@ import {
   EyeIcon,
   ClockIcon,
 } from '@heroicons/react/24/outline';
+import { normalizeStatus, STATUS_BADGE_CLASS, STATUS_LABEL } from '../../utils/applicationStatus';
 
 const JobApplicationReview = () => {
   const { user } = useAuth();
@@ -16,7 +17,7 @@ const JobApplicationReview = () => {
   const [currentApplication, setCurrentApplication] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [adminNotes, setAdminNotes] = useState('');
-  const [statusFilter, setStatusFilter] = useState('pending');
+  const [statusFilter, setStatusFilter] = useState('submitted');
 
   const fetchApplications = async (status = statusFilter) => {
     try {
@@ -30,7 +31,7 @@ const JobApplicationReview = () => {
 
       setApplications(data || []);
     } catch (error) {
-      console.error('Error fetching job applications:', error);
+      logger.error('Error fetching job applications:', error);
       toast.error('Failed to load job applications');
     } finally {
       setLoading(false);
@@ -57,51 +58,36 @@ const JobApplicationReview = () => {
 
       if (error) throw error;
 
-      toast.success(`Application ${status === 'approved' ? 'approved' : 'rejected'} successfully`);
+      const canonical = normalizeStatus(status);
+      toast.success(`Application marked as ${STATUS_LABEL[canonical]}`);
       setShowModal(false);
       
       // Update the local state
       setApplications(applications.map(app => 
         app.id === currentApplication.id 
-          ? { ...app, status, admin_notes: adminNotes } 
+          ? { ...app, status: canonical, admin_notes: adminNotes } 
           : app
       ));
     } catch (error) {
-      console.error(`Error ${status} application:`, error);
+      logger.error(`Error ${status} application:`, error);
       toast.error(`Failed to ${status} application`);
     }
   };
 
   const StatusBadge = ({ status }) => {
-    let color;
-    let icon;
-    
-    switch(status) {
-      case 'approved':
-        color = 'bg-green-100 text-green-800';
-        icon = <CheckCircleIcon className="h-4 w-4 mr-1" />;
-        break;
-      case 'rejected':
-        color = 'bg-red-100 text-red-800';
-        icon = <XCircleIcon className="h-4 w-4 mr-1" />;
-        break;
-      case 'pending':
-        color = 'bg-yellow-100 text-yellow-800';
-        icon = <ClockIcon className="h-4 w-4 mr-1" />;
-        break;
-      case 'under_review':
-        color = 'bg-blue-100 text-blue-800';
-        icon = <EyeIcon className="h-4 w-4 mr-1" />;
-        break;
-      default:
-        color = 'bg-gray-100 text-gray-800';
-        icon = <ClockIcon className="h-4 w-4 mr-1" />;
+    const canonical = normalizeStatus(status);
+    let icon = <ClockIcon className="h-4 w-4 mr-1" />;
+    if (canonical === 'rejected') {
+      icon = <XCircleIcon className="h-4 w-4 mr-1" />;
+    } else if (canonical === 'offered' || canonical === 'hired' || canonical === 'shortlisted') {
+      icon = <CheckCircleIcon className="h-4 w-4 mr-1" />;
+    } else if (canonical === 'under_review') {
+      icon = <EyeIcon className="h-4 w-4 mr-1" />;
     }
-    
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium ${color}`}>
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium ${STATUS_BADGE_CLASS[canonical]}`}>
         {icon}
-        {status.replace('_', ' ')}
+        {STATUS_LABEL[canonical]}
       </span>
     );
   };
@@ -122,9 +108,9 @@ const JobApplicationReview = () => {
         <div className="inline-flex rounded-md shadow-sm" role="group">
           <button
             type="button"
-            onClick={() => setStatusFilter('pending')}
+            onClick={() => setStatusFilter('submitted')}
             className={`px-4 py-2 text-sm font-medium rounded-l-lg ${
-              statusFilter === 'pending' 
+              statusFilter === 'submitted' 
                 ? 'bg-blue-600 text-white' 
                 : 'bg-white text-gray-700 hover:bg-gray-50'
             }`}
@@ -144,9 +130,9 @@ const JobApplicationReview = () => {
           </button>
           <button
             type="button"
-            onClick={() => setStatusFilter('approved')}
+            onClick={() => setStatusFilter('shortlisted')}
             className={`px-4 py-2 text-sm font-medium ${
-              statusFilter === 'approved' 
+              statusFilter === 'shortlisted' 
                 ? 'bg-blue-600 text-white' 
                 : 'bg-white text-gray-700 hover:bg-gray-50'
             }`}
@@ -311,7 +297,7 @@ const JobApplicationReview = () => {
               ></textarea>
             </div>
             
-            {currentApplication.status === 'pending' || currentApplication.status === 'under_review' ? (
+            {['submitted','under_review'].includes(normalizeStatus(currentApplication.status)) ? (
               <div className="mt-6 flex justify-end space-x-3">
                 <button
                   onClick={() => handleReviewAction('under_review')}
@@ -320,7 +306,7 @@ const JobApplicationReview = () => {
                   Mark Under Review
                 </button>
                 <button
-                  onClick={() => handleReviewAction('approved')}
+                  onClick={() => handleReviewAction('shortlisted')}
                   className="px-4 py-2 bg-green-600 text-white text-base font-medium rounded-md shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
                   Approve

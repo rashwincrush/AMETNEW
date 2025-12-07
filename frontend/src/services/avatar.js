@@ -8,16 +8,24 @@ class AvatarService {
 
     try {
       if (useSignedUrl) {
-        const { data, error } = await supabase.rpc('get_signed_avatar_url', {
-          p_user_id: userId,
-        });
+        // Primary path: signed URL RPC
+        try {
+          const { data, error } = await supabase.rpc('get_signed_avatar_url', {
+            p_user_id: userId,
+          });
 
-        if (error) {
-          logger.error('[AvatarService] getAvatarUrl RPC error', error);
-          return null;
+          if (!error && data) {
+            return data || null;
+          }
+
+          if (error) {
+            logger.error('[AvatarService] getAvatarUrl RPC error', error);
+          }
+        } catch (rpcErr) {
+          logger.error('[AvatarService] getAvatarUrl RPC threw', rpcErr);
         }
 
-        return data || null;
+        // Fallback: read directly from profiles.avatar_url so UI keeps working
       }
 
       const { data, error } = await supabase
@@ -47,22 +55,33 @@ class AvatarService {
 
     try {
       if (useSignedUrls) {
-        const { data, error } = await supabase.rpc('get_signed_avatar_urls', {
-          p_user_ids: uniqueIds,
-        });
+        // Primary path: signed URL RPC
+        try {
+          const { data, error } = await supabase.rpc('get_signed_avatar_urls', {
+            p_user_ids: uniqueIds,
+          });
 
-        if (error) {
-          logger.error('[AvatarService] getAvatarUrls RPC error', error);
-          return {};
-        }
+          if (!error && Array.isArray(data)) {
+            const rows = data;
+            const map = {};
+            for (const row of rows) {
+              if (!row) continue;
+              map[row.user_id] = row.avatar_url || null;
+            }
 
-        const rows = Array.isArray(data) ? data : [];
-        const map = {};
-        for (const row of rows) {
-          if (!row) continue;
-          map[row.user_id] = row.avatar_url || null;
+            // If we obtained any rows, use them; otherwise fall through to DB fallback
+            if (Object.keys(map).length > 0 || rows.length > 0) {
+              return map;
+            }
+          }
+
+          if (error) {
+            logger.error('[AvatarService] getAvatarUrls RPC error', error);
+          }
+        } catch (rpcErr) {
+          logger.error('[AvatarService] getAvatarUrls RPC threw', rpcErr);
         }
-        return map;
+        // If RPC failed or returned nothing useful, fall through to profiles table
       }
 
       const { data, error } = await supabase

@@ -2,6 +2,7 @@ import React from 'react';
 import toast from 'react-hot-toast';
 import { BookmarkIcon as BookmarkOutline } from '@heroicons/react/24/outline';
 import { BookmarkIcon as BookmarkSolid } from '@heroicons/react/24/solid';
+import logger from '../../utils/logger';
 
 /**
  * BookmarkButton component to centralize bookmark logic and error handling
@@ -14,7 +15,7 @@ const BookmarkButton = ({ jobId, isBookmarked, handleBookmark }) => {
     if (typeof handleBookmark === 'function') {
       handleBookmark(jobId);
     } else {
-      console.error('handleBookmark is not a function');
+      logger.error('handleBookmark is not a function');
       toast.error('Unable to save bookmark. Please try again later.');
     }
   };

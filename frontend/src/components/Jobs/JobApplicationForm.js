@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
+import logger from '../../utils/logger';
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
@@ -17,11 +18,11 @@ const JobApplicationForm = ({ jobId, deadline }) => {
     if (e.target.files[0]) {
       const f = e.target.files[0];
       if (f.size > MAX_SIZE_BYTES) {
-        toast.error('File too large. Max 5MB.');
+        toast.error('Your file is too large (max 5 MB). Please upload a smaller resume.');
         return;
       }
       if (!ALLOWED_TYPES.includes(f.type)) {
-        toast.error('Invalid file type. Upload PDF/DOC/DOCX.');
+        toast.error('Invalid file type. Upload a PDF, DOC, or DOCX resume.');
         return;
       }
       setResumeFile(f);
@@ -36,20 +37,20 @@ const JobApplicationForm = ({ jobId, deadline }) => {
     }
     const role = userRole || (typeof getUserRole === 'function' ? getUserRole() : null);
     if (role === 'employer') {
-      toast.error('Employers cannot apply to jobs from this portal.');
+      toast.error('Employer accounts cannot apply to jobs from this portal.');
       return;
     }
     if (!resumeFile) {
-      toast.error('Please upload your resume.');
+      toast.error('Please upload your resume to continue.');
       return;
     }
     if (isDeadlinePassed) {
-      toast.error('Applications are closed for this job.');
+      toast.error('Applications are closed for this role.');
       return;
     }
 
     setIsSubmitting(true);
-    const toastId = toast.loading('Submitting application...');
+    const toastId = toast.loading('Submitting your application...');
 
     try {
       // 0. Check if already applied
@@ -61,7 +62,7 @@ const JobApplicationForm = ({ jobId, deadline }) => {
       if (existingErr) throw existingErr;
       if ((existingCount || 0) > 0) {
         toast.dismiss(toastId);
-        toast.success('You have already applied for this job.');
+        toast.success('You have already applied to this role. Check My applications for your status.');
         return;
       }
 
@@ -86,13 +87,13 @@ const JobApplicationForm = ({ jobId, deadline }) => {
 
       if (insertError) throw insertError;
 
-      toast.success('Application submitted successfully!', { id: toastId });
+      toast.success('Your application has been submitted successfully.', { id: toastId });
       setCoverLetter('');
       setResumeFile(null);
       e.target.reset();
     } catch (error) {
-      console.error('Error submitting application:', error);
-      toast.error(`Error: ${error.message}`, { id: toastId });
+      logger.error('Error submitting application:', error);
+      toast.error(`We could not submit your application: ${error.message}`, { id: toastId });
     } finally {
       setIsSubmitting(false);
     }
@@ -100,11 +101,11 @@ const JobApplicationForm = ({ jobId, deadline }) => {
 
   return (
     <div className="mt-8 p-6 bg-gray-50 rounded-lg shadow-inner">
-      <h3 className="text-2xl font-bold text-gray-800 mb-4">Apply for this Job</h3>
+      <h3 className="text-2xl font-bold text-gray-800 mb-4">Apply for this role</h3>
       <form onSubmit={handleSubmit}>
         <div className="mb-4">
           <label htmlFor="coverLetter" className="block text-gray-700 font-semibold mb-2">
-            Cover Letter (Optional)
+            Cover letter (optional)
           </label>
           <textarea
             id="coverLetter"
@@ -112,12 +113,12 @@ const JobApplicationForm = ({ jobId, deadline }) => {
             onChange={(e) => setCoverLetter(e.target.value)}
             rows="6"
             className="w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none focus:shadow-outline"
-            placeholder="Tell us why you're a great fit for this role..."
+            placeholder="Explain briefly why you are a great fit for this role."
           ></textarea>
         </div>
         <div className="mb-6">
           <label htmlFor="resume" className="block text-gray-700 font-semibold mb-2">
-            Resume (PDF, DOC, DOCX)
+            Resume (PDF, DOC, or DOCX)
           </label>
           <input
             type="file"
@@ -133,7 +134,7 @@ const JobApplicationForm = ({ jobId, deadline }) => {
           disabled={isSubmitting}
           className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg focus:outline-none focus:shadow-outline disabled:bg-gray-400"
         >
-          {isSubmitting ? 'Submitting...' : 'Submit Application'}
+          {isSubmitting ? 'Submitting application...' : 'Submit application'}
         </button>
       </form>
     </div>

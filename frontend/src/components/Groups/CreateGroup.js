@@ -6,6 +6,7 @@ import { ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { canCreateGroup } from '../../utils/acl';
 import { createGroup } from '../../api/groups';
+import logger from '../../utils/logger';
 
 const CreateGroup = () => {
   const [name, setName] = useState('');
@@ -65,7 +66,7 @@ const CreateGroup = () => {
             });
 
           if (uploadError) {
-            console.warn('Avatar upload failed:', uploadError);
+            logger.warn('Avatar upload failed:', uploadError);
             // Don't fail the whole operation for avatar upload failure
           } else {
             // Persist to existing field: group_avatar_url (minimal change)
@@ -80,18 +81,18 @@ const CreateGroup = () => {
               })
               .eq('id', id);
             if (updErr) {
-              console.warn('Failed to persist group avatar URL:', updErr);
+              logger.warn('Failed to persist group avatar URL:', updErr);
             }
           }
         } catch (uploadErr) {
-          console.warn('Avatar upload error:', uploadErr);
+          logger.warn('Avatar upload error:', uploadErr);
         }
       }
 
       toast.success('Group created successfully!', { id: toastId });
       navigate(`/groups/${id}/manage`);
     } catch (err) {
-      console.error("Error creating group:", err);
+      logger.error("Error creating group:", err);
       const msg = String(err?.message || '');
       if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
         toast.error('Group created but is not visible yet. It may be pending review.', { id: toastId });
@@ -166,7 +167,10 @@ const CreateGroup = () => {
               <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg border">
                 <div>
                   <h3 className="font-medium text-gray-800">Group Privacy</h3>
-                  <p className="text-sm text-gray-500">Private groups require an invitation to join.</p>
+                  <p className="text-sm text-gray-500">
+                    Default is <span className="font-semibold">public</span>. Turn this on to make the group
+                    <span className="font-semibold"> private</span> and invite-only.
+                  </p>
                 </div>
                 <label htmlFor="isPrivate" className="relative inline-flex items-center cursor-pointer">
                   <input 

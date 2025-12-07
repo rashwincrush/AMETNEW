@@ -21,6 +21,8 @@ import { canViewContact } from '../../utils/contactPermissions';
 import LockedContactInfo from './LockedContactInfo';
 import ContactInfo from './ContactInfo';
 import { formatBatchLabel } from '../../utils/batchYear';
+import logger from '../../utils/logger';
+import { useAvatar } from '../../hooks/useAvatar';
 
 const AchievementCard = ({ achievement }) => (
   <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm hover:shadow-md transition-shadow duration-300">
@@ -49,6 +51,7 @@ const AlumniProfile = () => {
   const role = getUserRole?.();
   const { degrees, groups } = useAcademicsCatalog();
   const contact = useProfileContact(alumnus?.id);
+  const { avatarUrl } = useAvatar(id, { useSignedUrl: true, autoFetch: !!id });
   
   useEffect(() => {
     const getCurrentUser = async () => {
@@ -75,12 +78,12 @@ const AlumniProfile = () => {
         if (supabaseError || !data) {
           setError('This profile isn’t publicly visible.');
           if (supabaseError) {
-            console.error('Error fetching alumni from directory_profiles_public:', supabaseError);
+            logger.error('Error fetching alumni from directory_profiles_public:', supabaseError);
           }
           return;
         }
 
-        console.log('Fetched alumni from directory_profiles_public:', data);
+        logger.log('Fetched alumni from directory_profiles_public:', data);
 
         const city = data.location_city || '';
         const country = data.location_country || '';
@@ -133,7 +136,7 @@ const AlumniProfile = () => {
 
         setAlumnus({ ...transformed, socialLinks: mergedSocialLinks });
       } catch (err) {
-        console.error('An unexpected error occurred:', err);
+        logger.error('An unexpected error occurred:', err);
         setError("This profile isn’t publicly visible.");
       } finally {
         setLoading(false);
@@ -225,7 +228,7 @@ const AlumniProfile = () => {
             {/* Profile Picture */}
             <div className="relative mb-1">
               <Avatar
-                src={alumnus.avatar}
+                src={avatarUrl || alumnus.avatar}
                 alt={`${alumnus.name}'s profile picture`}
                 size={96}
                 version={alumnus.updated_at}

@@ -3,6 +3,7 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../common/NotificationCenter';
 import { Link, useNavigate } from 'react-router-dom';
+import logger from '../../utils/logger';
 import { 
   BellIcon,
   PlusIcon,
@@ -97,8 +98,8 @@ const JobAlerts = () => {
     if (!user) return;
     try {
       setLoading(true);
-      console.log('Fetching job alerts for user ID:', user.id);
-      console.log('Using Supabase URL:', process.env.REACT_APP_SUPABASE_URL);
+      logger.log('Fetching job alerts for user ID:', user.id);
+      logger.log('Using Supabase URL:', process.env.REACT_APP_SUPABASE_URL);
       
       const { data, error } = await supabase
         .from('job_alerts')
@@ -107,18 +108,18 @@ const JobAlerts = () => {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Supabase error details:', error);
+        logger.error('Supabase error details:', error);
         throw error;
       }
       
-      console.log('Fetched alerts:', data ? data.length : 0);
+      logger.log('Fetched alerts:', data ? data.length : 0);
       setAlerts(data || []);
     } catch (error) {
-      console.error('Error fetching job alerts:', error);
+      logger.error('Error fetching job alerts:', error);
       
       // Provide more detailed diagnostic information
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        console.error('Network error details:', { 
+        logger.error('Network error details:', { 
           origin: window.location.origin,
           supabaseUrl: process.env.REACT_APP_SUPABASE_URL,
           hasCredentials: !!supabase.auth.session,
@@ -203,7 +204,7 @@ const JobAlerts = () => {
       const { error } = result;
 
       if (error) {
-        console.error('SUPABASE ERROR:', error);
+        logger.error('SUPABASE ERROR:', error);
         // --- Specific Error Handling for Duplicate Name ---
         if (error.code === '23505') { // '23505' is the PostgreSQL code for unique_violation
           showError('An alert with this name already exists. Please choose a different name.');
@@ -220,7 +221,7 @@ const JobAlerts = () => {
 
     } catch (error) {
       // This catch block is for unexpected client-side errors
-      console.error('Error submitting job alert:', error);
+      logger.error('Error submitting job alert:', error);
       showError('An unexpected error occurred. Please try again.');
     }
 
@@ -257,20 +258,20 @@ const JobAlerts = () => {
       fetchAlerts(); // Refresh the list
     } catch (error) {
       showError(`Error deleting alert: ${error.message}`);
-      console.error('Error deleting job alert:', error);
+      logger.error('Error deleting job alert:', error);
     }
   };
 
   const toggleAlert = async (alert) => {
     // Validate the alert has an ID before proceeding
     if (!alert || !alert.id) {
-      console.error('Cannot toggle alert: Missing alert ID', alert);
+      logger.error('Cannot toggle alert: Missing alert ID', alert);
       showError('Could not update this alert: Missing identifier');
       return;
     }
 
     try {
-      console.log('Toggling alert with ID:', alert.id, 'Current active state:', alert.is_active);
+      logger.log('Toggling alert with ID:', alert.id, 'Current active state:', alert.is_active);
       
       const { error } = await supabase
         .from('job_alerts')
@@ -283,7 +284,7 @@ const JobAlerts = () => {
       fetchAlerts(); // Refresh the list
     } catch (error) {
       showError(`Error updating alert status: ${error.message}`);
-      console.error('Error toggling alert:', error);
+      logger.error('Error toggling alert:', error);
     }
   };
 

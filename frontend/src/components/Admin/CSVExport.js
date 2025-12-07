@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../../utils/supabase';
+import logger from '../../utils/logger';
 import { 
   Box, 
   Button, 
@@ -226,10 +227,10 @@ const CSVExport = () => {
           action_type: 'export'
         }]);
       
-      if (recordError) console.error('Error logging export action:', recordError);
+      if (recordError) logger.error('Error logging export action:', recordError);
       
     } catch (err) {
-      console.error('Error exporting data:', err);
+      logger.error('Error exporting data:', err);
       setError(`Failed to export data: ${err.message}`);
     } finally {
       setLoading(prev => ({ ...prev, [tableName]: false }));

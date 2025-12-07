@@ -72,7 +72,7 @@ const SessionScheduler = ({ mentorshipRequestId, onSuccess }) => {
         setIsMentor(true);
       }
     } catch (error) {
-      console.error('Error fetching mentorship request:', error);
+      logger.error('Error fetching mentorship request:', error);
       toast.error('Failed to load mentorship request details');
     }
   };
@@ -134,7 +134,7 @@ const SessionScheduler = ({ mentorshipRequestId, onSuccess }) => {
         notes: ''
       });
     } catch (error) {
-      console.error('Error scheduling session:', error);
+      logger.error('Error scheduling session:', error);
       toast.error('Failed to schedule session');
     } finally {
       setLoading(false);

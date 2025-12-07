@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { EyeIcon, EyeSlashIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
@@ -45,7 +46,7 @@ const Login = () => {
       }
 
       if (data.user) {
-        console.log('Login successful, forcing redirect to dashboard...');
+        logger.log('Login successful, forcing redirect to dashboard...');
         // Force direct navigation to dashboard without waiting for AuthContext
         setIsLoading(true); // Keep loading state while we redirect
         
@@ -57,7 +58,7 @@ const Login = () => {
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.');
-      console.error('Login error:', err);
+      logger.error('Login error:', err);
     } finally {
       if (!requiresTwoFactor) { // Don't disable loading if we're redirecting
         setIsLoading(false);
@@ -75,11 +76,11 @@ const Login = () => {
         setIsLoading(false);
         return;
       }
-      console.log('Google login successful, redirecting to dashboard...');
+      logger.log('Google login successful, redirecting to dashboard...');
       // Redirect will happen via the OAuth flow and return URL
     } catch (err) {
       setError('Failed to sign in with Google');
-      console.error('Google login error:', err);
+      logger.error('Google login error:', err);
       setIsLoading(false);
     }
   };
@@ -94,11 +95,11 @@ const Login = () => {
         setIsLoading(false);
         return;
       }
-      console.log('LinkedIn login successful, redirecting to dashboard...');
+      logger.log('LinkedIn login successful, redirecting to dashboard...');
       // Redirect will happen via the OAuth flow and return URL
     } catch (err) {
       setError('Failed to sign in with LinkedIn');
-      console.error('LinkedIn login error:', err);
+      logger.error('LinkedIn login error:', err);
       setIsLoading(false);
     }
   };

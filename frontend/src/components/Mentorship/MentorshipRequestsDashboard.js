@@ -140,7 +140,7 @@ const MentorshipRequestsDashboard = () => {
         setRequests(hydrated);
       }
     } catch (err) {
-      console.error('Failed to fetch requests:', err);
+      logger.error('Failed to fetch requests:', err);
       setError('Failed to fetch requests');
     } finally {
       setLoading(false);
@@ -162,7 +162,7 @@ const MentorshipRequestsDashboard = () => {
       setSuccess(`Request ${status}`);
       fetchRequests();
     } catch (err) {
-      console.error('Error updating request:', err);
+      logger.error('Error updating request:', err);
       const mapped = mapMentorshipError(err);
       setError(mapped.message || 'Failed to update request');
     } finally {

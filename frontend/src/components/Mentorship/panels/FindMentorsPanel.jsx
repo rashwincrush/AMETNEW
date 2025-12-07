@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../../utils/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOpenMentorshipChat } from '../../../hooks/useOpenMentorshipChat';
+import logger from '../../../utils/logger';
 import { useMentorshipSummary } from '../../../hooks/useMentorshipSummary';
 import { createMentorshipRequest } from '../../../api/mentorshipApi';
 import { mapMentorshipError } from '../../../utils/mentorshipErrorMap';
@@ -69,7 +70,7 @@ export default function FindMentorsPanel() {
 
       setMentors(filtered);
     } catch (error) {
-      console.error('Error fetching mentors:', error);
+      logger.error('Error fetching mentors:', error);
       toast.error('Failed to load mentors');
     } finally {
       setLoading(false);

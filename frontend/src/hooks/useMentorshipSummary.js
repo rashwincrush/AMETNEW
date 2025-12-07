@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../utils/supabase';
+import logger from '../utils/logger';
 import { useAuth } from '../contexts/AuthContext';
 
 /**
@@ -59,7 +60,7 @@ export function useMentorshipSummary() {
         setMentorRow(mentorRes.data || null);
       } catch (err) {
         if (!isCancelled) {
-          console.error('Error loading mentorship summary:', err);
+          logger.error('Error loading mentorship summary:', err);
           setError(err);
         }
       } finally {

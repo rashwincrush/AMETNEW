@@ -42,7 +42,7 @@ const Dashboard = () => {
       setStats(statsResult.value.data);
       setRecentActivity(statsResult.value.data?.recentActivity || []);
     } else {
-      console.error('Error fetching dashboard stats:', statsResult.value?.error || statsResult.reason);
+      logger.error('Error fetching dashboard stats:', statsResult.value?.error || statsResult.reason);
       toast.error('Failed to load dashboard stats.');
       setStats(null); // Clear old data on failure
       setRecentActivity([]);
@@ -51,7 +51,7 @@ const Dashboard = () => {
     if (analyticsResult.status === 'fulfilled' && !analyticsResult.value.error) {
       setAnalytics(analyticsResult.value.data);
     } else {
-      console.error('Error fetching user analytics:', analyticsResult.value?.error || analyticsResult.reason);
+      logger.error('Error fetching user analytics:', analyticsResult.value?.error || analyticsResult.reason);
       toast.error('Failed to load user analytics.');
       setAnalytics(null);
     }
@@ -59,7 +59,7 @@ const Dashboard = () => {
     if (pendingResult.status === 'fulfilled' && !pendingResult.value.error) {
       setPendingContent(pendingResult.value.data || []);
     } else {
-      console.error('Error fetching pending content:', pendingResult.value?.error || pendingResult.reason);
+      logger.error('Error fetching pending content:', pendingResult.value?.error || pendingResult.reason);
       toast.error('Failed to load pending content.');
       setPendingContent([]);
     }
@@ -81,7 +81,7 @@ const Dashboard = () => {
       fetchAllDashboardData();
       
     } catch (error) {
-      console.error('Error moderating content:', error);
+      logger.error('Error moderating content:', error);
       toast.error(`Failed to ${action} ${contentType}`);
     }
   };

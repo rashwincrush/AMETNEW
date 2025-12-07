@@ -3,6 +3,7 @@ import { TextPill } from './Chips';
 import { idempotentConnect, cancelPending, acceptPending, declinePending, removeConnection } from '../../utils/connections';
 import { MessageButton, RemoveButton, primaryButtonClasses } from './Buttons';
 import { Loader2 } from 'lucide-react';
+import logger from '../../utils/logger';
 import { useAuth } from '../../contexts/AuthContext';
 
 // scope: 'directory' | 'profile'
@@ -25,7 +26,7 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
       onChanged?.(); 
     } catch (err) {
       setError(err.message || 'Action failed');
-      console.error('Connection action error:', err);
+      logger.error('Connection action error:', err);
     } finally { 
       setBusy(false); 
     }
@@ -47,7 +48,7 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
         setOverrideRel({ status: 'pending', pending_side: 'sent' });
       } else {
         setError('Connection request failed');
-        console.error('Connect error:', e);
+        logger.error('Connect error:', e);
       }
     } finally {
       setBusy(false);

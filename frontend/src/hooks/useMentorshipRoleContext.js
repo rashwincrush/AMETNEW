@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import logger from '../utils/logger';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../utils/supabase';
 
@@ -36,7 +37,7 @@ export function useMentorshipRoleContext() {
         .maybeSingle();
       
       if (error) {
-        console.error('Error fetching mentor profile:', error);
+        logger.error('Error fetching mentor profile:', error);
         return null;
       }
       

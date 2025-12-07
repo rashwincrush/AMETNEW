@@ -18,6 +18,7 @@
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
+import logger from '../../utils/logger';
 import { toast } from 'react-hot-toast';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -116,7 +117,7 @@ const Mentorship = () => {
       })));
       setMentorshipRequests(hydrated);
     } catch (e) {
-      console.error('Failed to load your mentorship requests', e);
+      logger.error('Failed to load your mentorship requests', e);
       toast.error('Failed to load your mentorship requests');
     }
   };
@@ -146,7 +147,7 @@ const Mentorship = () => {
 
   // Initial mount: fetch mentors and current user's mentor status once
   useEffect(() => {
-    console.log('Mentorship component mounted, user:', user);
+    logger.log('Mentorship component mounted');
     if (!hasFetched.current) {
       fetchApprovedMentors();
       checkCurrentUserMentor();
@@ -196,7 +197,7 @@ const Mentorship = () => {
         .single();
         
       if (error && error.code !== 'PGRST116') { // PGRST116 is not found error
-        console.error('Error checking mentor status:', error);
+        logger.error('Error checking mentor status:', error);
         return;
       }
       
@@ -204,7 +205,7 @@ const Mentorship = () => {
       setIsMentorApproved(data?.status === 'approved');
       setIsMentorPending(data?.status === 'pending');
     } catch (err) {
-      console.error('Error checking if user is mentor:', err);
+      logger.error('Error checking if user is mentor:', err);
     }
   };
   
@@ -214,7 +215,7 @@ const Mentorship = () => {
       setLoading(true);
       setError(null);
       
-      console.log('Fetching approved mentors from Supabase...');
+      logger.log('Fetching approved mentors from Supabase...');
       
       // Prefer RPC wrapper around v_mentors_public for future personalization/pagination
       const { data: mentorsRows, error: mentorsError } = await supabase.rpc('get_mentors_for_current_mentee', {
@@ -222,13 +223,13 @@ const Mentorship = () => {
         p_offset: 0,
       });
       
-      console.log('Supabase query result:', mentorsRows, mentorsError);
+      logger.log('Supabase query result received');
       
       if (mentorsError) {
         throw mentorsError;
       }
       
-      console.log('Fetched mentors:', mentorsRows);
+      logger.log('Fetched mentors count:', mentorsRows?.length || 0);
 
       // Transform data to match rendering needs
       let baseMentors = mentorsRows || [];
@@ -271,11 +272,11 @@ const Mentorship = () => {
         };
       });
       
-      console.log('Transformed mentors:', transformedMentors);
+      logger.log('Transformed mentors count:', transformedMentors?.length || 0);
       // Show all approved mentors. Request button will be disabled if unavailable.
       setMentors(transformedMentors);
     } catch (err) {
-      console.error('Error fetching mentors:', err);
+      logger.error('Error fetching mentors:', err);
       setError(err.message || 'Failed to load mentors');
       toast.error('Failed to load mentors');
     } finally {
@@ -699,7 +700,7 @@ const Mentorship = () => {
                                     const threadId = await ensureDmThreadWith(otherUserId);
                                     navigate(`/messages?threadId=${encodeURIComponent(threadId)}&source=mentorship&requestId=${encodeURIComponent(r.id)}`);
                                   } catch (e) {
-                                    console.error(e);
+                                    logger.error('Chat open error:', e);
                                     toast.error('Could not open chat. Please try again.');
                                   }
                                 }}

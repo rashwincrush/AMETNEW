@@ -97,7 +97,7 @@ const ContentApproval = () => {
       
       if (fetchJobsError) {
         setJobsError(getFriendlyErrorMessage(fetchJobsError, 'Unable to load jobs'));
-        console.error('Error fetching jobs:', fetchJobsError);
+        logger.error('Error fetching jobs:', fetchJobsError);
       } else {
         const normalizedJobs = (jobs || []).map(item => ({ 
           ...item, 
@@ -109,7 +109,7 @@ const ContentApproval = () => {
       }
     } catch (err) {
       setJobsError(getFriendlyErrorMessage(err, 'Unable to load jobs'));
-      console.error('Error in jobs fetch:', err);
+      logger.error('Error in jobs fetch:', err);
     } finally {
       setJobsLoading(false);
     }
@@ -132,7 +132,7 @@ const ContentApproval = () => {
       
       if (fetchEventsError) {
         setEventsError(getFriendlyErrorMessage(fetchEventsError, 'Unable to load events'));
-        console.error('Error fetching events:', fetchEventsError);
+        logger.error('Error fetching events:', fetchEventsError);
       } else {
         const normalizedEvents = (events || []).map(item => ({ 
           ...item, 
@@ -144,7 +144,7 @@ const ContentApproval = () => {
       }
     } catch (err) {
       setEventsError(getFriendlyErrorMessage(err, 'Unable to load events'));
-      console.error('Error in events fetch:', err);
+      logger.error('Error in events fetch:', err);
     } finally {
       setEventsLoading(false);
     }
@@ -169,7 +169,7 @@ const ContentApproval = () => {
       
       if (fetchGroupsError) {
         setGroupsError(getFriendlyErrorMessage(fetchGroupsError, 'Unable to load groups'));
-        console.error('Error fetching groups:', fetchGroupsError);
+        logger.error('Error fetching groups:', fetchGroupsError);
       } else {
         const normalizedGroups = (groups || []).map(item => ({ 
           ...item, 
@@ -181,7 +181,7 @@ const ContentApproval = () => {
       }
     } catch (err) {
       setGroupsError(getFriendlyErrorMessage(err, 'Unable to load groups'));
-      console.error('Error in groups fetch:', err);
+      logger.error('Error in groups fetch:', err);
     } finally {
       setGroupsLoading(false);
     }
@@ -202,7 +202,7 @@ const ContentApproval = () => {
       
       if (fetchOtherContentError) {
         setOtherContentError(getFriendlyErrorMessage(fetchOtherContentError, 'Unable to load content'));
-        console.error('Error fetching other content:', fetchOtherContentError);
+        logger.error('Error fetching other content:', fetchOtherContentError);
       } else {
         const normalizedOther = (otherContent || []).map(item => ({ 
           ...item, 
@@ -213,7 +213,7 @@ const ContentApproval = () => {
       }
     } catch (err) {
       setOtherContentError(getFriendlyErrorMessage(err, 'Unable to load content'));
-      console.error('Error in other content fetch:', err);
+      logger.error('Error in other content fetch:', err);
     } finally {
       setOtherContentLoading(false);
     }
@@ -380,7 +380,7 @@ const ContentApproval = () => {
       // Refetch lists to stay fresh
       fetchPendingContent();
     } catch (err) {
-      console.error(`Error approving ${content_type}:`, err);
+      logger.error(`Error approving ${content_type}:`, err);
       toFriendlyToast(toast, err, `Failed to approve ${content_type}. Please try again.`);
     }
   };
@@ -471,7 +471,7 @@ const ContentApproval = () => {
       // Refetch lists to stay fresh
       fetchPendingContent();
     } catch (err) {
-      console.error(`Error rejecting ${content_type}:`, err);
+      logger.error(`Error rejecting ${content_type}:`, err);
       toFriendlyToast(toast, err, `Failed to reject ${content_type}. Please try again.`);
     }
   };

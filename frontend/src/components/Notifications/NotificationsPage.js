@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import Avatar from '../common/Avatar';
 import { useAvatars } from '../../hooks/useAvatar';
+import logger from '../../utils/logger';
 
 const NotificationsPage = ({ currentUser }) => {
   const [notifications, setNotifications] = useState([]);
@@ -51,7 +52,7 @@ const NotificationsPage = ({ currentUser }) => {
         setNotifications(data || []);
       }
     } catch (err) {
-      console.error('Error fetching notifications:', err);
+      logger.error('Error fetching notifications:', err);
       toast.error('Failed to load notifications');
     } finally {
       if (isMountedRef.current) {
@@ -88,7 +89,7 @@ const NotificationsPage = ({ currentUser }) => {
       }
 
     } catch (error) {
-      console.error('Error fetching connection requests:', error);
+      logger.error('Error fetching connection requests:', error);
       toast.error('Failed to load connection requests.');
     } finally {
       if (isMountedRef.current) {
@@ -99,13 +100,13 @@ const NotificationsPage = ({ currentUser }) => {
 
   const handleNotificationsUpdate = useCallback((payload) => {
     if (!isMountedRef.current) return;
-    console.log('Realtime notification update:', payload);
+    logger.log('Realtime notification update:', payload);
     fetchNotifications();
   }, [fetchNotifications]);
 
   const handleConnectionsUpdate = useCallback((payload) => {
     if (!isMountedRef.current) return;
-    console.log('Realtime connection update:', payload);
+    logger.log('Realtime connection update:', payload);
     fetchConnectionRequests();
   }, [fetchConnectionRequests]);
 
@@ -126,7 +127,7 @@ const NotificationsPage = ({ currentUser }) => {
         subscribeOnce('connections_realtime', { event: '*', schema: 'public', table: 'connections' }, handleConnectionsUpdate);
         
       } catch (error) {
-        console.error('Error setting up realtime subscriptions:', error);
+        logger.error('Error setting up realtime subscriptions:', error);
         toast.error('Could not connect to real-time updates.');
       }
     };
@@ -144,10 +145,9 @@ const NotificationsPage = ({ currentUser }) => {
 
   const markAsRead = async (notificationId) => {
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('id', notificationId);
+      const { error } = await supabase.rpc('mark_notification_read', {
+        p_notification_id: notificationId
+      });
 
       if (error) throw error;
       
@@ -156,7 +156,7 @@ const NotificationsPage = ({ currentUser }) => {
         prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
       );
     } catch (err) {
-      console.error('Error marking notification as read:', err);
+      logger.error('Error marking notification as read:', err);
       toast.error('Failed to mark notification as read');
     }
   };
@@ -165,11 +165,7 @@ const NotificationsPage = ({ currentUser }) => {
     if (!currentUser || notifications.length === 0) return;
 
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('profile_id', currentUser.id)
-        .eq('is_read', false);
+      const { error } = await supabase.rpc('mark_all_notifications_read');
 
       if (error) throw error;
       
@@ -178,7 +174,7 @@ const NotificationsPage = ({ currentUser }) => {
       toast.success('All notifications marked as read');
       fetchNotifications();
     } catch (err) {
-      console.error('Error marking all notifications as read:', err);
+      logger.error('Error marking all notifications as read:', err);
       toast.error('Failed to mark notifications as read');
     }
   };
@@ -196,7 +192,7 @@ const NotificationsPage = ({ currentUser }) => {
       // Refresh connection requests
       fetchConnectionRequests();
     } catch (error) {
-      console.error('Error responding to request:', error);
+      logger.error('Error responding to request:', error);
       toast.error('Failed to update connection.');
     }
   };
@@ -216,7 +212,7 @@ const NotificationsPage = ({ currentUser }) => {
       // Refresh connection requests
       fetchConnectionRequests();
     } catch (error) {
-      console.error('Error cancelling request:', error);
+      logger.error('Error cancelling request:', error);
       toast.error('Failed to cancel request.');
     }
   };

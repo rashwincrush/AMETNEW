@@ -16,6 +16,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
 import { downloadCSV } from '../../utils/csv';
+import logger from '../../utils/logger';
 
 const Analytics = () => {
   const [selectedPeriod, setSelectedPeriod] = useState('30d');
@@ -117,7 +118,7 @@ const Analytics = () => {
         const { data, error } = await supabase.rpc('get_alumni_approved_count');
         if (!mounted) return;
         if (error) {
-          console.error('Error fetching alumni count:', error);
+          logger.error('Error fetching alumni count:', error);
           setAlumniCount(null);
           return;
         }
@@ -125,7 +126,7 @@ const Analytics = () => {
         setAlumniCount(count);
       } catch (e) {
         if (!mounted) return;
-        console.error('Alumni count RPC error:', e);
+        logger.error('Alumni count RPC error:', e);
         setAlumniCount(null);
       } finally {
         if (mounted) {
@@ -168,7 +169,7 @@ const Analytics = () => {
         }));
       } catch (e) {
         // Keep defaults if an error occurs
-        console.error('Error fetching KPIs:', e);
+        logger.error('Error fetching KPIs:', e);
       }
     };
     fetchKpis();
@@ -186,7 +187,7 @@ const Analytics = () => {
         setOverviewRpc(ov || null);
         setRecentRpc(recent || []);
       } catch (e) {
-        console.error('RPC analytics fetch error:', e);
+        logger.error('RPC analytics fetch error:', e);
       }
     })();
     return () => { mounted = false; };

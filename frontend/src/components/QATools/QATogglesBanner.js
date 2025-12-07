@@ -71,7 +71,7 @@ const QATogglesBanner = () => {
                   <button 
                     className={`${toggleButtonClass}`}
                     onClick={() => {
-                      console.log("Current Environment:", process.env.NODE_ENV);
+                      logger.log("Current Environment:", process.env.NODE_ENV);
                       addLog(`Environment: ${process.env.NODE_ENV}`);
                     }}
                   >

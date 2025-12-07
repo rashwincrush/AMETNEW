@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
+import logger from '../../utils/logger';
 import Avatar from '../common/Avatar';
 import { useAvatars } from '../../hooks/useAvatar';
 import { adminUpdateProfileApproval, adminListProfilesForApproval } from '../../api/admin';
@@ -66,7 +67,7 @@ const UserManagement = () => {
         p_reason: reason || null,
       });
       if (error) {
-        console.error('Soft delete failed:', error);
+        logger.error('Soft delete failed:', error);
         toast.error(`Delete failed: ${getFriendlyErrorMessage(error, 'Unable to delete user.')}`);
         return { success: false, error };
       }
@@ -75,7 +76,7 @@ const UserManagement = () => {
       await fetchUsers(); // refresh the users list
       return { success: true };
     } catch (err) {
-      console.error('Error in soft delete:', err);
+      logger.error('Error in soft delete:', err);
       toast.error(`Delete failed: ${getFriendlyErrorMessage(err, 'Unable to delete user.')}`);
       return { success: false, error: err };
     } finally {
@@ -102,7 +103,7 @@ const UserManagement = () => {
         body: { userId },
       });
       if (error) {
-        console.error('Auth delete failed:', error);
+        logger.error('Auth delete failed:', error);
         toast.error(`Auth delete failed: ${getFriendlyErrorMessage(error, 'Unable to delete auth user.')}`);
         return { success: false, error };
       }
@@ -114,7 +115,7 @@ const UserManagement = () => {
       await fetchUsers();
       return { success: true };
     } catch (err) {
-      console.error('Error invoking admin-delete-user:', err);
+      logger.error('Error invoking admin-delete-user:', err);
       toast.error(`Auth delete failed: ${getFriendlyErrorMessage(err, 'Unable to delete auth user.')}`);
       return { success: false, error: err };
     } finally {
@@ -132,7 +133,7 @@ const UserManagement = () => {
     try {
       const { data, error } = await supabase.rpc('admin_purge_user_data', { target: userId });
       if (error) {
-        console.error('Purge failed:', error);
+        logger.error('Purge failed:', error);
         toast.error(`Purge failed: ${getFriendlyErrorMessage(error, 'Unable to purge user data.')}`);
         return { success: false, error };
       }
@@ -141,7 +142,7 @@ const UserManagement = () => {
       await fetchUsers(); // refresh the users list
       return { success: true };
     } catch (err) {
-      console.error('Error in purge:', err);
+      logger.error('Error in purge:', err);
       toast.error(`Purge failed: ${getFriendlyErrorMessage(err, 'Unable to purge user data.')}`);
       return { success: false, error: err };
     } finally {
@@ -152,7 +153,7 @@ const UserManagement = () => {
   
   // Legacy function - keep for compatibility but convert to soft delete
   const callAdminDeleteUser = async (userId) => {
-    console.log(`Converting deletion to soft delete for user ${userId}`);
+    logger.log(`Converting deletion to soft delete for user ${userId}`);
     return softDeleteUser(userId);
   };
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -227,7 +228,7 @@ const UserManagement = () => {
       const data = Array.isArray(rows) ? rows : [];
       setUsers(data);
     } catch (error) {
-      console.error('Error fetching users:', error);
+      logger.error('Error fetching users:', error);
       toast.error('Could not fetch users.');
       setUsers([]);
     } finally {
@@ -370,7 +371,7 @@ const UserManagement = () => {
           await fetchUsers();
           toast.success(`${user.full_name || user.email} has been approved.`);
         } catch (error) {
-          console.error('Error approving user:', error);
+          logger.error('Error approving user:', error);
           toast.error(`Failed to approve user: ${getFriendlyErrorMessage(error, 'Unable to approve user.')}`);
         }
         break;
@@ -387,7 +388,7 @@ const UserManagement = () => {
             // Don't filter out the user - instead update the UI to show deleted status
             setUsers(prev => prev.map(u => u.id === userId ? {...u, is_deleted: true} : u));
           } catch (err) {
-            console.error('Error soft-deleting user:', err);
+            logger.error('Error soft-deleting user:', err);
             toast.error(`Failed to delete user: ${getFriendlyErrorMessage(err, 'Unable to delete user.')}`);
           }
         }
@@ -405,7 +406,7 @@ const UserManagement = () => {
             // After purging, keep the user in the list but mark data as purged
             setUsers(prev => prev.map(u => u.id === userId ? {...u, is_data_purged: true} : u));
           } catch (err) {
-            console.error('Error purging user data:', err);
+            logger.error('Error purging user data:', err);
             toast.error(`Failed to purge user data: ${getFriendlyErrorMessage(err, 'Unable to purge user data.')}`);
           }
         }
@@ -419,7 +420,7 @@ const UserManagement = () => {
         try {
           await deleteAuthUser(userId);
         } catch (err) {
-          console.error('Error deleting auth user:', err);
+          logger.error('Error deleting auth user:', err);
           toast.error(`Failed to delete auth user: ${getFriendlyErrorMessage(err, 'Unable to delete auth user.')}`);
         }
         break;
@@ -460,7 +461,7 @@ const UserManagement = () => {
       await fetchUsers();
       toast.success(currentlyActive ? 'User has been blocked.' : 'User has been unblocked.');
     } catch (err) {
-      console.error('Error toggling user active state:', err);
+      logger.error('Error toggling user active state:', err);
       toast.error(getFriendlyErrorMessage(err, 'Unable to change user active status.'));
     } finally {
       setLoading(false);
@@ -480,7 +481,7 @@ const UserManagement = () => {
     if (!success) {
       // changeUserRole already surfaced a toast; just log for debugging
       if (error) {
-        console.error('Failed to change user role:', error);
+        logger.error('Failed to change user role:', error);
       }
       return;
     }
@@ -571,7 +572,7 @@ const UserManagement = () => {
           localStorage.setItem('rejectionComments', JSON.stringify(rejectionComments));
         }
       } catch (e) {
-        console.log('Error cleaning localStorage:', e);
+        logger.log('Error cleaning localStorage:', e);
       }
       
       toast.success('User has been rejected');

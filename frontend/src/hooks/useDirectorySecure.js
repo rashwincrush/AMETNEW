@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../utils/supabase';
+import logger from '../utils/logger';
 
 // Hook for loading directory profiles via the secure backend RPC.
 // This is the only legal data source for directory listings going forward.
@@ -52,7 +53,7 @@ export default function useDirectorySecure({ search = '', page = 1, pageSize = 2
         // Fallback: call legacy 3-arg RPC if sort-aware version is not available.
         // This keeps the directory functional even if the DB migration is not yet applied.
         // eslint-disable-next-line no-console
-        console.error('get_directory_profiles_secure with sort params failed, falling back to legacy signature', primaryErr);
+        logger.error('get_directory_profiles_secure with sort params failed, falling back to legacy signature', primaryErr);
         const { data, error } = await supabase.rpc('get_directory_profiles_secure', {
           p_search,
           p_limit,
@@ -69,7 +70,7 @@ export default function useDirectorySecure({ search = '', page = 1, pageSize = 2
       setData(arr);
       setTotalCount(hasTotal ? arr[0].total_count : 0);
     } catch (e) {
-      console.error('get_directory_profiles_secure failed', e);
+      logger.error('get_directory_profiles_secure failed', e);
       setError(e);
       setData([]);
       setTotalCount(0);

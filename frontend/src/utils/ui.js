@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * UI Utility Functions
  * Helpers for avatar rendering, cache-busting, cooldowns, etc.
@@ -73,7 +74,7 @@ export function getDisconnectCooldown(peerId) {
     
     return cooldownEnd;
   } catch (e) {
-    console.warn('Error reading disconnect cooldown:', e);
+    logger.warn('Error reading disconnect cooldown:', e);
     return null;
   }
 }
@@ -90,7 +91,7 @@ export function setDisconnectCooldown(peerId) {
     const cooldownEnd = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
     localStorage.setItem(key, String(cooldownEnd));
   } catch (e) {
-    console.warn('Error setting disconnect cooldown:', e);
+    logger.warn('Error setting disconnect cooldown:', e);
   }
 }
 
@@ -105,7 +106,7 @@ export function clearDisconnectCooldown(peerId) {
     const key = `disconnect_cooldown_${peerId}`;
     localStorage.removeItem(key);
   } catch (e) {
-    console.warn('Error clearing disconnect cooldown:', e);
+    logger.warn('Error clearing disconnect cooldown:', e);
   }
 }
 

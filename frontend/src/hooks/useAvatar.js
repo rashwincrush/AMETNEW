@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import AvatarService from '../services/avatar';
+import logger from '../utils/logger';
 
 /**
  * React hook for a single user's avatar.
@@ -24,7 +25,7 @@ export const useAvatar = (userId, options = {}) => {
         return url || null;
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.error('[useAvatar] fetchAvatar error', err);
+        logger.error('[useAvatar] fetchAvatar error', err);
         throw err;
       }
     },
@@ -63,7 +64,7 @@ export const useAvatars = (userIds, options = {}) => {
         return map || {};
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.error('[useAvatars] fetchAvatars error', err);
+        logger.error('[useAvatars] fetchAvatars error', err);
         throw err;
       }
     },

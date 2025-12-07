@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import logger from '../../utils/logger';
 
 const BecomeMentorForm = () => {
   const navigate = useNavigate();
@@ -66,7 +67,7 @@ const BecomeMentorForm = () => {
         .single();
 
       if (error && error.code !== 'PGRST116') { // PGRST116 is not found error
-        console.error('Error checking mentor status:', error);
+        logger.error('Error checking mentor status:', error);
         toast.error('Error checking your mentor status');
         return;
       }
@@ -82,10 +83,10 @@ const BecomeMentorForm = () => {
           availability: data.availability || [],
           preferences: data.preferences || [],
         });
-        console.log('Existing mentor data loaded:', data);
+        logger.log('Existing mentor data loaded:', data);
       }
     } catch (err) {
-      console.error('Error checking mentor status:', err);
+      logger.error('Error checking mentor status:', err);
     }
   };
 
@@ -189,7 +190,7 @@ const BecomeMentorForm = () => {
       });
 
       if (error) {
-        console.error('Error saving mentor profile via RPC:', error);
+        logger.error('Error saving mentor profile via RPC:', error);
         toast.error(`Error: ${error.message}`, { id: toastId });
         return;
       }
@@ -204,7 +205,7 @@ const BecomeMentorForm = () => {
       // Navigate after a short delay to allow the user to see the success message
       setTimeout(() => navigate('/mentorship'), 1500);
     } catch (error) {
-      console.error('Error in mentor profile submission:', error);
+      logger.error('Error in mentor profile submission:', error);
       toast.error(`An unexpected error occurred: ${error.message}`, { id: toastId });
     } finally {
       setLoading(false);

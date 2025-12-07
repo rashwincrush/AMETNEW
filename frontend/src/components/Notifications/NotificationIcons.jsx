@@ -25,6 +25,14 @@ export const iconForType = (type, metadata) => {
     case 'mentorship':
       return AcademicCapIcon;
     case 'group':
+    case 'group_join_request':
+    case 'group_membership_approved':
+    case 'group_membership_rejected':
+    case 'group_approved':
+    case 'group_rejected':
+    case 'group_admin_risk':
+    case 'group_invite':
+    case 'group_invite_accepted':
       return UsersIcon;
     case 'alert':
       return ExclamationTriangleIcon;

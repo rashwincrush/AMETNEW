@@ -154,7 +154,7 @@ const Events = () => {
           }
         }
       } catch (error) {
-        console.error('Error fetching data:', error);
+        logger.error('Error fetching data:', error);
         toFriendlyToast(toast, error, 'Failed to fetch events. Please try again.');
       } finally {
         setLoading(false);
@@ -235,7 +235,7 @@ const Events = () => {
         toast.success('Successfully RSVP\'d to the event!');
       }
     } catch (error) {
-      console.error('Error updating RSVP:', error);
+      logger.error('Error updating RSVP:', error);
       toFriendlyToast(toast, error, 'Failed to update RSVP. Please try again.');
     }
   };

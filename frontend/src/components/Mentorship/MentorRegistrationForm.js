@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { getMyMentorProfile, upsertMentor } from '../../services/mentors';
+import logger from '../../utils/logger';
 import { useNotification } from '../common/NotificationCenter';
 import {
   XMarkIcon,
@@ -90,7 +91,7 @@ const MentorRegistrationForm = () => {
           }
         }
       } catch (error) {
-        console.error('Error in fetchUserAndProfile:', error);
+        logger.error('Error in fetchUserAndProfile:', error);
         notification.showError(`Failed to initialize form: ${error.message}`);
       } finally {
         setLoading(false);

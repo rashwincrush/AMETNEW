@@ -1,3 +1,4 @@
+import logger from './logger';
 // Helper functions for sharing content
 
 /**
@@ -18,6 +19,6 @@ export async function shareJob(job) {
       // toast.success('URL copied to clipboard!');
     }
   } catch (e) { 
-    console.error('Error sharing job:', e); 
+    logger.error('Error sharing job:', e); 
   }
 }

@@ -3,6 +3,7 @@ import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { getAccountStatus } from '../../utils/accountStatus';
 import { toast } from 'react-hot-toast';
+import logger from '../../utils/logger';
 import { Link, useNavigate } from 'react-router-dom';
 import { Container, Typography, Paper, Box, Button, Chip, Tabs, Tab, CircularProgress } from '@mui/material';
 import {
@@ -198,7 +199,7 @@ const MentorshipStatus = () => {
                   const threadId = await ensureDmThreadWith(otherId);
                   navigate(`/messages?threadId=${encodeURIComponent(threadId)}&source=mentorship&requestId=${encodeURIComponent(request.id)}`);
                 } catch (e) {
-                  console.error(e);
+                  logger.error(e);
                   toast.error('Could not open chat. Please try again.');
                 }
               }}

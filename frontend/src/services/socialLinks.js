@@ -1,4 +1,5 @@
 import { supabase } from '../utils/supabase';
+import logger from '../utils/logger';
 
 // Supported providers must mirror the DB enum/check in public.social_links
 const PROVIDERS = ['linkedin', 'github', 'x', 'website', 'instagram', 'facebook'];
@@ -12,7 +13,7 @@ export async function loadProfileSocialLinks(profileId) {
       .single();
 
     if (!error && data && data.social_links && typeof data.social_links === 'object') {
-      console.info('socialLinks load (view) social_links:', data.social_links);
+      logger.info('socialLinks load (view) social_links:', data.social_links);
       const obj = data.social_links;
       return {
         linkedin: obj.linkedin || null,
@@ -33,7 +34,7 @@ export async function loadProfileSocialLinks(profileId) {
 
     if (error) throw error;
 
-    console.info('socialLinks load (table) rows:', rows);
+    logger.info('socialLinks load (table) rows:', rows);
     const links = {};
     (rows || []).forEach((r) => {
       const type = (r.type || '').toLowerCase();
@@ -45,7 +46,7 @@ export async function loadProfileSocialLinks(profileId) {
     });
     return links;
   } catch (e) {
-    console.warn('Failed to load social links:', e);
+    logger.warn('Failed to load social links:', e);
     return {};
   }
 }
@@ -80,7 +81,7 @@ export async function saveProfileSocialLinks(profileId, links) {
   if (rows.length === 0) return { upserted: 0 };
 
   // Single upsert call; rely on DB UNIQUE(profile_id,type)
-  console.info('socialLinks upsert rows:', rows);
+  logger.info('socialLinks upsert rows:', rows);
   const { error } = await supabase
     .from('social_links')
     .upsert(rows, { onConflict: 'profile_id,type' });

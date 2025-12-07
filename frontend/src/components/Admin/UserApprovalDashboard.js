@@ -41,7 +41,7 @@ const UserApprovalDashboard = () => {
 
       setUsers(formattedData);
     } catch (error) {
-      console.error('Error fetching pending employers:', error);
+      logger.error('Error fetching pending employers:', error);
       setFetchError('Failed to load pending employer approvals');
       toast.error('Failed to load pending approvals');
     } finally {
@@ -73,7 +73,7 @@ const UserApprovalDashboard = () => {
       setShowModal(false);
       setSelectedUser(null);
     } catch (error) {
-      console.error(`Error updating user status:`, error);
+      logger.error(`Error updating user status:`, error);
       toast.error(`Failed to update user status. Please try again.`);
     } finally {
       setLoading(false);

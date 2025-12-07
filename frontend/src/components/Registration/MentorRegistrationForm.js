@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
 import { CircularProgress } from '@mui/material';
@@ -59,7 +60,7 @@ export default function MentorRegistrationForm() {
           });
         }
       } catch (err) {
-        console.error('Error checking mentor status:', err);
+        logger.error('Error checking mentor status:', err);
         setError('Failed to check mentor status. Please try again.');
       } finally {
         setLoading(false);

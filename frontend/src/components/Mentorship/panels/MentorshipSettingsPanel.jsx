@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { supabase } from '../../../utils/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToggleMentorAvailability } from '../../../hooks/useMentorshipMutations';
+import logger from '../../../utils/logger';
 import MentorRegistrationForm from '../MentorRegistrationForm';
 
 /**
@@ -73,7 +74,7 @@ export default function MentorshipSettingsPanel({ mode }) {
       }
       toast.success('Availability updated');
     } catch (err) {
-      console.error('Failed to update availability', err);
+      logger.error('Failed to update availability', err);
       setIsAvailable(previous);
       toast.error('Failed to update availability');
     } finally {

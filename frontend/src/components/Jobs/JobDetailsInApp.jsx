@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApproval } from '../../hooks/useApproval';
 import { hasOverviewData, coalesceAppUrl, computeJobApplyState } from '../../utils/jobs';
+import logger from '../../utils/logger';
 import { getApplicantsCount } from '../../utils/applicants';
 import { requestConnectionForJob } from '../../utils/connections';
 import toast from 'react-hot-toast'; // Assuming you have react-hot-toast installed
@@ -84,7 +85,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-semibold text-gray-900">{job.title}</h1>
               <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                In-App
+                In-app
               </span>
             </div>
             {!!companyName && (
@@ -95,12 +96,12 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
           <div className="flex items-center gap-3">
             {canEdit && (
               <Link to={`/jobs/${job.id}/edit`} className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50">
-                Edit Job
+                Edit job
               </Link>
             )}
             {isEmployerOwner || (['admin', 'super_admin'].includes(userRole)) ? (
               <Link to={`/jobs/${job.id}/applications`} className="px-3 py-2 rounded-lg bg-ocean-600 text-white hover:bg-ocean-700 text-sm">
-                Manage Applications
+                Manage applications
               </Link>
             ) : (
               <>
@@ -108,26 +109,26 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
                   <button
                     onClick={async () => {
                       try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (error) {
-                        console.error('Failed to request connection:', error);
+                        logger.error('Failed to request connection:', error);
                         toast.error('Connection request failed. Please try again.');
                       }
                       navigate(`/messages?peer=${employerId}&job=${job.id}`);
                     }}
                     className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50"
                   >
-                    Connect with Employer
+                    Connect with employer
                   </button>
                 )}
                 {/* In-app apply controls (non-owner viewers only) */}
                 {applied ? (
-                  <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Application Submitted</button>
+                  <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Application submitted</button>
                 ) : !isApproved ? (
                   <button
                     disabled
                     className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed"
                     title="Your account is pending approval"
                   >
-                    Awaiting Approval
+                    Awaiting approval
                   </button>
                 ) : isEmployer ? (
                   <button
@@ -135,12 +136,12 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
                     className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed"
                     aria-disabled="true"
                   >
-                    {isClosed ? 'Applications Closed' : 'Accepting Applications'}
+                    {isClosed ? 'Applications closed' : 'Accepting applications'}
                   </button>
                 ) : canApplyInApp ? (
-                  <button onClick={() => setApplyOpen(true)} className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700">Apply</button>
+                  <button onClick={() => setApplyOpen(true)} className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700">Apply now</button>
                 ) : (
-                  <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Applications Closed</button>
+                  <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Applications closed</button>
                 )}
               </>
             )}
@@ -161,7 +162,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
           {/* Summary/Description */}
           {(job.description || job.summary) && (
             <div className="bg-white rounded-2xl shadow-sm border p-6 job-content">
-              <h2 className="text-lg font-semibold mb-4">Job Description</h2>
+              <h2 className="text-lg font-semibold mb-4">Job description</h2>
               <p className="text-gray-700 whitespace-pre-wrap leading-relaxed text-left">
                 {job.description || job.summary}
               </p>
@@ -207,7 +208,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
 
           {skills.length > 0 && (
             <div className="bg-white rounded-2xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-2">Key Skills</h2>
+              <h2 className="text-lg font-semibold mb-2">Key skills</h2>
               <div className="flex flex-wrap gap-2">
                 {skills.map((skill, index) => (
                   <span key={index} className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm">
@@ -235,7 +236,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
           {/* Qualifications */}
           {requirements.length > 0 && (
             <div className="bg-white rounded-2xl shadow-sm border p-6 job-content job-requirements">
-              <h2 className="text-lg font-semibold mb-4">Qualification</h2>
+              <h2 className="text-lg font-semibold mb-4">Qualifications</h2>
               <ul className="list-disc list-inside space-y-2 text-left">
                 {requirements.map((requirement, index) => (
                   <li key={index} className="text-gray-700 text-base leading-relaxed">
@@ -249,7 +250,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
           {/* Nice-to-have Skills */}
           {niceToHaveSkills.length > 0 && (
             <div className="bg-white rounded-2xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-2">Nice-to-have Skills</h2>
+              <h2 className="text-lg font-semibold mb-2">Nice-to-have skills</h2>
               <div className="flex flex-wrap gap-2">
                 {niceToHaveSkills.map((skill, index) => (
                   <span key={index} className="px-3 py-1 bg-ocean-100 text-ocean-800 rounded-full text-sm">
@@ -263,7 +264,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
           {/* Benefits */}
           {benefits.length > 0 && (
             <div className="bg-white rounded-2xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-2">Benefits & Perks</h2>
+              <h2 className="text-lg font-semibold mb-2">Benefits and perks</h2>
               <ul className="space-y-2">
                 {benefits.map((benefit, index) => (
                   <li key={index} className="flex items-start">
@@ -278,7 +279,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
           {/* About the Company */}
           {(job.about_the_company || job.companyInfo?.description) && (
             <div className="bg-white rounded-2xl shadow-sm border p-6">
-              <h2 className="text-lg font-semibold mb-2">About the Company</h2>
+              <h2 className="text-lg font-semibold mb-2">About the company</h2>
               <p className="text-gray-700 whitespace-pre-wrap">
                 {job.about_the_company || job.companyInfo?.description}
               </p>
@@ -299,14 +300,14 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
         {/* Overview (render only if something to show) */}
         {hasOverviewData(job) && (
           <aside className="bg-white rounded-2xl shadow-sm border p-6">
-            <h3 className="text-base font-semibold mb-3">Job Overview</h3>
+            <h3 className="text-base font-semibold mb-3">Job overview</h3>
             <ul className="text-sm text-gray-700 space-y-2">
               {job?.industry && <li><span className="text-gray-500">Industry:</span> {job.industry}</li>}
               {job?.department && <li><span className="text-gray-500">Department:</span> {job.department}</li>}
               {job?.location && <li><span className="text-gray-500">Location:</span> {job.location}</li>}
-              {job?.job_type && <li><span className="text-gray-500">Job Type:</span> {job.job_type}</li>}
-              {job?.experience_level && <li><span className="text-gray-500">Experience Level:</span> {job.experience_level}</li>}
-              {job?.work_mode && <li><span className="text-gray-500">Work Mode:</span> {job.work_mode}</li>}
+              {job?.job_type && <li><span className="text-gray-500">Job type:</span> {job.job_type}</li>}
+              {job?.experience_level && <li><span className="text-gray-500">Experience level:</span> {job.experience_level}</li>}
+              {job?.work_mode && <li><span className="text-gray-500">Work mode:</span> {job.work_mode}</li>}
               {(job?.salary_display_inr || job?.salary_range || job?.salary_min != null || job?.salary_max != null) && (
                 <li>
                   <span className="text-gray-500">Salary:</span>{' '}

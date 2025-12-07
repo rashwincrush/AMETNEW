@@ -1,3 +1,4 @@
+import logger from './logger';
 // Lightweight client activity logger
 // Inserts into public.user_activity_logs with RLS: user_id must equal auth.uid()
 
@@ -34,7 +35,7 @@ export async function logActivity({ action, meta = {}, route = null }) {
   } catch (e) {
     // Swallow errors to avoid impacting UX
     if (process.env.NODE_ENV === 'development') {
-      console.warn('logActivity failed:', e?.message || e);
+      logger.warn('logActivity failed:', e?.message || e);
     }
   }
 }

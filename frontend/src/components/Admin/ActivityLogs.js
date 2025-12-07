@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../utils/supabase';
+import logger from '../../utils/logger';
 
 const ActivityLogs = () => {
   const [logs, setLogs] = useState([]);
@@ -31,7 +32,7 @@ const ActivityLogs = () => {
       if (error) throw error;
       setLogs(data || []);
     } catch (e) {
-      console.error('Failed to fetch activity logs:', e);
+      logger.error('Failed to fetch activity logs:', e);
       setError(e.message || 'Failed to fetch activity logs');
     } finally {
       setLoading(false);

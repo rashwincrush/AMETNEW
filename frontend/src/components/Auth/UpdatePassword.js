@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
@@ -54,7 +55,7 @@ const UpdatePassword = () => {
         try {
           await supabase.auth.signOut();
         } catch (signOutError) {
-          console.warn('Signout failed, but password was updated successfully:', signOutError);
+          logger.warn('Signout failed, but password was updated successfully:', signOutError);
         }
         // Always redirect to login, even if signout fails
         navigate('/login');

@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import EmployerGuard from '../Auth/EmployerGuard';
 import LoadingScreen from '../common/LoadingScreen';
 import ImageWithFallback from '../common/ImageWithFallback';
+import logger from '../../utils/logger';
 
 const CompanyProfile = () => {
   const { id } = useParams();
@@ -49,7 +50,7 @@ const CompanyProfile = () => {
         setJobs(jobsData);
 
       } catch (err) {
-        console.error('Error fetching company data:', err);
+        logger.error('Error fetching company data:', err);
         setError('Failed to load company profile. Please try again later.');
         toast.error('Could not load company details.');
       } finally {

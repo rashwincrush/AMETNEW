@@ -14,7 +14,7 @@ const PinButton = ({ jobId, isPinned, handlePin }) => {
     if (typeof handlePin === 'function') {
       handlePin(jobId);
     } else {
-      console.error('handlePin is not a function');
+      logger.error('handlePin is not a function');
       toast.error('Unable to pin job. Please try again later.');
     }
   };

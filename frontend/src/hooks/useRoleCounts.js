@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../utils/supabase';
+import logger from '../utils/logger';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function useRoleCounts() {
@@ -22,7 +23,7 @@ export default function useRoleCounts() {
         if (!mounted) return;
         setCounts(data || null);
       } catch (err) {
-        console.error('Failed to fetch role counts:', err);
+        logger.error('Failed to fetch role counts:', err);
         if (mounted) {
           setError(err);
           setCounts(null);

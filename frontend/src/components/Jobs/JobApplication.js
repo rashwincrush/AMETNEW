@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import logger from '../../utils/logger';
 import { computeJobApplyState } from '../../utils/jobs';
 
 const JobApplication = () => {
@@ -42,7 +43,7 @@ const JobApplication = () => {
             setSelectedResumeId(data[0].id);
           }
         } catch (error) {
-          console.error('Error fetching user resumes:', error);
+          logger.error('Error fetching user resumes:', error);
           toast.error('Failed to load your resumes');
         }
       };
@@ -72,7 +73,7 @@ const JobApplication = () => {
           .single();
 
         if (jobError) {
-          console.error('Error fetching job:', jobError);
+          logger.error('Error fetching job:', jobError);
           toast.error('Error loading job details');
           navigate('/jobs');
           return;
@@ -113,7 +114,7 @@ const JobApplication = () => {
         
         setIsLoading(false);
       } catch (error) {
-        console.error('Error in data fetching:', error);
+        logger.error('Error in data fetching:', error);
         toast.error('An unexpected error occurred');
       } finally {
         setIsLoading(false);
@@ -182,7 +183,7 @@ const JobApplication = () => {
           const timestamp = new Date().getTime();
           const filePath = `${session.user.id}/${timestamp}-${Math.random().toString(36).substring(2)}.${fileExt}`;
           
-          console.log('Uploading resume file:', resumeFile.name);
+          logger.log('Uploading resume file:', resumeFile.name);
           
           // Upload the file with better error handling
           const { data: uploadData, error: uploadError } = await supabase.storage
@@ -193,7 +194,7 @@ const JobApplication = () => {
             });
           
           if (uploadError) {
-            console.error('Resume upload error:', uploadError);
+            logger.error('Resume upload error:', uploadError);
             
             // Handle different types of storage errors
             if (uploadError.message.includes('JWT')) {
@@ -220,15 +221,15 @@ const JobApplication = () => {
           }]);
           
           if (insertError) {
-            console.error('Error saving resume to database:', insertError);
+            logger.error('Error saving resume to database:', insertError);
             // Continue with the application even if saving to user_resumes fails
             // The file was uploaded successfully, so we can still use it for this application
           }
           
           resumeName = resumeFile.name;
-          console.log('Resume uploaded successfully:', resumeName);
+          logger.log('Resume uploaded successfully:', resumeName);
         } catch (uploadError) {
-          console.error('Resume upload process failed:', uploadError);
+          logger.error('Resume upload process failed:', uploadError);
           throw new Error(`Resume upload failed: ${uploadError.message}`);
         }
       }
@@ -252,8 +253,8 @@ const JobApplication = () => {
         .single();
 
       if (error) {
-        console.error('Application insert failed:', error);
-        console.error('Full error object:', JSON.stringify(error, null, 2));
+        logger.error('Application insert failed:', error);
+        logger.error('Full error object:', JSON.stringify(error, null, 2));
         toast.dismiss('job-application');
         
         // Handle specific database errors
@@ -273,7 +274,7 @@ const JobApplication = () => {
         throw new Error(error.message || 'RLS/validation error');
       }
 
-      console.log('Job application submitted successfully:', data);
+      logger.log('Job application submitted successfully:', data);
       toast.dismiss('job-application');
       toast.success('Application submitted!');
       
@@ -285,7 +286,7 @@ const JobApplication = () => {
       // Navigate to job details
       navigate(`/jobs/${jobId}`);
     } catch (error) {
-      console.error('Error applying for job:', error);
+      logger.error('Error applying for job:', error);
       toast.error(`Application failed: ${error.message || 'Please try again.'}`);
     } finally {
       setIsSubmitting(false);

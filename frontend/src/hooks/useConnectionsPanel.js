@@ -1,6 +1,7 @@
 // frontend/src/hooks/useConnectionsPanel.js
 import { useCallback, useEffect, useState } from 'react';
 import { supabase, onPostgresChangesOnce } from '../utils/supabase';
+import logger from '../utils/logger';
 import toast from 'react-hot-toast';
 
 export default function useConnectionsPanel(currentUserId) {
@@ -54,7 +55,7 @@ export default function useConnectionsPanel(currentUserId) {
       setLists({ received, sent, accepted });
       setCounts({ received: received.length, sent: sent.length, accepted: accepted.length });
     } catch (e) {
-      console.error('useConnectionsPanel.load error', e);
+      logger.error('useConnectionsPanel.load error', e);
       setLists({ received: [], sent: [], accepted: [] });
       setCounts({ received: 0, sent: 0, accepted: 0 });
     } finally {
@@ -104,7 +105,7 @@ export default function useConnectionsPanel(currentUserId) {
       toast.success('Request accepted');
       load();
     } catch (e) {
-      console.error('useConnectionsPanel.accept error', e);
+      logger.error('useConnectionsPanel.accept error', e);
       toast.error('Accept failed');
     }
   };

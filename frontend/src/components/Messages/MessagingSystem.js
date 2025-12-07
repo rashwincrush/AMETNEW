@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '../../utils/supabase';
 import { logActivity } from '../../utils/activityLogger';
@@ -81,7 +82,7 @@ const MessagingSystem = () => {
           setCurrentUser(profile ? { ...user, ...profile } : user);
         }
       } catch (err) {
-        console.error('Error fetching user:', err);
+        logger.error('Error fetching user:', err);
         setError('Failed to load user profile');
         if (!errorNotifiedRef.current) {
           showError('Failed to load user profile');
@@ -127,7 +128,7 @@ const MessagingSystem = () => {
       setThreads(Array.isArray(data) ? data : []);
       logActivity({ action: 'dm_threads_list_load', meta: { count: (data || []).length }, route: '/messages' });
     } catch (err) {
-      console.error('Error fetching threads:', err);
+      logger.error('Error fetching threads:', err);
       setError('Failed to load conversations');
       if (!convErrNotifiedRef.current) {
         showError('Failed to load conversations');
@@ -296,7 +297,7 @@ const MessagingSystem = () => {
       try {
         ensuredId = await ensureDmThreadWith(targetUserId);
       } catch (e) {
-        console.warn('ensureDmThreadWith failed:', e?.message || e);
+        logger.warn('ensureDmThreadWith failed:', e?.message || e);
       }
 
       await fetchUserThreads();
@@ -322,7 +323,7 @@ const MessagingSystem = () => {
         }
       }
     } catch (err) {
-      console.error('Error starting conversation:', err);
+      logger.error('Error starting conversation:', err);
       showError('Unable to start conversation.');
     } finally {
       setLoading(false);

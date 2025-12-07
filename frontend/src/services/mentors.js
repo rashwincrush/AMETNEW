@@ -1,5 +1,6 @@
 // frontend/src/services/mentors.js
 import { supabase } from '../utils/supabase';
+import logger from '../utils/logger';
 
 /**
  * Translates a PostgREST error into a user-friendly message.
@@ -40,7 +41,7 @@ export const getMyMentorProfile = async () => {
     if (error) throw error;
     return data;
   } catch (error) {
-    console.error('Error fetching my mentor profile:', handlePostgrestError(error));
+    logger.error('Error fetching my mentor profile:', handlePostgrestError(error));
     return null;
   }
 };
@@ -63,7 +64,7 @@ export const getMentorById = async (id) => {
     if (error) throw error;
     return data;
   } catch (error) {
-    console.error(`Error fetching mentor by ID (${id}):`, handlePostgrestError(error));
+    logger.error(`Error fetching mentor by ID (${id}):`, handlePostgrestError(error));
     return null;
   }
 };
@@ -87,7 +88,7 @@ export const listApprovedMentors = async ({ page = 1, perPage = 20 } = {}) => {
     if (error) throw error;
     return data;
   } catch (error) {
-    console.error('Error listing approved mentors:', handlePostgrestError(error));
+    logger.error('Error listing approved mentors:', handlePostgrestError(error));
     return [];
   }
 };
@@ -146,7 +147,7 @@ export const upsertMentor = async (payload) => {
       return { data, error: null };
     }
   } catch (error) {
-    console.error('Error saving mentor profile (insert/update):', error);
+    logger.error('Error saving mentor profile (insert/update):', error);
     return { data: null, error: handlePostgrestError(error) };
   }
 };

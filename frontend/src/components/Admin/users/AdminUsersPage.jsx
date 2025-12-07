@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { getFriendlyErrorMessage } from '../../../utils/errors';
+import logger from '../../../utils/logger';
 import { getAccountStatus, ACCOUNT_STATUS_CODES } from '../../../utils/accountStatus';
 import { useAdminUsersGrid } from '../../../hooks/useAdminUsersGrid';
 import { changeUserRole } from '../../../utils/changeUserRole';
@@ -163,14 +164,14 @@ export default function AdminUsersPage() {
 
       if (!success) {
         if (error) {
-          console.error('Failed to change user role:', error);
+          logger.error('Failed to change user role:', error);
         }
         return;
       }
 
       await refetch();
     } catch (err) {
-      console.error('Error updating user role from AdminUsersPage:', err);
+      logger.error('Error updating user role from AdminUsersPage:', err);
       toast.error(
         `Failed to update role: ${getFriendlyErrorMessage(
           err,
@@ -203,7 +204,7 @@ export default function AdminUsersPage() {
       await refetch();
       toast.success(`${user.full_name || user.email} has been approved.`);
     } catch (err) {
-      console.error('Error approving user:', err);
+      logger.error('Error approving user:', err);
       toast.error(
         `Failed to approve user: ${getFriendlyErrorMessage(
           err,
@@ -227,7 +228,7 @@ export default function AdminUsersPage() {
       await refetch();
       toast.success('User has been rejected.');
     } catch (err) {
-      console.error('Error rejecting user:', err);
+      logger.error('Error rejecting user:', err);
       toast.error(
         `Failed to reject user: ${getFriendlyErrorMessage(
           err,
@@ -261,7 +262,7 @@ export default function AdminUsersPage() {
       await refetch();
       toast.success(currentlyActive ? 'User has been blocked.' : 'User has been unblocked.');
     } catch (err) {
-      console.error('Error toggling user active state:', err);
+      logger.error('Error toggling user active state:', err);
       toast.error(
         getFriendlyErrorMessage(err, 'Unable to change user active status.')
       );
@@ -293,7 +294,7 @@ export default function AdminUsersPage() {
       await refetch();
       toast.success('User soft-deleted');
     } catch (err) {
-      console.error('Error soft-deleting user:', err);
+      logger.error('Error soft-deleting user:', err);
       toast.error(
         `Failed to delete user: ${getFriendlyErrorMessage(
           err,
@@ -327,7 +328,7 @@ export default function AdminUsersPage() {
       await refetch();
       toast.success('User data purged');
     } catch (err) {
-      console.error('Error purging user data:', err);
+      logger.error('Error purging user data:', err);
       toast.error(
         `Failed to purge user data: ${getFriendlyErrorMessage(
           err,
@@ -361,7 +362,7 @@ export default function AdminUsersPage() {
       await refetch();
       toast.success('Auth user deleted successfully');
     } catch (err) {
-      console.error('Error deleting auth user:', err);
+      logger.error('Error deleting auth user:', err);
       toast.error(
         `Failed to delete auth user: ${getFriendlyErrorMessage(
           err,
@@ -380,7 +381,7 @@ export default function AdminUsersPage() {
       await refetch();
       toast.success(`Mentee status set to ${status}.`);
     } catch (err) {
-      console.error('Error updating mentee status:', err);
+      logger.error('Error updating mentee status:', err);
       toast.error(
         `Failed to update mentee status: ${getFriendlyErrorMessage(
           err,
@@ -399,7 +400,7 @@ export default function AdminUsersPage() {
       await refetch();
       toast.success(`Mentor status set to ${status}.`);
     } catch (err) {
-      console.error('Error updating mentor status:', err);
+      logger.error('Error updating mentor status:', err);
       toast.error(
         `Failed to update mentor status: ${getFriendlyErrorMessage(
           err,

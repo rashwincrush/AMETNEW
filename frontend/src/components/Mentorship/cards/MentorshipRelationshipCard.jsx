@@ -3,6 +3,7 @@ import { useOpenMentorshipChat } from '../../../hooks/useOpenMentorshipChat';
 import { formatDistanceToNow } from 'date-fns';
 import clsx from 'clsx';
 import { toast } from 'react-hot-toast';
+import logger from '../../../utils/logger';
 import { MENTORSHIP_COPY } from '../../../constants/mentorshipCopy';
 import MentorshipStatusChip from '../MentorshipStatusChip';
 import { 
@@ -110,7 +111,7 @@ export default function MentorshipRelationshipCard({
       setShowEndConfirm(false);
       setShowMenu(false);
     } catch (error) {
-      console.error('Error ending mentorship:', error);
+      logger.error('Error ending mentorship:', error);
       const message = mapMentorshipError(error);
       toast.error(message || 'Failed to end mentorship');
     } finally {

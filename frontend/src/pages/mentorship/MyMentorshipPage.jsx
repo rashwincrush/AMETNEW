@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import logger from '../../utils/logger';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
@@ -37,8 +38,8 @@ export default function MyMentorshipPage() {
       if (error) throw error;
       setRelationships(data || []);
     } catch (error) {
-      console.error('Error fetching relationships:', error);
-      toast.error('Failed to load mentorships');
+      logger.error('Error fetching relationships:', error);
+      toast.error('We could not load your mentorships. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -49,11 +50,11 @@ export default function MyMentorshipPage() {
 
     try {
       await endMentorshipRelationship(relationshipId);
-      toast.success('Mentorship ended');
+      toast.success('The mentorship has been ended.');
       await fetchRelationships();
     } catch (error) {
-      console.error('Error ending mentorship relationship:', error);
-      toast.error('Failed to end mentorship. Please try again.');
+      logger.error('Error ending mentorship relationship:', error);
+      toast.error('We could not end this mentorship. Please try again.');
     }
   }
 
@@ -75,7 +76,7 @@ export default function MyMentorshipPage() {
         setIsAvailable(profile.is_available_for_mentorship);
       }
     } catch (error) {
-      console.error('Error fetching mentor data:', error);
+      logger.error('Error fetching mentor data:', error);
     }
   }
 
@@ -92,10 +93,10 @@ export default function MyMentorshipPage() {
       if (error) throw error;
 
       setIsAvailable(newValue);
-      toast.success(newValue ? 'You are now accepting new mentees' : 'You are no longer accepting new mentees');
+      toast.success(newValue ? 'You are now accepting new mentees.' : 'You are no longer accepting new mentees.');
     } catch (error) {
-      console.error('Error toggling availability:', error);
-      toast.error('Failed to update availability');
+      logger.error('Error toggling availability:', error);
+      toast.error('We could not update your availability. Please try again.');
     } finally {
       setToggleLoading(false);
     }
@@ -106,8 +107,8 @@ export default function MyMentorshipPage() {
       // Navigate to messages with context
       navigate(`/messages?userId=${otherId}&source=mentorship&relationshipId=${relationshipId}`);
     } catch (error) {
-      console.error('Error opening chat:', error);
-      toast.error('Could not open chat. Please try again.');
+      logger.error('Error opening chat:', error);
+      toast.error('We could not open this chat. Please try again.');
     }
   }
 
@@ -130,21 +131,23 @@ export default function MyMentorshipPage() {
     <div>
       {/* Overview Band */}
       <div className="mb-8 bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">You are using Mentorship as:</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Your mentorship roles</h2>
         
         <div className="flex flex-wrap gap-2 mb-4">
           <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
             Mentee
           </span>
           {mentorData && (
-            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-              mentorData.status === 'approved'
-                ? 'bg-green-100 text-green-800'
-                : mentorData.status === 'pending'
-                ? 'bg-yellow-100 text-yellow-800'
-                : 'bg-red-100 text-red-800'
-            }`}>
-              Mentor – {mentorData.status === 'approved' ? 'Approved' : mentorData.status === 'pending' ? 'Pending' : 'Rejected'}
+            <span
+              className={`px-3 py-1 rounded-full text-sm font-medium ${
+                mentorData.status === 'approved'
+                  ? 'bg-green-100 text-green-800'
+                  : mentorData.status === 'pending'
+                  ? 'bg-yellow-100 text-yellow-800'
+                  : 'bg-red-100 text-red-800'
+              }`}
+            >
+              Mentor – {mentorData.status === 'approved' ? 'approved' : mentorData.status === 'pending' ? 'pending' : 'not approved'}
             </span>
           )}
         </div>
@@ -214,7 +217,7 @@ export default function MyMentorshipPage() {
               </div>
               {isAtCapacity && (
                 <p className="text-xs text-gray-500">
-                  Youre currently full. Increase <span className="font-medium">Max mentees</span> or move someone to
+                  You are currently full. Increase <span className="font-medium">Max mentees</span> or move someone to
                   <span className="font-medium"> Past mentees</span> to accept new requests.
                 </p>
               )}
@@ -226,7 +229,7 @@ export default function MyMentorshipPage() {
       {/* People Mentoring You */}
       <div className="mb-8">
         <h2 className="text-xl font-semibold text-gray-900 mb-2">People mentoring you</h2>
-        <p className="text-sm text-gray-600 mb-4">These are mentors currently supporting you.</p>
+        <p className="text-sm text-gray-600 mb-4">These are mentors who are currently supporting you.</p>
         
         {loading ? (
           <div className="space-y-4" role="status" aria-label="Loading mentors">
@@ -368,7 +371,7 @@ export default function MyMentorshipPage() {
       {mentorData && (
         <div>
           <h2 className="text-xl font-semibold text-gray-900 mb-2">People you mentor</h2>
-          <p className="text-sm text-gray-600 mb-4">These are mentees you've accepted to mentor.</p>
+          <p className="text-sm text-gray-600 mb-4">These are mentees you have accepted to mentor.</p>
           
           {activeMentees.length === 0 && pastMentees.length === 0 ? (
             <div className="bg-white rounded-lg shadow p-8 text-center">
@@ -376,15 +379,15 @@ export default function MyMentorshipPage() {
                 <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
                 </svg>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">You're not mentoring anyone yet</h3>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">You are not mentoring anyone yet</h3>
                 <p className="text-gray-600 mb-4">
-                  Once you accept a mentorship request, your mentees will show up here.
+                  Once you accept a mentorship request, your mentees will appear here.
                 </p>
                 <button
                   onClick={() => navigate('/mentorship/requests-to-me')}
                   className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
-                  View requests
+                  View mentorship requests
                 </button>
               </div>
             </div>

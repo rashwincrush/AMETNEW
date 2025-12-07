@@ -478,18 +478,6 @@ export const createEvent = async (eventData) => {
   return { data, error };
 };
 
-export const registerForEvent = async (eventId, attendeeId) => {
-  const { data, error } = await supabase
-    .from('event_attendees')
-    .insert([{
-      event_id: eventId,
-      attendee_id: attendeeId,
-      registration_date: new Date().toISOString()
-    }])
-    .select();
-  return { data, error };
-};
-
 export const fetchJobs = async () => {
   const { data, error } = await supabase
     .from('jobs')
@@ -574,7 +562,7 @@ export const fetchConversations = async (userId) => {
 
       return { data: detailed, error: null };
     } catch (fbErr) {
-      console.error('Error fetching conversations (fallback):', fbErr);
+      logger.error('Error fetching conversations (fallback):', fbErr);
       return { data: null, error: fbErr };
     }
   }
@@ -716,6 +704,9 @@ export const createMentorshipRequest = async (requestData) => {
 };
 
 // Networking Groups Functions
+// NOTE: Prefer using fetchGroupsRpc from '../api/groups' for new code.
+// This function is kept for backward compatibility but the RPC version
+// handles role-aware filtering (employer exclusion, alumni_only, etc.) at the DB level.
 
 // Fetch all groups with optional filtering
 export const fetchGroups = async (options = {}) => {
@@ -731,6 +722,7 @@ export const fetchGroups = async (options = {}) => {
   } = options;
 
   // Base selection without profiles embed (avoid RLS errors). If you need creator identity, hydrate from alumni_directory_public at call site.
+  // Include alumni_only column for frontend filtering
   const baseSelect = `*`;
 
   // Admin path: fetch all groups
@@ -847,9 +839,12 @@ export const fetchPublicGroups = async () => {
 };
 
 // Fetch a single group's details, including members
-export const fetchGroupDetails = async (groupId) => {
-  // Fetch group without profiles embed
-  let { data: base, error } = await supabase
+// PERFORMANCE: Parallelized queries to reduce waterfall latency
+export const fetchGroupDetails = async (groupId, options = {}) => {
+  const { includeMembers = false, memberLimit = 50 } = options;
+  
+  // Fetch group first (required for creator_by)
+  const { data: base, error } = await supabase
     .from('groups')
     .select(`*`)
     .eq('id', groupId)
@@ -857,23 +852,37 @@ export const fetchGroupDetails = async (groupId) => {
 
   if (error) return { data: null, error };
 
-  // Resolve creator identity from alumni_directory_public (safe)
-  let creator = null;
-  if (base?.created_by) {
-    const { data: ident } = await supabase
-      .from('alumni_directory_public')
-      .select('id, full_name, avatar_url')
-      .eq('id', base.created_by)
-      .maybeSingle();
-    creator = ident || null;
+  // PERFORMANCE: Parallel fetch creator identity and members (if requested)
+  const promises = [];
+  
+  // Creator identity lookup
+  const creatorPromise = base?.created_by
+    ? supabase
+        .from('alumni_directory_public')
+        .select('id, full_name, avatar_url')
+        .eq('id', base.created_by)
+        .maybeSingle()
+    : Promise.resolve({ data: null });
+  promises.push(creatorPromise);
+  
+  // Members lookup (only if requested - saves time on list views)
+  const membersPromise = includeMembers
+    ? fetchGroupMembers(groupId, memberLimit, 0)
+    : Promise.resolve({ data: null, error: null });
+  promises.push(membersPromise);
+  
+  const [creatorResult, membersResult] = await Promise.all(promises);
+  
+  let data = {
+    ...base,
+    creator: creatorResult.data || null,
+  };
+  
+  if (includeMembers && !membersResult.error) {
+    data.members = membersResult.data;
   }
-
-  let data = { ...base, creator };
-
-  // Attach members (role, joined_at, user) without embedding to avoid recursive policy path
-  const { data: members, error: membersErr } = await fetchGroupMembers(groupId, 200, 0);
-  if (!membersErr) data = { ...data, members };
-  return { data, error };
+  
+  return { data, error: null };
 };
 
 // Fetch current user's membership (role) for a group
@@ -891,7 +900,8 @@ export const getMyGroupMembership = async (groupId) => {
 };
 
 // Fetch members for a group (role + profile), load on-demand for Members tab
-export const fetchGroupMembers = async (groupId, limit = 200, offset = 0) => {
+// PERFORMANCE: Reduced default limit, added lightweight count-only option
+export const fetchGroupMembers = async (groupId, limit = 50, offset = 0) => {
   const { data, error } = await supabase
     .from('group_members')
     .select('role, created_at, user:profiles(id, full_name, avatar_url, email, headline, role)')
@@ -899,6 +909,15 @@ export const fetchGroupMembers = async (groupId, limit = 200, offset = 0) => {
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
   return { data, error };
+};
+
+// PERFORMANCE: Lightweight member count without fetching full profiles
+export const fetchGroupMemberCount = async (groupId) => {
+  const { count, error } = await supabase
+    .from('group_members')
+    .select('user_id', { count: 'exact', head: true })
+    .eq('group_id', groupId);
+  return { count: count ?? 0, error };
 };
 
 // Create a new group (backend triggers will set creator/admin membership)
@@ -914,50 +933,15 @@ export const createGroup = async (groupData) => {
   return { data, error };
 };
 
-// Join a group (backend trigger/RLS infers user_id and role)
-export const joinGroup = async (groupId, userId) => {
-  await guardEmployers();
-  // If userId is provided, perform idempotent upsert (preferred)
-  if (userId) {
-    const { data, error } = await supabase
-      .from('group_memberships')
-      .upsert(
-        { group_id: groupId, user_id: userId, role: 'member' },
-        { onConflict: 'group_id,user_id', ignoreDuplicates: true }
-      )
-      .select('group_id, user_id, role')
-      .single();
-    return { data, error };
-  }
-  // Fallback: rely on RLS/trigger to infer current user
-  const { data, error } = await supabase
-    .from('group_memberships')
-    .insert([{ group_id: groupId }])
-    .select();
-  return { data, error };
-};
+// Legacy group membership helpers (joinGroup, leaveGroup, requestGroupMembership)
+// have been deprecated in favor of the RPC-based helpers in src/api/groups.js.
+// New code should import from '../api/groups' instead.
 
-// Leave a group
-export const leaveGroup = async (groupId, userId) => {
-  await guardEmployers();
-  const { data, error } = await supabase
-    .from('group_memberships')
-    .delete()
-    .eq('group_id', groupId)
-    .eq('user_id', userId);
-  return { data, error };
-};
-
-// Request to join a private group (creates a pending membership request)
-export const requestGroupMembership = async (groupId) => {
-  await guardEmployers();
-  const { data, error } = await supabase
-    .from('group_memberships')
-    .insert([{ group_id: groupId, status: 'pending' }])
-    .select();
-  return { data, error };
-};
-
+/**
+ * @deprecated Use joinGroupRpc from '../api/groups' instead.
+ * Direct inserts to group_members are blocked by RLS for security.
+ * The RPC handles employer exclusion, alumni_only checks, and duplicate prevention.
+ */
 export const addGroupMember = async (groupId, userId, role = 'member') => {
   await guardEmployers();
   const { data, error } = await supabase
@@ -1045,7 +1029,10 @@ export const reportGroupPost = async ({ post_id, reason, reporter_id }) => {
   return { data, error };
 };
 
-// Remove a member from a group
+/**
+ * @deprecated Use removeMemberRpc from '../api/groups' instead.
+ * The RPC enforces last-admin safety and proper authorization.
+ */
 export const removeGroupMember = async (groupId, userId) => {
   await guardEmployers();
   const { data, error } = await supabase
@@ -1085,7 +1072,10 @@ async function guardEmployers() {
   }
 }
 
-// Set member role within a group (e.g., 'admin' | 'member')
+/**
+ * @deprecated Use setMemberRoleRpc from '../api/groups' instead.
+ * The RPC enforces last-admin safety and proper authorization.
+ */
 export const setMemberRole = async (groupId, userId, role) => {
   const { data, error } = await supabase
     .from('group_members')
@@ -1097,7 +1087,10 @@ export const setMemberRole = async (groupId, userId, role) => {
   return { data, error };
 };
 
-// Delete a group (admin or group-admin only per RLS)
+/**
+ * @deprecated Use deleteGroupRpc from '../api/groups' instead.
+ * The RPC enforces proper authorization and cascades deletes safely.
+ */
 export const deleteGroup = async (groupId) => {
   const { data, error } = await supabase
     .from('groups')
@@ -1110,50 +1103,83 @@ export const deleteGroup = async (groupId) => {
 
 /**
  * Fetch a compact summary of the current user's most recent group memberships.
- * Tries group_memberships first (primary in this codebase), then falls back to group_members.
+ * Combines active memberships (group_members) and pending requests (group_memberships)
+ * and annotates each row with a membership state: 'active' | 'pending'.
  */
 export async function fetchMyGroupsSummary(limit = 3, userId) {
   if (!userId) return { data: [], error: null };
 
-  // Step A: memberships (prefer group_memberships)
-  let mships = [];
-  try {
-    const { data: ms1, error: mErr1 } = await supabase
-      .from('group_memberships')
-      .select('group_id, created_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
-    if (mErr1) throw mErr1;
-    mships = ms1 || [];
-  } catch (e) {
-    // Fallback to group_members table naming
-    const { data: ms2, error: mErr2 } = await supabase
+  const max = Math.max(1, limit || 1);
+
+  // Fetch active memberships and pending requests in parallel
+  const [activeRes, pendingRes] = await Promise.all([
+    supabase
       .from('group_members')
       .select('group_id, joined_at, created_at')
       .eq('user_id', userId)
       .order('joined_at', { ascending: false })
-      .limit(limit);
-    if (mErr2) return { data: [], error: mErr2 };
-    mships = ms2 || [];
-  }
+      .limit(max * 2),
+    supabase
+      .from('group_memberships')
+      .select('group_id, status, created_at, updated_at')
+      .eq('user_id', userId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(max * 2),
+  ]);
 
-  const ids = (mships ?? []).map(m => m.group_id);
-  if (ids.length === 0) return { data: [], error: null };
+  if (activeRes.error) return { data: [], error: activeRes.error };
+  if (pendingRes.error) return { data: [], error: pendingRes.error };
 
-  // Step B: hydrate groups
+  const combinedMap = new Map();
+
+  // Active memberships take precedence for a group
+  (activeRes.data || []).forEach((m) => {
+    const ts = m.joined_at || m.created_at;
+    combinedMap.set(m.group_id, {
+      group_id: m.group_id,
+      ts,
+      state: 'active',
+    });
+  });
+
+  // Pending memberships only fill in groups where there is no active membership
+  (pendingRes.data || []).forEach((m) => {
+    if (!combinedMap.has(m.group_id)) {
+      const ts = m.created_at || m.updated_at;
+      combinedMap.set(m.group_id, {
+        group_id: m.group_id,
+        ts,
+        state: 'pending',
+      });
+    }
+  });
+
+  const combinedList = Array.from(combinedMap.values())
+    .sort((a, b) => {
+      const ta = a.ts ? new Date(a.ts).getTime() : 0;
+      const tb = b.ts ? new Date(b.ts).getTime() : 0;
+      return tb - ta;
+    })
+    .slice(0, max);
+
+  if (combinedList.length === 0) return { data: [], error: null };
+
+  const ids = combinedList.map((m) => m.group_id);
+
+  // Hydrate group metadata
   const { data: groups, error: gErr } = await supabase
     .from('groups')
     .select('id, name, group_avatar_url, is_private, is_archived, is_admin_only_posts, is_approved, approval_status, tags, created_at')
     .in('id', ids);
   if (gErr) return { data: [], error: gErr };
 
-  const byId = Object.fromEntries((groups || []).map(g => [g.id, g]));
-  const merged = (mships || [])
-    .map(m => {
+  const byId = Object.fromEntries((groups || []).map((g) => [g.id, g]));
+  const merged = combinedList
+    .map((m) => {
       const g = byId[m.group_id];
-      if (!g) return null; // RLS may hide
-      return { ...g, joined_at: m.joined_at || m.created_at };
+      if (!g) return null; // RLS may hide some groups
+      return { ...g, joined_at: m.ts, state: m.state };
     })
     .filter(Boolean);
 
@@ -1176,7 +1202,7 @@ export const uploadGroupAvatar = async (file, groupId) => {
       });
       
     if (uploadError) {
-      console.error('Upload error:', uploadError);
+      logger.error('Upload error:', uploadError);
       return { error: uploadError };
     }
     
@@ -1191,7 +1217,7 @@ export const uploadGroupAvatar = async (file, groupId) => {
     
     return { data, error, url: urlData.publicUrl };
   } catch (err) {
-    console.error('Error in uploadGroupAvatar:', err);
+    logger.error('Error in uploadGroupAvatar:', err);
     return { error: err };
   }
 };
@@ -1294,13 +1320,13 @@ export const checkConnectionStatus = async (currentUserId, peerId) => {
       .maybeSingle();
     
     if (connError) {
-      console.error('Error checking connection status:', connError);
+      logger.error('Error checking connection status:', connError);
       return false;
     }
     
     return !!connection;
   } catch (err) {
-    console.error('Error in checkConnectionStatus:', err);
+    logger.error('Error in checkConnectionStatus:', err);
     return false;
   }
 };

@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { supabase, fetchMyGroupsSummary } from '../../utils/supabase';
 import { UsersIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
+import { acceptGroupInvite, rejectGroupInvite } from '../../api/groups';
+import toast from 'react-hot-toast';
 
 function MyGroupsWidget() {
   const { user } = useAuth();
@@ -54,10 +56,37 @@ function MyGroupsWidget() {
     </div>
   );
 
-  const Row = ({ g }) => {
+  const Row = ({ g, onChange }) => {
     const archived = !!g.is_archived;
+    const membershipState = g.state || 'active';
+    const isPending = membershipState === 'pending';
     const isPrivate = !!g.is_private || (g.visibility && String(g.visibility).toLowerCase() === 'private');
     const linkCls = `group flex items-center gap-3 p-3 rounded-lg border hover:bg-ocean-50 hover:border-ocean-200 transition-colors ${archived ? 'opacity-60 pointer-events-none' : ''}`;
+
+    const handleAccept = async (e) => {
+      e.preventDefault();
+      const toastId = toast.loading('Joining group...');
+      try {
+        await acceptGroupInvite(g.id);
+        toast.success('Joined group', { id: toastId });
+        if (onChange) await onChange();
+      } catch (err) {
+        toast.error('Unable to join this group right now.', { id: toastId });
+      }
+    };
+
+    const handleDecline = async (e) => {
+      e.preventDefault();
+      const toastId = toast.loading('Declining invitation...');
+      try {
+        await rejectGroupInvite(g.id);
+        toast.success('Invitation declined', { id: toastId });
+        if (onChange) await onChange();
+      } catch (err) {
+        toast.error('Unable to decline invitation.', { id: toastId });
+      }
+    };
+
     const content = (
       <>
         <div className="w-12 h-12 rounded-md bg-gray-100 flex items-center justify-center overflow-hidden">
@@ -70,12 +99,39 @@ function MyGroupsWidget() {
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-gray-900 truncate">{g.name}</div>
-          <div className="mt-1 flex items-center gap-2 text-xs">
-            <span className={`inline-flex items-center px-2 py-0.5 rounded-full ${isPrivate ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
-              {isPrivate ? 'Private' : 'Public'}
-            </span>
-            {archived && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Archived</span>
+          <div className="mt-1 flex flex-col gap-1 text-xs">
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full ${isPrivate ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+                {isPrivate ? 'Private' : 'Public'}
+              </span>
+              {isPending && !archived && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-100">
+                  Invitation pending
+                </span>
+              )}
+              {archived && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Archived</span>
+              )}
+            </div>
+            {isPending && !archived && (
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={handleAccept}
+                  className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-ocean-600 text-white text-xs font-medium hover:bg-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                  aria-label={`Accept invitation to join ${g.name}`}
+                >
+                  Accept
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDecline}
+                  className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-gray-100 text-gray-700 text-xs font-medium hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 focus-visible:ring-offset-2"
+                  aria-label={`Decline invitation to join ${g.name}`}
+                >
+                  Decline
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -120,7 +176,7 @@ function MyGroupsWidget() {
         <ul className="space-y-3">
           {rows.slice(0,3).map((g) => (
             <li key={g.id}>
-              <Row g={g} />
+              <Row g={g} onChange={load} />
             </li>
           ))}
         </ul>

@@ -3,14 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase, mapOAuthToProfileData, onPostgresChangesOnce } from '../utils/supabase';
 import { upsertMyProfileFillOnly } from '../services/profile';
 import { ROLES, isRole } from '../constants/roles';
-
-// Helper for conditional logging
-const isDev = process.env.NODE_ENV === 'development';
-const logger = {
-  log: (...args) => isDev && console.log(...args),
-  error: (...args) => console.error(...args),
-  warn: (...args) => isDev && console.warn(...args)
-};
+import logger from '../utils/logger';
 
 // Whitelist of user-editable profile fields to avoid admin-only columns
 const SAFE_PROFILE_FIELDS = [
@@ -68,6 +61,7 @@ const BASE_PERMISSIONS = {
   alumni: [
     'access:dashboard',
     'view:jobs',
+    'apply:jobs',
     'access:events',
     'view:alumni_directory',
     'request:mentorship',
@@ -105,6 +99,7 @@ const BASE_PERMISSIONS = {
   student: [
     'access:dashboard',
     'view:jobs',
+    'apply:jobs',
     'access:events',
     'view:alumni_directory',
     'request:mentorship',

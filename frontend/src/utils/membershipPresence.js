@@ -1,3 +1,4 @@
+import logger from './logger';
 // Tiny helper to check if a user is already a member of a group
 // Usage: const member = await isMember(supabase, groupId, user.id);
 export async function isMember(supabase, groupId, userId) {
@@ -8,7 +9,7 @@ export async function isMember(supabase, groupId, userId) {
     .eq('user_id', userId);
 
   if (error) {
-    console.warn('membership check error', error);
+    logger.warn('membership check error', error);
     // Treat errors as unknown rather than not a member
     return false;
   }

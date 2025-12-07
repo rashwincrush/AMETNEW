@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
 import { useNavigate } from 'react-router-dom';
+import logger from '../../utils/logger';
 import format from 'date-fns/format';
 import parse from 'date-fns/parse';
 import startOfWeek from 'date-fns/startOfWeek';
@@ -175,7 +176,7 @@ const EventCalendar = ({ events, activeCategory = 'all', onCategoryChange }) => 
         setDate(new Date());
       }
     } catch (e) {
-      console.error('Error in calendar navigation:', e);
+      logger.error('Error in calendar navigation:', e);
       // Fallback to today's date if there's an error
       setDate(new Date());
     }

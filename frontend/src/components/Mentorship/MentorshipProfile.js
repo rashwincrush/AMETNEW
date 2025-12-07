@@ -64,7 +64,7 @@ const MentorshipProfile = () => {
       setSuccess('Mentorship request sent!');
       setAlreadyRequested(true);
     } catch (err) {
-      console.error('Failed to send mentorship request:', err);
+      logger.error('Failed to send mentorship request:', err);
       const mapped = mapMentorshipError(err);
       setError(mapped.message || 'Failed to send request. Please try again later.');
     } finally {

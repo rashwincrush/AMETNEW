@@ -99,7 +99,7 @@ const EditEventForm = () => {
           registration_deadline: data.registration_deadline ? parseISO(data.registration_deadline) : null
         });
       } catch (err) {
-        console.error('Error fetching event:', err);
+        logger.error('Error fetching event:', err);
         setError(getFriendlyErrorMessage(err, 'Failed to load event'));
       } finally {
         setLoading(false);
@@ -167,7 +167,7 @@ const EditEventForm = () => {
       setSuccess('Event updated successfully!');
       setTimeout(() => navigate(`/events/${id}`), 1500);
     } catch (err) {
-      console.error('Error updating event:', err);
+      logger.error('Error updating event:', err);
       setError(getFriendlyErrorMessage(err, 'Failed to update event'));
     } finally {
       setSaving(false);

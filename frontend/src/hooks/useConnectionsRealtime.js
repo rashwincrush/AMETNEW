@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { supabase } from '../utils/supabase';
+import logger from '../utils/logger';
 
 /**
  * Realtime hook for connections table for a given user.
@@ -24,7 +25,7 @@ export function useConnectionsRealtime(userId, onChange) {
         event: '*',
         filter: `requester_id=eq.${userId}`,
       }, (payload) => {
-        try { onChange?.(payload); } catch (e) { console.error('connections requester handler error', e); }
+        try { onChange?.(payload); } catch (e) { logger.error('connections requester handler error', e); }
       })
       .on('postgres_changes', {
         schema: 'public',
@@ -32,7 +33,7 @@ export function useConnectionsRealtime(userId, onChange) {
         event: '*',
         filter: `recipient_id=eq.${userId}`,
       }, (payload) => {
-        try { onChange?.(payload); } catch (e) { console.error('connections recipient handler error', e); }
+        try { onChange?.(payload); } catch (e) { logger.error('connections recipient handler error', e); }
       })
       .subscribe((status) => {
         if (status !== 'SUBSCRIBED') {

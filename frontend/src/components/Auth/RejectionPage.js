@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
@@ -31,7 +32,7 @@ const RejectionPage = () => {
 
         setRejectionReason(data.rejection_reason || 'Your registration was rejected by an administrator.');
       } catch (err) {
-        console.error('Error fetching rejection reason:', err);
+        logger.error('Error fetching rejection reason:', err);
         setError('Unable to fetch rejection details.');
       } finally {
         setLoading(false);

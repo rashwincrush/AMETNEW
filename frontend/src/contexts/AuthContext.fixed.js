@@ -1,3 +1,4 @@
+import logger from '../utils/logger';
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { supabase, signOut as supabaseSignOut } from '../utils/supabase';
 
@@ -25,36 +26,41 @@ export const AuthProvider = ({ children }) => {
   // Helper to get user role - defined early to avoid temporal dead zone issues
   const getUserRole = useCallback(() => {
     if (!profile && !user) return 'alumni';
-    
-    // Check profile role first
+
+    // Check profile role first (canonical, enum-backed source of truth)
     if (profile?.role) {
       // Explicit role checks
       if (profile.role === 'super_admin') return 'super_admin';
       if (profile.role === 'admin') return 'admin';
-      if (profile.role === 'moderator') return 'moderator';
       if (profile.role === 'employer') return 'employer';
-      if (profile.role) return profile.role;
+      if (profile.role === 'student') return 'student';
+      if (profile.role === 'alumni') return 'alumni';
+      return profile.role;
     }
-    
+
     // Fallbacks if no profile role
     // Check if admin based on email domain and is_admin flag
     if (profile?.email?.includes('@amet.ac.in') && profile?.is_admin) {
       return 'admin';
     }
-    
+
     // Check if employer based on is_employer flag
     if (profile?.is_employer) {
       return 'employer';
     }
-    
-    // Final fallback to user metadata or default
-    return user?.user_metadata?.role || 'alumni';
+
+    // Final fallback to user metadata or default (legacy support only)
+    const metaRole = user?.user_metadata?.role;
+    if (metaRole === 'alumni' || metaRole === 'student' || metaRole === 'employer' || metaRole === 'admin' || metaRole === 'super_admin') {
+      return metaRole;
+    }
+    return 'alumni';
   }, [profile, user]);
 
   const fetchUserProfile = useCallback(async (userId) => {
-    console.log(`Fetching profile for userId: ${userId}`);
+    logger.log(`Fetching profile for userId: ${userId}`);
     if (!userId) {
-      console.error("fetchUserProfile called with no userId.");
+      logger.error("fetchUserProfile called with no userId.");
       setProfile(null);
       setLoading(false);
       return null;
@@ -71,7 +77,7 @@ export const AuthProvider = ({ children }) => {
       setProfile(profileData);
       return profileData;
     } catch (error) {
-      console.error('Error fetching profile:', error);
+      logger.error('Error fetching profile:', error);
       setProfile(null);
       return null;
     } finally {
@@ -84,7 +90,7 @@ export const AuthProvider = ({ children }) => {
       await supabaseSignOut();
       // State will be cleared by the onAuthStateChange listener
     } catch (error) {
-      console.error('Sign out error:', error);
+      logger.error('Sign out error:', error);
       // Force state clear on error
       setUser(null);
       setProfile(null);
@@ -94,7 +100,7 @@ export const AuthProvider = ({ children }) => {
 
   const updateProfile = useCallback(async (updates) => {
     if (!user) {
-      console.error('Cannot update profile: No authenticated user');
+      logger.error('Cannot update profile: No authenticated user');
       throw new Error('No authenticated user');
     }
     
@@ -112,7 +118,7 @@ export const AuthProvider = ({ children }) => {
       // Always include updated_at
       updatesToApply.updated_at = new Date().toISOString();
       
-      console.log('Applying profile updates:', updatesToApply);
+      logger.log('Applying profile updates:', updatesToApply);
       
       let result;
       
@@ -126,7 +132,7 @@ export const AuthProvider = ({ children }) => {
           .single();
           
         if (error) {
-          console.error('Error updating profile:', error);
+          logger.error('Error updating profile:', error);
           throw error;
         }
         result = data;
@@ -138,7 +144,7 @@ export const AuthProvider = ({ children }) => {
           created_at: new Date().toISOString()
         };
         
-        console.log('Creating new profile with data:', newProfileData);
+        logger.log('Creating new profile with data:', newProfileData);
         
         const { data, error } = await supabase
           .from('profiles')
@@ -147,7 +153,7 @@ export const AuthProvider = ({ children }) => {
           .single();
           
         if (error) {
-          console.error('Error creating profile:', error);
+          logger.error('Error creating profile:', error);
           throw error;
         }
         
@@ -159,10 +165,10 @@ export const AuthProvider = ({ children }) => {
         await fetchUserProfile(user.id);
       }
       
-      console.log('Profile updated successfully:', result);
+      logger.log('Profile updated successfully:', result);
       return result;
     } catch (error) {
-      console.error('Error in updateProfile:', error);
+      logger.error('Error in updateProfile:', error);
       throw error;
     }
   }, [user, fetchUserProfile]);
@@ -186,7 +192,7 @@ export const AuthProvider = ({ children }) => {
       );
       
       if (error) {
-        console.error('Error checking permission:', error);
+        logger.error('Error checking permission:', error);
         return false;
       }
       
@@ -198,7 +204,7 @@ export const AuthProvider = ({ children }) => {
       
       return !!data;
     } catch (error) {
-      console.error('Permission check failed:', error);
+      logger.error('Permission check failed:', error);
       return false;
     }
   }, [user, permissionsCache, profile]); // Depend on profile instead of getUserRole
@@ -216,7 +222,7 @@ export const AuthProvider = ({ children }) => {
       
       return results.some(result => result === true);
     } catch (error) {
-      console.error('Permission check failed:', error);
+      logger.error('Permission check failed:', error);
       return false;
     }
   }, [user, hasPermission, profile]); // Depend on profile instead of getUserRole
@@ -234,63 +240,63 @@ export const AuthProvider = ({ children }) => {
       
       return results.every(result => result === true);
     } catch (error) {
-      console.error('Permission check failed:', error);
+      logger.error('Permission check failed:', error);
       return false;
     }
   }, [user, hasPermission, profile]); // Depend on profile instead of getUserRole
 
   useEffect(() => {
-    console.log('AuthProvider useEffect started.');
+    logger.log('AuthProvider useEffect started.');
 
     // Prevent duplicate initialization in development
     if (initializedRef.current) {
-      console.log('Auth already initialized, skipping duplicate init');
+      logger.log('Auth already initialized, skipping duplicate init');
       return;
     }
     initializedRef.current = true;
 
     // Add a timeout to prevent getting stuck on loading indefinitely
     const loadingTimeout = setTimeout(() => {
-      console.error('Auth process timed out after 8 seconds.');
+      logger.error('Auth process timed out after 8 seconds.');
       setLoading(false);
     }, 8000);
 
     const initializeAuth = async () => {
-      console.log('1. Initializing authentication...');
+      logger.log('1. Initializing authentication...');
       try {
         const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
         const supabaseKey = process.env.REACT_APP_SUPABASE_KEY;
 
         if (!supabaseUrl || !supabaseKey) {
-          console.error('CRITICAL: Supabase URL or Key is missing. Check your .env.development file.');
+          logger.error('CRITICAL: Supabase URL or Key is missing. Check your .env.development file.');
           setLoading(false);
           clearTimeout(loadingTimeout);
           return;
         }
-        console.log('2. Supabase credentials found.');
+        logger.log('2. Supabase credentials found.');
 
         if (!supabase?.auth) {
-          console.error('CRITICAL: Supabase auth module is not available.');
+          logger.error('CRITICAL: Supabase auth module is not available.');
           setLoading(false);
           clearTimeout(loadingTimeout);
           return;
         }
-        console.log('3. Supabase client is available.');
+        logger.log('3. Supabase client is available.');
 
         // Check for existing session first
         const { data: { session: existingSession } } = await supabase.auth.getSession();
         if (existingSession) {
-          console.log('3.5. Found existing session');
+          logger.log('3.5. Found existing session');
           setUser(existingSession.user);
           setSession(existingSession);
           await fetchUserProfile(existingSession.user.id);
         }
 
         // Set up auth state change listener
-        console.log('4. Setting up onAuthStateChange listener...');
+        logger.log('4. Setting up onAuthStateChange listener...');
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
           clearTimeout(loadingTimeout);
-          console.log(`5. Auth state change event: ${event}`, { hasSession: !!session });
+          logger.log(`5. Auth state change event: ${event}`, { hasSession: !!session });
           
           const currentUser = session?.user || null;
           setUser(currentUser);
@@ -298,20 +304,20 @@ export const AuthProvider = ({ children }) => {
 
           try {
             if (currentUser) {
-              console.log('6a. User found, checking if profile needs update...');
+              logger.log('6a. User found, checking if profile needs update...');
               // Only fetch profile if we don't have one or if user changed
               if (!profile || profile.id !== currentUser.id) {
                 await fetchUserProfile(currentUser.id);
               }
             } else {
-              console.log('6b. No user session, resetting profile.');
+              logger.log('6b. No user session, resetting profile.');
               setProfile(null);
             }
           } catch (e) {
-            console.error("Error during profile fetch on auth change:", e);
+            logger.error("Error during profile fetch on auth change:", e);
             setProfile(null);
           } finally {
-            console.log('7. Auth process finished. Setting loading to false.');
+            logger.log('7. Auth process finished. Setting loading to false.');
             setLoading(false);
           }
         });
@@ -319,7 +325,7 @@ export const AuthProvider = ({ children }) => {
         listenerRef.current = subscription;
 
       } catch (error) {
-        console.error('CRITICAL: Error during auth initialization:', error);
+        logger.error('CRITICAL: Error during auth initialization:', error);
         setLoading(false);
         clearTimeout(loadingTimeout);
       }
@@ -329,10 +335,10 @@ export const AuthProvider = ({ children }) => {
 
     // Cleanup function
     return () => {
-      console.log('AuthProvider cleanup function called.');
+      logger.log('AuthProvider cleanup function called.');
       clearTimeout(loadingTimeout);
       if (listenerRef.current) {
-        console.log('Unsubscribing auth listener');
+        logger.log('Unsubscribing auth listener');
         listenerRef.current.unsubscribe();
         listenerRef.current = null;
       }

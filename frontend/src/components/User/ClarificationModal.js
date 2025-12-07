@@ -3,6 +3,7 @@ import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
+import logger from '../../utils/logger';
 
 const ClarificationModal = ({ isOpen, onClose, rejectionReason }) => {
   const [clarification, setClarification] = useState('');
@@ -60,7 +61,7 @@ const ClarificationModal = ({ isOpen, onClose, rejectionReason }) => {
       setClarification('');
       onClose();
     } catch (err) {
-      console.error('Error submitting clarification:', err);
+      logger.error('Error submitting clarification:', err);
       toast.error(`Failed to submit clarification: ${err.message}`);
     } finally {
       setIsSubmitting(false);

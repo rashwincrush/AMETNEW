@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import logger from '../../utils/logger';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
@@ -35,8 +36,8 @@ export default function MyRequestsPage() {
       if (error) throw error;
       setRequests(data || []);
     } catch (error) {
-      console.error('Error fetching requests:', error);
-      toast.error('Failed to load your requests');
+      logger.error('Error fetching requests:', error);
+      toast.error('We could not load your requests. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -53,11 +54,11 @@ export default function MyRequestsPage() {
 
       if (error) throw error;
 
-      toast.success('Request cancelled');
+      toast.success('Your request has been cancelled.');
       fetchRequests(); // Refresh list
     } catch (error) {
-      console.error('Error cancelling request:', error);
-      toast.error('Failed to cancel request');
+      logger.error('Error cancelling request:', error);
+      toast.error('We could not cancel this request. Please try again.');
     } finally {
       setCancellingId(null);
     }
@@ -74,9 +75,9 @@ export default function MyRequestsPage() {
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-gray-900">Requests I sent</h2>
+        <h2 className="text-xl font-semibold text-gray-900">Requests I have sent</h2>
         <p className="mt-1 text-sm text-gray-600">
-          Requests you've sent to mentors, grouped by status.
+          Mentorship requests you have sent to mentors, grouped by status.
         </p>
         <p className="mt-1 text-sm font-medium text-gray-700">
           {requests.length} total · {pendingCount} pending
@@ -129,13 +130,13 @@ export default function MyRequestsPage() {
             </svg>
             <h3 className="text-lg font-medium text-gray-900 mb-2">
               {statusFilter === 'all'
-                ? 'No requests yet'
+                ? 'No mentorship requests yet'
                 : `No ${statusFilter} requests`}
             </h3>
             <p className="text-gray-600 mb-4">
               {statusFilter === 'all'
-                ? 'Browse mentors and send your first mentorship request.'
-                : `You don't have any ${statusFilter} requests.`}
+                ? 'Browse mentors and send your first mentorship request to get started.'
+                : `You do not have any ${statusFilter} requests.`}
             </p>
             {statusFilter === 'all' && (
               <button
@@ -191,11 +192,11 @@ export default function MyRequestsPage() {
 
                     {/* Status Message */}
                     <p className="mt-2 text-sm text-gray-600">
-                      {isPending && 'Waiting for mentor to respond'}
-                      {isAccepted && 'Mentor accepted. You can start chatting.'}
-                      {request.status === 'rejected' && 'Mentor was not available.'}
+                      {isPending && 'Waiting for your mentor to respond.'}
+                      {isAccepted && 'Your mentor accepted. You can start chatting.'}
+                      {request.status === 'rejected' && 'This mentor was not available.'}
                       {request.status === 'cancelled_by_user' && 'You cancelled this request.'}
-                      {request.status === 'cancelled_by_system' && 'Request was auto-cancelled.'}
+                      {request.status === 'cancelled_by_system' && 'This request was auto-cancelled.'}
                     </p>
 
                     {/* Actions */}
@@ -206,7 +207,7 @@ export default function MyRequestsPage() {
                           disabled={cancellingId === request.id}
                           className="px-4 py-2 text-sm border border-red-300 text-red-700 rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
-                          {cancellingId === request.id ? 'Cancelling...' : 'Cancel request'}
+                          {cancellingId === request.id ? 'Cancelling…' : 'Cancel request'}
                         </button>
                       )}
                       {isAccepted && (

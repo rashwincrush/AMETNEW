@@ -33,6 +33,7 @@ export default function SecurityCheck() {
     let mounted = true;
     (async () => {
       try {
+        // eslint-disable-next-line no-console
         const prodConsoleSilent = process.env.NODE_ENV === 'production' ? typeof console.log === 'function' && String(console.log).includes('[native code]') === false : true;
         const loggerRedacts = (() => {
           const sample = 'Bearer abc.def UUID 123e4567-e89b-12d3-a456-426614174000 user@example.com sb_secret_abc';

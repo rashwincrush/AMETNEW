@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import EmployerGuard from '../Auth/EmployerGuard';
+import logger from '../../utils/logger';
 import toast from 'react-hot-toast';
 import { toFriendlyToast, getFriendlyErrorMessage } from '../../utils/errors';
 import {
@@ -48,7 +49,7 @@ const EditJob = () => {
       return;
     }
     if (!user) {
-      toast.error('You must be logged in to edit a job.');
+      toast.error('You must be logged in to edit this job.');
       navigate('/login');
       return;
     }
@@ -124,7 +125,7 @@ const EditJob = () => {
       setLogoPreview(existingLogo);
       setLogoFile(null);
     } catch (e) {
-      console.error('Error fetching job:', e);
+      logger.error('Error fetching job:', e);
       setError(getFriendlyErrorMessage(e, 'Failed to load job data.'));
       setFormData(null);
     } finally {
@@ -150,13 +151,13 @@ const EditJob = () => {
 
     const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/svg+xml', 'image/webp'];
     if (!validTypes.includes(file.type)) {
-      toast.error('Invalid file type. Only PNG, JPG, JPEG, GIF, SVG, or WebP are allowed.');
+      toast.error('Invalid file type. Only PNG, JPG, GIF, SVG, or WebP files are allowed.');
       return;
     }
 
     const maxSize = 2 * 1024 * 1024; // 2MB
     if (file.size > maxSize) {
-      toast.error('File size exceeds 2MB. Please upload a smaller image.');
+      toast.error('Your file is too large (max 2 MB). Please upload a smaller image.');
       return;
     }
 
@@ -167,7 +168,7 @@ const EditJob = () => {
   const handleSave = async (e) => {
     e.preventDefault();
     if (!id) {
-      toast.error('Missing job id.');
+      toast.error('Missing job ID.');
       return;
     }
     setIsSubmitting(true);
@@ -193,14 +194,14 @@ const EditJob = () => {
 
     const chosen = [norm_apply_url, norm_application_url, norm_external_url].filter(Boolean).length;
     if (chosen > 1) {
-      toast.error('Please provide only ONE of: Apply URL, Application URL, or External URL.');
+      toast.error('Please provide only one external URL field.');
       setIsSubmitting(false);
       return;
     }
 
     // Additional validation to match jobs_application_url_valid
     if (norm_application_url && !(norm_application_url.startsWith('https://') || norm_application_url.startsWith('mailto:'))) {
-      toast.error('Application URL must start with https:// or mailto:');
+      toast.error('Application URL must start with https:// or mailto:.');
       setIsSubmitting(false);
       return;
     }
@@ -221,8 +222,8 @@ const EditJob = () => {
           });
 
         if (uploadError) {
-          console.error('Logo upload failed in EditJob:', uploadError);
-          toast.error(`Logo upload failed: ${uploadError.message || 'Unknown error'}`);
+          logger.error('Logo upload failed in EditJob:', uploadError);
+          toast.error(`We could not upload the logo: ${uploadError.message || 'Unknown error'}`);
         } else {
           const { data: urlData } = supabase.storage
             .from('company-logos')
@@ -234,16 +235,16 @@ const EditJob = () => {
               .update({ logo_url: nextLogoUrl })
               .eq('id', company_id);
             if (logoUpdateError) {
-              console.error('Error updating company logo in EditJob:', logoUpdateError);
-              toast.error('Job updated, but failed to update company logo.');
+              logger.error('Error updating company logo in EditJob:', logoUpdateError);
+              toast.error('Job updated, but we could not update the company logo.');
             } else {
               setLogoPreview(nextLogoUrl);
             }
           }
         }
       } catch (err) {
-        console.error('Unexpected error during logo upload in EditJob:', err);
-        toast.error('Job updated, but failed to update company logo.');
+        logger.error('Unexpected error during logo upload in EditJob:', err);
+        toast.error('Job updated, but we could not update the company logo.');
       }
     }
 
@@ -252,7 +253,7 @@ const EditJob = () => {
       // Minimal Quick Link update
       const isoDate = toISODate(String((application_deadline || deadline || '').toString()).trim());
       if (!title || !norm_application_url || !isoDate) {
-        toast.error('For Quick Link, Title, External URL, and Deadline are required.');
+        toast.error('For quick link jobs, title, external URL, and deadline are required.');
         setIsSubmitting(false);
         return;
       }
@@ -298,10 +299,10 @@ const EditJob = () => {
 
       if (upErr) throw upErr;
 
-      toast.success('Job updated successfully!');
+      toast.success('Job updated successfully.');
       navigate(`/jobs/${id}`);
     } catch (err) {
-      console.error('Error updating job:', err);
+      logger.error('Error updating job:', err);
       toFriendlyToast(toast, err, 'Update failed. Please try again.');
     } finally {
       setIsSubmitting(false);

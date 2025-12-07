@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../utils/supabase';
+import logger from '../utils/logger';
 
 export function useConnectionStatus(userId, otherId) {
   const [status, setStatus] = useState('loading');
@@ -33,7 +34,7 @@ export function useConnectionStatus(userId, otherId) {
         }
       }
     } catch (error) {
-      console.error('Error fetching connection status:', error);
+      logger.error('Error fetching connection status:', error);
       setStatus('idle');
       setDirection(null);
     } finally {

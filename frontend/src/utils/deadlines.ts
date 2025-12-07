@@ -19,4 +19,7 @@ export const isApproved = (job: any) => job?.is_approved === true;
 export const isActiveFlag = (job: any) => job?.is_active !== false;
 
 export const isOpen = (job: any, now: Date = new Date()): boolean =>
-  isStatusActive(job) && isApproved(job) && isActiveFlag(job) && !isDeadlinePassed(job?.deadline || job?.application_deadline, now);
+  isStatusActive(job)
+  && isApproved(job)
+  && isActiveFlag(job)
+  && !isDeadlinePassed(job?.deadline || job?.application_deadline || job?.expires_at, now);

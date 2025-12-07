@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { supabase, createThread } from '../../utils/supabase';
@@ -45,7 +46,7 @@ const NewConversationModal = ({ isOpen, onClose, onConversationStarted }) => {
       if (error) throw error;
       setSearchResults(data || []);
     } catch (e) {
-      console.error('Error searching users:', e);
+      logger.error('Error searching users:', e);
       setError('Failed to search for users.');
     } finally {
       setLoading(false);
@@ -65,7 +66,7 @@ const NewConversationModal = ({ isOpen, onClose, onConversationStarted }) => {
       onConversationStarted(threadId);
       onClose();
     } catch (err) {
-      console.error('Error starting conversation:', err);
+      logger.error('Error starting conversation:', err);
       setError('Could not start conversation.');
     }
   };

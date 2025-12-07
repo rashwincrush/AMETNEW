@@ -1,3 +1,4 @@
+import logger from './logger';
 import { supabase } from './supabase';
 import toast from 'react-hot-toast';
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
@@ -103,7 +104,7 @@ export async function idempotentConnect(requesterId, recipientId) {
     });
     if (!resp.ok) {
       let j = null; try { j = await resp.json(); } catch (_) { /* no-op */ }
-      console.error('manual POST /connections failed', resp.status, j);
+      logger.error('manual POST /connections failed', resp.status, j);
       throw new Error('manual-insert-failed');
     }
     const latest = await getLatestEdge(requesterId, recipientId);
@@ -161,7 +162,7 @@ export async function idempotentConnect(requesterId, recipientId) {
       return null;
     }
     // Log original minimal insert error for diagnostics
-    console.error('connections.idempotentConnect insert errors', { minimal: createErr, fallback: e2 });
+    logger.error('connections.idempotentConnect insert errors', { minimal: createErr, fallback: e2 });
     // Final fallback: raw fetch without columns param to avoid client library query mutation
     try {
       const { data: sess } = await supabase.auth.getSession();
@@ -179,7 +180,7 @@ export async function idempotentConnect(requesterId, recipientId) {
       });
       if (!resp.ok) {
         let j = null; try { j = await resp.json(); } catch (_) { /* no-op */ }
-        console.error('manual POST /connections failed', resp.status, j);
+        logger.error('manual POST /connections failed', resp.status, j);
         throw e2;
       }
       const latest = await getLatestEdge(requesterId, recipientId);
@@ -201,7 +202,7 @@ export async function connectTo(meId, otherId) {
     if (code.includes('23505') || code.includes('409') || code.includes('duplicate') || code.includes('already')) {
       return;
     }
-    console.error('connectTo error', error);
+    logger.error('connectTo error', error);
     toast.error('Failed to send request');
     throw error;
   }
@@ -225,7 +226,7 @@ export async function cancelPending(meId, otherId) {
       await updateEdge(edge.id, 'removed');
       toast.success('Request cancelled');
     } catch (e) {
-      console.error('cancelPending error', e);
+      logger.error('cancelPending error', e);
       toast.error('Failed to cancel request');
       throw e;
     }
@@ -242,13 +243,13 @@ export async function acceptPending(meId, otherId) {
         p_connection_id: edge.id,
       });
       if (error) {
-        console.error('connection_accept RPC error', error);
+        logger.error('connection_accept RPC error', error);
         throw error;
       }
 
       toast.success('Connection accepted');
     } catch (e) {
-      console.error('acceptPending error', e);
+      logger.error('acceptPending error', e);
       toast.error('Failed to accept request');
       throw e;
     }
@@ -262,7 +263,7 @@ export async function declinePending(meId, otherId) {
       await updateEdge(edge.id, 'declined');
       toast('Request declined', { icon: '👋' });
     } catch (e) {
-      console.error('declinePending error', e);
+      logger.error('declinePending error', e);
       toast.error('Failed to decline request');
       throw e;
     }
@@ -276,7 +277,7 @@ export async function removeConnection(meId, otherId) {
       await updateEdge(edge.id, 'removed');
       toast('Connection removed', { icon: '🗑️' });
     } catch (e) {
-      console.error('removeConnection error', e);
+      logger.error('removeConnection error', e);
       toast.error('Failed to remove connection');
       throw e;
     }
@@ -291,11 +292,11 @@ export async function requestConnectionForJob(jobId, employerId, meId) {
       const { error } = await supabase.rpc('request_connection_for_job', { p_job_id: jobId });
       if (!error) return;
       // If RPC returns an error, fall through to fallback
-      console.warn('request_connection_for_job RPC error, falling back:', error?.message || error);
+      logger.warn('request_connection_for_job RPC error, falling back:', error?.message || error);
     }
   } catch (e) {
     // benign: fall back
-    console.warn('request_connection_for_job RPC unavailable, falling back');
+    logger.warn('request_connection_for_job RPC unavailable, falling back');
   }
   try {
     if (meId && employerId) {
@@ -303,7 +304,7 @@ export async function requestConnectionForJob(jobId, employerId, meId) {
     }
   } catch (e) {
     // Swallow to keep UX smooth; chat page will still gate by connection state
-    console.warn('Fallback idempotentConnect failed (non-fatal):', e?.message || e);
+    logger.warn('Fallback idempotentConnect failed (non-fatal):', e?.message || e);
   }
 }
 
@@ -313,16 +314,16 @@ export async function requestConnectionForEvent(eventId, organizerId, meId) {
     if (eventId) {
       const { error } = await supabase.rpc('request_connection_for_event', { p_event_id: eventId });
       if (!error) return;
-      console.warn('request_connection_for_event RPC error, falling back:', error?.message || error);
+      logger.warn('request_connection_for_event RPC error, falling back:', error?.message || error);
     }
   } catch (e) {
-    console.warn('request_connection_for_event RPC unavailable, falling back');
+    logger.warn('request_connection_for_event RPC unavailable, falling back');
   }
   try {
     if (meId && organizerId) {
       await idempotentConnect(meId, organizerId);
     }
   } catch (e) {
-    console.warn('Fallback idempotentConnect failed (non-fatal):', e?.message || e);
+    logger.warn('Fallback idempotentConnect failed (non-fatal):', e?.message || e);
   }
 }

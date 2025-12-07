@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
@@ -29,7 +30,7 @@ const AuthCallback = () => {
           });
         }
       } catch (err) {
-        console.error('Auth callback error:', err);
+        logger.error('Auth callback error:', err);
         setError('Authentication failed. Please try logging in again.');
       }
     };

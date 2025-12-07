@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import Logo from '../common/Logo';
 import { Link, useLocation } from 'react-router-dom';
+import logger from '../../utils/logger';
 import { 
   HomeIcon, 
   UsersIcon, 
@@ -55,7 +56,7 @@ const Navigation = () => {
     try {
       await signOut();
     } catch (error) {
-      console.error('Error signing out:', error);
+      logger.error('Error signing out:', error);
     }
   };
 

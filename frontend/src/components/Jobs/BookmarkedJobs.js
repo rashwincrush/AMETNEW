@@ -3,6 +3,7 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Box, Typography, Grid, CircularProgress, Paper } from '@mui/material';
 import JobCard from './JobListingsPage'; // Reusing the JobCard component (default export)
+import logger from '../../utils/logger';
 import toast from 'react-hot-toast';
 import { useNotification } from '../common/NotificationCenter';
 import { toggleBookmarkRPC } from '../../utils/bookmarks';
@@ -50,7 +51,7 @@ const BookmarkedJobs = () => {
 
         setBookmarkedJobs(jobs);
       } catch (error) {
-        console.error('Error fetching bookmarked jobs:', error);
+        logger.error('Error fetching bookmarked jobs:', error);
       } finally {
         setLoading(false);
       }
@@ -117,7 +118,7 @@ const BookmarkedJobs = () => {
         toast.success('Job bookmarked!');
       }
     } catch (error) {
-      console.error('Error bookmarking job:', error);
+      logger.error('Error bookmarking job:', error);
       notification.showError('Failed to update bookmark.');
     }
   };

@@ -7,7 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 export function useNotifications() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const [filterTab, setFilterTab] = useState('all'); // 'all' | 'unread' | 'read'
+  const [filterTab, setFilterTab] = useState('unread'); // now default to unread-only view
   const [typeFilter, setTypeFilter] = useState(new Set());
   const [cursor, setCursor] = useState(undefined);
 

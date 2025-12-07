@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useEffect, useMemo, useRef, useState, forwardRef } from 'react';
 import { supabase } from '../../utils/supabase';
 
@@ -85,7 +86,7 @@ const DegreeComboBox = forwardRef(function DegreeComboBox(
 
   function handleSelect(code) {
     if (process.env.NODE_ENV === 'development') {
-      console.debug('[DegreeComboBox] selected', code);
+      logger.debug('[DegreeComboBox] selected', code);
     }
     onChange?.(code);
     setQuery(code);

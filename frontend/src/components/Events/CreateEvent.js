@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDate } from '../../utils/dateUtils';
+import logger from '../../utils/logger';
 import { 
   PhotoIcon,
   CalendarIcon,
@@ -172,7 +173,7 @@ const CreateEvent = () => {
   };
 
   const validateForm = () => {
-    console.log('Entering validateForm...');
+    logger.log('Entering validateForm...');
     try {
       const newErrors = {};
 
@@ -230,38 +231,38 @@ const CreateEvent = () => {
 
       setErrors(newErrors);
       const isValid = Object.keys(newErrors).length === 0;
-      console.log('validateForm - newErrors (inside try):', JSON.stringify(newErrors));
-      console.log('validateForm - isValid (inside try):', isValid);
+      logger.log('validateForm - newErrors (inside try):', JSON.stringify(newErrors));
+      logger.log('validateForm - isValid (inside try):', isValid);
       return isValid;
     } catch (error) {
-      console.error('Error caught inside validateForm:', error);
+      logger.error('Error caught inside validateForm:', error);
       setErrors(prevErrors => ({ ...prevErrors, form: 'An unexpected error occurred during validation.' }));
-      console.log('validateForm - returning false due to internal error');
+      logger.log('validateForm - returning false due to internal error');
       return false; // Ensure it returns false if an error happens
     }
   };
 
   const handleSubmit = async (e) => {
     try {
-      console.log('Submit button clicked - starting event creation');
+      logger.log('Submit button clicked - starting event creation');
       e.preventDefault();
       if (!user) {
         toast.error("You must be logged in to create an event.");
         return;
       }
-      console.log('Form validation starting...');
+      logger.log('Form validation starting...');
       const isFormValid = validateForm();
       if (!isFormValid) {
-        console.log('handleSubmit: Form validation failed. Errors:', JSON.stringify(errors)); // Log current errors state
+        logger.log('handleSubmit: Form validation failed. Errors:', JSON.stringify(errors)); // Log current errors state
         toast.error('Please fix the errors before submitting.');
         return;
       }
-      console.log('Form validation passed');
+      logger.log('Form validation passed');
       setIsSubmitting(true);
-      console.log('Starting submission');
+      logger.log('Starting submission');
 
-      console.log('Image processing complete');
-      console.log('Creating event data object');
+      logger.log('Image processing complete');
+      logger.log('Creating event data object');
       // Create date objects in local timezone first
       const startDate = new Date(formData.date);
       const [startHours, startMinutes] = formData.startTime.split(':').map(Number);
@@ -301,13 +302,13 @@ const CreateEvent = () => {
         user_id: user.id,
       };
       
-      console.log('Submitting event data to Supabase:', eventData);
+      logger.log('Submitting event data to Supabase:', eventData);
       const { data: row, error: insertError } = await supabase
         .from('events')
         .insert([eventData])
         .select('id, featured_image_path')
         .single();
-      console.log('Response from insert:', { data: row, error: insertError });
+      logger.log('Response from insert:', { data: row, error: insertError });
 
       if (row?.id && formData.image) {
         await saveEventImage({
@@ -319,23 +320,23 @@ const CreateEvent = () => {
       }
 
       if (insertError) {
-        console.error('Supabase insert error:', insertError);
+        logger.error('Supabase insert error:', insertError);
         throw new Error(`Database insert failed: ${insertError.message}`);
       }
 
       if (!row) {
-        console.error('Event created but no data returned. Check RLS policies.');
+        logger.error('Event created but no data returned. Check RLS policies.');
         throw new Error('Event was not created successfully. You may not have permission to view it.');
       }
       
       toast.success('Event created successfully!');
       navigate('/events');
     } catch (error) {
-      console.error('Top level error caught in handleSubmit:', error);
-      console.error('Error creating event:', error);
+      logger.error('Top level error caught in handleSubmit:', error);
+      logger.error('Error creating event:', error);
       toast.error(`Error creating event: ${error.message}`);
     } finally {
-      console.log('Finishing event submission process');
+      logger.log('Finishing event submission process');
       setIsSubmitting(false);
     }
   };

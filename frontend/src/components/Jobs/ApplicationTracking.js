@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import logger from '../../utils/logger';
+import { normalizeStatus, STATUS_BADGE_CLASS, STATUS_LABEL } from '../../utils/applicationStatus';
 
 // Normalize resume value (path or legacy public URL) into a storage path
 const getResumePathFromValue = (value) => {
@@ -32,7 +34,7 @@ const ApplicationTracking = () => {
   useEffect(() => {
     // Route guard: only applicants (student/alumni)
     if (user && !['student','alumni'].includes(userRole)) {
-      toast.error('Only applicants can view My Applications');
+      toast.error('Only student and alumni accounts can view My applications.');
       navigate('/jobs', { replace: true });
       return;
     }
@@ -108,8 +110,8 @@ const ApplicationTracking = () => {
 
         setApplications(enriched);
       } catch (error) {
-        console.error('Error fetching applications:', error);
-        toast.error('Failed to load your applications');
+        logger.error('Error fetching applications:', error);
+        toast.error('We could not load your applications. Please try again.');
       } finally {
         setIsLoading(false);
       }
@@ -118,38 +120,26 @@ const ApplicationTracking = () => {
     fetchApplications();
   }, [user]);
 
-  // Status filters
+  // Status filters (canonical values)
   const filterOptions = [
-    { value: 'all', label: 'All Applications' },
-    { value: 'submitted', label: 'Submitted' },
-    { value: 'reviewing', label: 'Under Review' },
-    { value: 'interview', label: 'Interview' },
-    { value: 'offered', label: 'Offer Received' },
-    { value: 'rejected', label: 'Rejected' },
-    { value: 'withdrawn', label: 'Withdrawn' },
+    { value: 'all',           label: 'All Applications' },
+    { value: 'submitted',     label: STATUS_LABEL.submitted },
+    { value: 'under_review',  label: STATUS_LABEL.under_review },
+    { value: 'shortlisted',   label: STATUS_LABEL.shortlisted },
+    { value: 'interviewing',  label: STATUS_LABEL.interviewing },
+    { value: 'offered',       label: STATUS_LABEL.offered },
+    { value: 'hired',         label: STATUS_LABEL.hired },
+    { value: 'rejected',      label: STATUS_LABEL.rejected },
+    { value: 'withdrawn',     label: STATUS_LABEL.withdrawn },
   ];
 
   const filteredApplications = filter === 'all' 
     ? applications 
-    : applications.filter(app => app.status === filter);
+    : applications.filter(app => normalizeStatus(app.status) === filter);
 
   const getStatusBadgeClass = (status) => {
-    switch (status) {
-      case 'submitted':
-        return 'bg-ocean-100 text-ocean-800';
-      case 'reviewing':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'interview':
-        return 'bg-purple-100 text-purple-800';
-      case 'offered':
-        return 'bg-green-100 text-green-800';
-      case 'rejected':
-        return 'bg-red-100 text-red-800';
-      case 'withdrawn':
-        return 'bg-gray-100 text-gray-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
+    const canonical = normalizeStatus(status);
+    return STATUS_BADGE_CLASS[canonical];
   };
 
   const formatDate = (dateString) => {
@@ -180,9 +170,9 @@ const ApplicationTracking = () => {
   if (!user) {
     return (
       <div className="text-center py-12">
-        <p className="text-xl mb-4">Please log in to view your job applications.</p>
+        <p className="text-xl mb-4">Please log in to view your applications.</p>
         <Link to="/login" className="px-6 py-2 bg-blue-600 text-white rounded-lg">
-          Go to Login
+          Go to login
         </Link>
       </div>
     );
@@ -190,7 +180,7 @@ const ApplicationTracking = () => {
 
   return (
     <div className="max-w-6xl mx-auto p-6">
-      <h2 className="text-2xl font-bold mb-6 text-gray-800">My Job Applications</h2>
+      <h2 className="text-2xl font-bold mb-6 text-gray-800">My applications</h2>
       
       {applications.length === 0 ? (
         <div className="text-center py-10 bg-white rounded-lg shadow">
@@ -207,14 +197,14 @@ const ApplicationTracking = () => {
               d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
             />
           </svg>
-          <h3 className="mt-2 text-lg font-medium text-gray-900">No applications yet</h3>
-          <p className="mt-1 text-gray-500">Get started by applying for jobs in our listings.</p>
+          <h3 className="mt-2 text-lg font-medium text-gray-900">You have not applied to any roles yet</h3>
+          <p className="mt-1 text-gray-500">When you apply to jobs, your applications and statuses will appear here.</p>
           <div className="mt-6">
             <Link
               to="/jobs"
               className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
             >
-              Browse Jobs
+              Browse jobs
             </Link>
           </div>
         </div>
@@ -223,7 +213,7 @@ const ApplicationTracking = () => {
           {/* Filter options */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Filter by Status:
+              Filter by status
             </label>
             <select
               value={filter}
@@ -232,8 +222,9 @@ const ApplicationTracking = () => {
             >
               {filterOptions.map(option => (
                 <option key={option.value} value={option.value}>
-                  {option.label} {option.value === 'all' ? `(${applications.length})` : 
-                    `(${applications.filter(app => app.status === option.value).length})`}
+                  {option.label} {option.value === 'all'
+                    ? `(${applications.length})`
+                    : `(${applications.filter(app => normalizeStatus(app.status) === option.value).length})`}
                 </option>
               ))}
             </select>
@@ -252,9 +243,14 @@ const ApplicationTracking = () => {
                             {application.jobs?.title || 'Unknown Position'}
                           </Link>
                         </p>
-                        <span className={`ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeClass(application.status)}`}>
-                          {application.status.charAt(0).toUpperCase() + application.status.slice(1)}
-                        </span>
+                        {(() => {
+                          const canonical = normalizeStatus(application.status);
+                          return (
+                            <span className={`ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeClass(canonical)}`}>
+                              {STATUS_LABEL[canonical]}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className="ml-2 flex-shrink-0 flex">
                         <p className="text-sm text-gray-500">

@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import Logo from '../common/Logo';
@@ -26,7 +27,7 @@ const LoginOtp = () => {
       else setStatus('OTP sent. Check your inbox.');
     } catch (e) {
       setError('Failed to send OTP.');
-      console.error(e);
+      logger.error(e);
     } finally {
       setLoading(false);
     }
@@ -40,7 +41,7 @@ const LoginOtp = () => {
       else setStatus('Magic link sent. Check your inbox.');
     } catch (e) {
       setError('Failed to send magic link.');
-      console.error(e);
+      logger.error(e);
     } finally {
       setLoading(false);
     }
@@ -59,7 +60,7 @@ const LoginOtp = () => {
       }
     } catch (e) {
       setError('Failed to verify code.');
-      console.error(e);
+      logger.error(e);
     } finally {
       setLoading(false);
     }

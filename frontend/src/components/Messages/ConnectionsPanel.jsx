@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 // frontend/src/components/Messages/ConnectionsPanel.jsx
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -160,7 +161,7 @@ export default function ConnectionsPanel({ currentUserId, initialTab = 'received
       
       return impact;
     } catch (error) {
-      console.error('Error checking disconnect impact:', error);
+      logger.error('Error checking disconnect impact:', error);
       return null;
     } finally {
       setCheckingImpact(false);
@@ -195,12 +196,12 @@ export default function ConnectionsPanel({ currentUserId, initialTab = 'received
             route: '/messages?tab=connections'
           });
         } catch (logErr) {
-          console.warn('Failed to log disconnect activity:', logErr);
+          logger.warn('Failed to log disconnect activity:', logErr);
         }
         
         toast.success('Connection removed (logged in activity history)');
       } catch (err) {
-        console.error('Disconnect failed:', err);
+        logger.error('Disconnect failed:', err);
       } finally {
         setDisconnectTarget(null);
         setDisconnectImpact(null);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { NOTIF_ID_FIELD, notifScopeFilter } from '../../utils/notifications';
+import logger from '../../utils/logger';
 import { BellIcon, EnvelopeIcon, UserIcon, CalendarIcon, BriefcaseIcon, ChatBubbleLeftRightIcon, UserGroupIcon } from '@heroicons/react/24/outline';
 import { Link } from 'react-router-dom';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -36,7 +37,7 @@ const NotificationBell = ({ currentUser }) => {
         if (error) throw error;
         setUnreadCount(data || 0);
       } catch (err) {
-        console.error('Error fetching notification count:', err);
+        logger.error('Error fetching notification count:', err);
       }
     };
 
@@ -51,7 +52,7 @@ const NotificationBell = ({ currentUser }) => {
 
     const handleNewNotification = (payload) => {
       if (payload.new) {
-        console.log('New notification received:', payload.new.id);
+        logger.log('New notification received:', payload.new.id);
         setUnreadCount(prev => prev + 1);
         toast(payload.new.title || 'New notification', {
           icon: '🔔',
@@ -119,7 +120,7 @@ const NotificationBell = ({ currentUser }) => {
       if (error) throw error;
       setNotifications(data || []);
     } catch (err) {
-      console.error('Error fetching notifications:', err);
+      logger.error('Error fetching notifications:', err);
     } finally {
       setLoading(false);
     }
@@ -135,10 +136,9 @@ const NotificationBell = ({ currentUser }) => {
 
   const markAsRead = async (notificationId) => {
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('id', notificationId);
+      const { error } = await supabase.rpc('mark_notification_read', {
+        p_notification_id: notificationId
+      });
 
       if (error) throw error;
       
@@ -148,7 +148,7 @@ const NotificationBell = ({ currentUser }) => {
       );
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (err) {
-      console.error('Error marking notification as read:', err);
+      logger.error('Error marking notification as read:', err);
     }
   };
 
@@ -156,11 +156,7 @@ const NotificationBell = ({ currentUser }) => {
     if (!currentUser || notifications.length === 0) return;
 
     try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq(NOTIF_ID_FIELD, currentUser.id)
-        .eq('is_read', false);
+      const { error } = await supabase.rpc('mark_all_notifications_read');
 
       if (error) throw error;
       
@@ -169,7 +165,7 @@ const NotificationBell = ({ currentUser }) => {
       setUnreadCount(0);
       toast.success('All notifications marked as read');
     } catch (err) {
-      console.error('Error marking all notifications as read:', err);
+      logger.error('Error marking all notifications as read:', err);
       toast.error('Failed to mark notifications as read');
     }
   };
@@ -185,7 +181,7 @@ const NotificationBell = ({ currentUser }) => {
         return format(new Date(date), 'MMM dd, yyyy');
       }
     } catch (err) {
-      console.error('Date formatting error:', err);
+      logger.error('Date formatting error:', err);
       return 'Unknown date';
     }
   };

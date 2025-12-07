@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useMemo, useState } from 'react';
 import { MagnifyingGlassIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import { formatDistanceToNow } from 'date-fns';
@@ -126,7 +127,7 @@ const ConversationList = ({
       
       return formatDistanceToNow(date, { addSuffix: true });
     } catch (error) {
-      console.error('Error formatting date:', error);
+      logger.error('Error formatting date:', error);
       return 'Date unavailable';
     }
   };

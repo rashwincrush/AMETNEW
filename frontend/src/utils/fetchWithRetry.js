@@ -1,3 +1,4 @@
+import logger from './logger';
 /**
  * Utility function to perform fetch requests with automatic retry on failure
  * This helps improve resilience against intermittent network issues
@@ -37,7 +38,7 @@ export const fetchWithRetry = async (fetchFn, options = {}) => {
 
       // If we've used all retries or shouldn't retry this error, throw
       if (attempt > retries || !shouldRetry(error)) {
-        console.error(`Fetch failed after ${attempt} attempts:`, error);
+        logger.error(`Fetch failed after ${attempt} attempts:`, error);
         throw error;
       }
 
@@ -47,7 +48,7 @@ export const fetchWithRetry = async (fetchFn, options = {}) => {
         maxDelay
       );
 
-      console.log(
+      logger.log(
         `Fetch attempt ${attempt} failed, retrying in ${Math.round(delay)}ms...`,
         error.message || error
       );

@@ -6,6 +6,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 // Removed legacy useRecentActivity in favor of self-contained ActivitiesWidget
 import { supabase } from '../../utils/supabase'; // Updated Supabase client import
 import toast from 'react-hot-toast'; // For error notifications
+import logger from '../../utils/logger';
 import ActivitiesWidget from './ActivitiesWidget';
 import MyGroupsWidget from './MyGroupsWidget';
 import { 
@@ -100,7 +101,7 @@ const AlumniDashboard = () => {
   const promiseWithTimeout = useCallback((promise, ms, maxRetries = 2, timeoutError = new Error('Request timed out')) => {
     // First check if the input is a promise
     if (!promise || typeof promise.then !== 'function') {
-      console.error('Invalid promise passed to promiseWithTimeout:', promise);
+      logger.error('Invalid promise passed to promiseWithTimeout:', promise);
       return Promise.resolve(promise); // Return a resolved promise with the value
     }
     
@@ -116,7 +117,7 @@ const AlumniDashboard = () => {
     const attemptWithRetry = (retriesLeft) => {
       // Log retries
       if (maxRetries - retriesLeft > 0) {
-        console.log(`Retrying API call, attempt ${maxRetries - retriesLeft + 1} of ${maxRetries + 1}`);
+        logger.log(`Retrying API call, attempt ${maxRetries - retriesLeft + 1} of ${maxRetries + 1}`);
       }
       
       return Promise.race([
@@ -124,14 +125,14 @@ const AlumniDashboard = () => {
         promise.then(result => result, err => {
           // If we have retries left and this is a network error or 429 (too many requests)
           if (retriesLeft > 0 && (err.message?.includes('network') || err.status === 429)) {
-            console.warn('Request failed, retrying...', err);
+            logger.warn('Request failed, retrying...', err);
             // Exponential backoff - wait longer for each retry
             const backoffTime = 1000 * Math.pow(2, maxRetries - retriesLeft);
             return new Promise(resolve => {
               setTimeout(() => resolve(attemptWithRetry(retriesLeft - 1)), backoffTime);
             });
           }
-          console.error('Promise error:', err);
+          logger.error('Promise error:', err);
           throw err;
         }),
         createTimeout()
@@ -155,14 +156,14 @@ const AlumniDashboard = () => {
       }
       return count || 0;
     } catch (error) {
-      console.error('Error counting connections:', error);
+      logger.error('Error counting connections:', error);
       return 0;
     }
   }, []);
 
   const fetchDashboardData = useCallback(async () => {
     if (!user?.id) return;
-    console.log('AlumniDashboard: fetchDashboardData started.');
+    logger.log('AlumniDashboard: fetchDashboardData started.');
     setLoading(true);
 
     try {
@@ -171,13 +172,13 @@ const AlumniDashboard = () => {
       });
 
       if (error) {
-        console.error('Error fetching dashboard summary:', error);
+        logger.error('Error fetching dashboard summary:', error);
         toast.error('Failed to load dashboard data. Please try again.');
         return;
       }
 
       if (!data) {
-        console.warn('Dashboard summary RPC returned no data');
+        logger.warn('Dashboard summary RPC returned no data');
         return;
       }
 
@@ -194,7 +195,7 @@ const AlumniDashboard = () => {
         jobRecommendationsList: Array.isArray(data.recommended_jobs_list) ? data.recommended_jobs_list : [],
       }));
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      logger.error('Error fetching dashboard data:', error);
       if (error.message && error.message.includes('timeout')) {
         toast.error('Dashboard data is taking longer than expected to load. Some features may be limited.');
       } else if (error.message && error.message.includes('network')) {
@@ -254,7 +255,7 @@ const AlumniDashboard = () => {
 
       localStorage.setItem(`lastEventCheck_${userId}`, now.toISOString());
     } catch (error) {
-      console.error('Error checking event reminders:', error);
+      logger.error('Error checking event reminders:', error);
     }
   }, [showInfo, navigate]);
 

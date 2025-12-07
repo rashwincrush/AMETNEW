@@ -11,6 +11,7 @@ import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import AlumniCard from './AlumniCard';
 import AlumniListItem from './AlumniListItem';
 import { logActivity } from '../../utils/activityLogger';
+import logger from '../../utils/logger';
 
 // Filters for public_profiles_view
 const FILTERABLE_COLUMNS = [
@@ -55,7 +56,7 @@ const AlumniDirectory = () => {
         if (mentorError) throw mentorError;
         setApprovedMentorIds(new Set(mentorData.map(m => m.user_id)));
       } catch (err) {
-        console.error('Error fetching mentor IDs:', err);
+        logger.error('Error fetching mentor IDs:', err);
         setError('Could not load mentor information.');
       }
     };
@@ -120,7 +121,7 @@ const AlumniDirectory = () => {
         route: '/directory'
       });
     } catch (err) {
-      console.error('Error fetching alumni data:', err);
+      logger.error('Error fetching alumni data:', err);
       setError('Failed to fetch alumni data. Please try again later.');
     } finally {
       setLoading(false);
@@ -221,7 +222,7 @@ const AlumniDirectory = () => {
             }
           }
         } catch (e) {
-          console.error('Realtime directory refresh error:', e);
+          logger.error('Realtime directory refresh error:', e);
         }
       }
     );
@@ -233,7 +234,7 @@ const AlumniDirectory = () => {
     // Setup visibility change detection to refresh data when user returns to page
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        console.log('Page became visible, refreshing alumni data');
+        logger.log('Page became visible, refreshing alumni data');
         // Instead of immediately triggering a refresh, check if we need to
         if (!loading) {
           setRefreshTrigger(prev => prev + 1);

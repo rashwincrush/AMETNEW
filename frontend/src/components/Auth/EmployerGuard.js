@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -31,7 +32,7 @@ const EmployerGuard = ({
 
       // No session
       if (!user) {
-        console.debug('[EmployerGuard] no user; strict=', strict);
+        logger.debug('[EmployerGuard] no user; strict=', strict);
         setHasAccess(!strict); // allow through in non-strict
         setLoading(false);
         return;
@@ -39,7 +40,7 @@ const EmployerGuard = ({
 
       // Admins always pass
       if (isAdmin) {
-        console.debug('[EmployerGuard] admin bypass');
+        logger.debug('[EmployerGuard] admin bypass');
         setHasAccess(true);
         setLoading(false);
         return;
@@ -48,7 +49,7 @@ const EmployerGuard = ({
       // Must be employer in strict mode
       const isEmployer = userRole === 'employer';
       if (!isEmployer) {
-        console.debug('[EmployerGuard] role is not employer; strict=', strict, 'role=', userRole);
+        logger.debug('[EmployerGuard] role is not employer; strict=', strict, 'role=', userRole);
         setHasAccess(!strict);
         setLoading(false);
         return;
@@ -63,18 +64,18 @@ const EmployerGuard = ({
           .eq('created_by', user.id);
 
         if (error) {
-          console.warn('[EmployerGuard] companies fetch error', error);
+          logger.warn('[EmployerGuard] companies fetch error', error);
         } else {
           myCompanyIds = (data || []).map(r => r.id);
         }
       } catch (e) {
-        console.warn('[EmployerGuard] companies fetch threw', e);
+        logger.warn('[EmployerGuard] companies fetch threw', e);
       }
 
       // If we only need to guard by companyId
       if (companyId && !jobId) {
         const ok = myCompanyIds.includes(companyId);
-        console.debug('[EmployerGuard] company check', { companyId, myCompanyIds, ok });
+        logger.debug('[EmployerGuard] company check', { companyId, myCompanyIds, ok });
         setHasAccess(ok || isAdmin);
         setLoading(false);
         return;
@@ -83,7 +84,7 @@ const EmployerGuard = ({
       // If nothing specific is requested, allow employer who has at least one company
       if (!companyId && !jobId) {
         const ok = myCompanyIds.length > 0;
-        console.debug('[EmployerGuard] employer baseline access', { ok, myCompanyIds });
+        logger.debug('[EmployerGuard] employer baseline access', { ok, myCompanyIds });
         setHasAccess(ok || isAdmin);
         setLoading(false);
         return;
@@ -115,7 +116,7 @@ const EmployerGuard = ({
         }
 
         if (last.error) {
-          console.debug('[EmployerGuard] job fetch error', {
+          logger.debug('[EmployerGuard] job fetch error', {
             status: last.error.status, code: last.error.code, msg: last.error.message,
             path: location.pathname, jobId
           });
@@ -126,7 +127,7 @@ const EmployerGuard = ({
 
         jobRow = last.data;
         if (!jobRow) {
-          console.debug('[EmployerGuard] job not found by RLS or missing', { jobId });
+          logger.debug('[EmployerGuard] job not found by RLS or missing', { jobId });
           setHasAccess(false);
           setLoading(false);
           return;
@@ -137,7 +138,7 @@ const EmployerGuard = ({
         const isOwner = ownerIds.includes(user.id);
 
         const ok = isOwner || ownsCompany || isAdmin;
-        console.debug('[EmployerGuard] job ownership decision', {
+        logger.debug('[EmployerGuard] job ownership decision', {
           jobId,
           ownerIds,
           me: user.id,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../utils/supabase';
+import logger from '../utils/logger';
 
 // Hook for loading contact details for a given user via secure RPC.
 // Never read email/phone directly from profiles or directory views.
@@ -46,7 +47,7 @@ export default function useProfileContact(userId) {
         }
       } catch (e) {
         if (!cancelled) {
-          console.error('get_profile_contact_details failed', e);
+          logger.error('get_profile_contact_details failed', e);
           setError(e);
           setEmail(null);
           setPhoneNumber(null);

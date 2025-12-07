@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../utils/supabase';
 import { idempotentConnect, acceptPending, declinePending } from '../utils/connections';
+import logger from '../utils/logger';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -71,7 +72,7 @@ export default function AlumniProfileCard({ profile, currentUserId, avatarUrl })
       // Swallow duplicates and refresh; log unexpected
       const code = error?.code || error?.status || error?.message;
       if (code !== '23505' && code !== 409 && !(typeof code === 'string' && code.includes('duplicate'))) {
-        console.error('Error connecting:', error);
+        logger.error('Error connecting:', error);
       }
       refreshStatus();
     } finally {
@@ -85,7 +86,7 @@ export default function AlumniProfileCard({ profile, currentUserId, avatarUrl })
       await acceptPending(currentUserId, profile.id);
       refreshStatus();
     } catch (error) {
-      console.error('Error accepting:', error);
+      logger.error('Error accepting:', error);
     } finally {
       setActionLoading(false);
     }
@@ -97,7 +98,7 @@ export default function AlumniProfileCard({ profile, currentUserId, avatarUrl })
       await declinePending(currentUserId, profile.id);
       refreshStatus();
     } catch (error) {
-      console.error('Error declining:', error);
+      logger.error('Error declining:', error);
     } finally {
       setActionLoading(false);
     }
@@ -114,7 +115,7 @@ export default function AlumniProfileCard({ profile, currentUserId, avatarUrl })
       // Assuming data has conversation_id, redirect to messages
       navigate(`/messages?conversation=${data}`);
     } catch (error) {
-      console.error('Error starting conversation:', error);
+      logger.error('Error starting conversation:', error);
     }
   };
 

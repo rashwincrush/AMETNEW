@@ -6,7 +6,7 @@ import { isAdminLike } from '../../lib/roles';
 // Backward compatible props: supports requiredPermission, isSuperAdminOnly
 // New props: requireAdmin (boolean), allowRoles (array of role strings)
 const ProtectedRoute = ({ children, requiredPermission, isSuperAdminOnly, requireAdmin = false, allowRoles, requireVerifiedEmail = false }) => {
-  const { isAuthenticated, hasPermission, loading, role, getUserRole, session } = useAuth();
+  const { isAuthenticated, hasPermission, loading, userRole, getUserRole, session } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -34,12 +34,12 @@ const ProtectedRoute = ({ children, requiredPermission, isSuperAdminOnly, requir
   }
 
   // New gating: enum-based role checks
-  if (requireAdmin && !isAdminLike(role)) {
+  if (requireAdmin && !isAdminLike(userRole)) {
     return <Navigate to="/access-denied" state={{ from: location.pathname }} replace />;
   }
 
   if (allowRoles && Array.isArray(allowRoles) && allowRoles.length > 0) {
-    if (!allowRoles.includes(role)) {
+    if (!allowRoles.includes(userRole)) {
       return <Navigate to="/access-denied" state={{ from: location.pathname }} replace />;
     }
   }

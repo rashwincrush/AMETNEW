@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 // DEPRECATED: legacy messaging UI. Do not use for new features.
 // The canonical messaging UI is MessagingSystem + ConversationList + ChatWindow.
 
@@ -12,7 +13,7 @@
         
         if (error) {
           toast.error('Failed to load messages');
-          console.error('Error loading messages:', error);
+          logger.error('Error loading messages:', error);
           return;
         }
         
@@ -55,7 +56,7 @@
           }
         }
       } catch (err) {
-        console.error('Error in message loading:', err);
+        logger.error('Error in message loading:', err);
         toast.error('Something went wrong loading messages');
       } finally {
         setLoading(false);
@@ -102,7 +103,7 @@
       
       if (error) {
         toast.error('Failed to send message');
-        console.error('Error sending message:', error);
+        logger.error('Error sending message:', error);
         
         // Remove optimistic message on error
         setMessages(prev => prev.filter(msg => msg.id !== optimisticMessage.id));
@@ -128,7 +129,7 @@
         setMessages(prev => [...prev, realMessage]);
       }
     } catch (err) {
-      console.error('Error in send message:', err);
+      logger.error('Error in send message:', err);
       toast.error('Something went wrong sending your message');
     }
   };

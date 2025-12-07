@@ -35,7 +35,7 @@ import { Box, TextField, Button, Paper, Typography, CircularProgress, Alert, Ale
 const MentorshipChat = () => {
   // Show deprecation warning in development
   useEffect(() => {
-    console.warn(
+    logger.warn(
       '[DEPRECATED] MentorshipChat component is deprecated. ' +
       'Use useOpenMentorshipChat hook and /messages route instead.'
     );

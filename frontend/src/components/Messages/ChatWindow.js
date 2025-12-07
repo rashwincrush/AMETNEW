@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { supabase, createThread, checkConnectionStatus } from '../../utils/supabase';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -68,7 +69,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
           setMentorshipRelationship(data);
         }
       } catch (err) {
-        console.error('Error fetching mentorship relationship:', err);
+        logger.error('Error fetching mentorship relationship:', err);
       }
     };
     
@@ -167,7 +168,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
           const msgs = await fetchThreadMessages(threadId, { since: sinceISO });
           setMessages(Array.isArray(msgs) ? msgs : []);
         } catch (err) {
-          console.error('Error loading thread:', err);
+          logger.error('Error loading thread:', err);
           toast.error('Failed to load messages.');
         } finally {
           setLoading(false);
@@ -235,7 +236,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
       }
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.warn('Failed to check connection status', err);
+      logger.warn('Failed to check connection status', err);
       setIsConnected(false);
     } finally {
       setCheckingConnection(false);
@@ -252,7 +253,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
         await checkConnection();
       } catch (err) {
         // eslint-disable-next-line no-console
-        console.warn('Failed to load connection edge', err);
+        logger.warn('Failed to load connection edge', err);
       }
     };
     loadEdge();
@@ -286,7 +287,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
       try {
         await sendDmMessage(activeThread.thread_id, toSend);
       } catch (err) {
-        console.error('send_dm_message error', err);
+        logger.error('send_dm_message error', err);
         // If not a participant, try to ensure the thread then retry once
         if (err?.message && /Not a participant/i.test(err.message) && activeThread?.other_user_id) {
           try {
@@ -301,7 +302,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
             }
             await sendDmMessage(ensuredId || activeThread.thread_id, toSend);
           } catch (retryErr) {
-            console.error('retry send_dm_message error', retryErr);
+            logger.error('retry send_dm_message error', retryErr);
             toast.error(mapDmErrorToMessage(retryErr));
             return;
           }
@@ -316,7 +317,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
       }
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('Error sending message:', err);
+      logger.error('Error sending message:', err);
       toast.error(mapDmErrorToMessage(err));
     } finally {
       setIsSending(false);
@@ -369,7 +370,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
       ]);
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('Failed to reconnect:', err);
+      logger.error('Failed to reconnect:', err);
       toast.error('Failed to send connection request');
     } finally {
       setIsReconnecting(false);
@@ -580,7 +581,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
                           toast.success('Connection accepted');
                         } catch (err) {
                           // eslint-disable-next-line no-console
-                          console.error(err);
+                          logger.error(err);
                         }
                       }}
                       aria-label="Accept connection request"
@@ -593,7 +594,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
                           toast('Request rejected');
                         } catch (err) {
                           // eslint-disable-next-line no-console
-                          console.error(err);
+                          logger.error(err);
                         }
                       }}
                       aria-label="Reject connection request"
@@ -612,7 +613,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
                         toast('Request canceled');
                       } catch (err) {
                         // eslint-disable-next-line no-console
-                        console.error(err);
+                        logger.error(err);
                       }
                     }}
                     aria-label="Cancel connection request"

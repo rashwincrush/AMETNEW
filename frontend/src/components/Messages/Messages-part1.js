@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 // DEPRECATED: legacy messaging UI. Do not use for new features.
 // The canonical messaging UI is MessagingSystem + ConversationList + ChatWindow.
 // This file contains old "isOnline" logic that was never properly wired up.
@@ -50,7 +51,7 @@ const Messages = () => {
       try {
         const { user, error } = await getCurrentUser();
         if (error) {
-          console.error('Error loading user:', error);
+          logger.error('Error loading user:', error);
           return;
         }
         
@@ -60,7 +61,7 @@ const Messages = () => {
           toast.error('You must be logged in to use messaging');
         }
       } catch (err) {
-        console.error('Error in user loading:', err);
+        logger.error('Error in user loading:', err);
       }
     };
     
@@ -78,7 +79,7 @@ const Messages = () => {
         
         if (error) {
           toast.error('Failed to load profiles');
-          console.error('Error loading profiles:', error);
+          logger.error('Error loading profiles:', error);
           return;
         }
         
@@ -104,7 +105,7 @@ const Messages = () => {
           setConversations(conversationsFromProfiles);
         }
       } catch (err) {
-        console.error('Error in profile loading:', err);
+        logger.error('Error in profile loading:', err);
         toast.error('Something went wrong loading profiles');
       } finally {
         setLoading(false);

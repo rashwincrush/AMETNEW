@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import Logo from '../common/Logo';
 import { Link, useNavigate } from 'react-router-dom';
@@ -202,7 +203,7 @@ const EnhancedRegister = () => {
 
       setCurrentStep(targetStep);
     } catch (e) {
-      console.warn('Failed to restore onboarding state:', e);
+      logger.warn('Failed to restore onboarding state:', e);
     }
   }, []);
 
@@ -623,7 +624,7 @@ const EnhancedRegister = () => {
     if (process.env.NODE_ENV === 'development') {
       // eslint-disable-next-line no-console
       if (selectedRole === 'alumni' || selectedRole === 'student') {
-        console.debug('[Register] Submitting with degree_code:', formData.degree_code, 'department_id:', formData.department_id);
+        logger.debug('[Register] Submitting with degree_code:', formData.degree_code, 'department_id:', formData.department_id);
       }
     }
 
@@ -633,7 +634,7 @@ const EnhancedRegister = () => {
     try {
       // Debug: surface submit start in console for easier tracing
       // eslint-disable-next-line no-console
-      console.log('[Register] Submitting signup request...');
+      logger.log('[Register] Submitting signup request...');
 
       // DB-driven validation for non-employer roles
       const isEmployer = selectedRole === 'employer';
@@ -684,7 +685,7 @@ const EnhancedRegister = () => {
         stage2.company_website = formData.companyWebsite?.trim() || null;
       }
 
-      console.log('[Register] Email about to sign up:', formData.email);
+      logger.log('[Register] Email about to sign up:', formData.email);
       const { data: signUpData, error } = await supabase.auth.signUp({
         email: formData.email.trim().toLowerCase(),
         password: formData.password,
@@ -695,7 +696,7 @@ const EnhancedRegister = () => {
       });
 
       if (error) {
-        console.error('Supabase signup error:', error.message);
+        logger.error('Supabase signup error:', error.message);
         throw new Error(error.message.includes('User already registered')
           ? 'A user with this email already exists. Please try logging in.'
           : 'Registration failed. If this keeps happening, try again later or contact support.');
@@ -753,7 +754,7 @@ const EnhancedRegister = () => {
       const profilePayload = pickSafeProfileFields(profilePayloadRaw);
 
       // eslint-disable-next-line no-console
-      console.log('[Register] Upserting profile with Stage-2 payload:', profilePayload);
+      logger.log('[Register] Upserting profile with Stage-2 payload:', profilePayload);
       const { error: upsertErr } = await supabase
         .from('profiles')
         .upsert(profilePayload, { onConflict: 'id' })
@@ -782,7 +783,7 @@ const EnhancedRegister = () => {
       } catch (e) {
         // Non-fatal: profile is created even if social links upsert fails
         // eslint-disable-next-line no-console
-        console.warn('Failed to seed social links during registration:', e);
+        logger.warn('Failed to seed social links during registration:', e);
       }
 
       // Ensure server-side role is set and JWT refreshed so UI shows correct role immediately
@@ -814,7 +815,7 @@ const EnhancedRegister = () => {
 
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error('Registration process error:', err?.message || err);
+      logger.error('Registration process error:', err?.message || err);
       setError(getFriendlyErrorMessage(err, 'An unexpected error occurred during registration.'));
     } finally {
       setIsSubmitting(false);
@@ -832,7 +833,7 @@ const EnhancedRegister = () => {
       // navigate('/dashboard'); // Example navigation
     } catch (err) {
       setError(getFriendlyErrorMessage(err, 'Social login failed. Please try again or use email registration.'));
-      console.error('Social login error:', err);
+      logger.error('Social login error:', err);
     } finally {
       setIsLoading(false);
     }

@@ -37,7 +37,7 @@ const ManageSuperAdmins = ({ isSuperAdmin }) => {
       if (error) throw error;
       setAdminUsers(data || []);
     } catch (err) {
-      console.error('Error fetching admin users:', err);
+      logger.error('Error fetching admin users:', err);
       toFriendlyToast(toast, err, 'Could not load admin users. Please try again.');
     } finally {
       setLoading(false);
@@ -58,7 +58,7 @@ const ManageSuperAdmins = ({ isSuperAdmin }) => {
       toast.success(`User ${makeSuperAdmin ? 'promoted to' : 'demoted from'} Super Admin successfully`);
       fetchAdminUsers();
     } catch (err) {
-      console.error('Error updating user role:', err);
+      logger.error('Error updating user role:', err);
       toFriendlyToast(toast, err, 'Failed to update user role. Please try again.');
     } finally {
       setLoading(false);
@@ -92,7 +92,7 @@ const ManageSuperAdmins = ({ isSuperAdmin }) => {
       setSelectedUserForRoleChange(foundUser);
       setShowConfirmation(true);
     } catch (err) {
-      console.error('Error finding user:', err);
+      logger.error('Error finding user:', err);
       toFriendlyToast(toast, err, 'Search failed. Please try again.');
     } finally {
       setLoading(false);

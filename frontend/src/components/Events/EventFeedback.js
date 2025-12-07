@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
+import logger from '../../utils/logger';
 import {
   Box,
   Typography,
@@ -58,7 +59,7 @@ const EventFeedback = () => {
         navigate('/login', { state: { from: `/events/${id}/feedback` } });
       }
     } catch (err) {
-      console.error('Error fetching current user:', err);
+      logger.error('Error fetching current user:', err);
       setError('You must be logged in to provide feedback');
     }
   };
@@ -73,7 +74,7 @@ const EventFeedback = () => {
         .eq('user_id', userId);
 
       if (error) {
-        console.error('Error fetching user feedback:', error);
+        logger.error('Error fetching user feedback:', error);
         return;
       }
       
@@ -85,7 +86,7 @@ const EventFeedback = () => {
         setComments(data[0].comments);
       }
     } catch (err) {
-      console.error('Error fetching user feedback:', err);
+      logger.error('Error fetching user feedback:', err);
     }
   };
 
@@ -106,7 +107,7 @@ const EventFeedback = () => {
       setEvent(eventData);
       
     } catch (err) {
-      console.error('Error fetching event:', err);
+      logger.error('Error fetching event:', err);
       setError(err.message || 'Failed to load event');
     } finally {
       setLoading(false);
@@ -127,7 +128,7 @@ const EventFeedback = () => {
       
       // Always ensure rating is an integer
       const intRating = Math.round(Number(rating));
-      console.log('Submitting rating as integer:', intRating);
+      logger.log('Submitting rating as integer:', intRating);
       
       // Create a feedback object with explicit fields only
       const feedbackData = {
@@ -150,7 +151,7 @@ const EventFeedback = () => {
           .eq('id', userFeedback.id);
 
         if (error) {
-          console.error('Error updating feedback:', error);
+          logger.error('Error updating feedback:', error);
           throw error;
         }
         setSuccess('Your feedback has been updated!');
@@ -161,7 +162,7 @@ const EventFeedback = () => {
           .insert([feedbackData]);
 
         if (error) {
-          console.error('Error inserting feedback:', error);
+          logger.error('Error inserting feedback:', error);
           throw error;
         }
         setSuccess('Thank you for your feedback!');
@@ -172,7 +173,7 @@ const EventFeedback = () => {
         navigate(`/events/${id}`);
       }, 2000);
     } catch (err) {
-      console.error('Error submitting feedback:', err);
+      logger.error('Error submitting feedback:', err);
       setError('Failed to submit feedback. Please try again.');
     } finally {
       setSubmitting(false);

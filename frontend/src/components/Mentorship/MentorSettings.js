@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { toFriendlyToast, getFriendlyErrorMessage } from '../../utils/errors';
+import logger from '../../utils/logger';
 
 const MentorSettings = () => {
   const navigate = useNavigate();
@@ -212,7 +213,7 @@ const MentorSettings = () => {
       // Navigate to dashboard after creation
       navigate('/mentorship/dashboard');
     } catch (err) {
-      console.error('Failed to create mentorship program:', err);
+      logger.error('Failed to create mentorship program:', err);
       toast.error(getFriendlyErrorMessage(err, 'Failed to create mentorship program'), { id: toastId });
     } finally {
       setSubmitting(false);

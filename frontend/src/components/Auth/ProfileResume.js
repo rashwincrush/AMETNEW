@@ -1,3 +1,4 @@
+import logger from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
@@ -70,7 +71,7 @@ const ProfileResume = () => {
 
       setResumes(enriched);
     } catch (error) {
-      console.error('Error fetching resumes:', error);
+      logger.error('Error fetching resumes:', error);
       toast.error('Failed to load your resumes');
     } finally {
       setIsLoading(false);
@@ -124,7 +125,7 @@ const ProfileResume = () => {
       };
       
       // Log the structure we're trying to insert
-      console.log("Inserting resume data:", resumeData);
+      logger.log("Inserting resume data:", resumeData);
 
       const { data: insertData, error: insertError } = await supabase
         .from('user_resumes')
@@ -138,7 +139,7 @@ const ProfileResume = () => {
       e.target.value = ''; // Clear the file input
       
     } catch (error) {
-      console.error('Error uploading resume:', error);
+      logger.error('Error uploading resume:', error);
       toast.error('Failed to upload resume');
     } finally {
       setUploadingResume(false);
@@ -164,7 +165,7 @@ const ProfileResume = () => {
       toast.success('Primary resume updated');
       fetchResumes(); // Refresh the list
     } catch (error) {
-      console.error('Error setting primary resume:', error);
+      logger.error('Error setting primary resume:', error);
       toast.error('Failed to update primary resume');
     }
   };
@@ -182,7 +183,7 @@ const ProfileResume = () => {
           .from('resumes')
           .remove([filePath]);
         
-        if (storageError) console.error('Error deleting file from storage:', storageError);
+        if (storageError) logger.error('Error deleting file from storage:', storageError);
       }
 
       // Delete record from database
@@ -196,7 +197,7 @@ const ProfileResume = () => {
       toast.success('Resume deleted successfully');
       fetchResumes(); // Refresh the list
     } catch (error) {
-      console.error('Error deleting resume:', error);
+      logger.error('Error deleting resume:', error);
       toast.error('Failed to delete resume');
     }
   };

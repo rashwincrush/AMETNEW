@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../utils/supabase';
+import logger from '../../utils/logger';
 import { format, parseISO } from 'date-fns';
 import { utcToZonedTime } from 'date-fns-tz';
 import { ArrowLeft, Edit, Trash2, Calendar, Clock, MapPin, Tag, Users, CheckCircle, BarChart2, Star } from 'lucide-react';
@@ -121,7 +122,7 @@ const EventDetail = () => {
       
     return () => {
       try { supabase.removeChannel(channel); } 
-      catch (e) { console.warn('Failed to remove channel:', e); }
+      catch (e) { logger.warn('Failed to remove channel:', e); }
     };
   }, [id, user?.id, queryClient]);
   
@@ -172,7 +173,7 @@ const EventDetail = () => {
         }
         setAttendees(rows);
       } catch (err) {
-        console.error('Error fetching attendees:', err);
+        logger.error('Error fetching attendees:', err);
         setError('Failed to load attendees');
       }
     };
@@ -197,7 +198,7 @@ const EventDetail = () => {
       .subscribe();
       
     return () => {
-      supabase.removeChannel(channel).catch(console.error);
+      supabase.removeChannel(channel).catch(() => {});
     };
   }, [id, refetchRsvp]);
 
@@ -234,7 +235,13 @@ const EventDetail = () => {
     setLoading(true);
     const { error } = await supabase.from('events').delete().eq('id', id);
     if (error) {
-      setError('Failed to delete event.');
+      logger.error('Error deleting event:', error);
+      const msg = String(error.message || '');
+      if (msg.toLowerCase().includes('permission denied')) {
+        setError('You do not have permission to delete this event.');
+      } else {
+        setError('Failed to delete event.');
+      }
       setLoading(false);
     } else {
       navigate('/events');
@@ -261,8 +268,13 @@ const EventDetail = () => {
       setShowRsvpSuccess(true);
       await refetchRsvp();
     } catch (err) {
-      console.error('Error during RSVP:', err);
-      setError('Failed to process your RSVP. Please try again.');
+      logger.error('Error during RSVP:', err);
+      const msg = String(err?.message || '');
+      if (msg.toLowerCase().includes('permission denied')) {
+        setError('You do not have permission to RSVP to this event.');
+      } else {
+        setError('Failed to process your RSVP. Please try again.');
+      }
     } finally {
       setRsvpLoading(false);
     }
@@ -311,8 +323,13 @@ const EventDetail = () => {
       }
       await refetchRsvp();
     } catch (err) {
-      console.error('Error updating RSVP:', err);
-      setError(`Failed to ${status === 'going' ? 'RSVP to' : 'cancel RSVP for'} this event.`);
+      logger.error('Error updating RSVP:', err);
+      const msg = String(err?.message || '');
+      if (msg.toLowerCase().includes('permission denied')) {
+        setError('You do not have permission to change your RSVP for this event.');
+      } else {
+        setError(`Failed to ${status === 'going' ? 'RSVP to' : 'cancel RSVP for'} this event.`);
+      }
     } finally {
       setRsvpLoading(false);
     }
@@ -372,8 +389,13 @@ const EventDetail = () => {
       await refetchFeedback();
       
     } catch (err) {
-      console.error('Error submitting feedback:', err?.message || err, err);
-      setError('Failed to submit your feedback. Please try again.');
+      logger.error('Error submitting feedback:', err?.message || err, err);
+      const msg = String(err?.message || '');
+      if (msg.toLowerCase().includes('permission denied')) {
+        setError('You do not have permission to submit feedback for this event.');
+      } else {
+        setError('Failed to submit your feedback. Please try again.');
+      }
     } finally {
       setRsvpLoading(false);
     }
@@ -414,8 +436,13 @@ const EventDetail = () => {
       setFeedbackSubmitted(true);
       await refetchFeedback();
     } catch (err) {
-      console.error('Error submitting feedback:', err);
-      setError('Failed to submit your feedback. Please try again.');
+      logger.error('Error submitting feedback:', err);
+      const msg = String(err?.message || '');
+      if (msg.toLowerCase().includes('permission denied')) {
+        setError('You do not have permission to submit feedback for this event.');
+      } else {
+        setError('Failed to submit your feedback. Please try again.');
+      }
     } finally {
       setRsvpLoading(false);
     }

@@ -32,8 +32,8 @@ export default function ChipBar({ counts, active, onChange, showEmployers = fals
   const connectionItems = showConnections
     ? [
         { id: 'connected', label: 'Connections', count: counts?.connected ?? 0 },
-        { id: 'received', label: 'Requests Received', count: counts?.received ?? 0 },
-        { id: 'sent', label: 'Requests Sent', count: counts?.sent ?? 0 },
+        { id: 'received', label: 'Requests received', count: counts?.received ?? 0 },
+        { id: 'sent', label: 'Requests sent', count: counts?.sent ?? 0 },
       ]
     : [];
 
@@ -119,7 +119,7 @@ export default function ChipBar({ counts, active, onChange, showEmployers = fals
       {/* Roles group: Alumni / Students / Employers */}
       <GroupChip
         groupId="roles"
-        label="Groups"
+        label="Roles"
         items={roleItems}
         isActive={isRolesActive}
         activeLeafId={active}

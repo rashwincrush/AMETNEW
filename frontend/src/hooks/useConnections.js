@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../utils/supabase';
+import logger from '../utils/logger';
 import { idempotentConnect } from '../utils/connections';
 import toast from 'react-hot-toast';
 import { toFriendlyToast } from '../utils/errors';
@@ -87,7 +88,7 @@ export function useConnectionsPanel(currentUserId) {
       setLists({ received, sent, accepted });
       setCounts({ received: received.length, sent: sent.length, accepted: accepted.length });
     } catch (e) {
-      console.error('useConnectionsPanel.load error', e);
+      logger.error('useConnectionsPanel.load error', e);
       setLists({ received: [], sent: [], accepted: [] });
       setCounts({ received: 0, sent: 0, accepted: 0 });
     } finally {
@@ -165,7 +166,7 @@ export function useConnectionsPanel(currentUserId) {
 */
       setByProfile(map);
     } catch (e) {
-      console.error('useConnections.load error', e);
+      logger.error('useConnections.load error', e);
     } finally {
       setLoading(false);
     }

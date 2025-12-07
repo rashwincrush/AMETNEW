@@ -86,20 +86,7 @@ export default function NotificationsPanel({ onClose }) {
         </div>
       </div>
 
-      <div className="px-3 pt-2">
-        <div className="inline-flex items-center gap-1 text-xs bg-gray-50 rounded-full p-0.5">
-          {['all','unread','read'].map((t) => (
-            <button
-              key={t}
-              onClick={() => setFilterTab(t)}
-              className={`px-2 py-1 rounded-full transition-colors ${filterTab===t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}
-              aria-pressed={filterTab===t}
-            >
-              {t[0].toUpperCase()+t.slice(1)}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Tabs removed: we always show all notifications now */}
 
       <div className="max-h-[70vh] overflow-auto mt-2" role="list">
         {isLoading && (

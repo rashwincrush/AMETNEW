@@ -8,6 +8,7 @@ import { adminGetProfileApprovalAudit } from '../../api/admin';
 import { useProfileById } from '../../hooks/useProfileById';
 import { getDisplayName } from '../../utils/displayName';
 import { useAvatar } from '../../hooks/useAvatar';
+import logger from '../../utils/logger';
 
 const UserDetailsModal = ({ user, isOpen, onClose }) => {
   const [audit, setAudit] = useState([]);
@@ -28,7 +29,7 @@ const UserDetailsModal = ({ user, isOpen, onClose }) => {
       })
       .catch((err) => {
         if (cancelled) return;
-        console.error('Failed to load approval history', err);
+        logger.error('Failed to load approval history', err);
         setAuditError('Failed to load approval history');
       })
       .finally(() => {

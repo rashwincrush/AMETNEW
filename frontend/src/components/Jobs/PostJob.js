@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
+import logger from '../../utils/logger';
 import { useApproval } from '../../hooks/useApproval';
 import { mapSupabaseErrorToToast } from '../../utils/mapSupabaseErrorToToast';
 import { buildJobPayload } from '../../utils/jobPayloadBuilder';
@@ -99,14 +100,14 @@ const PostJob = () => {
     // Validate file type
     const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/svg+xml'];
     if (!validTypes.includes(file.type)) {
-      toast.error('Invalid file type. Only PNG, JPG, JPEG, or SVG are allowed.');
+      toast.error('Invalid file type. Only PNG, JPG, JPEG, or SVG files are allowed.');
       return;
     }
     
     // Validate file size (max 2MB)
     const maxSize = 2 * 1024 * 1024; // 2MB
     if (file.size > maxSize) {
-      toast.error('File size exceeds 2MB. Please upload a smaller image.');
+      toast.error('Your file is too large (max 2 MB). Please upload a smaller image.');
       return;
     }
     
@@ -147,7 +148,7 @@ const PostJob = () => {
 
   const handleQuickLinkSubmit = async (e) => {
     e.preventDefault();
-    if (!isApprovedEmployer && !isAdmin) { toast.error('Your profile is not approved. Kindly contact administrator.'); return; }
+    if (!isApprovedEmployer && !isAdmin) { toast.error('Your employer profile is not yet approved. Please contact the administrator.'); return; }
 
     const newErrors = {};
     if (!formData.title.trim()) newErrors.title = 'Job Title is required.';
@@ -164,7 +165,7 @@ const PostJob = () => {
 
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) {
-      toast.error('Please fix the errors before submitting.');
+      toast.error('Please fix the errors highlighted above.');
       return;
     }
 
@@ -172,7 +173,7 @@ const PostJob = () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) {
-        toast.error('Please sign in to post a job.');
+        toast.error('Please log in to post a job.');
         return;
       }
 
@@ -211,15 +212,15 @@ const PostJob = () => {
         .insert(insertPayload, { returning: 'minimal' });
       if (jobError) throw jobError;
 
-      toast.success('Quick Link job posted successfully!');
+      toast.success('Quick link job posted successfully.');
       navigate('/jobs');
 
     } catch (err) {
-      console.error('Error submitting Quick Link job:', err);
+      logger.error('Error submitting Quick Link job:', err);
       const code = err?.code;
       const msg = String(err?.message || err?.details || '');
       if (code === '42501' || /row-level security/i.test(msg) || /fc_is_fully_approved/i.test(msg)) {
-        toast.error('Your account must be an approved Employer to post jobs. Please wait for admin approval or contact the administrator for assistance.');
+        toast.error('Your account must be an approved employer to post jobs. Please wait for admin approval or contact the administrator.');
       } else {
         mapSupabaseErrorToToast(err);
       }
@@ -233,7 +234,7 @@ const PostJob = () => {
     e.preventDefault();
     const submitter = e?.nativeEvent?.submitter;
     const isExplicitPublish = submitter && submitter.name === 'publish';
-    console.log('DEBUG handleSubmit', {
+    logger.log('DEBUG handleSubmit', {
       activeStep,
       submitterName: submitter?.name,
       isExplicitPublish
@@ -247,16 +248,16 @@ const PostJob = () => {
     if (!isExplicitPublish) {
       return;
     }
-    if (!isApprovedEmployer && !isAdmin) { toast.error('Your profile is not approved. Kindly contact administrator.'); return; }
+    if (!isApprovedEmployer && !isAdmin) { toast.error('Your employer profile is not yet approved. Please contact the administrator.'); return; }
 
     if (!validateStep()) {
-      toast.error('Please fix the errors on the current step.');
+      toast.error('Please fix the errors on this step before continuing.');
       return;
     }
 
     const { salary_min, salary_max, deadline } = formData;
     if (salary_min && salary_max && parseFloat(salary_min) > parseFloat(salary_max)) {
-      toast.error('Salary minimum cannot be greater than the maximum.');
+      toast.error('Minimum salary cannot be greater than maximum salary.');
       setErrors(prev => ({ ...prev, salary_min: 'Invalid range', salary_max: 'Invalid range' }));
       return;
     }
@@ -266,7 +267,7 @@ const PostJob = () => {
       const deadlineDate = new Date(deadline);
       today.setHours(0, 0, 0, 0); 
       if (deadlineDate < today) {
-        toast.error('Application deadline cannot be in the past.');
+        toast.error('The application deadline cannot be in the past.');
         setErrors(prev => ({ ...prev, deadline: 'Date cannot be in the past' }));
         return;
       }
@@ -274,7 +275,7 @@ const PostJob = () => {
 
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user?.id) {
-      toast.error('Please sign in to post a job.');
+      toast.error('Please log in to post a job.');
       return;
     }
 
@@ -307,8 +308,8 @@ const PostJob = () => {
             .getPublicUrl(fileName);
           logoUrl = urlData.publicUrl;
         } catch (err) {
-          console.error('Logo upload failed:', err);
-          toast.error(`Logo upload failed: ${err.message || 'Unknown error'}`); 
+          logger.error('Logo upload failed:', err);
+          toast.error(`We could not upload the logo: ${err.message || 'Unknown error'}`); 
           setIsSubmitting(false);
           return;
         }
@@ -320,7 +321,7 @@ const PostJob = () => {
         .eq('name', formData.company_name.trim());
 
       if (findError) {
-        console.error("Error finding company:", findError);
+        logger.error("Error finding company:", findError);
         throw new Error(`Failed to find company: ${findError.message}`);
       }
 
@@ -347,7 +348,7 @@ const PostJob = () => {
             .eq('id', companyId);
 
           if (updateError) {
-            console.error("Error updating company logo:", updateError);
+            logger.error("Error updating company logo:", updateError);
             throw new Error(`Failed to update company logo: ${updateError.message}`);
           }
         }
@@ -371,7 +372,7 @@ const PostJob = () => {
           }, { returning: 'representation' });
           
         if (createError) {
-          console.error("Error creating company:", createError);
+          logger.error("Error creating company:", createError);
           throw new Error(`Failed to create company: ${createError.message}`);
         }
         
@@ -382,7 +383,7 @@ const PostJob = () => {
       }
       
       if (!companyId) {
-        console.error("No valid company_id after company creation/lookup");
+        logger.error("No valid company_id after company creation/lookup");
         throw new Error("Cannot create job without a valid company ID");
       }
 
@@ -396,19 +397,19 @@ const PostJob = () => {
         created_by: session.user.id,
         user_id: profile?.id || session.user.id,
       };
-      console.log("Submitting In-App job with payload:", insertPayload);
+      logger.log("Submitting In-App job with payload:", insertPayload);
       const { data: newJob, error: jobError } = await supabase
         .from('jobs')
         .insert(insertPayload, { returning: 'representation' });
         
       if (jobError) {
-        console.error("Error creating job:", jobError);
-        console.error('Full job creation error:', JSON.stringify(jobError, null, 2));
+        logger.error("Error creating job:", jobError);
+        logger.error('Full job creation error:', JSON.stringify(jobError, null, 2));
         throw new Error(`Failed to create job: ${jobError.message || 'RLS/validation error'}`);
       }
       
-      console.log("Job created successfully");
-      toast.success('Job posted!');
+      logger.log("Job created successfully");
+      toast.success('Your job has been posted successfully.');
 
       const newJobId = Array.isArray(newJob) ? newJob[0]?.id : newJob?.id;
       if (newJobId) {
@@ -417,11 +418,11 @@ const PostJob = () => {
         navigate('/jobs');
       }
     } catch (err) {
-      console.error('Error submitting job:', err);
+      logger.error('Error submitting job:', err);
       const code = err?.code;
       const msg = String(err?.message || err?.details || '');
       if (code === '42501' || /row-level security/i.test(msg) || /fc_is_fully_approved/i.test(msg)) {
-        toast.error('Your account must be an approved Employer to post jobs. Please wait for admin approval or contact the administrator for assistance.');
+        toast.error('Your account must be an approved employer to post jobs. Please wait for admin approval or contact the administrator.');
       } else {
         mapSupabaseErrorToToast(err);
       }

@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { supabase } from '../utils/supabase';
-import { isExpired } from '../utils/jobs';
+import { getDeadline, deriveJobStatus } from '../utils/jobs';
+import { isDeadlinePassed } from '../utils/deadlines.ts';
 
 // Fetch open/not-expired jobs. RLS governs visibility; we filter out expired client-side.
 export function useOpenJobs({ role, search }) {
@@ -25,7 +26,17 @@ export function useOpenJobs({ role, search }) {
     const { data, error } = await q;
     if (error) throw error;
 
-    const openRows = (data ?? []).filter((r) => !isExpired(r));
+    const isApplicantRole = role === 'alumni' || role === 'student';
+
+    const openRows = (data ?? []).filter((r) => {
+      const expired = isDeadlinePassed(getDeadline(r));
+      if (expired) return false;
+      if (isApplicantRole) {
+        return deriveJobStatus(r) === 'open';
+      }
+      return true;
+    });
+
     return openRows;
   };
 

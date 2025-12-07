@@ -1,20 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BellIcon } from '@heroicons/react/24/outline';
 import NotificationsPanel from './NotificationsPanel';
-import { useNotifications } from '../../hooks/useNotifications';
-import { useRouter } from 'next/router';
+import { useBellUnreadCount } from '../../hooks/useNotifications';
+import { useLocation } from 'react-router-dom';
 
 export default function Bell() {
-  const { unreadCount } = useNotifications();
+  const { count: unreadCount } = useBellUnreadCount();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
-  const router = useRouter();
+  const [showNewAlert, setShowNewAlert] = useState(false);
+  const lastCountRef = useRef<number | null>(null);
+  const timeoutRef = useRef<number | null>(null);
+  const location = useLocation();
 
   useEffect(() => {
-    const onRoute = () => setOpen(false);
-    router.events.on('routeChangeStart', onRoute);
-    return () => { router.events.off('routeChangeStart', onRoute); };
-  }, [router]);
+    setOpen(false);
+  }, [location.pathname]);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -25,18 +26,58 @@ export default function Bell() {
     return () => document.removeEventListener('click', onClick);
   }, []);
 
+  useEffect(() => {
+    if (lastCountRef.current === null) {
+      lastCountRef.current = unreadCount;
+      return;
+    }
+
+    if (unreadCount > lastCountRef.current) {
+      setShowNewAlert(true);
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = window.setTimeout(() => {
+        setShowNewAlert(false);
+      }, 2000);
+    }
+
+    lastCountRef.current = unreadCount;
+
+    return () => {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+  }, [unreadCount]);
+
   return (
     <div className="relative" ref={ref}>
       <button
         type="button"
         className="relative p-2 rounded-full hover:bg-gray-100"
         aria-label="Open notifications"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setOpen((v) => !v);
+          setShowNewAlert(false);
+        }}
       >
         <BellIcon className="w-6 h-6 text-gray-700" />
         {unreadCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] leading-[18px] text-center">
             {unreadCount}
+          </span>
+        )}
+        {showNewAlert && (
+          <span
+            className="absolute -bottom-1 -right-1 px-2 py-0.5 rounded-full bg-blue-500 text-white text-[10px] leading-none shadow-sm cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowNewAlert(false);
+            }}
+          >
+            New
           </span>
         )}
       </button>

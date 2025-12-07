@@ -318,7 +318,7 @@ export default function DirectoryPage() {
     return (
       <div className="mx-auto max-w-[1600px] px-4 py-6">
         <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-700 text-center">
-          Access denied. Employers do not have access to the people directory.
+          You do not have access to this directory with an employer account.
         </div>
       </div>
     );
@@ -338,10 +338,10 @@ export default function DirectoryPage() {
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
           <div className="flex-1">
             <h1 className="text-4xl sm:text-5xl font-bold text-white mb-3 tracking-tight">
-              Alumni Directory
+              AMET Network directory
             </h1>
             <p className="text-lg text-indigo-100 max-w-2xl">
-              Connect with fellow alumni, expand your network, and discover opportunities
+              Find members across batches, roles, and locations in the AMET community.
             </p>
           </div>
           {/* ChipBar with modern styling */}
@@ -364,8 +364,8 @@ export default function DirectoryPage() {
                   type="search"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search by name, company, or designation..."
-                  aria-label="Search alumni"
+                  placeholder="Search by name, role, company, or location"
+                  aria-label="Search directory"
                   className="w-full min-h-[52px] rounded-xl border-2 border-white/40 bg-white/95 backdrop-blur-sm py-3 pl-12 pr-4 text-sm font-medium text-slate-900 placeholder:text-slate-500 shadow-lg transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-ocean-600 focus-visible:border-white focus-visible:bg-white hover:bg-white"
                 />
               </div>
@@ -404,7 +404,7 @@ export default function DirectoryPage() {
         <div className="mx-auto max-w-3xl px-2 sm:px-0">
           <div className="rounded-xl border border-sky-100 bg-sky-50/80 px-4 py-3 text-sm text-sky-900 shadow-sm">
             <p className="font-medium">
-              This directory shows approved alumni profiles.
+              This directory shows approved member profiles that are visible in the AMET Network.
             </p>
             <p className="mt-1 text-sky-800/90">
               As a current student, your profile will appear here after you become an alumnus and your details are approved for the directory.
@@ -496,7 +496,7 @@ export default function DirectoryPage() {
               <p>No profiles match the current filters. Try adjusting your search or filters.</p>
             ) : role === 'student' ? (
               <p>
-                No matching alumni profiles found. As a current student, your profile will appear here after you become an alumnus and your details are approved for the directory.
+                No matching profiles found. As a current student, your profile will appear here after you become an alumnus and your details are approved for the directory.
               </p>
             ) : (
               <p>No approved profiles found. Profiles appear here after admin approval and when they are visible in the directory.</p>
@@ -545,7 +545,7 @@ export default function DirectoryPage() {
             <div className="flex h-full flex-col">
               {/* Header */}
               <div className="flex items-center justify-between border-b border-slate-200 p-4">
-                <h2 className="text-xl font-semibold text-slate-900">Filter Alumni</h2>
+                <h2 className="text-xl font-semibold text-slate-900">Filter directory</h2>
                 <button 
                   type="button"
                   onClick={() => setShowFilters(false)} 

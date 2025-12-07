@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import logger from '../../utils/logger';
 import { 
   Box, 
   Typography, 
@@ -134,7 +135,7 @@ const FeedbackReport = () => {
       setFeedback(data || []);
       setTotalCount(count || 0);
     } catch (error) {
-      console.error('Error fetching feedback:', error);
+      logger.error('Error fetching feedback:', error);
       toast.error('Failed to load feedback data');
     } finally {
       setLoading(false);
@@ -213,7 +214,7 @@ const FeedbackReport = () => {
       
       toast.success(`Feedback marked as ${newStatus.replace('_', ' ')}`);
     } catch (error) {
-      console.error('Error updating feedback status:', error);
+      logger.error('Error updating feedback status:', error);
       toast.error('Failed to update feedback status');
     }
   };

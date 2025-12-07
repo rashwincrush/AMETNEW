@@ -3,6 +3,7 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Box, TextField, Button, Typography, Paper, Grid, CircularProgress, MenuItem, Alert, ToggleButtonGroup, ToggleButton } from '@mui/material';
+import logger from '../../utils/logger';
 import { toast } from 'react-hot-toast';
 import LinkIcon from '@mui/icons-material/Link';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -133,7 +134,7 @@ const JobPostingForm = () => {
           }
         } catch (e) {
           // Non-fatal; proceed with job insert even if logo update fails
-          console.warn('Company logo inference skipped:', e?.message || e);
+          logger.warn('Company logo inference skipped:', e?.message || e);
         }
       }
 

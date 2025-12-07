@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import { coalesceAppUrl, isQuickLink, computeJobApplyState } from '../../utils/jobs';
+import logger from '../../utils/logger';
 import { requestConnectionForJob } from '../../utils/connections';
 import ImageWithFallback from '../common/ImageWithFallback';
 import { supabase } from '../../utils/supabase';
@@ -50,7 +51,7 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-semibold text-gray-900">{job.title}</h1>
               <span className="text-xs font-semibold px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                Quick Link
+                Quick link
               </span>
             </div>
             {!!companyName && (
@@ -62,7 +63,7 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
           <div className="flex items-center gap-3">
             {canEdit && (
               <Link to={`/jobs/${job.id}/edit`} className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50">
-                Edit Job
+                Edit job
               </Link>
             )}
             {/* No "Manage Applications" for Quick Links */}
@@ -77,18 +78,18 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed"
               aria-disabled="true"
             >
-              {isClosed ? 'Applications Closed' : 'Accepting Applications'}
+              {isClosed ? 'Applications closed' : 'Accepting applications'}
             </button>
           ) : canApplyExternally ? (
             <button
               onClick={() => {
                 if (!externalUrl) return;
-                const ok = window.confirm("External listing. Clicking will take you to a page outside the Alumni portal. Continue?");
+                const ok = window.confirm("External listing. You will be redirected to the employer's site to apply. Continue?");
                 if (ok) window.open(externalUrl, '_blank', 'noopener');
               }}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ocean-600 text-white hover:bg-ocean-700"
             >
-              Apply Externally
+              Apply on employer site
             </button>
           ) : (
             <button
@@ -112,7 +113,7 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
                 try {
                   await requestConnectionForJob(job.id, employerId, user?.id);
                 } catch (error) {
-                  console.error('Failed to request connection:', error);
+                  logger.error('Failed to request connection:', error);
                   toast.error('Connection request failed. Please try again.');
                 }
                 navigate(`/messages?peer=${employerId}&job=${job.id}`);
@@ -126,7 +127,7 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
           {canEdit && (
             <button
               onClick={async () => {
-                const ok = window.confirm('Disable this external job? Applicants will no longer see Apply on this listing.');
+                const ok = window.confirm('Disable this external job? Applicants will no longer see apply options for this listing.');
                 if (!ok) return;
                 try {
                   const { error } = await supabase
@@ -134,10 +135,10 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
                     .update({ is_active: false })
                     .eq('id', job.id);
                   if (error) throw error;
-                  toast.success('Quick Link disabled');
+                  toast.success('Quick link disabled.');
                 } catch (e) {
-                  console.error('Disable Quick Link failed', e);
-                  toast.error('Failed to disable. Please try again.');
+                  logger.error('Disable Quick Link failed', e);
+                  toast.error('We could not disable this listing. Please try again.');
                 }
               }}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-300 text-red-600 hover:bg-red-50"
@@ -148,9 +149,11 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
         </div>
 
         {/* External disclaimer */}
-        <p className="mt-3 text-xs text-gray-500">
-          External listing. You will be redirected to the employer's site to apply. Availability depends on the external deadline.
-        </p>
+        <div className="flex justify-between items-center mt-3">
+          <p className="text-xs text-gray-500">
+            External listing. You will be redirected to the employer's site to apply. Availability depends on the external deadline.
+          </p>
+        </div>
 
         {/* Meta row removed per minimal spec */}
       </div>

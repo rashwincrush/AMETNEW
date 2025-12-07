@@ -21,6 +21,7 @@ import { CircularProgress } from '@mui/material';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { coalesceAppUrl, isQuickLink, getJobLogoUrl, getJobCompanyName, getSourceType, computeJobApplyState, normalizeJob } from '../../utils/jobs';
+import logger from '../../utils/logger';
 import { useApproval } from '../../hooks/useApproval';
 import { getApplicantsCount } from '../../utils/applicants';
 import { requestConnectionForJob } from '../../utils/connections';
@@ -202,10 +203,10 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
         .update({ is_active: false })
         .eq('id', job.id);
       if (error) throw error;
-      toast.success('Listing paused');
+      toast.success('Listing paused.');
     } catch (e) {
-      console.error('Pause listing failed', e);
-      toast.error('Failed to pause listing. Please try again.');
+      logger.error('Pause listing failed', e);
+      toast.error('We could not pause this listing. Please try again.');
     }
   };
 
@@ -217,10 +218,10 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
         .update({ is_active: true })
         .eq('id', job.id);
       if (error) throw error;
-      toast.success('Listing resumed');
+      toast.success('Listing resumed.');
     } catch (e) {
-      console.error('Resume listing failed', e);
-      toast.error('Failed to resume listing. Please try again.');
+      logger.error('Resume listing failed', e);
+      toast.error('We could not resume this listing. Please try again.');
     }
   };
   
@@ -273,7 +274,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
               </Link>
             )}
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] flex-shrink-0 bg-slate-50 text-slate-600 border border-slate-200">
-              {quick ? 'Quick Link' : 'In-App'}
+              {quick ? 'Quick link' : 'In-app'}
             </span>
           </div>
           </div>
@@ -303,7 +304,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
                   mode: isPaused ? 'resume' : 'pause',
                 })
               }
-              className="inline-flex items-center justify-center h-7 px-2 rounded-full border border-slate-200 bg-slate-50 text-[11px] font-medium text-slate-700 hover:bg-slate-100 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+              className="inline-flex items-center justify-center h-7 px-2 rounded-full border border-slate-200 bg-slate-50 text-[11px] font-medium text-slate-700 hover:bg-slate-100 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
               title={isPaused ? 'Resume listing' : 'Pause listing'}
             >
               {isPaused ? 'Resume listing' : 'Pause listing'}
@@ -316,7 +317,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
       {quick && (
         <div className="px-5 mb-4">
           <p className="text-xs text-gray-500">
-            External listing. Clicking will take you to a page outside the Alumni portal.
+            External listing. You will be redirected to the employer's site to apply.
           </p>
         </div>
       )}
@@ -401,62 +402,62 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
             <button
               onClick={async () => {
                 try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (error) {
-                  console.error('Failed to request connection:', error);
+                  logger.error('Failed to request connection:', error);
                   toast.error('Connection request failed. Please try again.');
                 }
                 navigate(`/messages?peer=${employerId}&job=${job.id}`);
               }}
               className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
             >
-              Ask Employer
+              Ask employer
             </button>
           )}
-          <Link to={`/jobs/${job.id}`} className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg btn-ocean-outline text-sm">View Details</Link>
+          <Link to={`/jobs/${job.id}`} className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg btn-ocean-outline text-sm">View details</Link>
           {(userRole === 'employer' && isOwner) || (['admin', 'super_admin'].includes(userRole)) ? (
-            <Link to={`/jobs/${job.id}/applications`} className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">Manage Applications</Link>
+            <Link to={`/jobs/${job.id}/applications`} className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">Manage applications</Link>
           ) : (userRole === 'employer' && !isOwner) ? (
             !isClosed ? (
               <button
                 type="button"
                 className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
-                aria-label="Accepting Applications"
+                aria-label="Accepting applications"
                 aria-disabled="true"
               >
-                Accepting Applications
+                Accepting applications
               </button>
             ) : (
               <button
                 type="button"
                 className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-500 text-sm cursor-not-allowed"
-                aria-label="Applications Closed"
+                aria-label="Applications closed"
                 aria-disabled="true"
               >
-                Applications Closed
+                Applications closed
               </button>
             )
           ) : quick ? (
             canApplyExternally ? (
               <button
-                onClick={() => { const url = href; if (!url) return; const ok = window.confirm("External listing. Clicking will take you to a page outside the Alumni portal. Continue?"); if (ok) window.open(url, '_blank', 'noopener'); }}
-                aria-label="Apply Externally"
+                onClick={() => { const url = href; if (!url) return; const ok = window.confirm("External listing. You will be redirected to the employer's site to apply. Continue?"); if (ok) window.open(url, '_blank', 'noopener'); }}
+                aria-label="Apply on employer site"
                 className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
               >
-                Apply Externally
+                Apply on employer site
               </button>
             ) : (
-              <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications Closed</button>
+              <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications closed</button>
             )
           ) : applied ? (
-            <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Application Submitted</button>
+            <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Application submitted</button>
           ) : canApplyInApp ? (
             <button
               onClick={() => setApplyOpen(true)}
               className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
             >
-              Apply
+              Apply now
             </button>
           ) : (
-            <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications Closed</button>
+            <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications closed</button>
           )}
           {!quick && (
             <ApplyDialog
@@ -532,9 +533,9 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
         .update({ is_active: false })
         .eq('id', job.id);
       if (error) throw error;
-      toast.success('Listing paused');
+      toast.success('Listing paused.');
     } catch (e) {
-      console.error('Pause listing failed', e);
+      logger.error('Pause listing failed', e);
       toast.error('Failed to pause listing. Please try again.');
     }
   };
@@ -547,9 +548,9 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
         .update({ is_active: true })
         .eq('id', job.id);
       if (error) throw error;
-      toast.success('Listing resumed');
+      toast.success('Listing resumed.');
     } catch (e) {
-      console.error('Resume listing failed', e);
+      logger.error('Resume listing failed', e);
       toast.error('Failed to resume listing. Please try again.');
     }
   };
@@ -589,7 +590,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
               {job.title}
             </Link>
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-slate-50 text-slate-600 border border-slate-200">
-              {quick ? 'Quick Link' : 'In-App'}
+              {quick ? 'Quick link' : 'In-app'}
             </span>
           </div>
           <StatusBadge
@@ -605,7 +606,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
         </div>
         <p className="text-gray-600 text-sm mt-2 mb-2 line-clamp-2">{(() => { const d = (job.description || '').trim(); return d ? `${d.slice(0, 160)}...` : 'No description provided.'; })()}</p>
         {quick && (
-          <p className="text-xs text-gray-500 mb-3">External listing. Clicking will take you to a page outside the Alumni portal.</p>
+          <p className="text-xs text-gray-500 mb-3">External listing. You will be redirected to the employer's site to apply.</p>
         )}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
           {!!job.location && (<div className="flex items-center"><MapPinIcon className="w-4 h-4 mr-1" /><span>{job.location}</span></div>)}
@@ -681,59 +682,59 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
             <button
               className="btn-secondary-outline px-4 py-2 rounded-lg text-sm"
               onClick={async () => {
-                try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (error) { console.error('Failed to request connection:', error); }
+                try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (error) { logger.error('Failed to request connection:', error); }
                 navigate(`/messages?peer=${employerId}&job=${job.id}`);
               }}
             >
-              Ask Employer
+              Ask employer
             </button>
           )}
-          <Link to={`/jobs/${job.id}`} className="btn-ocean-outline px-4 py-2 rounded-lg text-sm">View Details</Link>
+          <Link to={`/jobs/${job.id}`} className="btn-ocean-outline px-4 py-2 rounded-lg text-sm">View details</Link>
           {(isOwner || ['admin', 'super_admin'].includes(userRole)) ? (
-            <Link to={`/jobs/${job.id}/applications`} className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">Manage Applications</Link>
+            <Link to={`/jobs/${job.id}/applications`} className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">Manage applications</Link>
           ) : (userRole === 'employer' && !isOwner) ? (
             !isClosed ? (
               <button
                 type="button"
                 className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
-                aria-label="Accepting Applications"
+                aria-label="Accepting applications"
                 aria-disabled="true"
               >
-                Accepting Applications
+                Accepting applications
               </button>
             ) : (
               <button
                 type="button"
                 className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-500 text-sm cursor-not-allowed"
-                aria-label="Applications Closed"
+                aria-label="Applications closed"
                 aria-disabled="true"
               >
-                Applications Closed
+                Applications closed
               </button>
             )
           ) : quick ? (
             canApplyExternally ? (
               <button
                 className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
-                onClick={() => { const url = coalesceAppUrl(job); if (!url) return; const ok = window.confirm("External listing. Clicking will take you to a page outside the Alumni portal. Continue?"); if (ok) window.open(url, '_blank', 'noopener'); }}
-                aria-label="Apply Externally"
+                onClick={() => { const url = coalesceAppUrl(job); if (!url) return; const ok = window.confirm("External listing. You will be redirected to the employer's site to apply. Continue?"); if (ok) window.open(url, '_blank', 'noopener'); }}
+                aria-label="Apply on employer site"
               >
-                Apply Externally
+                Apply on employer site
               </button>
             ) : (
-              <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications Closed</button>
+              <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications closed</button>
             )
           ) : applied ? (
-            <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Application Submitted</button>
+            <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Application submitted</button>
           ) : canApplyInApp ? (
             <button
               className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
               onClick={() => setApplyOpen(true)}
             >
-              Apply
+              Apply now
             </button>
           ) : (
-            <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications Closed</button>
+            <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications closed</button>
           )}
           {!quick && (
             <ApplyDialog open={applyOpen} onClose={() => setApplyOpen(false)} jobId={job.id} deadline={coalescedDeadline} onSuccess={() => setApplied(true)} />
@@ -816,7 +817,7 @@ const JobListingsPage = () => {
 
     setLoading(true);
     if (process.env.NODE_ENV !== 'production') {
-      console.log('Fetching jobs with filters:', { searchQuery, sortBy, currentPage });
+      logger.log('Fetching jobs with filters:', { searchQuery, sortBy, currentPage });
     }
 
     const [sortCol, sortDir] = (sortBy || 'created_at,desc').split(',');
@@ -1034,7 +1035,7 @@ const JobListingsPage = () => {
       }));
       // Fallback ONLY if RPC errors; allow empty results to reflect strict filters (e.g., Pending/Rejected)
       if (error) {
-        console.warn('RPC get_jobs_public_v5 failed, falling back to v_jobs_feed_inr view');
+        logger.warn('RPC get_jobs_public_v5 failed, falling back to v_jobs_feed_inr view');
         const { data: viewData, error: viewError } = await supabase
           .from('v_jobs_feed_inr')
           .select('*')
@@ -1053,7 +1054,7 @@ const JobListingsPage = () => {
     }
 
     if (error) {
-      console.error('Error fetching jobs via RPC:', error);
+      logger.error('Error fetching jobs via RPC:', error);
       toast.error('Failed to fetch jobs.');
       setJobs([]);
       setTotalJobs(0);
@@ -1084,7 +1085,7 @@ const JobListingsPage = () => {
           ),
         };
         if (!normalized.description && process.env.NODE_ENV !== 'production') {
-          try { console.debug('[Jobs] Missing description keys:', Object.keys(j).slice(0, 12)); } catch (_) { void 0; }
+          try { logger.debug('[Jobs] Missing description keys:', Object.keys(j).slice(0, 12)); } catch (_) { void 0; }
         }
         return normalized;
       });
@@ -1303,7 +1304,7 @@ const JobListingsPage = () => {
       setBookmarkedJobs(prev => (nowBookmarked ? Array.from(new Set([...prev, jobId])) : prev.filter(id => id !== jobId)));
       toast.success(nowBookmarked ? 'Job bookmarked!' : 'Bookmark removed');
     } catch (e) {
-      console.error('Error bookmarking job:', e);
+      logger.error('Error bookmarking job:', e);
       // Revert optimistic change
       setBookmarkedJobs(prev => (wasBookmarked ? Array.from(new Set([...prev, jobId])) : prev.filter(id => id !== jobId)));
       notification.showError(`Failed to update bookmark: ${e.message}`);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import logger from '../../utils/logger';
 import { 
   UserIcon, 
   EnvelopeIcon, 
@@ -145,20 +146,20 @@ const Profile = () => {
       if (error) {
         // It's okay if no company is found, just log other errors
         if (error.code !== 'PGRST116') { 
-          console.error('Error fetching company data:', error);
+          logger.error('Error fetching company data:', error);
         }
         return null;
       }
       return companies;
     } catch (error) {
-      console.error('Error in fetchCompanyData:', error);
+      logger.error('Error in fetchCompanyData:', error);
       return null;
     }
   };
   
   // Track authentication state changes to manage component loading
   useEffect(() => {
-    console.log('Profile component auth state effect:', { loading, user, profile });
+    logger.log('Profile component auth state effect:', { loading, user, profile });
     
     // Only show loading on initial load, not on subsequent updates
     if (!initialLoadComplete.current) {
@@ -301,8 +302,8 @@ const Profile = () => {
           }
 
 
-          console.log('Setting initial company name:', initialCompany);
-          console.log('Cleaned profile data:', cleanedProfile);
+          logger.log('Setting initial company name:', initialCompany);
+          logger.log('Cleaned profile data:', cleanedProfile);
 
           // Set the main form data with potentially updated company name
           const formDataInitial = {
@@ -385,14 +386,14 @@ const Profile = () => {
               website: links.website || '',
             };
           } catch (e) {
-            console.warn('Failed to load social links (non-fatal):', e);
+            logger.warn('Failed to load social links (non-fatal):', e);
           }
           
-          console.log('Final form data being set:', formDataInitial);
+          logger.log('Final form data being set:', formDataInitial);
           setFormData(formDataInitial);
 
         } catch (error) {
-          console.error('Error in profile initialization:', error);
+          logger.error('Error in profile initialization:', error);
           toast.error('Failed to initialize profile data');
         } finally {
           setIsComponentLoading(false);
@@ -524,7 +525,7 @@ const Profile = () => {
       setImageFile(null); // Clear any pending upload
       toast.success('Profile photo removed successfully');
     } catch (err) {
-      console.error('[Profile] avatar delete error', err);
+      logger.error('[Profile] avatar delete error', err);
       toast.error(err?.message || 'Failed to remove profile photo');
     } finally {
       setIsDeleting(false);
@@ -546,7 +547,7 @@ const Profile = () => {
       return;
     }
 
-    console.log('Starting form submission...');
+    logger.log('Starting form submission...');
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort('Request timed out');
@@ -623,7 +624,7 @@ const Profile = () => {
 
       // Debug logging for QA
       if (process.env.NODE_ENV === 'development') {
-        console.debug('[Profile] Degree/Dept validation', {
+        logger.debug('[Profile] Degree/Dept validation', {
           degree: degreeCode,
           department_id: formData.department_id,
         });
@@ -636,7 +637,7 @@ const Profile = () => {
         .single();
 
       if (fetchError && fetchError.code !== 'PGRST116') {
-        console.error('Error fetching current profile:', fetchError);
+        logger.error('Error fetching current profile:', fetchError);
         throw new Error('Failed to load profile data');
       }
 
@@ -711,12 +712,12 @@ const Profile = () => {
     // Do not write JSON social_links back to profiles; managed via table
 
     if (imageFile) {
-      console.log('Uploading new avatar...');
+      logger.log('Uploading new avatar...');
       try {
         // Centralized avatar upload via AvatarService; backend RPC updates avatar metadata
         const { publicUrl } = await AvatarService.uploadAvatar(imageFile);
 
-        console.log('Avatar uploaded successfully via AvatarService:', publicUrl);
+        logger.log('Avatar uploaded successfully via AvatarService:', publicUrl);
 
         // Immediately update local preview for instant UI feedback
         if (publicUrl) {
@@ -730,7 +731,7 @@ const Profile = () => {
           }
         }
       } catch (error) {
-        console.error('Profile picture upload failed:', error);
+        logger.error('Profile picture upload failed:', error);
         toast.error(error.message || 'Failed to upload profile picture');
         // Don't throw the error - let the profile save even if avatar upload fails
         // This way the form submission won't be blocked by avatar issues
@@ -741,7 +742,7 @@ const Profile = () => {
     // This avoids the error: column "is_profile_complete" can only be updated to DEFAULT
     delete profileUpdates.is_profile_complete;
 
-    console.log('Updating profile in database with:', JSON.stringify(profileUpdates));
+    logger.log('Updating profile in database with:', JSON.stringify(profileUpdates));
     // Removed Promise.race to ensure the update completes
     const { data, error } = await supabase
       .from('profiles')
@@ -751,7 +752,7 @@ const Profile = () => {
       .single();
 
     if (error) {
-      console.error('Database update error:', error);
+      logger.error('Database update error:', error);
       throw new Error(`Database error: ${error.message}`);
     }
 
@@ -759,7 +760,7 @@ const Profile = () => {
       throw new Error('No data returned from database update');
     }
 
-    console.log('Profile updated in database:', data);
+    logger.log('Profile updated in database:', data);
 
       // Save social links to dedicated table (view-managed elsewhere)
       try {
@@ -770,7 +771,7 @@ const Profile = () => {
           website: formData.socialLinks?.website || null,
         });
       } catch (e) {
-        console.error('Saving social links failed:', e);
+        logger.error('Saving social links failed:', e);
         toast.error('Failed to update social links');
       }
 
@@ -783,12 +784,12 @@ const Profile = () => {
         if (companyUpdateError) throw new Error(`Failed to update company: ${companyUpdateError.message}`);
       }
 
-      console.log('Updating auth context...');
+      logger.log('Updating auth context...');
       try {
-        console.log('Calling updateProfile with:', profileUpdates);
+        logger.log('Calling updateProfile with:', profileUpdates);
         // Don't race this with a timeout - let it complete normally
         const updatedProfile = await updateProfile(profileUpdates);
-        console.log('Auth context updated successfully', updatedProfile);
+        logger.log('Auth context updated successfully', updatedProfile);
         
         // Apply the updated data to the form
         if (updatedProfile) {
@@ -824,7 +825,7 @@ const Profile = () => {
           setFormData(mappedData);
         }
       } catch (updateError) {
-        console.error('Error updating auth context (non-critical):', updateError);
+        logger.error('Error updating auth context (non-critical):', updateError);
         // Continue even if auth context update fails - the database update was successful
       }
 
@@ -833,13 +834,13 @@ const Profile = () => {
       if (isEmployer) {
         navigate('/jobs');
       }
-      console.log('Form submission completed successfully');
+      logger.log('Form submission completed successfully');
       // Force refresh of profile data from server
       if (fetchUserProfile) {
         await fetchUserProfile(user.id);
       }
     } catch (error) {
-      console.error('Profile update error:', error);
+      logger.error('Profile update error:', error);
       toast.error(
         error.message && error.message.includes('timed out')
           ? 'Request timed out. Please try again.'
@@ -847,7 +848,7 @@ const Profile = () => {
       );
     } finally {
       clearTimeout(timeoutId);
-      console.log('Setting isSubmitting to false');
+      logger.log('Setting isSubmitting to false');
       setIsSubmitting(false);
       
       // Reset image file state to prevent duplicate uploads

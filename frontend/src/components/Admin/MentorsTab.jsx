@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import logger from '../../utils/logger';
 import { MentorStatusChip } from '../../lib/statusChips';
 import { Skeleton } from '../ui/skeleton';
 import { adminForceMentorUnavailable } from '../../services/mentorship';
@@ -67,7 +68,7 @@ const MentorsTab = () => {
 
       setRows(Array.isArray(data) ? data : []);
     } catch (e) {
-      console.error(e);
+      logger.error(e);
       setError('Failed to load mentors');
     } finally {
       setLoading(false);
@@ -91,7 +92,7 @@ const MentorsTab = () => {
       toast.success('Availability set to Off');
       fetchRows();
     } catch (e) {
-      console.error(e);
+      logger.error(e);
       toast.error('Failed to force unavailable');
       // Revert if optimistic update was applied
       fetchRows();
@@ -119,7 +120,7 @@ const MentorsTab = () => {
       if (error) throw error;
       toast.success('Mentor approved');
     } catch (e) {
-      console.error(e);
+      logger.error(e);
       toast.error('Failed to approve mentor');
       fetchRows();
     }
@@ -136,7 +137,7 @@ const MentorsTab = () => {
       if (error) throw error;
       toast.success('Mentor rejected');
     } catch (e) {
-      console.error(e);
+      logger.error(e);
       toast.error('Failed to reject mentor');
       fetchRows();
     }

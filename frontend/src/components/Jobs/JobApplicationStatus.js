@@ -3,6 +3,8 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import LoadingSpinner from '../common/LoadingSpinner';
 import { Link } from 'react-router-dom';
+import logger from '../../utils/logger';
+import { normalizeStatus, STATUS_BADGE_CLASS, STATUS_LABEL } from '../../utils/applicationStatus';
 
 // Normalize resume value (path or legacy public URL) into a storage path
 const getResumePathFromValue = (value) => {
@@ -69,7 +71,7 @@ const JobApplicationStatus = () => {
         setApplications(enriched);
       } catch (err) {
         setError('Failed to fetch application status.');
-        console.error('Error fetching applications:', err);
+        logger.error('Error fetching applications:', err);
       } finally {
         setLoading(false);
       }
@@ -109,9 +111,14 @@ const JobApplicationStatus = () => {
                       </a>
                     )}
                   </div>
-                  <span className={`px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(app.status)}`}>
-                    {app.status}
-                  </span>
+                  {(() => {
+                    const canonical = normalizeStatus(app.status);
+                    return (
+                      <span className={`px-3 py-1 text-sm font-medium rounded-full ${STATUS_BADGE_CLASS[canonical]}`}>
+                        {STATUS_LABEL[canonical]}
+                      </span>
+                    );
+                  })()}
                 </div>
               </li>
             ))}
@@ -120,21 +127,6 @@ const JobApplicationStatus = () => {
       )}
     </div>
   );
-};
-
-const getStatusColor = (status) => {
-  switch (status.toLowerCase()) {
-    case 'reviewed':
-      return 'bg-blue-100 text-blue-800';
-    case 'in-progress':
-      return 'bg-yellow-100 text-yellow-800';
-    case 'hired':
-      return 'bg-green-100 text-green-800';
-    case 'rejected':
-      return 'bg-red-100 text-red-800';
-    default:
-      return 'bg-gray-100 text-gray-800';
-  }
 };
 
 export default JobApplicationStatus;

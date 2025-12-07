@@ -44,7 +44,7 @@ const AppSettings = () => {
       
       setSettings(settingsObj);
     } catch (err) {
-      console.error('Error fetching settings:', err);
+      logger.error('Error fetching settings:', err);
       toFriendlyToast(toast, err, 'Could not load settings. Please try again.');
     } finally {
       setLoading(false);
@@ -77,7 +77,7 @@ const AppSettings = () => {
       
       toast.success('Setting updated successfully');
     } catch (err) {
-      console.error('Error updating setting:', err);
+      logger.error('Error updating setting:', err);
       toFriendlyToast(toast, err, 'Could not update setting. Please try again.');
     } finally {
       setSaving(false);
@@ -126,7 +126,7 @@ const AppSettings = () => {
       toast.success('Default settings created');
       fetchSettings();
     } catch (err) {
-      console.error('Error creating settings:', err);
+      logger.error('Error creating settings:', err);
       toFriendlyToast(toast, err, 'Could not create settings. Please try again.');
     } finally {
       setSaving(false);
@@ -159,7 +159,7 @@ const AppSettings = () => {
       
       fetchSettings();
     } catch (err) {
-      console.error('Error checking table:', err);
+      logger.error('Error checking table:', err);
       toFriendlyToast(toast, err, 'Database error. Please try again.');
     } finally {
       setSaving(false);
