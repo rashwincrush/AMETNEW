@@ -1121,7 +1121,7 @@ export async function fetchMyGroupsSummary(limit = 3, userId) {
       .limit(max * 2),
     supabase
       .from('group_memberships')
-      .select('group_id, status, created_at, updated_at')
+      .select('group_id, status, created_at')
       .eq('user_id', userId)
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
@@ -1146,7 +1146,7 @@ export async function fetchMyGroupsSummary(limit = 3, userId) {
   // Pending memberships only fill in groups where there is no active membership
   (pendingRes.data || []).forEach((m) => {
     if (!combinedMap.has(m.group_id)) {
-      const ts = m.created_at || m.updated_at;
+      const ts = m.created_at;
       combinedMap.set(m.group_id, {
         group_id: m.group_id,
         ts,

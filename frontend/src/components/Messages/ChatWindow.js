@@ -89,6 +89,14 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
   const [cooldownEnd, setCooldownEnd] = useState(null);
   const [cooldownTimer, setCooldownTimer] = useState(null);
   const sendingMessageRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // canSendDerived = expanded/optimistic version of activeThread.can_send.
   // Backend still enforces public.are_connected, so this only affects UX, not security.
@@ -114,7 +122,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
             .select('id')
             .eq('id', thread.thread_id)
             .maybeSingle();
-          if (th) { if (!cancelled) setActiveThread(thread); return; }
+          if (th) { if (!cancelled && isMountedRef.current) setActiveThread(thread); return; }
         }
         // If missing or invalid thread_id but we have other_user_id, try to create/resolve
         if (thread.other_user_id) {
@@ -124,12 +132,12 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
             .select('*')
             .eq('other_user_id', thread.other_user_id)
             .maybeSingle();
-          if (!cancelled) setActiveThread(resolved || { other_user_id: thread.other_user_id });
+          if (!cancelled && isMountedRef.current) setActiveThread(resolved || { other_user_id: thread.other_user_id });
         } else {
-          if (!cancelled) setActiveThread(thread);
+          if (!cancelled && isMountedRef.current) setActiveThread(thread);
         }
       } catch (_) {
-        if (!cancelled) setActiveThread(thread);
+        if (!cancelled && isMountedRef.current) setActiveThread(thread);
       }
     };
     ensureThread();
@@ -143,17 +151,20 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
     if (activeThread?.thread_id) {
       const threadId = activeThread.thread_id;
       const load = async () => {
+        if (!isMountedRef.current) return;
         setLoading(true);
         try {
           // Reset UI to reflect new selection immediately
-          setMessages([]);
-          setOtherProfile(null);
+          if (isMountedRef.current) {
+            setMessages([]);
+            setOtherProfile(null);
+          }
           const { data: pub } = await supabase
             .from('alumni_directory_public')
             .select('id, full_name, avatar_url, current_job_title, company_name, location_city, location_country')
             .eq('id', activeThread.other_user_id)
             .maybeSingle();
-          if (pub) {
+          if (pub && isMountedRef.current) {
             setOtherProfile({
               id: pub.id,
               full_name: pub.full_name,
@@ -166,7 +177,9 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
 
           const sinceISO = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
           const msgs = await fetchThreadMessages(threadId, { since: sinceISO });
-          setMessages(Array.isArray(msgs) ? msgs : []);
+          if (isMountedRef.current) {
+            setMessages(Array.isArray(msgs) ? msgs : []);
+          }
 
           // Mark this thread as read for the current user so unread counts clear
           try {
@@ -181,7 +194,9 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
           logger.error('Error loading thread:', err);
           toast.error('Failed to load messages.');
         } finally {
-          setLoading(false);
+          if (isMountedRef.current) {
+            setLoading(false);
+          }
         }
       };
 
@@ -230,26 +245,35 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
   // Check connection status
   const checkConnection = useCallback(async () => {
     if (!currentUser?.id || !activeThread?.other_user_id) {
-      setIsConnected(false);
+      if (isMountedRef.current) {
+        setIsConnected(false);
+      }
       return;
     }
+    if (!isMountedRef.current) return;
     setCheckingConnection(true);
     try {
       const connected = await checkConnectionStatus(currentUser.id, activeThread.other_user_id);
-      setIsConnected(connected);
-      if (!connected) {
-        const cooldown = getDisconnectCooldown(activeThread.other_user_id);
-        setCooldownEnd(cooldown);
-      } else {
-        clearDisconnectCooldown(activeThread.other_user_id);
-        setCooldownEnd(null);
+      if (isMountedRef.current) {
+        setIsConnected(connected);
+        if (!connected) {
+          const cooldown = getDisconnectCooldown(activeThread.other_user_id);
+          setCooldownEnd(cooldown);
+        } else {
+          clearDisconnectCooldown(activeThread.other_user_id);
+          setCooldownEnd(null);
+        }
       }
     } catch (err) {
       // eslint-disable-next-line no-console
       logger.warn('Failed to check connection status', err);
-      setIsConnected(false);
+      if (isMountedRef.current) {
+        setIsConnected(false);
+      }
     } finally {
-      setCheckingConnection(false);
+      if (isMountedRef.current) {
+        setCheckingConnection(false);
+      }
     }
   }, [currentUser?.id, activeThread?.other_user_id]);
 
@@ -259,7 +283,9 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
       if (!currentUser?.id || !activeThread?.other_user_id) return;
       try {
         const e = await getLatestEdge(currentUser.id, activeThread.other_user_id);
-        setEdge(e);
+        if (isMountedRef.current) {
+          setEdge(e);
+        }
         await checkConnection();
       } catch (err) {
         // eslint-disable-next-line no-console
@@ -363,6 +389,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
 
   const handleReconnect = async () => {
     if (!currentUser?.id || !activeThread?.other_user_id || isReconnecting || cooldownEnd || !isFullyApproved) return;
+    if (!isMountedRef.current) return;
     setIsReconnecting(true);
     try {
       await idempotentConnect(currentUser.id, activeThread.other_user_id);
@@ -375,7 +402,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
             .select('*')
             .eq('other_user_id', activeThread.other_user_id)
             .maybeSingle();
-          if (updated) setActiveThread(updated);
+          if (updated && isMountedRef.current) setActiveThread(updated);
         })()
       ]);
     } catch (err) {
@@ -383,7 +410,9 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
       logger.error('Failed to reconnect:', err);
       toast.error('Failed to send connection request');
     } finally {
-      setIsReconnecting(false);
+      if (isMountedRef.current) {
+        setIsReconnecting(false);
+      }
     }
   };
 
@@ -533,31 +562,42 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
         </div>
       )}
 
-      {/* Messages */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+      {/* Messages - with aria-live for screen reader announcements */}
+      <div 
+        className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4"
+        role="log"
+        aria-label="Message history"
+        aria-live="polite"
+        aria-relevant="additions"
+      >
         {loading ? (
-          <div className="flex justify-center items-center h-full">
+          <div className="flex justify-center items-center h-full" role="status" aria-label="Loading messages">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-ocean-500 mx-auto mb-3"></div>
+              <div className="spinner spinner-lg mx-auto mb-3" aria-hidden="true"></div>
               <p className="text-gray-500">Loading messages...</p>
             </div>
           </div>
         ) : messages.length > 0 ? (
           <>
-            {messages.map((message) => (
+            {/* Screen reader announcement for new messages */}
+            <div className="sr-only" aria-live="assertive" aria-atomic="true">
+              {messages.length > 0 && `${messages.length} messages in conversation`}
+            </div>
+            {messages.map((message, index) => (
               <MessageBubble
                 key={message.id}
                 message={{ ...message, content: message.content ?? message.body }}
                 isOwn={message.sender_id === currentUser?.id}
                 timestamp={formatMessageDate(message.created_at)}
                 readStatus={false}
+                aria-label={`Message ${index + 1} of ${messages.length}`}
               />
             ))}
-            <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} aria-hidden="true" />
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center h-64 text-center">
-            <ChatBubbleLeftRightIcon className="w-12 h-12 text-gray-300 mb-3" />
+          <div className="flex flex-col items-center justify-center h-64 text-center" role="status">
+            <ChatBubbleLeftRightIcon className="w-12 h-12 text-gray-300 mb-3" aria-hidden="true" />
             <p className="text-gray-500">No messages yet. Start the conversation!</p>
           </div>
         )}
@@ -689,10 +729,18 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
       
       {/* Message Input */}
       <div className="p-4 border-t border-gray-200 bg-white sticky bottom-0 safe-bottom">
-        <form onSubmit={(e) => { e.preventDefault(); if (!isSending) handleSendMessage(e); }} className="flex items-end space-x-2">
+        <form 
+          onSubmit={(e) => { e.preventDefault(); if (!isSending) handleSendMessage(e); }} 
+          className="flex items-end space-x-2"
+          aria-label="Send a message"
+        >
           <div className="flex-1">
+            <label htmlFor="message-input" className="sr-only">
+              Type your message
+            </label>
             <div className="relative">
               <textarea
+                id="message-input"
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyDown={(e) => {
@@ -711,12 +759,15 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
                       : 'Cannot send messages - connection required'
                 }
                 disabled={!canSend}
+                aria-describedby={!canSend ? 'message-input-help' : undefined}
               />
             </div>
           </div>
           <button
             type="submit"
-            disabled={!newMessage.trim() || !canSend}
+            disabled={!newMessage.trim() || !canSend || isSending}
+            aria-label={isSending ? 'Sending message...' : 'Send message'}
+            aria-busy={isSending}
             title={
               !isFullyApproved
                 ? 'Your account must be approved before you can send messages.'
@@ -724,11 +775,20 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
                   ? 'Send a connection request to start messaging.'
                   : ''
             }
-            className="btn-ocean p-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-ocean p-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed tap-target"
           >
-            <PaperAirplaneIcon className="w-5 h-5" />
+            {isSending ? (
+              <div className="spinner spinner-sm" aria-hidden="true" />
+            ) : (
+              <PaperAirplaneIcon className="w-5 h-5" aria-hidden="true" />
+            )}
           </button>
         </form>
+        
+        {/* Status announcement for screen readers */}
+        <div className="sr-only" aria-live="polite" aria-atomic="true">
+          {isSending && 'Sending message...'}
+        </div>
         {!isFullyApproved && (
           <p className="mt-1 text-xs text-yellow-700" role="note">
             {approvalStatus === 'pending'

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../utils/supabase';
 import logger from '../utils/logger';
 
@@ -11,6 +11,15 @@ export default function useDirectorySecure({ search = '', page = 1, pageSize = 2
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [totalCount, setTotalCount] = useState(0);
+
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const load = useCallback(async ({ searchArg, pageArg, pageSizeArg, sortByArg } = {}) => {
     const effectiveSearch = typeof searchArg === 'string' ? searchArg : search;
@@ -67,15 +76,20 @@ export default function useDirectorySecure({ search = '', page = 1, pageSize = 2
 
       const arr = Array.isArray(rows) ? rows : rows ? [rows] : [];
       const hasTotal = arr.length > 0 && typeof arr[0]?.total_count === 'number';
+      if (!isMountedRef.current) return;
       setData(arr);
       setTotalCount(hasTotal ? arr[0].total_count : 0);
     } catch (e) {
       logger.error('get_directory_profiles_secure failed', e);
-      setError(e);
-      setData([]);
-      setTotalCount(0);
+      if (isMountedRef.current) {
+        setError(e);
+        setData([]);
+        setTotalCount(0);
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [search, page, pageSize, sortBy]);
 

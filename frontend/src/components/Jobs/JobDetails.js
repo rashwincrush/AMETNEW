@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
@@ -54,12 +54,21 @@ const JobDetails = () => {
   const { user, profile, getUserRole } = useAuth();
   const [bookmarking, setBookmarking] = useState(false); // For loading state of bookmark action
   const [sharing, setSharing] = useState(false); // For loading state of share action
+  const isMountedRef = useRef(true);
+  
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   
 
 
   // Fetch job data from Supabase
   useEffect(() => {
     const fetchJobDetails = async () => {
+      if (!isMountedRef.current) return;
       setLoading(true);
       setError(null);
 
@@ -98,18 +107,26 @@ const JobDetails = () => {
             logoUrl: row.company_logo_url ?? row.logo_url ?? null,
           };
 
-          setJob(processedData);
-          logger.log('Fetched job data:', processedData);
+          if (isMountedRef.current) {
+            setJob(processedData);
+            logger.log('Fetched job data:', processedData);
+          }
         } else {
-          setError('Job not found');
+          if (isMountedRef.current) {
+            setError('Job not found');
+          }
           toast.error('Job not found');
         }
       } catch (err) {
         logger.error('Error fetching job details:', err);
-        setError(err.message || 'Failed to load job details');
+        if (isMountedRef.current) {
+          setError(err.message || 'Failed to load job details');
+        }
         toast.error('Failed to load job details');
       } finally {
-        setLoading(false);
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
       }
     };
 
@@ -136,7 +153,9 @@ const JobDetails = () => {
             // toast.error('Could not check bookmark status.');
             return;
           }
-          setIsBookmarked(!!bookmark);
+          if (isMountedRef.current) {
+            setIsBookmarked(!!bookmark);
+          }
           // logger.log('Bookmark status set to:', !!bookmark); // For debugging
         } catch (err) {
           logger.error('Exception fetching bookmark status:', err.message);
@@ -159,16 +178,21 @@ const JobDetails = () => {
       return;
     }
 
+    if (!isMountedRef.current) return;
     setBookmarking(true);
     try {
       const nowBookmarked = await toggleBookmarkRPC(supabase, job.id);
-      setIsBookmarked(nowBookmarked);
+      if (isMountedRef.current) {
+        setIsBookmarked(nowBookmarked);
+      }
       toast.success(nowBookmarked ? 'Job bookmarked!' : 'Bookmark removed!');
     } catch (error) {
       logger.error('Error handling bookmark:', error.message || error);
       toast.error(error.message || 'Failed to update bookmark. Please try again.');
     } finally {
-      setBookmarking(false);
+      if (isMountedRef.current) {
+        setBookmarking(false);
+      }
     }
   };
 
@@ -179,6 +203,7 @@ const JobDetails = () => {
     }
     const companyName = getJobCompanyName(job) || job.company || 'our company';
     if (navigator.share) {
+      if (!isMountedRef.current) return;
       setSharing(true);
       try {
         await navigator.share({
@@ -196,7 +221,9 @@ const JobDetails = () => {
           toast.error('Could not share. Please try again.');
         }
       } finally {
-        setSharing(false);
+        if (isMountedRef.current) {
+          setSharing(false);
+        }
       }
     } else {
       // Fallback for browsers that don't support Web Share API

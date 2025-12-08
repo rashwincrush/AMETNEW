@@ -248,15 +248,25 @@ const GroupsList = () => {
   
   // P0: Ref for aria-live announcements
   const liveRegionRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   
   // P0: Client-side filtering on allFetchedGroups using search, membership filter, and alphabetical sort
+  const userMembershipSet = useMemo(() => new Set(userMemberships || []), [userMemberships]);
+
   const filteredGroups = useMemo(() => {
     let result = [...allFetchedGroups];
     
     // Apply membership filter (joined/created)
     if (user && filter !== 'all') {
       if (filter === 'joined') {
-        result = result.filter(group => group.is_member === true);
+        result = result.filter(group => group.is_member === true || userMembershipSet.has(group.id));
       } else if (filter === 'created') {
         result = result.filter(group => group.created_by === user.id);
       }
@@ -283,7 +293,7 @@ const GroupsList = () => {
     });
     
     return result;
-  }, [allFetchedGroups, user, filter, searchQuery, sortDirection]);
+  }, [allFetchedGroups, user, filter, searchQuery, sortDirection, userMembershipSet]);
   
   // Derive groups from filteredGroups for backward compatibility
   const groups = filteredGroups;
@@ -294,12 +304,14 @@ const GroupsList = () => {
     const getGroups = async () => {
       // Employers should not see or fetch groups; keep loading false and list empty
       if (userRole === 'employer') {
+        if (!isMountedRef.current) return;
         setAllFetchedGroups([]);
         setLoading(false);
         setError(null);
         return;
       }
 
+      if (!isMountedRef.current) return;
       setLoading(true);
       // P2: Don't clear error immediately - only clear on success
       try {
@@ -327,6 +339,7 @@ const GroupsList = () => {
         }
 
         // P0/P1: Store raw data; filtering is done via useMemo
+        if (!isMountedRef.current) return;
         setAllFetchedGroups(data || []);
         setHasMore((data || []).length >= itemsPerPage);
         setError(null); // Clear error only on success
@@ -334,8 +347,10 @@ const GroupsList = () => {
         // Extract "My Groups" for top strip from raw data
         if (user && data && data.length > 0) {
           const mine = data.filter(g => g.is_member === true).slice(0, 3);
-          setMyGroups(mine);
-        } else {
+          if (isMountedRef.current) {
+            setMyGroups(mine);
+          }
+        } else if (isMountedRef.current) {
           setMyGroups([]);
         }
         
@@ -344,15 +359,21 @@ const GroupsList = () => {
           const memberships = (data || [])
             .filter(group => group.is_member === true)
             .map(group => group.id);
-          setUserMemberships(memberships);
+          if (isMountedRef.current) {
+            setUserMemberships(memberships);
+          }
           // Build membership map for all visible groups to drive accurate CTAs
           const ids = (data || []).map(g => g.id);
           try {
             const mm = await fetchMembershipMap(supabase, ids);
-            setMembershipMap(mm);
+            if (isMountedRef.current) {
+              setMembershipMap(mm);
+            }
           } catch (mmErr) {
             logger.warn('Failed to load membership map:', mmErr);
-            setMembershipMap({});
+            if (isMountedRef.current) {
+              setMembershipMap({});
+            }
           }
         }
       } catch (err) {
@@ -363,15 +384,19 @@ const GroupsList = () => {
           : 'Failed to load groups. Please try again.';
         
         if (allFetchedGroups.length === 0) {
-          setError(errorMsg);
-        } else {
+          if (isMountedRef.current) {
+            setError(errorMsg);
+          }
+        } else if (isMountedRef.current) {
           // P2: Show inline feedback instead of blocking error when we have existing data
           setFeedbackMessage({ type: 'error', text: errorMsg });
           setTimeout(() => setFeedbackMessage(null), 5000);
         }
         logger.error("Error fetching groups:", err);
       } finally {
-        setLoading(false);
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
       }
     };
 
@@ -391,53 +416,65 @@ const GroupsList = () => {
         // Leave group via secure RPC (DB enforces last-admin guard)
         await leaveGroupRpc(groupId);
         
-        setUserMemberships(prev => prev.filter(id => id !== groupId));
-        setMembershipMap(prev => {
-          const next = { ...prev };
-          if (next[groupId]) {
-            next[groupId] = { ...next[groupId], isMember: false };
-          }
-          return next;
-        });
+        if (isMountedRef.current) {
+          setUserMemberships(prev => prev.filter(id => id !== groupId));
+          setMembershipMap(prev => {
+            const next = { ...prev };
+            if (next[groupId]) {
+              next[groupId] = { ...next[groupId], isMember: false };
+            }
+            return next;
+          });
+        }
         // P0: Announce success to screen readers
-        setFeedbackMessage({ type: 'success', text: 'You have left the group.' });
-        setTimeout(() => setFeedbackMessage(null), 3000);
+        if (isMountedRef.current) {
+          setFeedbackMessage({ type: 'success', text: 'You have left the group.' });
+          setTimeout(() => setFeedbackMessage(null), 3000);
+        }
         logger.log(`User left group ${groupId}`);
       } else {
         // Join via hardened join_group_v2 RPC; returns 'active' | 'pending'
         const status = await joinGroupRpc(groupId);
 
         if (status === 'active') {
-          setUserMemberships(prev => [...prev, groupId]);
-          setMembershipMap(prev => {
-            const next = { ...prev };
-            const current = next[groupId] || {};
-            next[groupId] = { ...current, isMember: true };
-            return next;
-          });
-          // P0: Announce success to screen readers
-          setFeedbackMessage({ type: 'success', text: 'You have joined the group!' });
-          setTimeout(() => setFeedbackMessage(null), 3000);
+          if (isMountedRef.current) {
+            setUserMemberships(prev => [...prev, groupId]);
+            setMembershipMap(prev => {
+              const next = { ...prev };
+              const current = next[groupId] || {};
+              next[groupId] = { ...current, isMember: true };
+              return next;
+            });
+            // P0: Announce success to screen readers
+            setFeedbackMessage({ type: 'success', text: 'You have joined the group!' });
+            setTimeout(() => setFeedbackMessage(null), 3000);
+          }
           logger.log(`User joined group ${groupId}`);
         } else {
           // Private groups or cases where membership is pending approval
           // P0: Use feedbackMessage instead of error for non-blocking feedback
-          setFeedbackMessage({ type: 'info', text: 'Join request sent to group admins. You will be notified when approved.' });
+          if (isMountedRef.current) {
+            setFeedbackMessage({ type: 'info', text: 'Join request sent to group admins. You will be notified when approved.' });
+          }
           // Update membership map to show pending state
-          setMembershipMap(prev => {
-            const next = { ...prev };
-            const current = next[groupId] || {};
-            next[groupId] = { ...current, isPending: true };
-            return next;
-          });
-          setTimeout(() => setFeedbackMessage(null), 4000);
+          if (isMountedRef.current) {
+            setMembershipMap(prev => {
+              const next = { ...prev };
+              const current = next[groupId] || {};
+              next[groupId] = { ...current, isPending: true };
+              return next;
+            });
+            setTimeout(() => setFeedbackMessage(null), 4000);
+          }
         }
       }
     } catch (err) {
       logger.error("Error joining/leaving group:", err);
       // P0: Use feedbackMessage for non-blocking error feedback
-      setFeedbackMessage({ type: 'error', text: getFriendlyErrorMessage(err, 'An error occurred while trying to join/leave the group.') });
-      setTimeout(() => setFeedbackMessage(null), 4000);
+      if (isMountedRef.current) {
+        setFeedbackMessage({ type: 'error', text: getFriendlyErrorMessage(err, 'An error occurred while trying to join/leave the group.') });
+        setTimeout(() => setFeedbackMessage(null), 4000);
+      }
     }
   };
 
@@ -641,7 +678,7 @@ const GroupsList = () => {
           Array.from({ length: 8 }).map((_, index) => <GroupCardSkeleton key={index} />)
         ) : displayedGroups.length > 0 ? (
           displayedGroups.map(group => {
-            const mm = membershipMap[group.id] || { isMember: group.is_member === true || userMemberships.includes(group.id), isAdmin: false, isPending: false };
+            const mm = membershipMap[group.id] || { isMember: group.is_member === true || userMembershipSet.has(group.id), isAdmin: false, isPending: false };
             return (
               <GroupCard 
                 key={group.id} 

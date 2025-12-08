@@ -30,6 +30,7 @@ const Avatar = ({
   const [imageState, setImageState] = useState('loading'); // 'loading' | 'loaded' | 'error'
   const [hasAttemptedLoad, setHasAttemptedLoad] = useState(false);
   const [showSkeleton, setShowSkeleton] = useState(true);
+  const [skeletonAnimated, setSkeletonAnimated] = useState(true);
   const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   
   const sizeClasses = getAvatarSizeClasses(size);
@@ -44,9 +45,10 @@ const Avatar = ({
       setImageState('loading');
       setHasAttemptedLoad(false);
       setShowSkeleton(true);
-      
-      // Hide skeleton after 500ms to comply with WCAG 2.2.2 (no auto-play animations >5s)
-      const timer = setTimeout(() => setShowSkeleton(false), 500);
+      setSkeletonAnimated(true);
+
+      // Stop pulse animation after 500ms to comply with WCAG 2.2.2
+      const timer = setTimeout(() => setSkeletonAnimated(false), 500);
       return () => clearTimeout(timer);
     } else {
       setImageState('error');
@@ -57,6 +59,12 @@ const Avatar = ({
   const handleImageLoad = () => {
     setImageState('loaded');
     setHasAttemptedLoad(true);
+    setShowSkeleton(false);
+
+    // TEMP: debug log to confirm avatar image load events during QA
+    if (process.env.NODE_ENV === 'development') {
+      logger.log('[Avatar] image load success', rawSrc);
+    }
   };
   
   const handleImageError = () => {
@@ -64,6 +72,7 @@ const Avatar = ({
     if (!hasAttemptedLoad) {
       setHasAttemptedLoad(true);
       setImageState('error');
+      setShowSkeleton(false);
 
       if (
         process.env.NODE_ENV === 'development' &&
@@ -96,10 +105,10 @@ const Avatar = ({
       role="img"
       aria-label={alt}
     >
-      {/* Loading skeleton - only show for first 500ms and if motion not reduced */}
-      {imageState === 'loading' && rawSrc && showSkeleton && !prefersReducedMotion && (
+      {/* Loading skeleton - keep visible until load/error; stop animation after 500ms (except when eagerly loading) */}
+      {imageState === 'loading' && rawSrc && showSkeleton && !prefersReducedMotion && loadingStrategy !== 'eager' && (
         <div 
-          className={`absolute inset-0 ${roundedClass} bg-slate-200 animate-pulse`}
+          className={`absolute inset-0 ${roundedClass} bg-slate-200 ${skeletonAnimated ? 'animate-pulse' : ''}`}
           aria-hidden="true"
           data-testid="avatar-skeleton"
         />
@@ -117,9 +126,8 @@ const Avatar = ({
             ${sizeClasses.container}
             ${roundedClass}
             object-cover
-            ${imageState === 'loading' ? 'opacity-0' : 'opacity-100'}
-            transition-opacity
-            duration-200
+            ${loadingStrategy === 'eager' ? 'opacity-100' : (imageState === 'loading' ? 'opacity-0' : 'opacity-100')}
+            ${loadingStrategy === 'eager' ? '' : 'transition-opacity duration-200'}
           `.trim().replace(/\s+/g, ' ')}
           onLoad={handleImageLoad}
           onError={handleImageError}

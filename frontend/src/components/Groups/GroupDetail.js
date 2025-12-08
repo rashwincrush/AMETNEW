@@ -123,15 +123,26 @@ const GroupDetail = () => {
   const confirmTriggerRef = useRef(null);
   const editModalRef = useRef(null);
   const editTriggerRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const loadGroupData = useCallback(async () => {
+    if (!isMountedRef.current) return;
     setLoading(true);
     setError(null);
     try {
       // PERFORMANCE: Fetch group details (without members - we'll get count separately)
       const { data: groupData, error: groupError } = await fetchGroupDetails(id, { includeMembers: false });
       if (groupError) throw groupError;
-      setGroup(groupData);
+      if (isMountedRef.current) {
+        setGroup(groupData);
+      }
       
       // PERFORMANCE: Parallelize all user-specific and secondary queries
       const isSiteAdmin = profile?.is_admin === true;
@@ -166,7 +177,7 @@ const GroupDetail = () => {
       
       // Process results
       const countResult = results[0];
-      if (typeof countResult?.count === 'number') {
+      if (typeof countResult?.count === 'number' && isMountedRef.current) {
         setMemberCount(countResult.count);
       }
       
@@ -189,28 +200,38 @@ const GroupDetail = () => {
         }
       }
       
-      setIsMember(memberCheck);
-      setIsAdmin(adminCheck);
-      setJoinPending(pendingCheck);
+      if (isMountedRef.current) {
+        setIsMember(memberCheck);
+        setIsAdmin(adminCheck);
+        setJoinPending(pendingCheck);
+      }
 
       // Fetch posts if user is a member or the group is public (paged)
       // This is done after membership check since it depends on the result
-      if (memberCheck || !groupData.is_private) {
+      if ((memberCheck || !groupData.is_private)) {
         const { data: postsData, error: postsError } = await fetchGroupPosts(id, { limit: 10 });
         if (postsError) throw postsError;
-        setPosts(postsData || []);
-        setHasMore((postsData || []).length === 10);
+        if (isMountedRef.current) {
+          setPosts(postsData || []);
+          setHasMore((postsData || []).length === 10);
+        }
       }
     } catch (err) {
       const msg = String(err?.message || '');
       if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
-        setError('This group is currently not available. It may be pending review or archived.');
+        if (isMountedRef.current) {
+          setError('This group is currently not available. It may be pending review or archived.');
+        }
       } else {
-        setError('Failed to load this group. Please try again.');
+        if (isMountedRef.current) {
+          setError('Failed to load this group. Please try again.');
+        }
       }
       logger.error("Error loading group data:", err);
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [id, user?.id, profile?.is_admin]);
 
@@ -241,7 +262,7 @@ const GroupDetail = () => {
       if (!isAdmin) return; // Only admins
       try {
         const { data, error } = await fetchGroupMembers(id, 200, 0);
-        if (!error) setMembers(data || []);
+        if (!error && isMountedRef.current) setMembers(data || []);
       } catch(e) {
         logger.error('Failed to load members', e);
       }
@@ -436,8 +457,10 @@ const GroupDetail = () => {
     try {
       const { data, error } = await fetchGroupPosts(id, { cursor: { created_at: last.created_at }, limit: 10 });
       if (error) throw error;
-      setPosts(prev => [...prev, ...(data || [])]);
-      setHasMore((data || []).length === 10);
+      if (isMountedRef.current) {
+        setPosts(prev => [...prev, ...(data || [])]);
+        setHasMore((data || []).length === 10);
+      }
     } catch (err) {
       logger.error('Error loading more posts:', err);
     }
@@ -553,6 +576,7 @@ const GroupDetail = () => {
       return;
     }
 
+    if (!isMountedRef.current) return;
     setUploadingAvatar(true);
     try {
       const path = `${id}/avatar.jpg`;
@@ -570,17 +594,25 @@ const GroupDetail = () => {
         .eq('id', id);
       if (updErr) {
         logger.error('Failed to persist avatar URL to groups:', updErr);
-        setError('Avatar uploaded but could not be saved to the group (permissions).');
+        if (isMountedRef.current) {
+          setError('Avatar uploaded but could not be saved to the group (permissions).');
+        }
         return;
       }
 
       const busted = publicUrl ? `${publicUrl}?t=${Date.now()}` : '';
-      setGroup(prev => ({ ...prev, group_avatar_url: busted }));
+      if (isMountedRef.current) {
+        setGroup(prev => ({ ...prev, group_avatar_url: busted }));
+      }
     } catch (err) {
       logger.error('Error uploading avatar:', err);
-      setError('Failed to upload group avatar.');
+      if (isMountedRef.current) {
+        setError('Failed to upload group avatar.');
+      }
     } finally {
-      setUploadingAvatar(false);
+      if (isMountedRef.current) {
+        setUploadingAvatar(false);
+      }
     }
   };
   
@@ -604,6 +636,7 @@ const GroupDetail = () => {
       return;
     }
     
+    if (!isMountedRef.current) return;
     setUploadingPost(true);
     try {
       // First create the post without image to obtain postId
@@ -621,14 +654,20 @@ const GroupDetail = () => {
         finalPost = withImg;
       }
 
-      setPosts(prev => [finalPost, ...prev]);
-      setNewPostContent('');
+      if (isMountedRef.current) {
+        setPosts(prev => [finalPost, ...prev]);
+        setNewPostContent('');
+      }
       removeSelectedImage();
     } catch (err) {
       logger.error("Error creating post:", err);
-      setError(getFriendlyErrorMessage(err, 'Failed to create post.'));
+      if (isMountedRef.current) {
+        setError(getFriendlyErrorMessage(err, 'Failed to create post.'));
+      }
     } finally {
-      setUploadingPost(false);
+      if (isMountedRef.current) {
+        setUploadingPost(false);
+      }
     }
   };
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDate } from '../../utils/dateUtils';
 import logger from '../../utils/logger';
@@ -25,6 +25,14 @@ const CreateEvent = () => {
   const navigate = useNavigate();
   const { user, userRole, profile, hasPermission } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, []);
@@ -258,6 +266,7 @@ const CreateEvent = () => {
         return;
       }
       logger.log('Form validation passed');
+      if (!isMountedRef.current) return;
       setIsSubmitting(true);
       logger.log('Starting submission');
 
@@ -336,8 +345,9 @@ const CreateEvent = () => {
       logger.error('Error creating event:', error);
       toast.error(`Error creating event: ${error.message}`);
     } finally {
-      logger.log('Finishing event submission process');
-      setIsSubmitting(false);
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+      }
     }
   };
 

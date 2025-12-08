@@ -217,6 +217,8 @@ const AlumniProfile = () => {
     alumnus.graduationYear ? formatBatchLabel(alumnus.graduationYear) : null,
     alumnus.location && alumnus.location !== 'Not specified' ? alumnus.location : null,
   ].filter(Boolean);
+  // Avatar precedence: prefer signed URL from useAvatar, fall back to view/avatar field
+  const avatarSrc = avatarUrl || alumnus?.avatar || null;
 
   return (
     <div className="min-h-[calc(100vh-80px)] bg-gradient-to-b from-sky-50/70 via-slate-50 to-white">
@@ -228,7 +230,7 @@ const AlumniProfile = () => {
             {/* Profile Picture */}
             <div className="relative mb-1">
               <Avatar
-                src={avatarUrl || alumnus.avatar}
+                src={avatarSrc}
                 alt={`${alumnus.name}'s profile picture`}
                 size={96}
                 version={alumnus.updated_at}

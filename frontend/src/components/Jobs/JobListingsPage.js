@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link, useLocation, useSearchParams, useNavigate } from 'react-router-dom';
 import useJobsRealtime from '../../hooks/useJobsRealtime';
 import {
@@ -32,7 +32,7 @@ import BookmarkButton from './BookmarkButton';
 import { toggleBookmarkRPC } from '../../utils/bookmarks';
 import ImageWithFallback from '../common/ImageWithFallback';
 import ApplyDialog from './ApplyDialog';
-import { hasApplied as hasAppliedHelper } from '../../utils/jobApplications';
+import { getAppliedJobIdsForCurrentUser } from '../../utils/jobApplications';
 
 /* ---------- Helpers ---------- */
 const timeAgo = (date) => {
@@ -185,7 +185,7 @@ const StatusBadge = ({ job, isAdmin, isEmployer }) => {
   );
 };
 
-const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
+const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied = false, onApplied }) => {
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id || job?.created_by || job?.employer_id;
@@ -227,15 +227,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
   
 
   const [applyOpen, setApplyOpen] = useState(false);
-  const [applied, setApplied] = useState(false);
   const [visibilityDialog, setVisibilityDialog] = useState({ open: false, mode: null });
-  useEffect(() => {
-    let mounted = true;
-    if (user?.id && job?.id) {
-      hasAppliedHelper(job.id).then(v => { if (mounted) setApplied(Boolean(v)); });
-    }
-    return () => { mounted = false; };
-  }, [user?.id, job?.id]);
   const href = coalesceAppUrl(job);
   const titleTrim = (job.title || '').trim();
   const companyNameRaw = (getJobCompanyName(job) || '').trim();
@@ -447,7 +439,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
             ) : (
               <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications closed</button>
             )
-          ) : applied ? (
+          ) : hasApplied ? (
             <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Application submitted</button>
           ) : canApplyInApp ? (
             <button
@@ -465,7 +457,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
               onClose={() => setApplyOpen(false)}
               jobId={job.id}
               deadline={coalescedDeadline}
-              onSuccess={() => setApplied(true)}
+              onSuccess={() => { if (onApplied) onApplied(job.id); }}
             />
           )}
           
@@ -516,7 +508,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
   );
 };
 
-const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
+const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied = false, onApplied }) => {
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id || job?.created_by || job?.employer_id;
@@ -555,15 +547,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
     }
   };
   const [applyOpen, setApplyOpen] = useState(false);
-  const [applied, setApplied] = useState(false);
   const [visibilityDialog, setVisibilityDialog] = useState({ open: false, mode: null });
-  useEffect(() => {
-    let mounted = true;
-    if (user?.id && job?.id) {
-      hasAppliedHelper(job.id).then(v => { if (mounted) setApplied(Boolean(v)); });
-    }
-    return () => { mounted = false; };
-  }, [user?.id, job?.id]);
 
   const coalescedDeadline = job?.deadline || job?.application_deadline || null;
   const rejected = job?.is_rejected === true;
@@ -724,7 +708,7 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
             ) : (
               <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications closed</button>
             )
-          ) : applied ? (
+          ) : hasApplied ? (
             <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Application submitted</button>
           ) : canApplyInApp ? (
             <button
@@ -737,7 +721,13 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick }) => {
             <button disabled className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications closed</button>
           )}
           {!quick && (
-            <ApplyDialog open={applyOpen} onClose={() => setApplyOpen(false)} jobId={job.id} deadline={coalescedDeadline} onSuccess={() => setApplied(true)} />
+            <ApplyDialog
+              open={applyOpen}
+              onClose={() => setApplyOpen(false)}
+              jobId={job.id}
+              deadline={coalescedDeadline}
+              onSuccess={() => { if (onApplied) onApplied(job.id); }}
+            />
           )}
         </div>
       </div>
@@ -782,6 +772,7 @@ const JobListingsPage = () => {
   const [totalPages, setTotalPages] = useState(0);
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'created_at,desc');
   const [bookmarkedJobs, setBookmarkedJobs] = useState([]);
+  const [appliedJobIds, setAppliedJobIds] = useState([]);
   const rawSourceQS = searchParams.get('source') || 'all';
   const canonicalSource = rawSourceQS === 'quick' ? 'quick_link' : rawSourceQS === 'internal' ? 'in_app' : rawSourceQS;
   const [sourceFilter, setSourceFilter] = useState(['quick_link', 'in_app'].includes(canonicalSource) ? canonicalSource : 'all');
@@ -791,6 +782,27 @@ const JobListingsPage = () => {
   const fetchController = useRef(null);
   const filtersRef = useRef(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const bookmarkedSet = useMemo(() => new Set(bookmarkedJobs || []), [bookmarkedJobs]);
+  const appliedSet = useMemo(() => new Set(appliedJobIds || []), [appliedJobIds]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setBookmarkedJobs([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data: ids, error: idsErr } = await supabase
+        .from('job_bookmarks')
+        .select('job_id')
+        .eq('user_id', user.id);
+      if (!cancelled && !idsErr) {
+        setBookmarkedJobs((ids || []).map(r => r.job_id));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   const toggleFilters = useCallback(() => {
     setFiltersOpen((prev) => {
@@ -1179,52 +1191,69 @@ const JobListingsPage = () => {
     setTotalJobs(totalCount);
     setTotalPages(Math.max(1, Math.ceil(totalCount / pageSize)));
 
-    // Fetch bookmark ids explicitly (do NOT rely on feed flag)
-    if (user?.id) {
-      const { data: ids, error: idsErr } = await supabase
-        .from('job_bookmarks')
-        .select('job_id')
-        .eq('user_id', user.id);
-
-      if (!idsErr) {
-        const idsList = (ids || []).map(r => r.job_id);
-        setBookmarkedJobs(idsList);
-        const idSet = new Set(idsList);
-        // Keep bookmarked jobs at the top
-        uniqueRows = [...uniqueRows].sort((a, b) => {
-          const aB = idSet.has(a.id), bB = idSet.has(b.id);
-          if (aB && !bB) return -1;
-          if (!aB && bB) return 1;
-          return 0;
-        });
-      }
-    }
-
     setJobs(uniqueRows);
     setLoading(false);
   }, [searchQuery, sortBy, currentPage, user, userRole, pageSize, filters.department, filters.experience, filters.industry, filters.jobType, filters.location, filters.postedWithin, filters.salaryRange, sourceFilter, approvalFilter]);
 
+  useEffect(() => {
+    if (!user?.id || !jobs.length || !bookmarkedJobs.length) return;
+    const idSet = new Set(bookmarkedJobs);
+    setJobs(prev => {
+      if (!prev.length) return prev;
+      return [...prev].sort((a, b) => {
+        const aB = idSet.has(a.id), bB = idSet.has(b.id);
+        if (aB && !bB) return -1;
+        if (!aB && bB) return 1;
+        return 0;
+      });
+    });
+  }, [user?.id, jobs.length, bookmarkedJobs]);
+
+  useEffect(() => {
+    if (!user?.id || !['alumni', 'student'].includes(userRole)) {
+      setAppliedJobIds([]);
+      return;
+    }
+    if (!jobs.length) {
+      setAppliedJobIds([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const ids = jobs.map(j => j.id).filter(Boolean);
+        if (!ids.length) {
+          if (!cancelled) setAppliedJobIds([]);
+          return;
+        }
+        const appliedIds = await getAppliedJobIdsForCurrentUser(ids);
+        if (!cancelled) setAppliedJobIds(appliedIds || []);
+      } catch (_) {
+        if (!cancelled) setAppliedJobIds([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, userRole, jobs]);
+
   // Realtime
   const handleRealtimeJobChange = useCallback((payload) => {
-    const { eventType, new: newRecord, old: oldRecord } = payload;
-    setJobs(currentJobs => {
+    const { eventType } = payload;
+    // To keep paging, filters, and counts consistent, only auto-refresh on first page.
+    // For other pages, just show a toast and let the user refresh manually.
+    if (currentPage !== 1) {
       if (eventType === 'INSERT') {
-        const normalized = normalizeJob(newRecord);
-        toast('A new job has been posted.', { icon: 'ℹ️' });
-        return [normalized, ...currentJobs];
+        toast('A new job has been posted. Refresh to see the latest listings.', { icon: 'ℹ️' });
+      } else if (eventType === 'UPDATE') {
+        toast('A job listing has been updated. Refresh to see the latest details.', { icon: 'ℹ️' });
+      } else if (eventType === 'DELETE') {
+        toast('A job listing has been removed. Refresh to update the list.', { icon: 'ℹ️' });
       }
-      if (eventType === 'UPDATE') {
-        const normalized = normalizeJob(newRecord);
-        toast('A job listing has been updated.', { icon: 'ℹ️' });
-        return currentJobs.map(job => job.id === normalized.id ? normalized : job);
-      }
-      if (eventType === 'DELETE') {
-        toast('A job listing has been removed.', { icon: 'ℹ️' });
-        return currentJobs.filter(job => job.id !== oldRecord.id);
-      }
-      return currentJobs;
-    });
-  }, []);
+      return;
+    }
+
+    // On first page, re-run the main fetch so results stay aligned with filters/sort.
+    fetchJobs();
+  }, [currentPage, fetchJobs]);
 
   const handleRealtimeBookmarkChange = useCallback(async () => {
     // Light refresh of bookmark IDs
@@ -1344,6 +1373,10 @@ const JobListingsPage = () => {
   };
 
   const canPostJob = ['employer', 'admin', 'super_admin'].includes(userRole);
+
+  const handleApplied = useCallback((jobId) => {
+    setAppliedJobIds(prev => (prev.includes(jobId) ? prev : [...prev, jobId]));
+  }, []);
 
   if (authLoading) {
     return (<div className="flex justify-center items-center h-screen"><CircularProgress /></div>);
@@ -1536,16 +1569,20 @@ const JobListingsPage = () => {
                 key={job.id}
                 job={job}
                 handleBookmark={handleBookmark}
-                isBookmarked={bookmarkedJobs.includes(job.id)}
+                isBookmarked={bookmarkedSet.has(job.id)}
                 onSkillClick={handleSkillClick}
+                hasApplied={appliedSet.has(job.id)}
+                onApplied={handleApplied}
               />
             ) : (
               <JobListItem
                 key={job.id}
                 job={job}
                 handleBookmark={handleBookmark}
-                isBookmarked={bookmarkedJobs.includes(job.id)}
+                isBookmarked={bookmarkedSet.has(job.id)}
                 onSkillClick={handleSkillClick}
+                hasApplied={appliedSet.has(job.id)}
+                onApplied={handleApplied}
               />
             )
           ))}

@@ -99,23 +99,22 @@ const UserManagement = () => {
     setDeletingId(userId);
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('admin-delete-user', {
-        body: { userId },
+      const { data, error } = await supabase.rpc('admin_delete_user_rpc', {
+        target: userId,
       });
+
       if (error) {
         logger.error('Auth delete failed:', error);
         toast.error(`Auth delete failed: ${getFriendlyErrorMessage(error, 'Unable to delete auth user.')}`);
         return { success: false, error };
       }
-      if (!data?.ok) {
-        toast.error(`Auth delete failed: ${data?.error || 'Unknown error'}`);
-        return { success: false, error: data };
-      }
+
+      // admin_delete_user_rpc returns a JSONB payload; treat non-null data as success
       toast.success('Auth user deleted successfully');
       await fetchUsers();
-      return { success: true };
+      return { success: true, data };
     } catch (err) {
-      logger.error('Error invoking admin-delete-user:', err);
+      logger.error('Error invoking admin_delete_user_rpc:', err);
       toast.error(`Auth delete failed: ${getFriendlyErrorMessage(err, 'Unable to delete auth user.')}`);
       return { success: false, error: err };
     } finally {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import logger from '../../utils/logger';
@@ -54,6 +54,14 @@ const EditEvent = () => {
   const [errors, setErrors] = useState({});
   const [previewImage, setPreviewImage] = useState(null);
   const canEditEvents = hasPermission('events:create');
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const categories = [
     { value: 'networking', label: 'Networking' },
@@ -70,7 +78,9 @@ const EditEvent = () => {
   // Fetch event data when component mounts
   useEffect(() => {
     if (!canEditEvents) {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
       return;
     }
 
@@ -79,6 +89,7 @@ const EditEvent = () => {
 
   const fetchEvent = async () => {
     try {
+      if (!isMountedRef.current) return;
       setLoading(true);
       
       const { data, error } = await supabase
@@ -139,10 +150,12 @@ const EditEvent = () => {
       
       logger.log('Formatted event data:', eventData); // Debug log
 
-      setFormData(eventData);
+      if (isMountedRef.current) {
+        setFormData(eventData);
+      }
       
       // If there's an image, set the preview
-      if (data.featured_image_url) {
+      if (data.featured_image_url && isMountedRef.current) {
         setPreviewImage(data.featured_image_url);
         logger.log('Setting preview image:', data.featured_image_url); // Debug log
       }
@@ -150,7 +163,9 @@ const EditEvent = () => {
       logger.error('Error fetching event:', err);
       toast.error('Failed to load event details');
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -255,6 +270,7 @@ const EditEvent = () => {
       return;
     }
     
+    if (!isMountedRef.current) return;
     setIsSubmitting(true);
     
     try {
@@ -349,7 +365,9 @@ const EditEvent = () => {
       logger.error('Error updating event:', err);
       toast.error('Failed to update event');
     } finally {
-      setIsSubmitting(false);
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+      }
     }
   };
 

@@ -9,6 +9,7 @@ import toast from 'react-hot-toast'; // For error notifications
 import logger from '../../utils/logger';
 import ActivitiesWidget from './ActivitiesWidget';
 import MyGroupsWidget from './MyGroupsWidget';
+import { WelcomeGuide, QuickActions } from './WelcomeGuide';
 import { 
   UsersIcon, 
   CalendarIcon, 
@@ -94,6 +95,14 @@ const AlumniDashboard = () => {
   const isStudent = role === 'student';
   const effectiveApprovalStatus = authApprovalStatus || approvalFlags?.approvalStatus || approvalStatus;
   const isTrulyPending = effectiveApprovalStatus === 'pending';
+  const isMountedRef = useRef(true);
+  
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   
   // Recent Activity now fully handled by <ActivitiesWidget />
 
@@ -164,6 +173,7 @@ const AlumniDashboard = () => {
   const fetchDashboardData = useCallback(async () => {
     if (!user?.id) return;
     logger.log('AlumniDashboard: fetchDashboardData started.');
+    if (!isMountedRef.current) return;
     setLoading(true);
 
     try {
@@ -184,16 +194,18 @@ const AlumniDashboard = () => {
 
       const counts = data.counts || {};
 
-      setDashboardData(prev => ({
-        ...prev,
-        totalAlumni: counts.total_alumni ?? 0,
-        personalConnections: counts.my_connections ?? 0,
-        upcomingEventsCount: counts.upcoming_events ?? 0,
-        jobOpportunitiesCount: counts.active_jobs ?? 0,
-        unreadMessagesCount: counts.unread_messages ?? 0,
-        upcomingEventsList: Array.isArray(data.upcoming_events_list) ? data.upcoming_events_list : [],
-        jobRecommendationsList: Array.isArray(data.recommended_jobs_list) ? data.recommended_jobs_list : [],
-      }));
+      if (isMountedRef.current) {
+        setDashboardData(prev => ({
+          ...prev,
+          totalAlumni: counts.total_alumni ?? 0,
+          personalConnections: counts.my_connections ?? 0,
+          upcomingEventsCount: counts.upcoming_events ?? 0,
+          jobOpportunitiesCount: counts.active_jobs ?? 0,
+          unreadMessagesCount: counts.unread_messages ?? 0,
+          upcomingEventsList: Array.isArray(data.upcoming_events_list) ? data.upcoming_events_list : [],
+          jobRecommendationsList: Array.isArray(data.recommended_jobs_list) ? data.recommended_jobs_list : [],
+        }));
+      }
     } catch (error) {
       logger.error('Error fetching dashboard data:', error);
       if (error.message && error.message.includes('timeout')) {
@@ -204,7 +216,9 @@ const AlumniDashboard = () => {
         toast.error('Failed to load some dashboard data. Please try refreshing the page.');
       }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [user?.id]);
 
@@ -265,7 +279,9 @@ const AlumniDashboard = () => {
       fetchDashboardData();
       checkEventReminders(user.id);
     } else if (!authLoading) {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [user?.id, authLoading, fetchDashboardData, checkEventReminders]);
 
@@ -311,23 +327,29 @@ const AlumniDashboard = () => {
         
         {/* Browse-only banner for pending, not-fully-approved users */}
         {!approvalLoading && approvalFlags && userRole !== 'employer' && !isAdminLike && isTrulyPending && !isFullyApproved && (
-          <div className="mb-6 bg-amber-50 border-l-4 border-amber-400 rounded-lg p-4">
+          <div className="mb-6 alert alert-warning" role="alert">
             <div className="flex items-start">
               <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-amber-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <svg className="h-5 w-5 text-amber-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                   <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                 </svg>
               </div>
               <div className="ml-3">
-                <h3 className="text-sm font-medium text-amber-800">Account Pending Approval</h3>
-                <div className="mt-2 text-sm text-amber-700">
-                  <p>Your account is under review. You can browse jobs, events, alumni, groups, and messages, but actions like applying, RSVPing, joining groups, sending connection requests or messages are disabled until approval.</p>
-                  <p className="mt-2">If you have any questions, please contact an administrator.</p>
-                </div>
+                <h3 className="text-sm font-semibold text-amber-800">Account Pending Approval</h3>
+                <p className="mt-1 text-sm text-amber-700">
+                  Your account is under review. You can browse the platform, but some actions are disabled until approval.
+                </p>
               </div>
             </div>
           </div>
         )}
+
+        {/* Welcome Guide for first-time users - helps reduce cognitive load */}
+        <WelcomeGuide className="mb-6" />
+
+        {/* Quick Actions - simplified primary actions (max 3) */}
+        <QuickActions className="mb-6 md:hidden" />
+
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
             <StatSkeletonCard />

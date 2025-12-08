@@ -3,6 +3,8 @@ import { useApproval } from '../../hooks/useApproval';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { useCreateMentorshipRequest } from '../../hooks/useMentorshipMutations';
+import { CheckCircleIcon, ClockIcon, UserPlusIcon } from '@heroicons/react/24/outline';
+import { Loader2 } from 'lucide-react';
 
 export default function RequestMentorshipButton({
   mentorId,
@@ -14,6 +16,7 @@ export default function RequestMentorshipButton({
 }) {
   const { loading, isApprovedMentee } = useApproval();
   const [busy, setBusy] = useState(false);
+  const [success, setSuccess] = useState(false);
   const { user } = useAuth();
   const createMutation = useCreateMentorshipRequest();
 
@@ -26,7 +29,7 @@ export default function RequestMentorshipButton({
     }
     if (requested) return; // already requested
     if (isOwnerMentor) {
-      toast.error("You can’t join your own mentorship as a mentee.");
+      toast.error("You can't join your own mentorship as a mentee.");
       return;
     }
     try {
@@ -34,7 +37,9 @@ export default function RequestMentorshipButton({
       // RPC handles auth, eligibility, capacity, and duplicate checks server-side
       await createMutation.mutateAsync({ mentorId });
 
-      toast.success('Request sent!');
+      setSuccess(true);
+      toast.success('Mentorship request sent! The mentor will review your request.');
+      
       // Emit global event so other screens (Mentorship.js) can refresh
       window.dispatchEvent(
         new CustomEvent('mentorship:request:created', {
@@ -44,6 +49,9 @@ export default function RequestMentorshipButton({
       if (typeof onSuccess === 'function') {
         onSuccess({ mentorId, menteeId: user?.id });
       }
+      
+      // Reset success state after animation
+      setTimeout(() => setSuccess(false), 2000);
     } catch (err) {
       // Error toasts are already handled inside the mutation via mapMentorshipError
     } finally {
@@ -55,49 +63,106 @@ export default function RequestMentorshipButton({
   const hasOpenRequest = activeStatus === 'pending' || activeStatus === 'accepted';
   const isDisabled = loading || busy || !isApprovedMentee || !!disabled || hasOpenRequest;
 
-  return (
-    isOwnerMentor ? (
-      <div className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-3 py-1 text-xs font-semibold">
-        <svg
-          className="w-3.5 h-3.5 mr-1.5"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path
-            fillRule="evenodd"
-            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.707a1 1 0 00-1.414-1.414L9 10.172 7.707 8.879A1 1 0 006.293 10.293l2 2a1 1 0 001.414 0l4-4z"
-            clipRule="evenodd"
-          />
-        </svg>
-        <span>You are the mentor for this program</span>
-      </div>
-    ) : (
-      <button
-        onClick={onClick}
-        disabled={isDisabled}
-        aria-disabled={isDisabled}
-        title={
-          !isApprovedMentee
-            ? 'Your profile is not approved. Kindly contact administrator.'
-            : activeStatus === 'accepted'
-              ? 'Request accepted'
-              : activeStatus === 'pending'
-                ? 'Request pending'
-                : disabled && disabledReason
-                  ? disabledReason
-                  : disabled
-                    ? 'This mentor isn’t accepting requests right now.'
-                    : 'Request mentorship'
-        }
-        className={`flex-1 btn-ocean py-2 px-3 rounded text-sm ${isDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+  // Determine button label for accessibility
+  const getAriaLabel = () => {
+    if (isOwnerMentor) return 'You are the mentor for this program';
+    if (activeStatus === 'accepted') return 'Mentorship request accepted';
+    if (activeStatus === 'pending') return 'Mentorship request pending review';
+    if (!isApprovedMentee) return 'Your profile must be approved to request mentorship';
+    if (disabled && disabledReason) return disabledReason;
+    if (disabled) return 'This mentor is not accepting requests right now';
+    if (busy) return 'Sending mentorship request';
+    return 'Request mentorship from this mentor';
+  };
+
+  // Owner mentor badge
+  if (isOwnerMentor) {
+    return (
+      <div 
+        className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 px-3 py-1.5 text-xs font-semibold"
+        role="status"
       >
-        {activeStatus === 'accepted'
-          ? 'Request Accepted'
-          : activeStatus === 'pending'
-            ? 'Request pending'
-            : (busy ? 'Sending…' : 'Request Mentorship')}
-      </button>
-    )
+        <CheckCircleIcon className="w-4 h-4 mr-1.5" aria-hidden="true" />
+        <span>You are the mentor</span>
+      </div>
+    );
+  }
+
+  // Accepted status badge
+  if (activeStatus === 'accepted') {
+    return (
+      <div 
+        className="inline-flex items-center rounded-lg bg-emerald-100 text-emerald-800 px-4 py-2 text-sm font-semibold"
+        role="status"
+        aria-label="Mentorship request accepted"
+      >
+        <CheckCircleIcon className="w-4 h-4 mr-2" aria-hidden="true" />
+        <span>Request Accepted</span>
+      </div>
+    );
+  }
+
+  // Pending status badge
+  if (activeStatus === 'pending') {
+    return (
+      <div 
+        className="inline-flex items-center rounded-lg bg-amber-100 text-amber-800 px-4 py-2 text-sm font-semibold"
+        role="status"
+        aria-label="Mentorship request pending review"
+      >
+        <ClockIcon className="w-4 h-4 mr-2" aria-hidden="true" />
+        <span>Request Pending</span>
+      </div>
+    );
+  }
+
+  // Request button
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={isDisabled}
+      aria-label={getAriaLabel()}
+      aria-busy={busy}
+      aria-disabled={isDisabled}
+      title={
+        !isApprovedMentee
+          ? 'Your profile is not approved. Kindly contact administrator.'
+          : disabled && disabledReason
+            ? disabledReason
+            : disabled
+              ? "This mentor isn't accepting requests right now."
+              : undefined
+      }
+      className={`
+        inline-flex items-center justify-center gap-2 tap-target
+        rounded-lg px-4 py-2.5 text-sm font-semibold
+        transition-all duration-fast
+        ${success 
+          ? 'bg-emerald-500 text-white' 
+          : 'bg-ocean-500 text-white hover:bg-ocean-600'
+        }
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2
+        disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-ocean-500
+        active:scale-[0.98]
+      `}
+    >
+      {busy ? (
+        <>
+          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+          <span>Sending…</span>
+        </>
+      ) : success ? (
+        <>
+          <CheckCircleIcon className="w-4 h-4" aria-hidden="true" />
+          <span>Request Sent!</span>
+        </>
+      ) : (
+        <>
+          <UserPlusIcon className="w-4 h-4" aria-hidden="true" />
+          <span>Request Mentorship</span>
+        </>
+      )}
+    </button>
   );
 }

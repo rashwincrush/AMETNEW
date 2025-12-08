@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import logger from '../../utils/logger';
 import toast from 'react-hot-toast';
 import { getFriendlyErrorMessage, toFriendlyToast } from '../../utils/errors';
@@ -20,8 +21,11 @@ import {
   ClockIcon,
   FlagIcon,
   ArrowPathIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  TrashIcon
 } from '@heroicons/react/24/outline';
+import { deleteGroupRpc } from '../../api/groups';
+import { DeleteConfirmationDialog } from '../shared/ConfirmationDialog';
 
 /**
  * ContentApproval - Component for moderating and approving user-generated content
@@ -64,6 +68,14 @@ const ContentApproval = () => {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectItem, setRejectItem] = useState(null);
+
+  // Delete confirmation dialog state
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteItem, setDeleteItem] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Check if user is super_admin
+  const isSuperAdmin = profile?.role === 'super_admin';
 
   const fetchPendingContent = useCallback(async () => {
     // Reset all states
@@ -475,6 +487,68 @@ const ContentApproval = () => {
       toFriendlyToast(toast, err, `Failed to reject ${content_type}. Please try again.`);
     }
   };
+
+  // Handle delete (super_admin only)
+  const handleDelete = (item) => {
+    setDeleteItem(item);
+    setDeleteOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    const item = deleteItem;
+    if (!item) return;
+
+    const { id, content_type } = item;
+    setDeleteLoading(true);
+
+    try {
+      switch (content_type) {
+        case 'job': {
+          // Use admin_delete_job RPC
+          const { error: jobError } = await supabase.rpc('admin_delete_job', { p_job_id: id });
+          if (jobError) throw jobError;
+          setPendingJobs(current => current.filter(p => p.id !== id));
+          break;
+        }
+
+        case 'event': {
+          // Use admin_delete_event RPC
+          const { error: eventError } = await supabase.rpc('admin_delete_event', { p_event_id: id });
+          if (eventError) throw eventError;
+          setPendingEvents(current => current.filter(p => p.id !== id));
+          break;
+        }
+
+        case 'group': {
+          // Use delete_group_secure RPC
+          await deleteGroupRpc(id);
+          setPendingGroups(current => current.filter(p => p.id !== id));
+          break;
+        }
+
+        default: {
+          // For other content types, direct delete if allowed
+          const { error: deleteError } = await supabase
+            .from('content_approvals')
+            .delete()
+            .eq('id', id);
+          if (deleteError) throw deleteError;
+          setPendingOtherContent(current => current.filter(p => p.id !== id));
+          break;
+        }
+      }
+
+      toast.success(`${item.type} deleted permanently.`);
+      setPendingContent(current => current.filter(p => p.id !== id));
+      setDeleteOpen(false);
+      setDeleteItem(null);
+    } catch (err) {
+      logger.error(`Error deleting ${content_type}:`, err);
+      toFriendlyToast(toast, err, `Failed to delete ${content_type}. Please try again.`);
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
   
   const getContentTypeIcon = (type) => {
     switch(type) {
@@ -566,6 +640,17 @@ const ContentApproval = () => {
         >
           <XCircleIcon className="h-6 w-6" />
         </button>
+        {/* Delete button - super_admin only */}
+        {isSuperAdmin && ['job', 'event', 'group'].includes(item.content_type) && (
+          <button 
+            title="Delete permanently" 
+            onClick={() => handleDelete(item)} 
+            className="p-2 rounded-full text-red-700 hover:text-red-900 hover:bg-red-100"
+            aria-label={`Delete ${item.type} ${item.title || item.job_title || ''} permanently`}
+          >
+            <TrashIcon className="h-6 w-6" />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -621,6 +706,17 @@ const ContentApproval = () => {
           >
             <XCircleIcon className="h-6 w-6" />
           </button>
+          {/* Delete button - super_admin only */}
+          {isSuperAdmin && ['job', 'event', 'group'].includes(item.content_type) && (
+            <button 
+              title="Delete permanently" 
+              onClick={() => handleDelete(item)} 
+              className="inline-flex items-center justify-center w-[44px] h-[44px] p-0 rounded-lg text-red-700 hover:text-red-900 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
+              aria-label={`Delete ${item.type} ${item.title || item.job_title || ''} permanently`}
+            >
+              <TrashIcon className="h-6 w-6" />
+            </button>
+          )}
         </div>
       </div>
     </li>
@@ -646,6 +742,25 @@ const ContentApproval = () => {
           <p className="text-sm text-gray-500">
             Review and manage all user-submitted content in one place.
           </p>
+          {/* Quick links to dedicated admin pages */}
+          {isSuperAdmin && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Link
+                to="/admin/groups"
+                className="inline-flex items-center px-3 py-1 text-xs font-medium rounded-md bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200"
+              >
+                <UserGroupIcon className="h-3.5 w-3.5 mr-1" />
+                Groups Admin
+              </Link>
+              <Link
+                to="/jobs/admin"
+                className="inline-flex items-center px-3 py-1 text-xs font-medium rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200"
+              >
+                <BriefcaseIcon className="h-3.5 w-3.5 mr-1" />
+                Jobs Admin
+              </Link>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 w-full md:w-auto">
@@ -802,6 +917,16 @@ const ContentApproval = () => {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog - Super Admin Only - Uses portal for proper centering */}
+      <DeleteConfirmationDialog
+        isOpen={deleteOpen && !!deleteItem}
+        onClose={() => !deleteLoading && setDeleteOpen(false)}
+        onConfirm={handleDeleteConfirm}
+        itemType={deleteItem?.type || 'Item'}
+        itemName={deleteItem?.title || deleteItem?.job_title || `${deleteItem?.type || 'Item'} Submission`}
+        loading={deleteLoading}
+      />
     </div>
   );
 };

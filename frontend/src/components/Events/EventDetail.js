@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../utils/supabase';
@@ -19,6 +19,14 @@ const EventDetail = () => {
   const { user, isAdmin, getUserRole } = useAuth();
   const userRole = typeof getUserRole === 'function' ? getUserRole() : null;
   const { isApproved } = useApproval();
+  const isMountedRef = useRef(true);
+  
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   
   // Data fetching with React Query
   const { data: event, isLoading } = useEvent(id);
@@ -171,9 +179,11 @@ const EventDetail = () => {
             rows = rows.map(r => (r.profiles ? r : { ...r, profiles: pMap.get(r.user_id) || null }));
           }
         }
+        if (!isMountedRef.current) return;
         setAttendees(rows);
       } catch (err) {
         logger.error('Error fetching attendees:', err);
+        if (!isMountedRef.current) return;
         setError('Failed to load attendees');
       }
     };
@@ -237,6 +247,7 @@ const EventDetail = () => {
     if (error) {
       logger.error('Error deleting event:', error);
       const msg = String(error.message || '');
+      if (!isMountedRef.current) return;
       if (msg.toLowerCase().includes('permission denied')) {
         setError('You do not have permission to delete this event.');
       } else {
@@ -244,6 +255,7 @@ const EventDetail = () => {
       }
       setLoading(false);
     } else {
+      if (!isMountedRef.current) return;
       navigate('/events');
     }
   };
@@ -309,6 +321,7 @@ const EventDetail = () => {
             { onConflict: 'event_id,user_id' }
           );
         if (error) throw error;
+        if (!isMountedRef.current) return;
         setShowRsvpSuccess(true);
         setRsvpBanner(true);
       } else {
@@ -318,6 +331,7 @@ const EventDetail = () => {
           .eq('event_id', id)
           .eq('user_id', user.id);
         if (error) throw error;
+        if (!isMountedRef.current) return;
         setShowRsvpSuccess(false);
         setRsvpBanner(false);
       }
@@ -325,13 +339,17 @@ const EventDetail = () => {
     } catch (err) {
       logger.error('Error updating RSVP:', err);
       const msg = String(err?.message || '');
-      if (msg.toLowerCase().includes('permission denied')) {
-        setError('You do not have permission to change your RSVP for this event.');
-      } else {
-        setError(`Failed to ${status === 'going' ? 'RSVP to' : 'cancel RSVP for'} this event.`);
+      if (isMountedRef.current) {
+        if (msg.toLowerCase().includes('permission denied')) {
+          setError('You do not have permission to change your RSVP for this event.');
+        } else {
+          setError(`Failed to ${status === 'going' ? 'RSVP to' : 'cancel RSVP for'} this event.`);
+        }
       }
     } finally {
-      setRsvpLoading(false);
+      if (isMountedRef.current) {
+        setRsvpLoading(false);
+      }
     }
   };
 
@@ -381,6 +399,7 @@ const EventDetail = () => {
       }
       
       // Reset form and show success state
+      if (!isMountedRef.current) return;
       setFeedbackSubmitted(true);
       setFeedbackRating(0);
       setFeedbackComment('');
@@ -391,13 +410,17 @@ const EventDetail = () => {
     } catch (err) {
       logger.error('Error submitting feedback:', err?.message || err, err);
       const msg = String(err?.message || '');
-      if (msg.toLowerCase().includes('permission denied')) {
-        setError('You do not have permission to submit feedback for this event.');
-      } else {
-        setError('Failed to submit your feedback. Please try again.');
+      if (isMountedRef.current) {
+        if (msg.toLowerCase().includes('permission denied')) {
+          setError('You do not have permission to submit feedback for this event.');
+        } else {
+          setError('Failed to submit your feedback. Please try again.');
+        }
       }
     } finally {
-      setRsvpLoading(false);
+      if (isMountedRef.current) {
+        setRsvpLoading(false);
+      }
     }
   };
 
@@ -433,18 +456,23 @@ const EventDetail = () => {
         if (insErr2) throw insErr2;
       }
       
+      if (!isMountedRef.current) return;
       setFeedbackSubmitted(true);
       await refetchFeedback();
     } catch (err) {
       logger.error('Error submitting feedback:', err);
       const msg = String(err?.message || '');
-      if (msg.toLowerCase().includes('permission denied')) {
-        setError('You do not have permission to submit feedback for this event.');
-      } else {
-        setError('Failed to submit your feedback. Please try again.');
+      if (isMountedRef.current) {
+        if (msg.toLowerCase().includes('permission denied')) {
+          setError('You do not have permission to submit feedback for this event.');
+        } else {
+          setError('Failed to submit your feedback. Please try again.');
+        }
       }
     } finally {
-      setRsvpLoading(false);
+      if (isMountedRef.current) {
+        setRsvpLoading(false);
+      }
     }
   };
 

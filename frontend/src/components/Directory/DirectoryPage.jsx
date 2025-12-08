@@ -7,6 +7,7 @@ import { FunnelIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 import useDirectorySecure from '../../hooks/useDirectorySecure';
 import useRoleCounts from '../../hooks/useRoleCounts';
+import { ErrorState, PartialResultsBanner } from '../shared/ListStates';
 
 export default function DirectoryPage() {
   const [me, setMe] = useState(null);
@@ -49,13 +50,6 @@ export default function DirectoryPage() {
       } catch (_) {
         // best-effort only; ignore failures
       }
-    }
-  }, []);
-
-  // Always reset scroll to top when opening the directory
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     }
   }, []);
 
@@ -167,26 +161,23 @@ export default function DirectoryPage() {
 
   const loadCounts = useCallback(async () => {
     if (!me?.id) return;
-    // Use head:true exact counts and read the 'count' property
+    // Use head:true exact counts to avoid transferring rows
     const [recvRes, sentRes, connRes] = await Promise.all([
       supabase
         .from('connections')
-        .select('id', { count: 'exact' })
+        .select('id', { count: 'exact', head: true })
         .eq('recipient_id', me.id)
-        .eq('status', 'pending')
-        .limit(0),
+        .eq('status', 'pending'),
       supabase
         .from('connections')
-        .select('id', { count: 'exact' })
+        .select('id', { count: 'exact', head: true })
         .eq('requester_id', me.id)
-        .eq('status', 'pending')
-        .limit(0),
+        .eq('status', 'pending'),
       supabase
         .from('connections')
-        .select('id', { count: 'exact' })
+        .select('id', { count: 'exact', head: true })
         .or(`requester_id.eq.${me.id},recipient_id.eq.${me.id}`)
         .eq('status', 'accepted')
-        .limit(0)
     ]);
     setCounts({
       received: recvRes?.count ?? 0,
@@ -214,10 +205,7 @@ export default function DirectoryPage() {
   }, [me, debouncedSearch, currentPage, itemsPerPage, activeFilter, filters.graduation_year, filters.department, sortBy, tabIds, relsLoaded]);
 
   // Realtime: refetch rels + counts on any connections change for me
-  useConnectionsRealtime(me?.id, () => {
-    loadRels();
-    loadCounts();
-  });
+  useConnectionsRealtime(me?.id, reloadRelsAndCounts);
 
   // Debounce search input
   useEffect(() => {
@@ -489,20 +477,66 @@ export default function DirectoryPage() {
           )}
         </div>
         
+        {/* Error state */}
+        {dirError && !loading && (
+          <ErrorState
+            title="Unable to load directory"
+            description="We encountered an error while loading the alumni directory. Please try again."
+            error={dirError}
+            onRetry={() => window.location.reload()}
+          />
+        )}
+
+        {/* Partial results banner - shows when filters are active */}
+        {!loading && !dirError && pageItems.length > 0 && (debouncedSearch || filters.graduation_year || filters.department) && (
+          <PartialResultsBanner
+            count={pageItems.length}
+            totalCount={totalCount}
+            filterDescription={[
+              debouncedSearch && `search: "${debouncedSearch}"`,
+              filters.graduation_year && `batch: ${filters.graduation_year}`,
+              filters.department && `department: ${filters.department}`,
+            ].filter(Boolean).join(', ')}
+            onClearFilters={() => {
+              setSearchTerm('');
+              setFilters({ graduation_year: '', department: '', degree_program: '', current_job_title: '', location: '' });
+              setCurrentPage(1);
+            }}
+            className="mb-4"
+          />
+        )}
+
         {/* Directory grid */}
         {!loading && !dirError && pageItems.length === 0 ? (
-          <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-700 text-center">
-            {isAdmin ? (
-              <p>No profiles match the current filters. Try adjusting your search or filters.</p>
-            ) : role === 'student' ? (
-              <p>
-                No matching profiles found. As a current student, your profile will appear here after you become an alumnus and your details are approved for the directory.
-              </p>
-            ) : (
-              <p>No approved profiles found. Profiles appear here after admin approval and when they are visible in the directory.</p>
+          <div className="empty-state" role="status">
+            <div className="empty-state-icon-wrapper">
+              <svg className="w-8 h-8 text-ocean-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+            </div>
+            <h3 className="empty-state-title">No members found</h3>
+            <p className="empty-state-description">
+              {isAdmin 
+                ? 'No profiles match the current filters. Try adjusting your search or filters.'
+                : role === 'student'
+                  ? 'No matching profiles found. As a current student, your profile will appear here after you become an alumnus and your details are approved.'
+                  : 'No approved profiles found. Profiles appear here after admin approval.'}
+            </p>
+            {(debouncedSearch || filters.graduation_year || filters.department) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setFilters({ graduation_year: '', department: '', degree_program: '', current_job_title: '', location: '' });
+                  setCurrentPage(1);
+                }}
+                className="btn-primary mt-4"
+              >
+                Clear all filters
+              </button>
             )}
           </div>
-        ) : (
+        ) : !dirError && (
           <DirectoryGrid items={pageItems} meId={me?.id} currentTab={activeFilter} onChanged={reloadRelsAndCounts} loading={loading} />
         )}
         

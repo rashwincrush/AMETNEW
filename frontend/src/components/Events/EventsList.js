@@ -77,10 +77,14 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
   }, []);
 
   // Removed event-type and extra filters as per requirements
+  
+  // Simple ref to track component mount state
+  const isMountedRef = useRef(true);
 
   // Load up to 8 featured events for the Priority Strip
   const fetchFeaturedEvents = async () => {
     try {
+      if (!isMountedRef.current) return;
       setFeaturedLoading(true);
       let q = supabase
         .from('events')
@@ -96,17 +100,19 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
 
       const { data, error } = await q;
       if (error) throw error;
+      if (!isMountedRef.current) return;
       setFeaturedEvents(data || []);
     } catch (e) {
       logger.error('Error fetching featured events:', e);
-      setFeaturedEvents([]);
+      if (isMountedRef.current) {
+        setFeaturedEvents([]);
+      }
     } finally {
-      setFeaturedLoading(false);
+      if (isMountedRef.current) {
+        setFeaturedLoading(false);
+      }
     }
   };
-
-  // Simple ref to track component mount state
-  const isMountedRef = useRef(true);
   
   // Handle events updates
   const handleEventsUpdate = useCallback((payload) => {
@@ -172,7 +178,6 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
       };
     }
 
-    fetchEvents();
     fetchFeaturedEvents();
 
     onPostgresChangesOnce(
@@ -209,6 +214,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
 
   const fetchEvents = async () => {
     try {
+      if (!isMountedRef.current) return;
       setLoading(true);
       setError('');
 
@@ -251,6 +257,8 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
         // oldest
         query = query.order('start_date', { ascending: true });
       }
+
+      query = query.limit(500);
 
       const { data: eventsData, error: fetchError } = await query;
       if (fetchError) throw fetchError;
@@ -355,17 +363,23 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
           };
         });
 
+        if (!isMountedRef.current) return;
         setEvents(eventsWithCounts);
         setCalendarEvents(normalizedForCalendar);
       } else {
+        if (!isMountedRef.current) return;
         setEvents([]);
         setCalendarEvents([]);
       }
     } catch (err) {
       logger.error('Error fetching events:', err);
-      setError('Failed to load events');
+      if (isMountedRef.current) {
+        setError('Failed to load events');
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 

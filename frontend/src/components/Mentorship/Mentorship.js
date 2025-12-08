@@ -98,6 +98,14 @@ const Mentorship = () => {
   const mentorshipEligibility = useMentorshipEligibility();
   const hasFetched = useRef(false);
   const isStudentUnapproved = ((getUserRole ? getUserRole() : '') .toLowerCase() === 'student') && !(profile?.is_approved || profile?.approval_status === 'approved');
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const createRequestMutation = useCreateMentorshipRequest();
   const acceptRequestMutation = useAcceptMentorshipRequest();
@@ -115,7 +123,9 @@ const Mentorship = () => {
         ...r,
         mentor: await getPublicIdentity(r.mentor_id),
       })));
-      setMentorshipRequests(hydrated);
+      if (isMountedRef.current) {
+        setMentorshipRequests(hydrated);
+      }
     } catch (e) {
       logger.error('Failed to load your mentorship requests', e);
       toast.error('Failed to load your mentorship requests');
@@ -201,9 +211,11 @@ const Mentorship = () => {
         return;
       }
       
-      setIsCurrentUserMentor(!!data);
-      setIsMentorApproved(data?.status === 'approved');
-      setIsMentorPending(data?.status === 'pending');
+      if (isMountedRef.current) {
+        setIsCurrentUserMentor(!!data);
+        setIsMentorApproved(data?.status === 'approved');
+        setIsMentorPending(data?.status === 'pending');
+      }
     } catch (err) {
       logger.error('Error checking if user is mentor:', err);
     }
@@ -212,6 +224,7 @@ const Mentorship = () => {
   // Function to fetch approved mentors; CTA disabled when unavailable via profiles.is_available_for_mentorship
   const fetchApprovedMentors = async () => {
     try {
+      if (!isMountedRef.current) return;
       setLoading(true);
       setError(null);
       
@@ -274,13 +287,19 @@ const Mentorship = () => {
       
       logger.log('Transformed mentors count:', transformedMentors?.length || 0);
       // Show all approved mentors. Request button will be disabled if unavailable.
-      setMentors(transformedMentors);
+      if (isMountedRef.current) {
+        setMentors(transformedMentors);
+      }
     } catch (err) {
       logger.error('Error fetching mentors:', err);
-      setError(err.message || 'Failed to load mentors');
-      toast.error('Failed to load mentors');
+      if (isMountedRef.current) {
+        setError(err.message || 'Failed to load mentors');
+        toast.error('Failed to load mentors');
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
   

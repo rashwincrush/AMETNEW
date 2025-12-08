@@ -24,6 +24,7 @@ import {
   Globe,
   GraduationCap
 } from 'lucide-react';
+import { ConfirmationDialog, DeleteConfirmationDialog } from '../components/shared/ConfirmationDialog';
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All Statuses' },
@@ -75,6 +76,13 @@ export default function AdminGroupsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [privacyFilter, setPrivacyFilter] = useState('all');
   const [actionLoading, setActionLoading] = useState({});
+  
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    type: null, // 'archive' | 'delete'
+    group: null,
+  });
 
   const fetchGroups = useCallback(async () => {
     setLoading(true);
@@ -134,12 +142,32 @@ export default function AdminGroupsPage() {
     }
   };
 
-  const handleArchive = async (groupId) => {
-    if (!window.confirm('Archive this group? Members will no longer be able to post.')) return;
+  // Open confirmation dialog for archive
+  const openArchiveDialog = (group) => {
+    setConfirmDialog({ isOpen: true, type: 'archive', group });
+  };
+
+  // Open confirmation dialog for delete
+  const openDeleteDialog = (group) => {
+    setConfirmDialog({ isOpen: true, type: 'delete', group });
+  };
+
+  // Close confirmation dialog
+  const closeConfirmDialog = () => {
+    if (actionLoading[confirmDialog.group?.id]) return; // Don't close while loading
+    setConfirmDialog({ isOpen: false, type: null, group: null });
+  };
+
+  // Handle confirmed archive
+  const handleArchiveConfirm = async () => {
+    const groupId = confirmDialog.group?.id;
+    if (!groupId) return;
+    
     setActionLoading(prev => ({ ...prev, [groupId]: 'archive' }));
     try {
       await archiveGroupRpc(groupId);
-      toast.success('Group archived');
+      toast.success('Group archived successfully');
+      closeConfirmDialog();
       await fetchGroups();
     } catch (err) {
       toast.error(getFriendlyErrorMessage(err, 'Failed to archive group'));
@@ -148,12 +176,16 @@ export default function AdminGroupsPage() {
     }
   };
 
-  const handleDelete = async (groupId) => {
-    if (!window.confirm('Permanently delete this group? This cannot be undone.')) return;
+  // Handle confirmed delete
+  const handleDeleteConfirm = async () => {
+    const groupId = confirmDialog.group?.id;
+    if (!groupId) return;
+    
     setActionLoading(prev => ({ ...prev, [groupId]: 'delete' }));
     try {
       await deleteGroupRpc(groupId);
-      toast.success('Group deleted');
+      toast.success('Group deleted permanently');
+      closeConfirmDialog();
       await fetchGroups();
     } catch (err) {
       toast.error(getFriendlyErrorMessage(err, 'Failed to delete group'));
@@ -425,7 +457,7 @@ export default function AdminGroupsPage() {
                           {/* Archive button (for non-archived groups) */}
                           {!group.is_archived && (
                             <button
-                              onClick={() => handleArchive(group.id)}
+                              onClick={() => openArchiveDialog(group)}
                               disabled={isActionLoading}
                               className="p-2 text-gray-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors disabled:opacity-50"
                               title="Archive group"
@@ -437,7 +469,7 @@ export default function AdminGroupsPage() {
                           {/* Delete button (super_admin only) */}
                           {isSuperAdmin && (
                             <button
-                              onClick={() => handleDelete(group.id)}
+                              onClick={() => openDeleteDialog(group)}
                               disabled={isActionLoading}
                               className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
                               title="Delete group permanently"
@@ -482,6 +514,30 @@ export default function AdminGroupsPage() {
           )}
         </div>
       )}
+
+      {/* Archive Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmDialog.isOpen && confirmDialog.type === 'archive'}
+        onClose={closeConfirmDialog}
+        onConfirm={handleArchiveConfirm}
+        title="Archive Group"
+        description="Archive this group? Members will no longer be able to post new content."
+        confirmText={actionLoading[confirmDialog.group?.id] === 'archive' ? 'Archiving...' : 'Archive Group'}
+        cancelText="Cancel"
+        variant="warning"
+        loading={actionLoading[confirmDialog.group?.id] === 'archive'}
+        itemName={confirmDialog.group?.name}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmationDialog
+        isOpen={confirmDialog.isOpen && confirmDialog.type === 'delete'}
+        onClose={closeConfirmDialog}
+        onConfirm={handleDeleteConfirm}
+        itemType="Group"
+        itemName={confirmDialog.group?.name}
+        loading={actionLoading[confirmDialog.group?.id] === 'delete'}
+      />
     </div>
   );
 }

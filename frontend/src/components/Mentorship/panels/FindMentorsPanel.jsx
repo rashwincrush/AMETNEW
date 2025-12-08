@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../../utils/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -47,19 +47,7 @@ export default function FindMentorsPanel() {
 
       let filtered = data || [];
 
-      // Text search (client-side)
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        filtered = filtered.filter((m) => {
-          return (
-            (m.full_name || '').toLowerCase().includes(q) ||
-            (m.organization || '').toLowerCase().includes(q) ||
-            (m.title || '').toLowerCase().includes(q)
-          );
-        });
-      }
-
-      // Filter for availability + capacity
+      // Filter for availability + capacity (server-derived flags)
       if (showAcceptingOnly) {
         filtered = filtered.filter((m) => {
           const current = m.current_mentees_count || 0;
@@ -76,6 +64,17 @@ export default function FindMentorsPanel() {
       setLoading(false);
     }
   }
+
+  // Client-side text search over the fetched mentor list
+  const filteredMentors = useMemo(() => {
+    if (!searchQuery.trim()) return mentors;
+    const q = searchQuery.toLowerCase();
+    return (mentors || []).filter((m) => (
+      (m.full_name || '').toLowerCase().includes(q) ||
+      (m.organization || '').toLowerCase().includes(q) ||
+      (m.title || '').toLowerCase().includes(q)
+    ));
+  }, [mentors, searchQuery]);
 
   // Get relationship state for a mentor
   const getRelationshipState = (mentorUserId) => {
@@ -207,9 +206,9 @@ export default function FindMentorsPanel() {
       )}
 
       {/* Mentor Cards */}
-      {!loading && mentors.length > 0 && (
+      {!loading && mentors.length > 0 && filteredMentors.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {mentors.map((mentor) => {
+          {filteredMentors.map((mentor) => {
             const currentCount = mentor.current_mentees_count || 0;
             const maxCount = mentor.max_mentees || 0;
             const capacityState = getMentorCapacityState(

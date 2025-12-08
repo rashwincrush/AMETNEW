@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -70,18 +70,29 @@ const ManageJobApplications = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const pageSize = 10;
+  const isMountedRef = useRef(true);
 
   // Handle both parameter names (jobId and id)
   const actualJobId = jobId || id;
 
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const fetchJobAndApplications = useCallback(async () => {
     if (!user || !actualJobId) {
-      setError("Invalid or missing job ID.");
-      setLoading(false);
+      if (isMountedRef.current) {
+        setError("Invalid or missing job ID.");
+        setLoading(false);
+      }
       return;
     }
 
     try {
+      if (!isMountedRef.current) return;
       setLoading(true);
       // Session snapshot
       const { data: { session } } = await supabase.auth.getSession();
@@ -109,13 +120,17 @@ const ManageJobApplications = () => {
       });
 
       if (jobError || !jobData) {
-        setError("This job either doesn’t exist or you’re not authorized to view its applications.");
-        setJob(null);
-        setApplications([]);
+        if (isMountedRef.current) {
+          setError("This job either doesn’t exist or you’re not authorized to view its applications.");
+          setJob(null);
+          setApplications([]);
+        }
         return;
       }
 
-      setJob(jobData);
+      if (isMountedRef.current) {
+        setJob(jobData);
+      }
 
       // Determine ownership (posted_by OR user_id OR created_by) or admin
       const ownerIds = [jobData.posted_by, jobData.user_id, jobData.created_by].filter(Boolean);
@@ -176,8 +191,10 @@ const ManageJobApplications = () => {
           return out;
         }));
 
-        setApplications(enriched);
-        setTotalCount(baseRows[0]?.total_count ?? 0);
+        if (isMountedRef.current) {
+          setApplications(enriched);
+          setTotalCount(baseRows[0]?.total_count ?? 0);
+        }
         // Load connection status for each applicant
         if (user?.id && Array.isArray(baseRows)) {
           const entries = await Promise.all(
@@ -193,14 +210,20 @@ const ManageJobApplications = () => {
             })
           );
           const map = new Map(entries.filter(([k]) => !!k));
-          setConnMap(map);
+          if (isMountedRef.current) {
+            setConnMap(map);
+          }
         }
       }
     } catch (err) {
-      setError(err.message);
+      if (isMountedRef.current) {
+        setError(err.message);
+      }
       log.group('[APPS] fetch error', { error: err });
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [actualJobId, user, isAdmin, currentPage]);
 
@@ -210,6 +233,7 @@ const ManageJobApplications = () => {
 
   const handleStatusChange = async (applicationId, newStatus) => {
     try {
+      if (!isMountedRef.current) return;
       setSavingIds(prev => new Set(prev).add(applicationId));
       if (!CANONICAL_DB_VALUES.has(newStatus)) {
         log.group('[APPS] invalid status for DB', { newStatus });
@@ -222,9 +246,11 @@ const ManageJobApplications = () => {
 
       if (error) throw error;
 
-      setApplications(apps =>
-        apps.map(app => (app.id === applicationId ? { ...app, status: newStatus } : app))
-      );
+      if (isMountedRef.current) {
+        setApplications(apps =>
+          apps.map(app => (app.id === applicationId ? { ...app, status: newStatus } : app))
+        );
+      }
       toast.success('Application status updated.');
     } catch (err) {
       const msg = (err?.code === '42501' || err?.code === 'P0001' || err?.status === 403 || /RLS|permission|not allowed/i.test(err?.message || ''))
@@ -234,11 +260,13 @@ const ManageJobApplications = () => {
       log.group('[APPS] error updating status', { error: err });
     }
     finally {
-      setSavingIds(prev => {
-        const next = new Set(prev);
-        next.delete(applicationId);
-        return next;
-      });
+      if (isMountedRef.current) {
+        setSavingIds(prev => {
+          const next = new Set(prev);
+          next.delete(applicationId);
+          return next;
+        });
+      }
     }
   };
 
@@ -249,7 +277,9 @@ const ManageJobApplications = () => {
       toast.success('Connection request sent.');
       // Refresh connection map for this applicant
       const edge = await getLatestEdge(user.id, otherId);
-      setConnMap(prev => new Map(prev).set(otherId, edge?.status || 'pending'));
+      if (isMountedRef.current) {
+        setConnMap(prev => new Map(prev).set(otherId, edge?.status || 'pending'));
+      }
     } catch (e) {
       // idempotentConnect already toasts on failure
     }

@@ -15,3 +15,24 @@ export async function hasApplied(jobId) {
     return false;
   }
 }
+
+export async function getAppliedJobIdsForCurrentUser(jobIds) {
+  if (!Array.isArray(jobIds) || jobIds.length === 0) return [];
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+    const uniqueIds = Array.from(new Set(jobIds.filter(Boolean)));
+    if (uniqueIds.length === 0) return [];
+    const { data, error } = await supabase
+      .from('job_applications')
+      .select('job_id')
+      .eq('applicant_id', user.id)
+      .in('job_id', uniqueIds);
+    if (error || !Array.isArray(data)) return [];
+    const set = new Set();
+    data.forEach(row => { if (row?.job_id) set.add(row.job_id); });
+    return Array.from(set);
+  } catch (_) {
+    return [];
+  }
+}

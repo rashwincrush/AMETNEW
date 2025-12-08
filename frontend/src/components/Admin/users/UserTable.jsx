@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Avatar from '../../common/Avatar';
 import { getAccountStatus, ACCOUNT_STATUS_META } from '../../../utils/accountStatus';
 import {
@@ -88,6 +89,29 @@ function RowActionsMenu({
   currentUserId,
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const buttonRef = useRef(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, right: 0 });
+
+  useEffect(() => {
+    if (!isOpen || !buttonRef.current) return;
+
+    const rect = buttonRef.current.getBoundingClientRect();
+
+    const preferredTop = rect.bottom + 8; // open downward by default
+    const menuHeight = 320; // approximate max menu height in px
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+
+    let top = preferredTop;
+
+    // If there isn't enough space below, open above the button instead.
+    if (preferredTop + menuHeight > viewportHeight && rect.top - 8 > menuHeight) {
+      top = rect.top - 8 - menuHeight;
+    }
+
+    const right = (window.innerWidth || document.documentElement.clientWidth) - rect.right - 8;
+
+    setMenuPosition({ top, right: Math.max(right, 8) });
+  }, [isOpen]);
 
   if (!onApprove || !onReject || !onToggleActive || !onSoftDelete) return null;
 
@@ -95,18 +119,23 @@ function RowActionsMenu({
     <div className="relative">
       <button
         title="User actions"
-        onClick={() => setIsOpen(!isOpen)}
+        ref={buttonRef}
+        onClick={() => setIsOpen((prev) => !prev)}
         className="inline-flex items-center justify-center w-[40px] h-[40px] rounded-lg text-gray-400 hover:text-ocean-600 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
       >
         <EllipsisVerticalIcon className="w-4 h-4" />
       </button>
-      {isOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-10"
-            onClick={() => setIsOpen(false)}
-          />
-          <div className="absolute right-0 z-20 mt-1 w-56 origin-top-right rounded-lg bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+      {isOpen &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setIsOpen(false)}
+            />
+            <div
+              className="fixed z-50 w-56 max-h-[320px] overflow-y-auto origin-top-right rounded-lg bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none"
+              style={{ top: menuPosition.top, right: menuPosition.right }}
+            >
             <div className="py-1">
               <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b border-gray-100">
                 Account moderation
@@ -221,9 +250,10 @@ function RowActionsMenu({
                 </>
               )}
             </div>
-          </div>
-        </>
-      )}
+            </div>
+          </>,
+          document.body
+        )}
     </div>
   );
 }

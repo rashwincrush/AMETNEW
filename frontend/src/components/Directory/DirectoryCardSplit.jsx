@@ -167,7 +167,7 @@ function DirectoryCardSplit({ meId, profile, avatarUrl, currentTab = 'all', onCh
               alt={`${displayName} profile photo`}
               size={60}
               version={profile?.updated_at}
-              loading="lazy"
+              loading="eager"
               className="ring-2 ring-slate-200 group-hover:ring-ocean-300 transition-all duration-200"
             />
           </div>

@@ -122,8 +122,8 @@ export async function adminUsersPurgeData({ userId }) {
 }
 
 export async function adminUsersDeleteAuthUser({ userId }) {
-  const { data, error } = await supabase.functions.invoke('admin-delete-user', {
-    body: { userId },
+  const { data, error } = await supabase.rpc('admin_delete_user_rpc', {
+    target: userId,
   });
 
   if (error) throw error;

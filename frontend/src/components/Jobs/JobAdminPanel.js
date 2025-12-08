@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
 import { Box, Typography, Paper, Button, Chip, Grid, CircularProgress, TextField, Divider, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { Edit as EditIcon, Delete as DeleteIcon, CheckCircle as ApproveIcon, ShieldCheck as VerifyIcon } from '@mui/icons-material';
@@ -11,20 +11,33 @@ const JobAdminPanel = () => {
   const [search, setSearch] = useState('');
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const fetchJobs = useCallback(async () => {
     try {
+      if (!isMountedRef.current) return;
       setLoading(true);
       const { data, error } = await supabase
         .from('jobs')
         .select('*, company:companies(name)')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setJobs(data || []);
+      if (isMountedRef.current) {
+        setJobs(data || []);
+      }
     } catch (err) {
       toFriendlyToast(toast, err, 'Failed to load jobs. Please try again.');
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 

@@ -44,7 +44,7 @@ const AlumniCard = ({ alumnus }) => {
         <div className="absolute top-0 inset-x-0 h-20 bg-gradient-to-r from-blue-500 to-indigo-600" aria-hidden="true"></div>
         
         <div className="relative z-10">
-          <Avatar src={avatarUrl} alt={fullName || 'User'} size={96} />
+          <Avatar src={avatarUrl} alt={fullName || 'User'} size={96} loading="eager" />
         </div>
         
         <div className="mt-4 text-center w-full">
