@@ -33,6 +33,7 @@ import {
   getBatchYearPlaceholder,
   getProfileYearWriteFields 
 } from '../../utils/batchYear';
+import { getAccountStatus } from '../../utils/accountStatus';
 
 // Normalize phone to E.164 or null to satisfy DB constraint chk_phone_e164
 const normalizePhone = (raw) => {
@@ -966,14 +967,10 @@ const Profile = () => {
   // Avatar uploads are now handled centrally by AvatarService.uploadAvatar
 
   // Main render logic
-  // Compute approval status badge styles
-  const approvalStatus = profile?.approval_status || profile?.alumni_verification_status || (profile?.is_approved ? 'approved' : undefined);
-  const statusLabel = approvalStatus ? (approvalStatus.charAt(0).toUpperCase() + approvalStatus.slice(1)) : null;
-  const statusColor = approvalStatus === 'approved'
-    ? 'bg-green-100 text-green-800'
-    : approvalStatus === 'rejected'
-      ? 'bg-red-100 text-red-800'
-      : 'bg-yellow-100 text-yellow-800';
+  // Compute approval status badge styles using shared account-status helper
+  const accountStatus = getAccountStatus(profile);
+  const statusLabel = accountStatus?.label || null;
+  const statusColor = accountStatus?.badgeClass || '';
 
   const degreeLabel = Array.isArray(degrees)
     ? (degrees.find(d => String(d.code) === String(formData.degree_code))?.name || null)

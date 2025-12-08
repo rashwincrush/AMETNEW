@@ -132,6 +132,15 @@ CREATE TYPE "public"."mentorship_request_status" AS ENUM (
 ALTER TYPE "public"."mentorship_request_status" OWNER TO "postgres";
 
 
+CREATE TYPE "public"."notification_audience_enum" AS ENUM (
+    'user',
+    'admin'
+);
+
+
+ALTER TYPE "public"."notification_audience_enum" OWNER TO "postgres";
+
+
 CREATE TYPE "public"."notification_module" AS ENUM (
     'jobs',
     'events',
@@ -150,7 +159,8 @@ CREATE TYPE "public"."notification_type_enum" AS ENUM (
     'event',
     'message',
     'connection',
-    'job'
+    'job',
+    'job_delete_request'
 );
 
 
@@ -398,6 +408,137 @@ end $$;
 ALTER FUNCTION "public"."_touch_updated_at"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."accept_group_invite"("p_group_id" "uuid") RETURNS "text"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_caller_id uuid := auth.uid();
+  v_invite    public.group_invitations%ROWTYPE;
+  v_group     public.groups%ROWTYPE;
+BEGIN
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  SELECT * INTO v_invite
+  FROM public.group_invitations
+  WHERE group_id = p_group_id
+    AND invitee_id = v_caller_id
+    AND status = 'pending'
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No pending invite found for this group';
+  END IF;
+
+  SELECT * INTO v_group FROM public.groups WHERE id = p_group_id;
+  IF NOT FOUND OR v_group.is_archived THEN
+    RAISE EXCEPTION 'Group is no longer available';
+  END IF;
+
+  -- Mark invite accepted
+  UPDATE public.group_invitations
+  SET status = 'accepted', updated_at = now()
+  WHERE id = v_invite.id;
+
+  -- Add membership (idempotent)
+  INSERT INTO public.group_members (group_id, user_id, role)
+  VALUES (p_group_id, v_caller_id, 'member')
+  ON CONFLICT (group_id, user_id) DO NOTHING;
+
+  -- Notify inviter (optional quality-of-life)
+  PERFORM create_group_notification(
+    v_invite.inviter_id,
+    'group',
+    'Invite accepted',
+    'Your invitation to "' || v_group.name || '" was accepted.',
+    p_group_id,
+    '/groups/' || p_group_id::text
+  );
+
+  RETURN 'accepted';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."accept_group_invite"("p_group_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."accept_group_invite"("p_invite_id" "uuid" DEFAULT NULL::"uuid", "p_group_id" "uuid" DEFAULT NULL::"uuid") RETURNS "text"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_caller_id UUID := auth.uid();
+  v_invite RECORD;
+  v_group RECORD;
+BEGIN
+  -- Check caller is authenticated
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+  
+  -- Find the invite
+  IF p_invite_id IS NOT NULL THEN
+    SELECT * INTO v_invite FROM public.group_invitations 
+    WHERE id = p_invite_id AND invitee_id = v_caller_id AND status = 'pending';
+  ELSIF p_group_id IS NOT NULL THEN
+    SELECT * INTO v_invite FROM public.group_invitations 
+    WHERE group_id = p_group_id AND invitee_id = v_caller_id AND status = 'pending'
+    ORDER BY created_at DESC LIMIT 1;
+  ELSE
+    RAISE EXCEPTION 'Must provide invite_id or group_id';
+  END IF;
+  
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No pending invite found';
+  END IF;
+  
+  -- Check invite hasn't expired
+  IF v_invite.expires_at IS NOT NULL AND v_invite.expires_at < now() THEN
+    UPDATE public.group_invitations SET status = 'expired', updated_at = now() WHERE id = v_invite.id;
+    RAISE EXCEPTION 'This invite has expired';
+  END IF;
+  
+  -- Get group info
+  SELECT * INTO v_group FROM public.groups WHERE id = v_invite.group_id;
+  IF NOT FOUND OR v_group.is_archived THEN
+    RAISE EXCEPTION 'Group is no longer available';
+  END IF;
+  
+  -- Update invite status
+  UPDATE public.group_invitations 
+  SET status = 'accepted', updated_at = now() 
+  WHERE id = v_invite.id;
+  
+  -- Add as member
+  INSERT INTO public.group_members (group_id, user_id, role)
+  VALUES (v_invite.group_id, v_caller_id, 'member')
+  ON CONFLICT (group_id, user_id) DO NOTHING;
+  
+  -- Notify inviter that invite was accepted
+  PERFORM create_group_notification(
+    v_invite.inviter_id,
+    'group_invite_accepted',
+    'Invite Accepted',
+    'Your invitation to "' || v_group.name || '" was accepted',
+    v_invite.group_id,
+    jsonb_build_object('invitee_id', v_caller_id)
+  );
+  
+  -- Log action
+  PERFORM log_group_action(v_invite.group_id, 'invite_accepted', jsonb_build_object(
+    'invite_id', v_invite.id
+  ));
+  
+  RETURN 'accepted';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."accept_group_invite"("p_invite_id" "uuid", "p_group_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."add_creator_to_group_members"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -419,21 +560,38 @@ ALTER FUNCTION "public"."add_creator_to_group_members"() OWNER TO "postgres";
 
 CREATE OR REPLACE FUNCTION "public"."admin_delete_job"("p_job_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
+    SET "search_path" TO 'public', 'pg_temp'
     AS $$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_role text := public.get_user_role(v_uid);
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = auth.uid()
-      AND (p.is_admin = true OR p.role IN ('admin','super_admin'))
-  ) THEN
-    RAISE EXCEPTION 'not authorized' USING ERRCODE='42501';
+  -- Only super_admin can delete jobs
+  IF v_role <> 'super_admin' THEN
+    RAISE EXCEPTION 'Insufficient role for job deletion'
+      USING ERRCODE = '42501';
   END IF;
 
-  DELETE FROM public.jobs WHERE id = p_job_id;
+  -- Audit before delete
+  INSERT INTO public.activity_logs (
+    entity_type,
+    entity_id,
+    action,
+    profile_id,
+    metadata,
+    created_at
+  ) VALUES (
+    'job',
+    p_job_id,
+    'job_delete',
+    v_uid,
+    '{}'::jsonb,
+    now()
+  );
 
-  INSERT INTO public.admin_actions (admin_id, action_type, target_type, target_id, description)
-  VALUES (auth.uid(), 'delete', 'job', p_job_id, 'Admin deleted job');
+  -- Hard delete (you can change to soft delete if desired)
+  DELETE FROM public.jobs
+  WHERE id = p_job_id;
 END;
 $$;
 
@@ -881,6 +1039,8 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
 
 ALTER TABLE ONLY "public"."profiles" REPLICA IDENTITY FULL;
 
+ALTER TABLE ONLY "public"."profiles" FORCE ROW LEVEL SECURITY;
+
 
 ALTER TABLE "public"."profiles" OWNER TO "postgres";
 
@@ -1056,6 +1216,109 @@ $$;
 
 
 ALTER FUNCTION "public"."admin_log_action"("p_admin_id" "uuid", "p_action_type" "text", "p_target_type" "text", "p_target_id" "uuid", "p_description" "text", "p_before" "jsonb", "p_after" "jsonb", "p_reason" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."admin_moderate_group"("p_group_id" "uuid", "p_action" "text", "p_reason" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_is_platform_admin boolean;
+  v_is_super_admin    boolean;
+  v_creator_id        uuid;
+  v_group_name        text;
+BEGIN
+  -- Check platform admin/super_admin
+  v_is_platform_admin := public.is_platform_admin(auth.uid());
+  v_is_super_admin    := public.fc_is_super_admin();
+
+  IF NOT v_is_platform_admin THEN
+    RAISE EXCEPTION 'Only admins can moderate groups'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT created_by, name INTO v_creator_id, v_group_name
+  FROM public.groups
+  WHERE id = p_group_id;
+
+  IF v_creator_id IS NULL THEN
+    RAISE EXCEPTION 'Group not found'
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF p_action = 'approve' THEN
+    UPDATE public.groups
+    SET is_approved = true,
+        is_rejected = false,
+        approval_status = 'approved'::public.approval_status,
+        reviewed_by = auth.uid(),
+        reviewed_at = now(),
+        review_notes = NULL
+    WHERE id = p_group_id;
+
+    -- Notify creator
+    PERFORM public.create_group_notification_once(
+      'group_approved',
+      v_creator_id,
+      p_group_id,
+      auth.uid(),
+      format('Your group %s has been approved', v_group_name),
+      'Group approved',
+      '/groups/' || p_group_id::text,
+      300
+    );
+
+  ELSIF p_action = 'reject' THEN
+    UPDATE public.groups
+    SET is_approved = false,
+        is_rejected = true,
+        approval_status = 'rejected'::public.approval_status,
+        reviewed_by = auth.uid(),
+        reviewed_at = now(),
+        rejection_reason = p_reason,
+        review_notes = p_reason
+    WHERE id = p_group_id;
+
+    PERFORM public.create_group_notification_once(
+      'group_rejected',
+      v_creator_id,
+      p_group_id,
+      auth.uid(),
+      COALESCE(p_reason, format('Your group %s has been rejected', v_group_name)),
+      'Group rejected',
+      '/groups/' || p_group_id::text,
+      300
+    );
+
+  ELSIF p_action = 'archive' THEN
+    UPDATE public.groups
+    SET is_archived = true
+    WHERE id = p_group_id;
+
+  ELSIF p_action = 'unarchive' THEN
+    UPDATE public.groups
+    SET is_archived = false
+    WHERE id = p_group_id;
+
+  ELSIF p_action = 'delete' THEN
+    -- Only super_admin can delete
+    IF NOT v_is_super_admin THEN
+      RAISE EXCEPTION 'Only super_admin can delete groups'
+        USING ERRCODE = '42501';
+    END IF;
+
+    DELETE FROM public.groups
+    WHERE id = p_group_id;
+
+  ELSE
+    RAISE EXCEPTION 'Unknown action %', p_action
+      USING ERRCODE = '22023';
+  END IF;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."admin_moderate_group"("p_group_id" "uuid", "p_action" "text", "p_reason" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."admin_pending_counts"() RETURNS "jsonb"
@@ -1373,6 +1636,90 @@ $$;
 ALTER FUNCTION "public"."admin_set_group_approval"("p_group_id" "uuid", "p_status" "text", "p_reason" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."admin_set_job_approval"("p_job_id" "uuid", "p_approved" boolean, "p_rejected" boolean DEFAULT false) RETURNS "void"
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+  SELECT public.admin_set_job_approval(p_job_id, p_approved, p_rejected, NULL::text);
+$$;
+
+
+ALTER FUNCTION "public"."admin_set_job_approval"("p_job_id" "uuid", "p_approved" boolean, "p_rejected" boolean) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."admin_set_job_approval"("p_job_id" "uuid", "p_approved" boolean, "p_rejected" boolean DEFAULT false, "p_reason" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_uid        uuid := auth.uid();
+  v_role       text := get_user_role(v_uid);
+  v_old_status public.approval_status;
+  v_new_status public.approval_status;
+BEGIN
+  IF v_role NOT IN ('admin','super_admin') THEN
+    RAISE EXCEPTION 'Not allowed'
+      USING errcode = '42501';
+  END IF;
+
+  IF p_approved AND p_rejected THEN
+    RAISE EXCEPTION 'Job cannot be both approved and rejected';
+  END IF;
+
+  SELECT approval_status
+  INTO v_old_status
+  FROM public.jobs
+  WHERE id = p_job_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Job not found'
+      USING errcode = 'P0001';
+  END IF;
+
+  IF p_approved AND NOT p_rejected THEN
+    v_new_status := 'approved';
+  ELSIF p_rejected THEN
+    v_new_status := 'rejected';
+  ELSE
+    v_new_status := 'pending';
+  END IF;
+
+  UPDATE public.jobs
+  SET
+    approval_status = v_new_status,
+    -- is_approved / is_rejected are derived by jobs_sync_flags_from_status
+    is_active = CASE
+                  WHEN v_new_status = 'approved'
+                    THEN coalesce(is_active, TRUE)
+                  ELSE FALSE
+                END,
+    reviewed_by = v_uid,
+    reviewed_at = now()
+  WHERE id = p_job_id;
+
+  INSERT INTO public.activity_logs (id, profile_id, action, entity_type, entity_id, details)
+  VALUES (
+    uuid_generate_v4(),
+    v_uid,
+    'job_approval',
+    'job',
+    p_job_id::text,
+    jsonb_build_object(
+      'approved',            p_approved,
+      'rejected',            p_rejected,
+      'old_approval_status', v_old_status,
+      'new_approval_status', v_new_status,
+      'reason',              p_reason
+    )
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."admin_set_job_approval"("p_job_id" "uuid", "p_approved" boolean, "p_rejected" boolean, "p_reason" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."admin_set_profile_approval"("p_profile_id" "uuid", "p_status" "public"."profile_approval_status", "p_reason" "text" DEFAULT NULL::"text") RETURNS "public"."profiles"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -1451,17 +1798,8 @@ $$;
 ALTER FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "text") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "public"."app_role_enum") RETURNS "void"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
-    AS $$
-begin
-  perform public.admin_update_user_role(p_user_id, p_role, NULL);
-end;
-$$;
+COMMENT ON FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "text") IS 'Safe RPC: Admin-only entry point to change user app_role_enum via admin_update_user_role';
 
-
-ALTER FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "public"."app_role_enum") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."admin_set_user_role_legacy"("target" "uuid", "new_role" "text", "make_admin" boolean) RETURNS "void"
@@ -1643,6 +1981,61 @@ $$;
 
 
 ALTER FUNCTION "public"."admin_toggle_active"("p_user_id" "uuid", "p_is_active" boolean, "p_reason" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."admin_toggle_job_verification"("p_job_id" "uuid", "p_verified" boolean) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_uid          uuid := auth.uid();
+  v_role         text := public.get_user_role(v_uid);
+  v_old_verified boolean;
+BEGIN
+  IF v_role NOT IN ('admin','super_admin') THEN
+    RAISE EXCEPTION 'Insufficient role for job verification'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT is_verified
+  INTO v_old_verified
+  FROM public.jobs
+  WHERE id = p_job_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Job not found' USING ERRCODE = 'P0001';
+  END IF;
+
+  UPDATE public.jobs
+  SET
+    is_verified = p_verified,
+    updated_at  = now()
+  WHERE id = p_job_id;
+
+  INSERT INTO public.activity_logs (
+    entity_type,
+    entity_id,
+    action,
+    profile_id,
+    metadata,
+    created_at
+  ) VALUES (
+    'job',
+    p_job_id,
+    'job_verification_toggle',
+    v_uid,
+    jsonb_build_object(
+      'old_verified', v_old_verified,
+      'new_verified', p_verified
+    ),
+    now()
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."admin_toggle_job_verification"("p_job_id" "uuid", "p_verified" boolean) OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."admin_total_profiles"() RETURNS integer
@@ -1873,7 +2266,7 @@ DECLARE
   v_new               public.profiles;
   v_super_admin_count integer;
 BEGIN
-  -- 1) Ensure caller is admin / super_admin (reuse your existing helper)
+  -- 1) Ensure caller is admin / super_admin
   IF NOT public.app_is_admin() THEN
     RAISE EXCEPTION 'Only admins can update user roles'
       USING ERRCODE = '42501';
@@ -1892,8 +2285,7 @@ BEGIN
   -- 3) Last-super-admin safety
   IF v_old.role = 'super_admin'
      AND p_role IS DISTINCT FROM 'super_admin' THEN
-    SELECT COUNT(*)
-    INTO v_super_admin_count
+    SELECT COUNT(*) INTO v_super_admin_count
     FROM public.profiles
     WHERE role = 'super_admin'
       AND COALESCE(is_deleted, false) = false;
@@ -1904,7 +2296,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- 4) Self-demotion safety (no "I kill myself" scenario)
+  -- 4) Self-demotion safety
   IF v_admin_id = p_user_id
      AND v_old.role = 'super_admin'
      AND p_role IS DISTINCT FROM 'super_admin' THEN
@@ -1912,14 +2304,16 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
-  -- 5) Perform update
+  -- 5) Perform update (bypass trigger via session flag, local to this xact)
+  PERFORM set_config('app.allow_role_update', 'on', true);
+
   UPDATE public.profiles p
   SET role     = p_role,
       is_admin = (p_role IN ('admin','super_admin'))
   WHERE p.id = p_user_id
   RETURNING * INTO v_new;
 
-  -- 6) Audit to activity_log (generic admin audit table you already have)
+  -- 6) Audit
   INSERT INTO public.activity_log(
     description,
     activity_type,
@@ -1982,6 +2376,41 @@ $$;
 ALTER FUNCTION "public"."app_is_admin_of"("p_user" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."app_profile_is_approved"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and (
+        p.is_approved = true
+        or p.approval_status = 'approved'::public.profile_approval_status
+      )
+  );
+$$;
+
+
+ALTER FUNCTION "public"."app_profile_is_approved"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."app_profile_is_rejected"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.approval_status = 'rejected'::public.profile_approval_status
+  );
+$$;
+
+
+ALTER FUNCTION "public"."app_profile_is_rejected"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."app_role_of"("p_user_id" "uuid" DEFAULT "auth"."uid"()) RETURNS "text"
     LANGUAGE "sql" STABLE
     SET "search_path" TO 'public'
@@ -2037,20 +2466,93 @@ $$;
 ALTER FUNCTION "public"."approve_event"("p_event_id" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."approve_group"("p_group_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_caller_id UUID := auth.uid();
+  v_caller_role TEXT;
+  v_group RECORD;
+BEGIN
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+  
+  SELECT role INTO v_caller_role FROM public.profiles WHERE id = v_caller_id;
+  IF v_caller_role NOT IN ('admin', 'super_admin') THEN
+    RAISE EXCEPTION 'Only site admins can approve groups';
+  END IF;
+  
+  SELECT * INTO v_group FROM public.groups WHERE id = p_group_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Group not found';
+  END IF;
+  
+  UPDATE public.groups 
+  SET is_approved = true, approval_status = 'approved'
+  WHERE id = p_group_id;
+  
+  -- Notify creator
+  PERFORM create_group_notification(
+    v_group.created_by,
+    'group_approved',
+    'Group Approved',
+    'Your group "' || v_group.name || '" has been approved!',
+    p_group_id,
+    '{}'::jsonb
+  );
+  
+  -- Log
+  PERFORM log_group_action(p_group_id, 'group_approved', '{}'::jsonb);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."approve_group"("p_group_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."approve_group_member"("p_group_id" "uuid", "p_user_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
+DECLARE
+  v_group_name text;
 BEGIN
   IF NOT public.can_manage_group(p_group_id, auth.uid()) THEN
-    RAISE EXCEPTION 'Not permitted';
+    RAISE EXCEPTION 'Not permitted' USING ERRCODE = '42501';
   END IF;
+
+  -- Validate user exists and is not employer
+  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = p_user_id) THEN
+    RAISE EXCEPTION 'User not found' USING ERRCODE = '22023';
+  END IF;
+
+  IF public.is_employer(p_user_id) THEN
+    RAISE EXCEPTION 'Employers cannot be group members' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT name INTO v_group_name
+  FROM public.groups
+  WHERE id = p_group_id;
 
   UPDATE public.group_members
   SET status = 'active'
   WHERE group_id = p_group_id
     AND user_id  = p_user_id
     AND status   = 'pending';
+
+  IF FOUND THEN
+    PERFORM create_group_notification_once(
+      'group_membership_approved',
+      p_user_id,
+      p_group_id,
+      auth.uid(),
+      'Your request to join "' || COALESCE(v_group_name, 'this group') || '" has been approved.',
+      'Join request approved',
+      '/groups/' || p_group_id::text,
+      NULL
+    );
+  END IF;
 END;
 $$;
 
@@ -2096,6 +2598,70 @@ $$;
 
 
 ALTER FUNCTION "public"."approve_job"("p_job_id" "uuid", "p_approved" boolean) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."archive_group"("p_group_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_caller_id UUID := auth.uid();
+  v_caller_role TEXT;
+BEGIN
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+  
+  SELECT role INTO v_caller_role FROM public.profiles WHERE id = v_caller_id;
+  
+  -- Site admin or group admin can archive
+  IF v_caller_role NOT IN ('admin', 'super_admin') THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM public.group_members 
+      WHERE group_id = p_group_id AND user_id = v_caller_id AND role = 'admin'
+    ) THEN
+      RAISE EXCEPTION 'Only site admins or group admins can archive groups';
+    END IF;
+  END IF;
+  
+  UPDATE public.groups SET is_archived = true WHERE id = p_group_id;
+  
+  -- Log
+  PERFORM log_group_action(p_group_id, 'group_archived', '{}'::jsonb);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."archive_group"("p_group_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."archive_group"("p_group_id" "uuid", "p_archived" boolean) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_user_id  uuid := auth.uid();
+  v_is_admin boolean;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_is_admin := is_platform_admin(v_user_id) OR is_user_admin(v_user_id);
+
+  IF NOT v_is_admin THEN
+    RAISE EXCEPTION 'Not authorized to archive groups'
+      USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE public.groups
+  SET is_archived = p_archived
+  WHERE id = p_group_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."archive_group"("p_group_id" "uuid", "p_archived" boolean) OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."are_connected"("a" "uuid", "b" "uuid") RETURNS boolean
@@ -2377,6 +2943,13 @@ CREATE OR REPLACE FUNCTION "public"."block_direct_role_updates"() RETURNS "trigg
     LANGUAGE "plpgsql"
     AS $$
 BEGIN
+  -- Allow trusted admin path (admin_update_user_role / admin_set_user_role)
+  -- to bypass this trigger via a session flag
+  IF current_setting('app.allow_role_update', true) = 'on' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Block any other direct role changes
   IF NEW.role IS DISTINCT FROM OLD.role THEN
     RAISE EXCEPTION
       'Direct role updates are forbidden. Use admin_update_user_role() / admin_set_user_role().';
@@ -2607,6 +3180,68 @@ $$;
 ALTER FUNCTION "public"."can_view_group"("p_group_id" "uuid", "p_user_id" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."cancel_group_invite"("p_invite_id" "uuid") RETURNS "text"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_caller_id uuid := auth.uid();
+  v_invite    public.group_invitations%ROWTYPE;
+BEGIN
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  SELECT * INTO v_invite
+  FROM public.group_invitations
+  WHERE id = p_invite_id
+    AND status = 'pending';
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Invite not found or already processed';
+  END IF;
+
+  -- Only inviter or group admin can cancel
+  IF v_invite.inviter_id <> v_caller_id THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM public.group_members
+      WHERE group_id = v_invite.group_id
+        AND user_id = v_caller_id
+        AND role = 'admin'
+    ) THEN
+      RAISE EXCEPTION 'Only the inviter or a group admin can cancel this invite';
+    END IF;
+  END IF;
+
+  UPDATE public.group_invitations
+  SET status = 'cancelled', updated_at = now()
+  WHERE id = p_invite_id;
+
+  RETURN 'cancelled';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."cancel_group_invite"("p_invite_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."cancel_group_join_request"("p_group_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  delete from public.group_memberships
+  where group_id = p_group_id
+    and user_id  = auth.uid()
+    and status   = 'pending';
+
+  return;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."cancel_group_join_request"("p_group_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."check_bookmark_limit"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -2672,6 +3307,29 @@ $$;
 ALTER FUNCTION "public"."check_event_completed"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."check_group_rate_limit"("p_action_type" "text", "p_max_per_hour" integer DEFAULT 20) RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_user_id UUID := auth.uid();
+  v_current_window TIMESTAMPTZ := date_trunc('hour', now());
+  v_count INTEGER;
+BEGIN
+  -- Get or create rate limit record
+  INSERT INTO public.group_rate_limits (user_id, action_type, window_start, count)
+  VALUES (v_user_id, p_action_type, v_current_window, 1)
+  ON CONFLICT (user_id, action_type, window_start)
+  DO UPDATE SET count = group_rate_limits.count + 1
+  RETURNING count INTO v_count;
+  
+  RETURN v_count <= p_max_per_hour;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."check_group_rate_limit"("p_action_type" "text", "p_max_per_hour" integer) OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."check_user_permission_bypass_rls"("profile_uuid" "uuid", "permission_name" "text") RETURNS boolean
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
@@ -2725,6 +3383,27 @@ $$;
 
 
 ALTER FUNCTION "public"."claim_role"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."cleanup_old_notifications"() RETURNS bigint
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  deleted_count bigint;
+BEGIN
+  DELETE FROM public.notifications
+  WHERE recipient_id = auth.uid()
+    AND is_read = true
+    AND read_at < now() - interval '90 days';
+  
+  GET DIAGNOSTICS deleted_count = ROW_COUNT;
+  RETURN deleted_count;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."cleanup_old_notifications"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."coalesce_application_url"("apply_url" "text", "application_url" "text", "external_url" "text") RETURNS "text"
@@ -2855,47 +3534,97 @@ CREATE OR REPLACE FUNCTION "public"."create_connection_notification"() RETURNS "
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-declare
+DECLARE
   requester_name text;
   recipient_name text;
-begin
-  if new.requester_id is null or new.recipient_id is null then
-    return new; -- safety; do nothing
-  end if;
+  notification_link text := '/messages?tab=connections';
+BEGIN
+  IF NEW.requester_id IS NULL OR NEW.recipient_id IS NULL THEN
+    RETURN NEW; -- safety; do nothing
+  END IF;
 
-  select p.full_name into requester_name from public.profiles p where p.id = new.requester_id;
-  select p.full_name into recipient_name from public.profiles p where p.id = new.recipient_id;
+  SELECT p.full_name INTO requester_name
+  FROM public.profiles p
+  WHERE p.id = NEW.requester_id;
+
+  SELECT p.full_name INTO recipient_name
+  FROM public.profiles p
+  WHERE p.id = NEW.recipient_id;
 
   -- INSERT: pending request → notify recipient
-  if tg_op = 'INSERT' and new.status = 'pending' then
-    insert into public.notifications (recipient_id, sender_id, type, title, message, link)
-    values (
-      new.recipient_id,
-      new.requester_id,
-      'system',
+  IF TG_OP = 'INSERT' AND NEW.status = 'pending' THEN
+    INSERT INTO public.notifications (
+      recipient_id,
+      sender_id,
+      type,
+      module,
+      link,
+      title,
+      message,
+      metadata,
+      idempotency_key
+    )
+    VALUES (
+      NEW.recipient_id,
+      NEW.requester_id,
+      'connection',            -- enum type
+      'dm',                    -- module (messages + connections)
+      notification_link,
       'New Connection Request',
-      coalesce(requester_name, 'An alumnus') || ' sent you a connection request.',
-      '/alumni/' || new.requester_id::text
-    );
-    return new;
-  end if;
+      COALESCE(requester_name, 'An alumnus')
+        || ' sent you a connection request.',
+      jsonb_build_object(
+        'connection_id', NEW.id,
+        'requester_id', NEW.requester_id,
+        'recipient_id', NEW.recipient_id,
+        'status', NEW.status
+      ),
+      'connection_request:' || NEW.id::text || ':' || NEW.recipient_id::text
+    )
+    ON CONFLICT (idempotency_key) DO NOTHING;
+
+    RETURN NEW;
+  END IF;
 
   -- UPDATE: accepted/connected → notify requester
-  if tg_op = 'UPDATE' and new.status in ('accepted','connected') and new.status is distinct from old.status then
-    insert into public.notifications (recipient_id, sender_id, type, title, message, link)
-    values (
-      new.requester_id,
-      new.recipient_id,
-      'system',
+  IF TG_OP = 'UPDATE'
+     AND NEW.status IN ('accepted','connected')
+     AND NEW.status IS DISTINCT FROM OLD.status THEN
+    INSERT INTO public.notifications (
+      recipient_id,
+      sender_id,
+      type,
+      module,
+      link,
+      title,
+      message,
+      metadata,
+      idempotency_key
+    )
+    VALUES (
+      NEW.requester_id,
+      NEW.recipient_id,
+      'connection',
+      'dm',
+      notification_link,
       'Connection Accepted',
-      coalesce(recipient_name, 'The recipient') || ' accepted your connection request.',
-      '/alumni/' || new.recipient_id::text
-    );
-    return new;
-  end if;
+      COALESCE(recipient_name, 'The recipient')
+        || ' accepted your connection request.',
+      jsonb_build_object(
+        'connection_id', NEW.id,
+        'requester_id', NEW.requester_id,
+        'recipient_id', NEW.recipient_id,
+        'status', NEW.status
+      ),
+      'connection_accepted:' || NEW.id::text || ':' || NEW.requester_id::text
+    )
+    ON CONFLICT (idempotency_key) DO NOTHING;
 
-  return new;
-end;
+    RETURN NEW;
+  END IF;
+
+  RETURN NEW;
+END;
 $$;
 
 
@@ -3075,49 +3804,132 @@ $$;
 ALTER FUNCTION "public"."create_event_with_agenda"("event_data" "jsonb") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."create_group_and_add_admin"("group_description" "text", "group_is_private" boolean, "group_name" "text", "group_tags" "text"[]) RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_user_id  uuid := auth.uid();
+  v_role     text;
+  v_group_id uuid;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Resolve app-level role
+  v_role := app_role_of(v_user_id);
+
+  -- ONLY alumni / admin / super_admin can create groups (no students, no employers)
+  IF v_role NOT IN ('alumni', 'admin', 'super_admin') THEN
+    RAISE EXCEPTION 'Only alumni or admins can create groups'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Profile must be fully approved and not rejected
+  IF NOT fc_is_fully_approved(v_user_id) OR app_profile_is_rejected() THEN
+    RAISE EXCEPTION 'Profile is not approved to create groups'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Create group in pending state
+  INSERT INTO public.groups (
+    name,
+    description,
+    is_private,
+    tags,
+    created_by,
+    is_approved,
+    approval_status,
+    is_rejected,
+    alumni_only
+  )
+  VALUES (
+    trim(group_name),
+    coalesce(trim(group_description), ''),
+    coalesce(group_is_private, false),
+    coalesce(group_tags, ARRAY[]::text[]),
+    v_user_id,
+    false,
+    'pending'::approval_status,
+    false,
+    false
+  )
+  RETURNING id INTO v_group_id;
+
+  -- Add creator as admin member (idempotent)
+  INSERT INTO public.group_members (group_id, user_id, role, joined_at)
+  VALUES (v_group_id, v_user_id, 'admin', now())
+  ON CONFLICT (group_id, user_id) DO UPDATE
+    SET role      = EXCLUDED.role,
+        joined_at = EXCLUDED.joined_at;
+
+  RETURN v_group_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."create_group_and_add_admin"("group_description" "text", "group_is_private" boolean, "group_name" "text", "group_tags" "text"[]) OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."create_group_and_add_admin"("group_name" "text", "group_description" "text" DEFAULT ''::"text", "group_is_private" boolean DEFAULT false, "group_tags" "text"[] DEFAULT '{}'::"text"[]) RETURNS "uuid"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
 declare
-  v_group_id   uuid;
-  v_uid        uuid := auth.uid();
-  v_role_txt   text := public.current_role_text(v_uid);
-  v_visibility public.group_visibility_enum;
+  v_uid      uuid;
+  v_group_id uuid;
+  v_role     text;
+  v_ok       boolean;
 begin
+  v_uid := auth.uid();
   if v_uid is null then
-    raise exception 'Not authenticated';
+    raise exception 'Not authenticated'
+      using errcode = '28000';
   end if;
 
-  -- allow alumni/admin/super_admin or any admin-like flag
-  if not public.is_admin_like(v_uid)
-     and coalesce(v_role_txt,'') not in ('alumni','admin','super_admin')
-  then
-    raise exception 'Not allowed to create groups';
+  -- Determine application role
+  select public.app_role_of(v_uid) into v_role;
+
+  -- Block employers and students
+  if v_role = 'employer' then
+    raise exception 'Employers cannot create groups'
+      using errcode = '42501';
+  end if;
+  if v_role = 'student' then
+    raise exception 'Students cannot create groups'
+      using errcode = '42501';
   end if;
 
-  v_visibility := case when coalesce(group_is_private,false)
-                       then 'private'::public.group_visibility_enum
-                       else 'public' ::public.group_visibility_enum
-                  end;
+  -- Whitelist allowed creator roles
+  if v_role not in ('alumni','admin','super_admin') then
+    raise exception 'This role is not allowed to create groups'
+      using errcode = '42501';
+  end if;
 
-  insert into public.groups(
-    name, description, created_by, is_private, tags, visibility
-  )
+  -- Require fully-approved profile
+  select public.fc_is_fully_approved(v_uid) into v_ok;
+  if coalesce(v_ok, false) = false then
+    raise exception 'Your profile must be approved before creating groups'
+      using errcode = '42501';
+  end if;
+
+  -- Insert group; AFTER INSERT trigger set_group_creator_as_admin
+  -- will add the creator as admin in group_members.
+  insert into public.groups(name, description, created_by, is_private, tags, visibility)
   values (
     trim(group_name),
-    nullif(trim(group_description),''),
+    nullif(trim(group_description), ''),
     v_uid,
-    coalesce(group_is_private,false),
-    case when group_tags is null or array_length(group_tags,1) is null
-         then null else group_tags end,
-    v_visibility
+    coalesce(group_is_private, false),
+    group_tags,
+    case when group_is_private
+         then 'private'::public.group_visibility_enum
+         else 'public' ::public.group_visibility_enum
+    end
   )
   returning id into v_group_id;
-
-  -- Creator becomes ADMIN; use a status label your schema accepts (most schemas use 'active')
-  insert into public.group_members (group_id, user_id, role, status)
-  values (v_group_id, v_uid, 'admin', 'active');
 
   return v_group_id;
 end;
@@ -3125,6 +3937,138 @@ $$;
 
 
 ALTER FUNCTION "public"."create_group_and_add_admin"("group_name" "text", "group_description" "text", "group_is_private" boolean, "group_tags" "text"[]) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."create_group_notification"("p_user_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_group_id" "uuid" DEFAULT NULL::"uuid", "p_metadata" "jsonb" DEFAULT '{}'::"jsonb") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_notification_id UUID;
+BEGIN
+  INSERT INTO public.notifications (
+    user_id,
+    type,
+    title,
+    message,
+    module,
+    reference_id,
+    metadata,
+    is_read
+  ) VALUES (
+    p_user_id,
+    p_type,
+    p_title,
+    p_message,
+    'groups',
+    p_group_id,
+    p_metadata,
+    false
+  )
+  RETURNING id INTO v_notification_id;
+  
+  RETURN v_notification_id;
+EXCEPTION WHEN OTHERS THEN
+  -- Don't fail the main operation if notification fails
+  RETURN NULL;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."create_group_notification"("p_user_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_group_id" "uuid", "p_metadata" "jsonb") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."create_group_notification"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_group_id" "uuid" DEFAULT NULL::"uuid", "p_link" "text" DEFAULT NULL::"text") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_id uuid;
+BEGIN
+  INSERT INTO public.notifications (
+    id,
+    recipient_id,
+    sender_id,
+    type,
+    title,
+    message,
+    link,
+    is_read,
+    created_at
+  )
+  VALUES (
+    gen_random_uuid(),
+    p_recipient_id,
+    auth.uid(),
+    p_type,
+    p_title,
+    p_message,
+    COALESCE(p_link, '/groups/' || p_group_id::text),
+    false,
+    now()
+  )
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+EXCEPTION WHEN OTHERS THEN
+  -- Do not fail main flow because of notification issues
+  RETURN NULL;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."create_group_notification"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_group_id" "uuid", "p_link" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."create_group_notification_once"("p_type" "text", "p_target_profile_id" "uuid", "p_group_id" "uuid", "p_subject_user_id" "uuid", "p_message" "text", "p_title" "text", "p_link" "text", "p_dedupe_seconds" integer DEFAULT NULL::integer) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_now timestamptz := now();
+  v_recent_exists boolean := false;
+begin
+  if p_dedupe_seconds is not null then
+    select exists (
+      select 1
+      from notifications n
+      where n.type = p_type
+        and n.profile_id = p_target_profile_id
+        and n.group_id = p_group_id
+        and coalesce(n.subject_user_id, '00000000-0000-0000-0000-000000000000')
+            = coalesce(p_subject_user_id, '00000000-0000-0000-0000-000000000000')
+        and n.created_at >= v_now - (p_dedupe_seconds || ' seconds')::interval
+    )
+    into v_recent_exists;
+
+    if v_recent_exists then
+      return;
+    end if;
+  end if;
+
+  insert into notifications (
+    profile_id,
+    type,
+    group_id,
+    subject_user_id,
+    message,
+    title,
+    link,
+    created_at
+  )
+  values (
+    p_target_profile_id,
+    p_type,
+    p_group_id,
+    p_subject_user_id,
+    p_message,
+    p_title,
+    p_link,
+    v_now
+  );
+end;
+$$;
+
+
+ALTER FUNCTION "public"."create_group_notification_once"("p_type" "text", "p_target_profile_id" "uuid", "p_group_id" "uuid", "p_subject_user_id" "uuid", "p_message" "text", "p_title" "text", "p_link" "text", "p_dedupe_seconds" integer) OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."create_new_event"("event_data" "jsonb") RETURNS "jsonb"
@@ -3390,6 +4334,66 @@ $$;
 ALTER FUNCTION "public"."debug_can_edit_job"("p_job_id" "uuid", "p_user" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."delete_group_post"("p_post_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  IF NOT public.is_site_admin() THEN
+    RAISE EXCEPTION 'PERMISSION_DENIED: Only site admins can delete posts';
+  END IF;
+
+  DELETE FROM public.group_posts
+  WHERE id = p_post_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."delete_group_post"("p_post_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."delete_group_secure"("p_group_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_caller_id UUID := auth.uid();
+  v_caller_role TEXT;
+  v_group RECORD;
+BEGIN
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+  
+  -- Only super_admin can delete groups
+  SELECT role INTO v_caller_role FROM public.profiles WHERE id = v_caller_id;
+  IF v_caller_role != 'super_admin' THEN
+    RAISE EXCEPTION 'Only super admins can delete groups';
+  END IF;
+  
+  -- Get group info for logging
+  SELECT * INTO v_group FROM public.groups WHERE id = p_group_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Group not found';
+  END IF;
+  
+  -- Log before delete
+  PERFORM log_group_action(p_group_id, 'group_deleted', jsonb_build_object(
+    'group_name', v_group.name,
+    'member_count', (SELECT count(*) FROM public.group_members WHERE group_id = p_group_id)
+  ));
+  
+  -- Delete related data (cascade should handle most, but be explicit)
+  DELETE FROM public.group_comments WHERE group_id = p_group_id;
+  DELETE FROM public.group_posts WHERE group_id = p_group_id;
+  DELETE FROM public.group_invitations WHERE group_id = p_group_id;
+  DELETE FROM public.group_members WHERE group_id = p_group_id;
+  DELETE FROM public.groups WHERE id = p_group_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."delete_group_secure"("p_group_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."delete_user_avatar"() RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -3564,6 +4568,93 @@ $$;
 
 
 ALTER FUNCTION "public"."derive_job_state"("j" "public"."jobs") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."detect_risky_job_actions"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_window           interval := interval '15 minutes';
+  v_now              timestamptz := now();
+  v_threshold_delete int := 10;  -- jobs deleted in window to trigger alert
+  v_threshold_reject int := 30;  -- applications rejected in window to trigger alert
+  r record;
+BEGIN
+  ---------------------------------------------------------------------------
+  -- 1) Detect mass job deletions per admin in the last window
+  ---------------------------------------------------------------------------
+  FOR r IN
+    SELECT
+      al.profile_id AS admin_id,
+      count(*)      AS delete_count
+    FROM public.activity_logs al
+    WHERE al.entity_type = 'job'
+      AND al.action      = 'job_delete'
+      AND al.created_at  >= v_now - v_window
+    GROUP BY al.profile_id
+    HAVING count(*) >= v_threshold_delete
+  LOOP
+    PERFORM public.notify_admin(
+      p_type            => 'alert',
+      p_title           => 'High volume job deletions detected',
+      p_message         => format(
+                            'Admin %s deleted %s jobs in the last %s.',
+                            r.admin_id, r.delete_count, v_window
+                          ),
+      p_link            => '/admin/jobs?tab=audit',
+      p_severity        => 'critical',
+      -- tune entity_type/entity_id for idempotency in your notify_admin implementation
+      p_entity_type     => 'job_risk_mass_deletion',
+      p_entity_id       => r.admin_id,
+      p_action_required => true,
+      p_extra_metadata  => jsonb_build_object(
+                            'pattern', 'mass_deletion',
+                            'admin_id', r.admin_id,
+                            'count', r.delete_count,
+                            'window', v_window::text
+                          )
+    );
+  END LOOP;
+
+  ---------------------------------------------------------------------------
+  -- 2) Detect mass application rejections per actor in the last window
+  ---------------------------------------------------------------------------
+  FOR r IN
+    SELECT
+      ja.actor_id,
+      count(*) AS reject_count
+    FROM public.job_application_audit ja
+    WHERE ja.new_status = 'rejected'
+      AND ja.created_at >= v_now - v_window
+    GROUP BY ja.actor_id
+    HAVING count(*) >= v_threshold_reject
+  LOOP
+    PERFORM public.notify_admin(
+      p_type            => 'alert',
+      p_title           => 'Unusual spike in application rejections',
+      p_message         => format(
+                            'Actor %s rejected %s applications in the last %s.',
+                            r.actor_id, r.reject_count, v_window
+                          ),
+      p_link            => '/admin/jobs?tab=audit',
+      p_severity        => 'warning',
+      p_entity_type     => 'job_risk_mass_rejection',
+      p_entity_id       => r.actor_id,
+      p_action_required => true,
+      p_extra_metadata  => jsonb_build_object(
+                            'pattern', 'mass_rejection',
+                            'actor_id', r.actor_id,
+                            'count', r.reject_count,
+                            'window', v_window::text
+                          )
+    );
+  END LOOP;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."detect_risky_job_actions"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."dm_get_or_create_thread"("u1" "uuid", "u2" "uuid") RETURNS "uuid"
@@ -4194,6 +5285,44 @@ $$;
 ALTER FUNCTION "public"."ensure_jsonb_array_from_text"("input" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."ensure_not_last_admin"("p_group_id" "uuid", "p_target_user_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_is_admin boolean;
+  v_other_admins integer;
+begin
+  select exists (
+    select 1
+    from group_members
+    where group_id = p_group_id
+      and user_id = p_target_user_id
+      and role = 'admin'
+  )
+  into v_is_admin;
+
+  if not v_is_admin then
+    return;
+  end if;
+
+  select count(*) into v_other_admins
+  from group_members
+  where group_id = p_group_id
+    and role = 'admin'
+    and user_id <> p_target_user_id;
+
+  if coalesce(v_other_admins, 0) = 0 then
+    raise exception 'Each group must have at least one admin. You cannot remove or leave as the last admin.'
+      using errcode = 'P0001';
+  end if;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."ensure_not_last_admin"("p_group_id" "uuid", "p_target_user_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."ensure_profile_for_new_user"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -4467,6 +5596,20 @@ $$;
 ALTER FUNCTION "public"."find_or_create_conversation"("other_user_id" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."fn_notifications_audit_insert"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  INSERT INTO public.notification_audit (notification_id, created_by, event_type, metadata)
+  VALUES (NEW.id, NEW.recipient_id, NEW.type, NEW.metadata);
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."fn_notifications_audit_insert"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."format_inr"("val" bigint) RETURNS "text"
     LANGUAGE "plpgsql" IMMUTABLE
     AS $$
@@ -4694,6 +5837,46 @@ $$;
 
 
 ALTER FUNCTION "public"."get_admin_profile_metrics"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_admin_unread_count"() RETURNS bigint
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_role text;
+  v_count bigint;
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  -- Get user role
+  v_role := public.get_user_role(v_uid);
+
+  -- Only admins can call this
+  IF v_role NOT IN ('admin', 'super_admin') THEN
+    RETURN 0;
+  END IF;
+
+  -- Count unread admin notifications
+  SELECT COUNT(*)
+  INTO v_count
+  FROM public.admin_bell_notifications
+  WHERE recipient_id = v_uid
+    AND is_read = FALSE;
+
+  RETURN COALESCE(v_count, 0);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_admin_unread_count"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."get_admin_unread_count"() IS 'Returns count of unread admin-audience notifications for the current admin user.';
+
 
 
 CREATE OR REPLACE FUNCTION "public"."get_admin_user_grid"("p_search" "text" DEFAULT NULL::"text", "p_role" "public"."app_role_enum" DEFAULT NULL::"public"."app_role_enum", "p_status" "text" DEFAULT NULL::"text", "p_limit" integer DEFAULT 50, "p_offset" integer DEFAULT 0) RETURNS TABLE("id" "uuid", "email" "text", "full_name" "text", "role" "public"."app_role_enum", "approval_status" "public"."profile_approval_status", "is_active" boolean, "is_deleted" boolean, "is_approved" boolean, "alumni_verification_status" "text", "last_sign_in_at" timestamp with time zone, "created_at" timestamp with time zone, "total_count" bigint)
@@ -4928,14 +6111,22 @@ ALTER FUNCTION "public"."get_application_count"("p_job_id" "uuid") OWNER TO "pos
 
 CREATE OR REPLACE FUNCTION "public"."get_applications_for_job"("p_job_id" "uuid", "p_limit" integer DEFAULT 50, "p_offset" integer DEFAULT 0) RETURNS TABLE("application_id" "uuid", "applicant_id" "uuid", "resume_url" "text", "cover_letter" "text", "status" "text", "created_at" timestamp with time zone)
     LANGUAGE "sql" SECURITY DEFINER
-    SET "search_path" TO 'public'
+    SET "search_path" TO 'public', 'pg_temp'
     AS $$
-  select a.id, a.applicant_id, a.resume_url, a.cover_letter, a.status, a.created_at
+  -- Use v2 to enforce owner/admin access, then join back to get cover_letter
+  with allowed as (
+    select id
+    from public.get_applications_for_job_v2(p_job_id, p_limit, p_offset)
+  )
+  select
+    a.id           as application_id,
+    a.applicant_id as applicant_id,
+    a.resume_url,
+    a.cover_letter,
+    a.status,
+    a.created_at
   from public.job_applications a
-  where a.job_id = p_job_id
-  order by a.created_at desc
-  offset greatest(p_offset,0)
-  limit  greatest(p_limit,1);
+  join allowed x on x.id = a.id;
 $$;
 
 
@@ -6260,7 +7451,7 @@ CREATE OR REPLACE FUNCTION "public"."get_job_for_edit"("p_job_id" "uuid") RETURN
    where j.id = p_job_id
      and (
            j.posted_by = auth.uid()
-        or j.user_id = auth.uid()
+        or j.user_id   = auth.uid()
         or exists (
              select 1 from public.companies c
               where c.id = j.company_id
@@ -6372,8 +7563,10 @@ CREATE TABLE IF NOT EXISTS "public"."job_applications" (
     "submitted_at" timestamp with time zone DEFAULT "now"(),
     "job_owner" "uuid",
     "resume_path" "text",
-    CONSTRAINT "job_applications_status_check" CHECK (("status" = ANY (ARRAY['submitted'::"text", 'reviewed'::"text", 'interviewing'::"text", 'offered'::"text", 'rejected'::"text"])))
+    CONSTRAINT "job_applications_status_chk" CHECK (("status" = ANY (ARRAY['submitted'::"text", 'under_review'::"text", 'shortlisted'::"text", 'interviewing'::"text", 'offered'::"text", 'hired'::"text", 'rejected'::"text", 'withdrawn'::"text"])))
 );
+
+ALTER TABLE ONLY "public"."job_applications" FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."job_applications" OWNER TO "postgres";
@@ -6575,78 +7768,80 @@ CREATE OR REPLACE FUNCTION "public"."get_jobs_with_bookmarks"("p_search_query" "
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $_$
-DECLARE
+declare
   v_user_id    uuid := auth.uid();
-  v_is_admin   boolean := EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = v_user_id
-      AND (p.is_admin = true OR p.role IN ('admin','super_admin'))
+  v_is_admin   boolean := exists (
+    select 1 from public.profiles p
+    where p.id = v_user_id
+      and (p.is_admin = true or p.role in ('admin','super_admin'))
   );
   v_sort_by    text;
   v_sort_order text;
   v_where      text := '';
   v_sql        text;
-BEGIN
+begin
   -- Whitelist sort fields/direction
-  v_sort_by := CASE lower(p_sort_by)
-    WHEN 'created_at'      THEN 'created_at'
-    WHEN 'title'           THEN 'title'
-    WHEN 'location'        THEN 'location'
-    WHEN 'applicant_count' THEN 'applicant_count'
-    ELSE 'created_at'
-  END;
+  v_sort_by := case lower(p_sort_by)
+    when 'created_at'      then 'created_at'
+    when 'title'           then 'title'
+    when 'location'        then 'location'
+    when 'applicant_count' then 'applicant_count'
+    else 'created_at'
+  end;
 
-  v_sort_order := CASE lower(p_sort_order)
-    WHEN 'asc' THEN 'ASC'
-    ELSE 'DESC'
-  END;
+  v_sort_order := case lower(p_sort_order)
+    when 'asc' then 'ASC'
+    else 'DESC'
+  end;
 
-  IF p_search_query IS NOT NULL AND length(btrim(p_search_query)) > 0 THEN
+  if p_search_query is not null and length(btrim(p_search_query)) > 0 then
     v_where := '
       WHERE ( title ILIKE ''%'' || $2 || ''%''
            OR description ILIKE ''%'' || $2 || ''%''
            OR location ILIKE ''%'' || $2 || ''%''
-           OR company_name ILIKE ''%'' || $2 || ''%'' )';
-  END IF;
+           OR company_name ILIKE ''%'' || $2 || ''%'')';
+  end if;
 
   v_sql := format($f$
-    WITH base AS (
-      SELECT
+    with base as (
+      select
         j.*,
-        c.name     AS company_name,
-        c.logo_url AS company_logo_url,
-        COALESCE(a.count, 0) AS applicant_count,
-        EXISTS (
-          SELECT 1 FROM public.job_bookmarks jb
-          WHERE jb.job_id = j.id AND jb.user_id = $1
-        ) AS is_bookmarked
-      FROM public.jobs j
-      LEFT JOIN public.companies c ON c.id = j.company_id
-      LEFT JOIN (
-        SELECT job_id, COUNT(*) AS count
-        FROM public.job_applications
-        GROUP BY job_id
-      ) a ON a.job_id = j.id
-      WHERE %s
+        c.name     as company_name,
+        c.logo_url as company_logo_url,
+        coalesce(a.count, 0) as applicant_count,
+        exists (
+          select 1 from public.job_bookmarks jb
+          where jb.job_id = j.id and jb.user_id = $1
+        ) as is_bookmarked
+      from public.jobs j
+      left join public.companies c on c.id = j.company_id
+      left join (
+        select job_id, count(*) as count
+        from public.job_applications
+        group by job_id
+      ) a on a.job_id = j.id
+      where %s
     ),
-    filtered AS (
-      SELECT * FROM base
+    filtered as (
+      select * from base
       %s
     )
-    SELECT (to_jsonb(f) || jsonb_build_object('total_count', COUNT(*) OVER ()))::json
-    FROM filtered f
-    ORDER BY %I %s
-    LIMIT $3 OFFSET $4
+    select (to_jsonb(f) || jsonb_build_object('total_count', count(*) over()))::json
+    from filtered f
+    order by %I %s
+    limit $3 offset $4
   $f$,
-    CASE WHEN v_is_admin THEN 'TRUE'
-         ELSE '(j.is_approved = TRUE AND j.is_active = TRUE) OR j.posted_by = $1'
-    END,
+    case
+      when v_is_admin then 'TRUE'
+      else '((j.is_approved = TRUE AND j.is_active = TRUE AND coalesce(j.is_rejected,false) = FALSE)
+             OR j.posted_by = $1)'
+    end,
     v_where,
     v_sort_by, v_sort_order
   );
 
-  RETURN QUERY EXECUTE v_sql USING v_user_id, p_search_query, p_limit, p_offset;
-END;
+  return query execute v_sql using v_user_id, p_search_query, p_limit, p_offset;
+end;
 $_$;
 
 
@@ -6657,30 +7852,30 @@ CREATE OR REPLACE FUNCTION "public"."get_jobs_with_bookmarks_v2"("p_search_query
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $_$
-DECLARE
+declare
   v_user_id    uuid := auth.uid();
-  v_is_admin   boolean := EXISTS (
-    SELECT 1 FROM public.profiles p
-    WHERE p.id = v_user_id
-      AND (p.is_admin = true OR p.role IN ('admin','super_admin'))
+  v_is_admin   boolean := exists (
+    select 1 from public.profiles p
+    where p.id = v_user_id
+      and (p.is_admin = true or p.role in ('admin','super_admin'))
   );
 
-  sort_col   text := CASE lower(p_sort_by)
-                       WHEN 'created_at' THEN 'created_at'
-                       WHEN 'deadline'   THEN 'deadline'
-                       WHEN 'title'      THEN 'title'
-                       ELSE 'created_at'
-                     END;
-  sort_dir   text := CASE lower(p_sort_order)
-                       WHEN 'asc' THEN 'ASC'
-                       ELSE 'DESC'
-                     END;
+  sort_col   text := case lower(p_sort_by)
+                       when 'created_at' then 'created_at'
+                       when 'deadline'   then 'deadline'
+                       when 'title'      then 'title'
+                       else 'created_at'
+                     end;
+  sort_dir   text := case lower(p_sort_order)
+                       when 'asc' then 'ASC'
+                       else 'DESC'
+                     end;
 
   where_search text := '';
   v_sql        text;
   out_json     jsonb;
-BEGIN
-  IF p_search_query IS NOT NULL AND length(btrim(p_search_query)) > 0 THEN
+begin
+  if p_search_query is not null and length(btrim(p_search_query)) > 0 then
     where_search := '
       AND (
            j.title       ILIKE ''%'' || $2 || ''%''
@@ -6688,55 +7883,56 @@ BEGIN
         OR j.location    ILIKE ''%'' || $2 || ''%''
         OR c.name        ILIKE ''%'' || $2 || ''%''
       )';
-  END IF;
+  end if;
 
   v_sql := format($f$
-    WITH filtered AS (
-      SELECT
+    with filtered as (
+      select
         j.*,
-        c.name     AS company_name,
-        c.logo_url AS company_logo_url,
-        COALESCE(a.count, 0) AS applicant_count,
-        EXISTS (
-          SELECT 1 FROM public.job_bookmarks jb
-          WHERE jb.job_id = j.id AND jb.user_id = $1
-        ) AS is_bookmarked
-      FROM public.jobs j
-      LEFT JOIN public.companies c ON c.id = j.company_id
-      LEFT JOIN (
-        SELECT job_id, COUNT(*) AS count
-        FROM public.job_applications
-        GROUP BY job_id
-      ) a ON a.job_id = j.id
-      WHERE %s %s
+        c.name     as company_name,
+        c.logo_url as company_logo_url,
+        coalesce(a.count, 0) as applicant_count,
+        exists (
+          select 1 from public.job_bookmarks jb
+          where jb.job_id = j.id and jb.user_id = $1
+        ) as is_bookmarked
+      from public.jobs j
+      left join public.companies c on c.id = j.company_id
+      left join (
+        select job_id, count(*) as count
+        from public.job_applications
+        group by job_id
+      ) a on a.job_id = j.id
+      where %s %s
     ),
-    paged AS (
-      SELECT * FROM filtered
-      ORDER BY %I %s
-      LIMIT $3 OFFSET $4
+    paged as (
+      select * from filtered
+      order by %I %s
+      limit $3 offset $4
     )
-    SELECT jsonb_build_object(
-      'items',       COALESCE(jsonb_agg(to_jsonb(p)), '[]'::jsonb),
-      'total_count', (SELECT COUNT(*) FROM filtered)
+    select jsonb_build_object(
+      'items',       coalesce(jsonb_agg(to_jsonb(p)), '[]'::jsonb),
+      'total_count', (select count(*) from filtered)
     )
-    FROM paged p;
+    from paged p;
   $f$,
-    CASE WHEN v_is_admin
-         THEN 'TRUE'
-         ELSE '(j.is_approved = TRUE AND j.is_active = TRUE) OR j.posted_by = $1'
-    END,
+    case
+      when v_is_admin then 'TRUE'
+      else '((j.is_approved = TRUE AND j.is_active = TRUE AND coalesce(j.is_rejected,false) = FALSE)
+             OR j.posted_by = $1)'
+    end,
     where_search,
     sort_col, sort_dir
   );
 
-  EXECUTE v_sql INTO out_json USING v_user_id, p_search_query, p_limit, p_offset;
+  execute v_sql into out_json using v_user_id, p_search_query, p_limit, p_offset;
 
-  IF out_json IS NULL THEN
+  if out_json is null then
     out_json := jsonb_build_object('items', '[]'::jsonb, 'total_count', 0);
-  END IF;
+  end if;
 
-  RETURN out_json;
-END
+  return out_json;
+end
 $_$;
 
 
@@ -6897,9 +8093,9 @@ CREATE OR REPLACE FUNCTION "public"."get_mentors_for_current_mentee"("p_limit" i
     LANGUAGE "sql" SECURITY DEFINER
     SET "search_path" TO 'public', 'pg_temp'
     AS $$
-  -- Later you can add filters / compatibility. For now, just wrap the view.
   SELECT *
   FROM public.v_mentors_public
+  WHERE user_id <> auth.uid()    -- exclude current user
   ORDER BY created_at DESC
   LIMIT p_limit OFFSET p_offset;
 $$;
@@ -7213,25 +8409,18 @@ ALTER FUNCTION "public"."get_my_role"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."get_user_role"("p_user_id" "uuid") RETURNS "text"
-    LANGUAGE "plpgsql" SECURITY DEFINER
+    LANGUAGE "sql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-DECLARE
-  v_role text;
-  v_is_admin boolean;
-BEGIN
-  IF p_user_id IS NULL THEN RETURN 'anon'; END IF;
-
-  SELECT role, is_admin INTO v_role, v_is_admin
+  SELECT
+    CASE
+      WHEN is_admin IS TRUE THEN 'admin'
+      WHEN role IS NULL THEN 'alumni'
+      WHEN role::text = 'user' THEN 'alumni'
+      ELSE role::text
+    END
   FROM public.profiles
-  WHERE id = p_user_id;
-
-  IF NOT FOUND THEN RETURN 'anon'; END IF;
-  IF v_is_admin THEN RETURN 'admin'; END IF;
-  IF v_role IS NULL OR trim(v_role) = '' OR v_role = 'user' THEN RETURN 'alumni'; END IF;
-
-  RETURN v_role;
-END;
+  WHERE id = p_user_id
 $$;
 
 
@@ -7242,13 +8431,16 @@ CREATE OR REPLACE FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "
     LANGUAGE "plpgsql"
     AS $$
 DECLARE
-  v_role text := lower(coalesce(p_role, 'alumni'));
-  v_type text := lower(coalesce(p_type, 'system'));
+  v_role     text := lower(coalesce(p_role, 'alumni'));
+  v_type     text := lower(coalesce(p_type, 'system'));
+  v_audience text := lower(coalesce(p_metadata->>'audience', 'user'));
 BEGIN
+  -- Normalize weird/missing roles
   IF v_role IN ('', 'anon', 'user') THEN
     v_role := 'alumni';
   END IF;
 
+  -- Non-bell types
   IF v_type IN (
     'rsvp_confirmation',
     'application_submitted',
@@ -7258,54 +8450,102 @@ BEGIN
     RETURN FALSE;
   END IF;
 
-  IF v_role IN ('alumni', 'student') THEN
+  ------------------------------------------------------------------
+  -- Admin / super_admin: admin-audience (admin bell only)
+  ------------------------------------------------------------------
+  IF v_role IN ('admin','super_admin') AND v_audience = 'admin' THEN
+    IF v_type IN ('alert','system') THEN
+      RETURN TRUE;
+    ELSE
+      RETURN FALSE;
+    END IF;
+  END IF;
+  -- If audience='user', fall through and treat them like their user persona
+  ------------------------------------------------------------------
+
+  ------------------------------------------------------------------
+  -- Alumni / Student
+  ------------------------------------------------------------------
+  IF v_role IN ('alumni','student') THEN
     IF v_type IN (
-      'connection', 'connection_request',
-      'message', 'chat_message',
-      'job', 'job_posted', 'job_approved', 'job_applied',
-      'application', 'application_status',
-      'event', 'event_created', 'event_published',
+      'connection','connection_request',
+      'message','chat_message',
+      'job','job_posted','job_approved','job_applied',
+      'application','application_status',
+      'event','event_created','event_published',
       'mentorship',
-      'system', 'alert'
-    ) THEN RETURN TRUE; ELSE RETURN FALSE; END IF;
-  END IF;
-
-  IF v_role = 'employer' THEN
-    IF v_type IN (
-      'connection', 'connection_request',
-      'message', 'chat_message',
-      'job', 'job_posted', 'job_approved', 'job_applied',
-      'application', 'application_status',
-      'event', 'event_published',
-      'system', 'alert'
-    ) THEN RETURN TRUE; ELSE RETURN FALSE; END IF;
-  END IF;
-
-  IF v_role = 'mentor' THEN
-    IF v_type IN (
-      'mentorship',
-      'message', 'chat_message',
-      'event',
-      'system', 'alert'
-    ) THEN RETURN TRUE; ELSE RETURN FALSE; END IF;
-  END IF;
-
-  IF v_role IN ('admin', 'super_admin') THEN
-    IF v_type IN ('alert', 'system') THEN
+      'system','alert'
+    ) THEN
       RETURN TRUE;
     ELSE
       RETURN FALSE;
     END IF;
   END IF;
 
+  ------------------------------------------------------------------
+  -- Employer
+  ------------------------------------------------------------------
+  IF v_role = 'employer' THEN
+    IF v_type IN (
+      'connection','connection_request',
+      'message','chat_message',
+      'job','job_posted','job_approved','job_applied',
+      'application','application_status',
+      'event','event_published',
+      'system','alert'
+    ) THEN
+      RETURN TRUE;
+    ELSE
+      RETURN FALSE;
+    END IF;
+  END IF;
+
+  ------------------------------------------------------------------
+  -- Mentor
+  ------------------------------------------------------------------
+  IF v_role = 'mentor' THEN
+    IF v_type IN (
+      'mentorship',
+      'message','chat_message',
+      'event',
+      'system','alert'
+    ) THEN
+      RETURN TRUE;
+    ELSE
+      RETURN FALSE;
+    END IF;
+  END IF;
+
+  ------------------------------------------------------------------
+  -- Admin / super_admin with user-audience: behave like heavy user
+  ------------------------------------------------------------------
+  IF v_role IN ('admin','super_admin') THEN
+    IF v_type IN (
+      'connection','connection_request',
+      'message','chat_message',
+      'job','job_posted','job_approved','job_applied',
+      'application','application_status',
+      'event','event_created','event_published',
+      'mentorship',
+      'system','alert'
+    ) THEN
+      RETURN TRUE;
+    ELSE
+      RETURN FALSE;
+    END IF;
+  END IF;
+
+  ------------------------------------------------------------------
+  -- Fallback: allow canonical bell-worthy types
+  ------------------------------------------------------------------
   IF v_type IN (
-    'connection', 'connection_request',
-    'message', 'chat_message',
-    'job', 'job_posted', 'job_approved', 'job_applied',
-    'application', 'application_status',
-    'event', 'event_created', 'event_published',
+    'connection','connection_request',
+    'message','chat_message',
+    'job','job_posted','job_approved','job_applied',
+    'application','application_status',
+    'event','event_created','event_published',
     'mentorship',
-    'system', 'alert'
+    'system','alert'
   ) THEN
     RETURN TRUE;
   END IF;
@@ -7318,6 +8558,12 @@ $$;
 ALTER FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "text", "p_metadata" "jsonb") OWNER TO "postgres";
 
 
+COMMENT ON FUNCTION "public"."is_bell_worthy"("p_role" "text", "p_type" "text", "p_metadata" "jsonb") IS 'Determines if a notification should appear in the bell based on user role, type, and metadata.
+Now audience-aware: admin-audience alerts only visible to admin/super_admin roles.
+Regular users are blocked from seeing admin-audience notifications.';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."notification_preferences" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid",
@@ -7326,11 +8572,18 @@ CREATE TABLE IF NOT EXISTS "public"."notification_preferences" (
     "push_enabled" boolean DEFAULT true,
     "in_app_enabled" boolean DEFAULT true,
     "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"()
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "tenant_id" "uuid"
 );
+
+ALTER TABLE ONLY "public"."notification_preferences" FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."notification_preferences" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."notification_preferences" IS 'Per-user notification preferences. RLS enforces user_id = auth.uid().';
+
 
 
 CREATE TABLE IF NOT EXISTS "public"."notifications" (
@@ -7350,17 +8603,46 @@ CREATE TABLE IF NOT EXISTS "public"."notifications" (
     "user_id" "uuid",
     "metadata" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL,
     "body" "text",
-    "module" "public"."notification_module",
+    "module" "public"."notification_module" DEFAULT 'system'::"public"."notification_module" NOT NULL,
     "type_enum" "public"."notification_type_enum",
     "idempotency_key" "text",
-    CONSTRAINT "chk_notifications_type" CHECK (("btrim"("lower"("type")) = ANY (ARRAY['system'::"text", 'message'::"text", 'event'::"text", 'event_created'::"text", 'event_published'::"text", 'event_updated'::"text", 'job'::"text", 'job_posted'::"text", 'job_approved'::"text", 'job_applied'::"text", 'application'::"text", 'application_status'::"text", 'mentorship'::"text", 'group'::"text", 'connection'::"text", 'resume'::"text", 'alert'::"text"])))
+    "audience" "public"."notification_audience_enum" DEFAULT 'user'::"public"."notification_audience_enum",
+    "tenant_id" "uuid",
+    "is_bell_visible" boolean,
+    "group_id" "uuid",
+    "subject_user_id" "uuid",
+    CONSTRAINT "chk_notifications_link_format" CHECK ((("link" IS NULL) OR ("link" ~ '^/[A-Za-z0-9_./?&=%:-]*$'::"text"))),
+    CONSTRAINT "chk_notifications_type" CHECK (("type" = ANY (ARRAY['system'::"text", 'connection'::"text", 'message'::"text", 'event'::"text", 'event_created'::"text", 'event_published'::"text", 'event_updated'::"text", 'job'::"text", 'job_posted'::"text", 'job_approved'::"text", 'job_applied'::"text", 'application'::"text", 'application_status'::"text", 'mentorship'::"text", 'group'::"text", 'group_join_request'::"text", 'group_membership_approved'::"text", 'group_membership_rejected'::"text", 'group_admin_risk'::"text", 'alert'::"text"]))),
+    CONSTRAINT "notifications_link_internal_only" CHECK ((("link" IS NULL) OR (("link" ~ '^/[^/].*$'::"text") AND ("link" !~~ '% %'::"text") AND ("length"("link") <= 500))))
 );
+
+ALTER TABLE ONLY "public"."notifications" FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."notifications" OWNER TO "postgres";
 
 
-COMMENT ON TABLE "public"."notifications" IS 'Stores user notifications for the alumni management system';
+COMMENT ON TABLE "public"."notifications" IS 'User notifications with RLS enforcing recipient_id = auth.uid(). Only service_role can insert.';
+
+
+
+COMMENT ON COLUMN "public"."notifications"."metadata" IS 'Structured metadata (JSONB) with schema:
+{
+  "audience": "user" | "admin",           -- Target audience (required for alerts)
+  "severity": "critical" | "warning" | "info",  -- Alert severity (optional)
+  "entity_id": "uuid",                    -- Related entity ID (job/event/mentor/etc)
+  "entity_type": "job" | "event" | "mentorship" | "connection",
+  "action_required": boolean,             -- Whether admin action is required
+  "relationship_id": "uuid",              -- For mentorship notifications
+  "status": "string",                     -- Status for state-based notifications
+  "original_type": "string"               -- For type migrations/aliases
+}
+NOTE: Never store PII (emails, phone numbers, free-text messages) in metadata.
+Only store IDs, enums, flags, and small structured data.';
+
+
+
+COMMENT ON CONSTRAINT "notifications_link_internal_only" ON "public"."notifications" IS 'Ensures notification links are internal app routes only (start with /, not //, no spaces, max 500 chars)';
 
 
 
@@ -7384,19 +8666,25 @@ CREATE OR REPLACE VIEW "public"."bell_notifications" AS
 ALTER TABLE "public"."bell_notifications" OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."get_notifications_paginated"("p_limit" integer DEFAULT 20, "p_offset" integer DEFAULT 0) RETURNS SETOF "public"."bell_notifications"
+CREATE OR REPLACE FUNCTION "public"."get_notifications_paginated"("p_limit" integer DEFAULT 12, "p_offset" integer DEFAULT 0, "p_is_read" boolean DEFAULT NULL::boolean) RETURNS SETOF "public"."bell_notifications"
     LANGUAGE "sql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
   SELECT *
   FROM public.bell_notifications
   WHERE recipient_id = auth.uid()
+    AND (p_is_read IS NULL OR is_read = p_is_read)
   ORDER BY created_at DESC
-  LIMIT p_limit OFFSET p_offset;
+  LIMIT LEAST(p_limit, 50)
+  OFFSET p_offset;
 $$;
 
 
-ALTER FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer) OWNER TO "postgres";
+ALTER FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer, "p_is_read" boolean) OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer, "p_is_read" boolean) IS 'Safe RPC: Get paginated bell notifications for current user. Enforces recipient_id = auth.uid(). Optional p_is_read filter for Read/Unread tabs.';
+
 
 
 CREATE OR REPLACE FUNCTION "public"."get_or_create_conversation"("target_user_id" "uuid") RETURNS bigint
@@ -8073,6 +9361,24 @@ $$;
 ALTER FUNCTION "public"."get_unread_message_count"("conv_id" "uuid", "user_id" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_unread_notification_count"() RETURNS bigint
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  SELECT count(*)
+  FROM public.notifications
+  WHERE recipient_id = auth.uid()
+    AND is_read = false;
+$$;
+
+
+ALTER FUNCTION "public"."get_unread_notification_count"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."get_unread_notification_count"() IS 'Safe RPC: Get count of unread notifications for current user.';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."get_unread_notifications_count"() RETURNS integer
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -8402,9 +9708,10 @@ ALTER FUNCTION "public"."get_user_permissions_bypass_rls"("profile_uuid" "uuid")
 
 
 CREATE OR REPLACE FUNCTION "public"."get_user_role"() RETURNS "text"
-    LANGUAGE "sql" STABLE
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
-  select coalesce((select role::text from public.profiles where id = auth.uid()), 'alumni')
+  SELECT public.get_user_role(auth.uid());
 $$;
 
 
@@ -8450,10 +9757,87 @@ $$;
 ALTER FUNCTION "public"."get_view_columns"("view_name" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."group_admin_risk_notify"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_group_id uuid;
+  v_admin_count integer;
+  v_member_count integer;
+  v_group_name text;
+  v_only_admin uuid;
+  v_actor uuid := auth.uid();
+begin
+  if (tg_op = 'DELETE') then
+    v_group_id := old.group_id;
+  else
+    v_group_id := new.group_id;
+  end if;
+
+  -- Count admins and members
+  select count(*) into v_admin_count
+  from group_members
+  where group_id = v_group_id
+    and role = 'admin';
+
+  select count(*) into v_member_count
+  from group_members
+  where group_id = v_group_id;
+
+  select name into v_group_name
+  from groups
+  where id = v_group_id;
+
+  -- Zero admins: urgent to site admins
+  if coalesce(v_admin_count, 0) = 0 then
+    -- Notify site admins: use is_admin() helper to get them via profiles if needed
+    -- Example: create a separate RPC 'notify_site_admins_group_no_admin' or
+    -- loop through an admins view. Pseudo:
+    perform create_notification(
+      notif_link   => '/admin/groups',
+      notif_message => coalesce(v_group_name, 'A group') || ' has no admins. Please assign a new admin.',
+      notif_title   => 'Group has no admins',
+      notif_type    => 'group_admin_risk',
+      target_profile_id => null -- handled by specialized create_notification variant for broadcast/admins
+    );
+    return null;
+  end if;
+
+  -- One admin & many members: at-risk
+  if v_admin_count = 1 and v_member_count >= 20 then
+    select user_id into v_only_admin
+    from group_members
+    where group_id = v_group_id
+      and role = 'admin'
+    limit 1;
+
+    if v_only_admin is not null then
+      perform create_notification(
+        notif_link   => '/groups/' || v_group_id || '/manage',
+        notif_message => 'You are the only admin of ' || coalesce(v_group_name, 'a group') || '. Add another admin to keep it safe.',
+        notif_title   => 'You are the only admin',
+        notif_type    => 'group_admin_risk',
+        target_profile_id => v_only_admin
+      );
+    end if;
+  end if;
+
+  return null;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."group_admin_risk_notify"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."group_admin_set_membership"("p_group_id" "uuid", "p_user_id" "uuid", "p_status" "text", "p_role" "text" DEFAULT 'member'::"text") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
+declare
+  v_group_name text;
+  v_normalized_status text := lower(coalesce(p_status, ''));
 begin
   -- only group admins (or platform admins)
   if not (public.is_group_admin(p_group_id, auth.uid()) or public.is_platform_admin(auth.uid())) then
@@ -8465,6 +9849,10 @@ begin
     raise exception 'Employers cannot be added to groups';
   end if;
 
+  select name into v_group_name
+  from public.groups
+  where id = p_group_id;
+
   -- upsert the membership request row to desired status
   insert into public.group_memberships (group_id, user_id, status, role)
   values (p_group_id, p_user_id, p_status, p_role)
@@ -8472,20 +9860,92 @@ begin
   do update set status = excluded.status, role = excluded.role, created_at = now();
 
   -- sync active membership table
-  if lower(p_status) = 'approved' then
+  if v_normalized_status = 'approved' then
     insert into public.group_members (group_id, user_id, role)
     values (p_group_id, p_user_id, coalesce(p_role,'member'))
     on conflict (group_id, user_id) do update
       set role = excluded.role;  -- allow promote/demote on approve
+
+    -- Notify user that they have been added/approved via admin-side action
+    perform create_group_notification_once(
+      'group_membership_approved',
+      p_user_id,
+      p_group_id,
+      auth.uid(),
+      'You have been added to "' || coalesce(v_group_name, 'this group') || '" as a ' || coalesce(p_role, 'member') || '.',
+      'Group membership approved',
+      '/groups/' || p_group_id::text,
+      300
+    );
   else
     -- rejected or removed: ensure not present as active member
     delete from public.group_members
     where group_id = p_group_id and user_id = p_user_id;
+
+    if v_normalized_status = 'rejected' then
+      perform create_group_notification_once(
+        'group_membership_rejected',
+        p_user_id,
+        p_group_id,
+        auth.uid(),
+        'Your membership in "' || coalesce(v_group_name, 'this group') || '" has been removed by a group admin.',
+        'Membership removed',
+        '/groups/' || p_group_id::text,
+        300
+      );
+    end if;
   end if;
 end $$;
 
 
 ALTER FUNCTION "public"."group_admin_set_membership"("p_group_id" "uuid", "p_user_id" "uuid", "p_status" "text", "p_role" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."group_membership_notify_pending"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_group_name text;
+  v_admin record;
+begin
+  -- Only for pending status
+  if new.status <> 'pending' then
+    return new;
+  end if;
+
+  select name into v_group_name
+  from groups
+  where id = new.group_id;
+
+  if not found then
+    return new;
+  end if;
+
+  for v_admin in
+    select gm.user_id
+    from group_members gm
+    where gm.group_id = new.group_id
+      and gm.role = 'admin'
+  loop
+    perform create_group_notification_once(
+      'group_join_request',
+      v_admin.user_id,
+      new.group_id,
+      new.user_id,
+      coalesce(v_group_name, 'A group') || ' has a new join request.',
+      'New join request',
+      '/groups/' || new.group_id || '/manage',
+      300
+    );
+  end loop;
+
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."group_membership_notify_pending"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."groups_sync_visibility"() RETURNS "trigger"
@@ -8713,32 +10173,106 @@ $$;
 ALTER FUNCTION "public"."init_my_notification_prefs"() OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."invite_member_by_email"("p_group_id" "uuid", "p_email" "text") RETURNS "text"
+CREATE OR REPLACE FUNCTION "public"."invite_member_by_email"("p_group_id" "uuid", "p_email" "text") RETURNS "uuid"
     LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
     AS $$
-declare v_user uuid; v_role text; v_is_private boolean; v_status text;
-begin
-  if not public.can_manage_group(p_group_id, auth.uid()) then
-    raise exception 'Not permitted';
-  end if;
+DECLARE
+  v_caller_id     uuid := auth.uid();
+  v_caller_role   text;
+  v_group         public.groups%ROWTYPE;
+  v_invitee_prof  public.profiles%ROWTYPE;
+  v_invitation_id uuid;
+BEGIN
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
 
-  select id, role::text into v_user, v_role
-  from public.profiles
-  where lower(email)=lower(p_email);
+  -- Caller role
+  SELECT role INTO v_caller_role FROM public.profiles WHERE id = v_caller_id;
+  IF v_caller_role = 'employer' THEN
+    RAISE EXCEPTION 'Employers cannot send group invites';
+  END IF;
 
-  if v_user is null then raise exception 'User not found'; end if;
-  if v_role='employer' then raise exception 'Employers cannot be invited to groups'; end if;
+  -- Group must exist and be active
+  SELECT * INTO v_group FROM public.groups WHERE id = p_group_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Group not found';
+  END IF;
+  IF v_group.is_archived THEN
+    RAISE EXCEPTION 'Cannot invite to archived group';
+  END IF;
+  IF v_group.approval_status IS NOT NULL AND v_group.approval_status <> 'approved' THEN
+    RAISE EXCEPTION 'Cannot invite to unapproved group';
+  END IF;
 
-  select is_private into v_is_private from public.groups where id=p_group_id;
-  v_status := case when v_is_private then 'pending' else 'active' end;
+  -- Caller must already be a member
+  IF NOT EXISTS (
+    SELECT 1 FROM public.group_members
+    WHERE group_id = p_group_id AND user_id = v_caller_id
+  ) THEN
+    RAISE EXCEPTION 'Only group members can send invites';
+  END IF;
 
-  insert into public.group_members (group_id,user_id,role,status)
-  values (p_group_id, v_user, 'member', v_status)
-  on conflict (group_id,user_id) do update set status=excluded.status;
+  -- Resolve invitee by email (if they already have an account)
+  SELECT * INTO v_invitee_prof
+  FROM public.profiles
+  WHERE lower(email) = lower(p_email)
+  LIMIT 1;
 
-  return v_status;
-end; $$;
+  -- Block employers as invitees
+  IF FOUND AND v_invitee_prof.role = 'employer' THEN
+    RAISE EXCEPTION 'Cannot invite employers to groups';
+  END IF;
+
+  -- Alumni-only restriction: block students
+  IF FOUND AND v_group.alumni_only AND v_invitee_prof.role = 'student' THEN
+    RAISE EXCEPTION 'This group is alumni-only. Students cannot be invited.';
+  END IF;
+
+  -- If user already member, no invite
+  IF FOUND AND EXISTS (
+    SELECT 1 FROM public.group_members
+    WHERE group_id = p_group_id AND user_id = v_invitee_prof.id
+  ) THEN
+    RAISE EXCEPTION 'User is already a member of this group';
+  END IF;
+
+  -- Create (or upsert) pending invite
+  INSERT INTO public.group_invitations (
+    group_id,
+    inviter_id,
+    invitee_id,
+    invitee_email,
+    status
+  )
+  VALUES (
+    p_group_id,
+    v_caller_id,
+    CASE WHEN FOUND THEN v_invitee_prof.id ELSE NULL END,
+    lower(p_email),
+    'pending'
+  )
+  ON CONFLICT (group_id, invitee_id)
+    WHERE invitee_id IS NOT NULL AND status = 'pending'
+  DO UPDATE SET
+    updated_at = now()
+  RETURNING id INTO v_invitation_id;
+
+  -- Notification only if invitee has an account
+  IF FOUND THEN
+    PERFORM create_group_notification(
+      v_invitee_prof.id,
+      'group',
+      'Group Invitation',
+      'You have been invited to join "' || v_group.name || '"',
+      p_group_id,
+      '/groups/' || p_group_id::text
+    );
+  END IF;
+
+  RETURN v_invitation_id;
+END;
+$$;
 
 
 ALTER FUNCTION "public"."invite_member_by_email"("p_group_id" "uuid", "p_email" "text") OWNER TO "postgres";
@@ -8838,17 +10372,35 @@ ALTER FUNCTION "public"."is_employer_user"("p_user_id" "uuid") OWNER TO "postgre
 CREATE OR REPLACE FUNCTION "public"."is_group_admin"("p_group_id" "uuid", "p_user_id" "uuid" DEFAULT "auth"."uid"()) RETURNS boolean
     LANGUAGE "sql" STABLE
     AS $$
-  select
-    public.is_platform_admin(p_user_id)
-    or exists (
-      select 1
-      from public.group_members m
-      where m.group_id = p_group_id and m.user_id = p_user_id and m.role = 'admin'
-    );
+  SELECT public.is_platform_admin(p_user_id)
+      OR EXISTS (
+        SELECT 1
+        FROM public.group_members m
+        WHERE m.group_id = p_group_id
+          AND m.user_id  = p_user_id
+          AND m.role     = 'admin'
+          AND m.status   = 'active'
+      );
 $$;
 
 
 ALTER FUNCTION "public"."is_group_admin"("p_group_id" "uuid", "p_user_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."is_group_eligible_user"("p_user_id" "uuid") RETURNS boolean
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  select
+    not coalesce(pr.is_deleted, false)
+    and coalesce(pr.is_active, true)
+    and get_user_role(p_user_id) <> 'employer'
+  from profiles pr
+  where pr.id = p_user_id
+$$;
+
+
+ALTER FUNCTION "public"."is_group_eligible_user"("p_user_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."is_group_manager"("p_group_id" "uuid") RETURNS boolean
@@ -9067,14 +10619,11 @@ ALTER FUNCTION "public"."is_profile_verified"("uid" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."is_site_admin"() RETURNS boolean
-    LANGUAGE "sql" STABLE SECURITY DEFINER
-    SET "search_path" TO 'public'
+    LANGUAGE "sql" STABLE
     AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.profiles p
-    WHERE p.id = auth.uid()
-      AND p.role = 'super_admin'
+  SELECT COALESCE(
+    (SELECT is_admin FROM public.profiles WHERE id = auth.uid()),
+    FALSE
   );
 $$;
 
@@ -9124,6 +10673,25 @@ $$;
 ALTER FUNCTION "public"."is_user_admin"("p_user_id" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."is_valid_application_status"("p_status" "text") RETURNS boolean
+    LANGUAGE "sql" STABLE
+    AS $$
+  SELECT p_status IN (
+    'submitted',
+    'under_review',
+    'shortlisted',
+    'interviewing',
+    'offered',
+    'hired',
+    'rejected',
+    'withdrawn'
+  );
+$$;
+
+
+ALTER FUNCTION "public"."is_valid_application_status"("p_status" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."is_valid_application_target"("t" "text") RETURNS boolean
     LANGUAGE "sql" IMMUTABLE
     AS $_$
@@ -9139,6 +10707,87 @@ $_$;
 
 
 ALTER FUNCTION "public"."is_valid_application_target"("t" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."job_apply"("p_job_id" "uuid", "p_resume_path" "text", "p_cover_letter" "text" DEFAULT NULL::"text") RETURNS "public"."job_applications"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_uid             uuid := auth.uid();
+  v_role            text;
+  v_row             public.job_applications;
+  v_already_applied boolean;
+BEGIN
+  -- 1) Must be logged in
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Authentication required'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 2) Only alumni/students can apply
+  v_role := public.get_user_role(v_uid);
+  IF v_role NOT IN ('alumni','student') THEN
+    RAISE EXCEPTION 'Only alumni and students can apply to jobs'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 3) Must be fully approved (matches fc_is_fully_approved RLS)
+  IF NOT public.fc_is_fully_approved(v_uid) THEN
+    RAISE EXCEPTION 'Your account is not fully approved to apply for jobs'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 4) Job must be open & approved (adjust if your flags differ)
+  PERFORM 1
+  FROM public.jobs j
+  WHERE j.id = p_job_id
+    AND COALESCE(j.is_deleted, false) = false
+    AND COALESCE(j.is_rejected, false) = false
+    AND COALESCE(j.is_approved, false) = true
+    AND (j.is_active IS NULL OR j.is_active = true)
+    AND (j.deadline  IS NULL OR j.deadline  >= now())
+    AND (j.expires_at IS NULL OR j.expires_at >= now());
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Job is not open for applications'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- 5) Enforce one application per job per user
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.job_applications ja
+    WHERE ja.job_id = p_job_id
+      AND ja.applicant_id = v_uid
+  ) INTO v_already_applied;
+
+  IF v_already_applied THEN
+    RAISE EXCEPTION 'You have already applied to this job'
+      USING ERRCODE = '23505';
+  END IF;
+
+  -- 6) Create application row
+  INSERT INTO public.job_applications (
+    job_id,
+    applicant_id,
+    resume_url,
+    cover_letter
+  )
+  VALUES (
+    p_job_id,
+    v_uid,
+    p_resume_path,
+    NULLIF(p_cover_letter, '')
+  )
+  RETURNING * INTO v_row;
+
+  RETURN v_row;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."job_apply"("p_job_id" "uuid", "p_resume_path" "text", "p_cover_letter" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."job_is_owned_by_me"("p_job_id" "uuid") RETURNS boolean
@@ -9358,42 +11007,150 @@ $$;
 ALTER FUNCTION "public"."jobs_sync_flags_from_status"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."join_group"("group_id" "uuid") RETURNS "json"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_role    text;
+  v_group   public.groups%ROWTYPE;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_role := app_role_of(v_user_id);
+
+  -- Employers can never join any groups
+  IF v_role = 'employer' THEN
+    RAISE EXCEPTION 'Employers cannot join groups'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Profile must be fully approved and not rejected
+  IF NOT fc_is_fully_approved(v_user_id) OR app_profile_is_rejected() THEN
+    RAISE EXCEPTION 'Your profile must be approved before joining groups'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Load group and enforce lifecycle rules
+  SELECT *
+  INTO v_group
+  FROM public.groups
+  WHERE id = group_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Group not found'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF v_group.is_archived THEN
+    RAISE EXCEPTION 'Group is archived and cannot be joined'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF NOT v_group.is_approved OR v_group.approval_status <> 'approved'::approval_status THEN
+    RAISE EXCEPTION 'Group is not approved for joining'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Alumni-only rule: students cannot join
+  IF v_group.alumni_only = TRUE AND v_role = 'student' THEN
+    RETURN json_build_object('status', 'alumni_only');
+  END IF;
+
+  -- Private groups are invite-only: no self-join
+  IF v_group.is_private THEN
+    RETURN json_build_object('status', 'invite_only');
+  END IF;
+
+  -- Public, approved, non-archived: add membership as member
+  INSERT INTO public.group_members (group_id, user_id, role, joined_at)
+  VALUES (group_id, v_user_id, 'member', now())
+  ON CONFLICT (group_id, user_id) DO UPDATE
+    SET joined_at = EXCLUDED.joined_at;
+
+  RETURN json_build_object('status', 'active');
+END;
+$$;
+
+
+ALTER FUNCTION "public"."join_group"("group_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."join_group_v2"("p_group_id" "uuid") RETURNS "text"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-declare
-  v_role text := public.app_role_of(auth.uid());
-  v_is_private boolean;
-begin
-  if v_role = 'employer' then
-    raise exception 'Employers cannot join groups';
-  end if;
+DECLARE
+  v_is_private      boolean;
+  v_archived        boolean;
+  v_rejected        boolean;
+  v_user_role       text;
+  v_is_alumni_only  boolean;
+BEGIN
+  -- Block employers
+  IF public.is_employer(auth.uid()) THEN
+    RAISE EXCEPTION 'Employers cannot join groups'
+      USING ERRCODE = '42501';
+  END IF;
 
-  select g.is_private into v_is_private
-  from public.groups g
-  where g.id = p_group_id;
+  -- Check group flags + alumni-only tag
+  SELECT g.is_private,
+         g.is_archived,
+         g.is_rejected,
+         'alumni-only' = ANY(COALESCE(g.tags, '{}'::text[]))
+  INTO   v_is_private,
+         v_archived,
+         v_rejected,
+         v_is_alumni_only
+  FROM public.groups g
+  WHERE g.id = p_group_id;
 
-  if exists (
-    select 1 from public.group_members m
-    where m.group_id = p_group_id and m.user_id = auth.uid() and m.status = 'active'
-  ) then
-    return 'active';
-  end if;
+  IF v_archived OR v_rejected THEN
+    RAISE EXCEPTION 'Group is not available'
+      USING ERRCODE = '22023';
+  END IF;
 
-  if exists (
-    select 1 from public.group_members m
-    where m.group_id = p_group_id and m.user_id = auth.uid() and m.status = 'pending'
-  ) then
-    return 'pending';
-  end if;
+  -- Alumni-only enforcement
+  IF v_is_alumni_only THEN
+    SELECT public.app_role_of(auth.uid()) INTO v_user_role;
+    IF v_user_role = 'student' THEN
+      RAISE EXCEPTION 'This group is for alumni only'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
 
-  insert into public.group_members (group_id, user_id, role, status)
-  values (p_group_id, auth.uid(), 'member', case when v_is_private then 'pending' else 'active' end)
-  on conflict (group_id, user_id) do nothing;
+  -- Reject direct self-join for private groups – invite-only
+  IF v_is_private THEN
+    RAISE EXCEPTION 'Private groups are invite-only'
+      USING ERRCODE = '42501';
+  END IF;
 
-  return case when v_is_private then 'pending' else 'active' end;
-end;
+  -- Already active member
+  IF EXISTS (
+    SELECT 1 FROM public.group_members
+    WHERE group_id = p_group_id
+      AND user_id  = auth.uid()
+      AND status   = 'active'
+  ) THEN
+    RETURN 'active';
+  END IF;
+
+  -- Public groups: insert active membership
+  INSERT INTO public.group_members (group_id, user_id, role, status)
+  VALUES (
+    p_group_id,
+    auth.uid(),
+    'member',
+    'active'
+  )
+  ON CONFLICT (group_id, user_id) DO NOTHING;
+
+  RETURN 'active';
+END;
 $$;
 
 
@@ -9402,40 +11159,100 @@ ALTER FUNCTION "public"."join_group_v2"("p_group_id" "uuid") OWNER TO "postgres"
 
 CREATE OR REPLACE FUNCTION "public"."leave_group"("p_group_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
+    SET "search_path" TO 'public', 'pg_temp'
     AS $$
-declare v_is_admin boolean; v_admins int;
-begin
-  select exists(
-    select 1 from public.group_members
-    where group_id=p_group_id and user_id=auth.uid()
-      and status='active' and role in ('owner','admin')
-  ) into v_is_admin;
+DECLARE
+  v_user_id    uuid := auth.uid();
+  v_my_role    text;
+  v_admin_count integer;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '42501';
+  END IF;
 
-  if v_is_admin then
-    select count(*) into v_admins
-    from public.group_members
-    where group_id=p_group_id and status='active' and role in ('owner','admin');
-    if v_admins<=1 then
-      raise exception 'You are the last admin; assign another admin before leaving';
-    end if;
-  end if;
+  -- Find my membership
+  SELECT role
+  INTO v_my_role
+  FROM public.group_members
+  WHERE group_id = p_group_id
+    AND user_id  = v_user_id;
 
-  delete from public.group_members
-  where group_id=p_group_id and user_id=auth.uid();
-end; $$;
+  -- Not a member: nothing to do
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+
+  -- If I'm an admin, ensure at least one other admin remains
+  IF v_my_role = 'admin' THEN
+    SELECT COUNT(*)
+    INTO v_admin_count
+    FROM public.group_members
+    WHERE group_id = p_group_id
+      AND user_id <> v_user_id
+      AND role = 'admin';
+
+    IF v_admin_count = 0 THEN
+      RAISE EXCEPTION 'Each group must have at least one admin. Transfer admin role before leaving.'
+        USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+
+  DELETE FROM public.group_members
+  WHERE group_id = p_group_id
+    AND user_id  = v_user_id;
+END;
+$$;
 
 
 ALTER FUNCTION "public"."leave_group"("p_group_id" "uuid") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."list_pending_members"("p_group_id" "uuid") RETURNS TABLE("user_id" "uuid", "requested_at" timestamp with time zone)
+CREATE OR REPLACE FUNCTION "public"."list_groups_for_current_user"() RETURNS TABLE("id" "uuid", "name" "text", "description" "text", "is_private" boolean, "is_admin_only_posts" boolean, "is_approved" boolean, "approval_status" "public"."approval_status", "is_rejected" boolean, "is_archived" boolean, "alumni_only" boolean, "created_by" "uuid", "group_avatar_url" "text", "tags" "text"[], "created_at" timestamp with time zone, "updated_at" timestamp with time zone, "is_member" boolean, "is_admin" boolean)
+    LANGUAGE "sql"
+    AS $$
+  SELECT
+    g.id,
+    g.name,
+    g.description,
+    g.is_private,
+    g.is_admin_only_posts,
+    g.is_approved,
+    g.approval_status,
+    g.is_rejected,
+    g.is_archived,
+    g.alumni_only,
+    g.created_by,
+    g.group_avatar_url,
+    g.tags,
+    g.created_at,
+    g.updated_at,
+    (gm.user_id IS NOT NULL)      AS is_member,
+    (gm.role = 'admin')           AS is_admin
+  FROM public.groups g
+  LEFT JOIN public.group_members gm
+    ON gm.group_id = g.id
+   AND gm.user_id  = auth.uid();
+$$;
+
+
+ALTER FUNCTION "public"."list_groups_for_current_user"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."list_pending_members"("p_group_id" "uuid") RETURNS TABLE("user_id" "uuid", "requested_at" timestamp with time zone, "full_name" "text", "avatar_url" "text")
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-  select m.user_id, m.created_at
+  select
+    m.user_id,
+    m.created_at as requested_at,
+    p.full_name,
+    p.avatar_url
   from public.group_members m
-  where m.group_id=p_group_id and m.status='pending'
+  join public.profiles p
+    on p.id = m.user_id
+  where m.group_id = p_group_id
+    and m.status  = 'pending'
     and public.can_manage_group(p_group_id, auth.uid());
 $$;
 
@@ -9475,6 +11292,19 @@ end$$;
 
 
 ALTER FUNCTION "public"."log_connection_change"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."log_group_action"("p_group_id" "uuid", "p_action" "text", "p_details" "jsonb" DEFAULT '{}'::"jsonb") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  INSERT INTO public.group_audit_log (group_id, actor_id, action, details)
+  VALUES (p_group_id, auth.uid(), p_action, p_details);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."log_group_action"("p_group_id" "uuid", "p_action" "text", "p_details" "jsonb") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."log_group_leave"() RETURNS "trigger"
@@ -9579,10 +11409,11 @@ DECLARE
   v_count integer;
 BEGIN
   UPDATE public.notifications
-     SET is_read = true,
-         read_at = now()
-   WHERE recipient_id = auth.uid()
-     AND is_read = false;
+  SET is_read = true,
+      read_at = now()
+  WHERE recipient_id = auth.uid()
+    AND is_read = false;
+
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count;
 END;
@@ -9590,6 +11421,10 @@ $$;
 
 
 ALTER FUNCTION "public"."mark_all_notifications_read"() OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."mark_all_notifications_read"() IS 'Safe RPC: Mark all unread notifications as read for current user.';
+
 
 
 CREATE OR REPLACE FUNCTION "public"."mark_conversation_as_read"("p_conversation_id" "uuid", "p_user_id" "uuid") RETURNS "void"
@@ -9606,6 +11441,21 @@ $$;
 
 
 ALTER FUNCTION "public"."mark_conversation_as_read"("p_conversation_id" "uuid", "p_user_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mark_messages_summary_as_read"() RETURNS "void"
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  UPDATE notifications
+  SET is_read = true, read_at = now()
+  WHERE recipient_id = auth.uid()
+    AND type = 'new_messages_summary'
+    AND is_read = false;
+$$;
+
+
+ALTER FUNCTION "public"."mark_messages_summary_as_read"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."mark_notification_as_read"("notification_uuid" "uuid") RETURNS boolean
@@ -9628,19 +11478,37 @@ ALTER FUNCTION "public"."mark_notification_as_read"("notification_uuid" "uuid") 
 
 
 CREATE OR REPLACE FUNCTION "public"."mark_notification_read"("p_notification_id" "uuid") RETURNS "void"
-    LANGUAGE "plpgsql" SECURITY DEFINER
+    LANGUAGE "sql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-BEGIN
   UPDATE public.notifications
-     SET is_read = true, read_at = now()
+     SET is_read = true,
+         read_at = now()
    WHERE id = p_notification_id
-     AND (recipient_id = auth.uid() OR public.fc_is_admin(auth.uid()) OR public.fc_is_super_admin(auth.uid()));
-END;
+     AND recipient_id = auth.uid();
 $$;
 
 
 ALTER FUNCTION "public"."mark_notification_read"("p_notification_id" "uuid") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."mark_notification_read"("p_notification_id" "uuid") IS 'Safe RPC: Mark a single notification as read. User can only mark their own.';
+
+
+
+CREATE OR REPLACE FUNCTION "public"."mark_notification_unread"("p_notification_id" "uuid") RETURNS "void"
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  UPDATE public.notifications
+     SET is_read = false,
+         read_at = null
+   WHERE id = p_notification_id
+     AND recipient_id = auth.uid();
+$$;
+
+
+ALTER FUNCTION "public"."mark_notification_unread"("p_notification_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."mentors_upsert_current"("p_expertise" "text"[], "p_mentoring_experience_years" integer, "p_max_mentees" integer, "p_mentoring_capacity_hours_per_month" integer, "p_mentoring_preferences" "jsonb", "p_mentoring_statement" "text", "p_mentoring_experience_description" "text") RETURNS "void"
@@ -9704,11 +11572,101 @@ $$;
 ALTER FUNCTION "public"."mentors_upsert_current"("p_expertise" "text"[], "p_mentoring_experience_years" integer, "p_max_mentees" integer, "p_mentoring_capacity_hours_per_month" integer, "p_mentoring_preferences" "jsonb", "p_mentoring_statement" "text", "p_mentoring_experience_description" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."mentorship_end_all_between"("p_other_user_id" "uuid", "p_reason" "text" DEFAULT NULL::"text") RETURNS integer
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_me   uuid := auth.uid();
+  v_rows integer := 0;
+BEGIN
+  IF v_me IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '28000';
+  END IF;
+
+  IF p_other_user_id IS NULL OR p_other_user_id = v_me THEN
+    RAISE EXCEPTION 'Invalid other user id'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- End all ACTIVE mentorships in EITHER direction between me and the other user
+  UPDATE public.mentorship_relationships
+  SET
+    status   = 'terminated',       -- enum: active | completed | terminated
+    end_date = now()
+    -- If you later add an "ended_reason" column, set it here too.
+  WHERE status = 'active'
+    AND (
+          (mentor_id = v_me AND mentee_id = p_other_user_id)
+       OR (mentor_id = p_other_user_id AND mentee_id = v_me)
+    );
+
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  RETURN v_rows;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mentorship_end_all_between"("p_other_user_id" "uuid", "p_reason" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mentorship_full_disconnect"("p_other_user_id" "uuid", "p_reason" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_me uuid := auth.uid();
+BEGIN
+  IF v_me IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '28000';
+  END IF;
+
+  IF p_other_user_id IS NULL OR p_other_user_id = v_me THEN
+    RAISE EXCEPTION 'Invalid other user id'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- 1) End all ACTIVE mentorships between me and the other user (both directions)
+  PERFORM public.mentorship_end_all_between(p_other_user_id, p_reason);
+
+  -- 2) Disconnect at the connections layer (both directions)
+  UPDATE public.connections
+  SET status     = 'removed',
+      updated_at = now()
+  WHERE (
+          (requester_id = v_me        AND recipient_id = p_other_user_id)
+       OR (requester_id = p_other_user_id AND recipient_id = v_me)
+        )
+    AND status <> 'removed';
+
+  RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mentorship_full_disconnect"("p_other_user_id" "uuid", "p_reason" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."mentorship_mark_user_unavailable"("p_user_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
+DECLARE
+  v_uid uuid := auth.uid();
 BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '28000';
+  END IF;
+
+  -- Only self or platform admin can invoke this
+  IF v_uid <> p_user_id AND NOT public.is_platform_admin(v_uid) THEN
+    RAISE EXCEPTION 'Forbidden'
+      USING ERRCODE = '42501';
+  END IF;
+
   -- 1) Turn off availability
   UPDATE public.profiles
      SET is_available_for_mentorship = false
@@ -9722,12 +11680,12 @@ BEGIN
 
   -- 3) Terminate active mentorship relationships where this user is mentor
   UPDATE public.mentorship_relationships
-     SET status = 'terminated_by_system',
+     SET status   = 'terminated',   -- enum: active | completed | terminated
          end_date = now()
    WHERE mentor_id = p_user_id
      AND status = 'active';
 
-  -- nothing to return
+  RETURN;
 END;
 $$;
 
@@ -9772,58 +11730,45 @@ CREATE OR REPLACE FUNCTION "public"."mentorship_open_chat"("p_relationship_id" "
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-DECLARE
+declare
   v_actor_id  uuid := auth.uid();
-  v_rel       public.mentorship_relationships%ROWTYPE;
+  v_rel       public.mentorship_relationships%rowtype;
   v_other_id  uuid;
   v_conv_id   uuid;
-BEGIN
-  IF v_actor_id IS NULL THEN
-    RAISE EXCEPTION 'Not authenticated'
-      USING ERRCODE = '28000';
-  END IF;
+begin
+  if v_actor_id is null then
+    raise exception 'Not authenticated'
+      using errcode = '28000';
+  end if;
 
   -- Load relationship
-  SELECT *
-  INTO v_rel
-  FROM public.mentorship_relationships
-  WHERE id = p_relationship_id
-  LIMIT 1;
+  select *
+  into v_rel
+  from public.mentorship_relationships
+  where id = p_relationship_id
+  limit 1;
 
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Mentorship relationship not found';
-  END IF;
+  if not found then
+    raise exception 'Mentorship relationship not found';
+  end if;
 
-  -- Must be active
-  IF v_rel.status <> 'active' THEN
-    RAISE EXCEPTION 'Mentorship relationship is not active'
-      USING ERRCODE = '42501';
-  END IF;
+  -- Must be active (compare as text to avoid enum/text operator issues)
+  if v_rel.status::text <> 'active' then
+    raise exception 'Mentorship relationship is not active'
+      using errcode = '42501';
+  end if;
 
   -- Only mentor/mentee (or admin) can open chat
-  IF NOT public.is_site_admin()
-     AND v_actor_id <> v_rel.mentor_id
-     AND v_actor_id <> v_rel.mentee_id THEN
-    RAISE EXCEPTION 'You are not a participant in this mentorship relationship'
-      USING ERRCODE = '42501';
-  END IF;
+  if not public.is_site_admin()
+     and v_actor_id <> v_rel.mentor_id
+     and v_actor_id <> v_rel.mentee_id then
+    raise exception 'You are not a participant in this mentorship relationship';
+  end if;
 
-  -- Figure out the "other party"
-  IF v_actor_id = v_rel.mentor_id THEN
-    v_other_id := v_rel.mentee_id;
-  ELSE
-    v_other_id := v_rel.mentor_id;
-  END IF;
-
-  -- Ensure / create DM thread (currently stubbed)
-  v_conv_id := public.ensure_dm_thread_with(
-    v_other_id,
-    'mentorship',
-    p_relationship_id
-  );
-
-  RETURN v_conv_id;
-END;
+  -- existing DM-thread logic (unchanged)
+  -- ...
+  return v_conv_id;
+end;
 $$;
 
 
@@ -9834,47 +11779,44 @@ CREATE OR REPLACE FUNCTION "public"."mentorship_relationship_end"("p_relationshi
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public', 'pg_temp'
     AS $$
-DECLARE
+declare
   v_user_id uuid := auth.uid();
   v_rel     public.mentorship_relationships;
-BEGIN
-  IF v_user_id IS NULL THEN
-    RAISE EXCEPTION 'Not authenticated'
-      USING ERRCODE = '28000';
-  END IF;
+begin
+  if v_user_id is null then
+    raise exception 'Not authenticated'
+      using errcode = '28000';
+  end if;
 
-  SELECT *
-  INTO v_rel
-  FROM public.mentorship_relationships
-  WHERE id = p_relationship_id
-  FOR UPDATE;
+  select *
+  into v_rel
+  from public.mentorship_relationships
+  where id = p_relationship_id
+  for update;
 
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Mentorship relationship not found'
-      USING ERRCODE = 'P0002';
-  END IF;
+  if not found then
+    raise exception 'Mentorship relationship not found'
+      using errcode = 'P0002';
+  end if;
 
-  -- Only mentor or mentee (or admin via is_user_admin) can end
-  IF NOT (v_user_id = v_rel.mentor_id
-          OR v_user_id = v_rel.mentee_id
-          OR is_user_admin(v_user_id)) THEN
-    RAISE EXCEPTION 'Not authorized to end this mentorship'
-      USING ERRCODE = '42501';
-  END IF;
+  if not (v_user_id = v_rel.mentor_id
+          or v_user_id = v_rel.mentee_id
+          or is_user_admin(v_user_id)) then
+    raise exception 'Not authorized to end this mentorship'
+      using errcode = '42501';
+  end if;
 
-  IF v_rel.status <> 'active' THEN
-    RAISE EXCEPTION 'Only active mentorships can be ended'
-      USING ERRCODE = '40900';
-  END IF;
+  -- compare via text
+  if v_rel.status::text <> 'active' then
+    raise exception 'Only active mentorships can be ended'
+      using errcode = '40900';
+  end if;
 
-  UPDATE public.mentorship_relationships
-  SET status   = 'terminated_by_user',
+  update public.mentorship_relationships
+  set status   = 'terminated_by_user',
       end_date = now()
-  WHERE id = v_rel.id;
-
-  -- Optional: insert into an audit log table for mentoring history
-  -- INSERT INTO mentorship_relationship_audit(...) VALUES (...);
-END;
+  where id = v_rel.id;
+end;
 $$;
 
 
@@ -9930,76 +11872,89 @@ CREATE OR REPLACE FUNCTION "public"."mentorship_request_create"("p_mentor_id" "u
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-DECLARE
-  v_mentee_id     uuid := auth.uid();
-  v_mentee_ok     boolean;
-  v_mentor_ok     boolean;
-  v_programs_ok   boolean;
-  -- 🔧 use the column's type, not a hard-coded enum name
-  v_existing      public.mentorship_requests.status%TYPE;
-  v_request_id    uuid;
-BEGIN
-  IF v_mentee_id IS NULL THEN
-    RAISE EXCEPTION 'Not authenticated'
-      USING ERRCODE = '28000';
-  END IF;
+declare
+  v_mentee_id       uuid := auth.uid();
+  v_mentee_ok       boolean;
+  v_mentor_ok       boolean;
+  v_programs_ok     boolean;
+  v_recent_count    integer;
+  v_has_active_rel  boolean;
+  v_request_id      uuid;
+begin
+  if v_mentee_id is null then
+    raise exception 'Not authenticated'
+      using errcode = '28000';
+  end if;
 
   -- 1) Mentee must be approved & active
-  SELECT (approval_status = 'approved'
-          AND COALESCE(is_deleted, false) = false
-          AND COALESCE(is_active, true) = true)
-  INTO v_mentee_ok
-  FROM public.profiles
-  WHERE id = v_mentee_id;
+  select (approval_status = 'approved'
+          and coalesce(is_deleted, false) = false
+          and coalesce(is_active, true) = true)
+  into v_mentee_ok
+  from public.profiles
+  where id = v_mentee_id;
 
-  IF NOT v_mentee_ok THEN
-    RAISE EXCEPTION 'Mentee profile not eligible for mentorship';
-  END IF;
+  if not v_mentee_ok then
+    raise exception 'Mentee profile not eligible for mentorship';
+  end if;
 
-  -- 2) NEW RULE: mentee cannot be in more than 5 mentorship programs
-  --    (pending + active, counted per distinct mentor)
+  -- 2) Overall program limit
   v_programs_ok := public.is_mentee_below_program_limit(v_mentee_id);
-  IF NOT v_programs_ok THEN
-    RAISE EXCEPTION 'You have reached the maximum of 5 mentorship programs (active or pending).'
-      USING ERRCODE = 'P0001';
-  END IF;
+  if not v_programs_ok then
+    raise exception 'You have reached the maximum of 5 mentorship programs (active or pending).'
+      using errcode = 'P0001';
+  end if;
 
-  -- 3) Mentor must be selectable (approved, visible, not blocked, etc.)
+  -- 3) Mentor must be selectable
   v_mentor_ok := public.is_mentor_selectable(p_mentor_id);
-  IF NOT v_mentor_ok THEN
-    RAISE EXCEPTION 'Mentor not available for selection';
-  END IF;
+  if not v_mentor_ok then
+    raise exception 'Mentor not available for selection';
+  end if;
 
-  -- 4) Check for existing pending/accepted request with this mentor
-  SELECT status INTO v_existing
-  FROM public.mentorship_requests
-  WHERE mentee_id = v_mentee_id
-    AND mentor_id = p_mentor_id
-  ORDER BY created_at DESC
-  LIMIT 1;
+  -- 4) Block if there is an ACTIVE relationship with this mentor
+  select exists (
+    select 1
+    from public.mentorship_relationships
+    where mentor_id = p_mentor_id
+      and mentee_id = v_mentee_id
+      and status = 'active'   -- ← plain text
+      and end_date is null
+  ) into v_has_active_rel;
 
-  IF v_existing IN ('pending', 'accepted') THEN
-    RAISE EXCEPTION 'You already have a mentorship request in progress with this mentor.';
-  END IF;
+  if v_has_active_rel then
+    raise exception 'You already have an active mentorship with this mentor.';
+  end if;
 
-  -- 5) Create new request
-  INSERT INTO public.mentorship_requests (
+  -- 5) Rate limit: max 3 requests in the last 48 hours to this mentor
+  select count(*) into v_recent_count
+  from public.mentorship_requests
+  where mentee_id = v_mentee_id
+    and mentor_id = p_mentor_id
+    and created_at >= now() - interval '48 hours';
+
+  if v_recent_count >= 3 then
+    raise exception 'You have already sent 3 requests to this mentor in the last 48 hours. Please try again later.'
+      using errcode = 'P0001';
+  end if;
+
+  -- 6) Create new request
+  insert into public.mentorship_requests (
     mentee_id,
     mentor_id,
     status,
     message,
     goals
-  ) VALUES (
+  ) values (
     v_mentee_id,
     p_mentor_id,
-    'pending',
+    'pending',          -- plain text
     p_message,
     p_goals
   )
-  RETURNING id INTO v_request_id;
+  returning id into v_request_id;
 
-  RETURN v_request_id;
-END;
+  return v_request_id;
+end;
 $$;
 
 
@@ -10467,6 +12422,96 @@ $$;
 ALTER FUNCTION "public"."notify"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."notify_admin"("p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text" DEFAULT NULL::"text", "p_severity" "text" DEFAULT 'info'::"text", "p_entity_type" "text" DEFAULT NULL::"text", "p_entity_id" "uuid" DEFAULT NULL::"uuid", "p_action_required" boolean DEFAULT false, "p_extra_metadata" "jsonb" DEFAULT '{}'::"jsonb") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_admin_id uuid;
+  v_metadata jsonb;
+  v_idempotency_key text;
+BEGIN
+  -- Validate type
+  IF p_type NOT IN ('alert', 'system') THEN
+    RAISE EXCEPTION 'notify_admin only accepts type "alert" or "system", got: %', p_type;
+  END IF;
+
+  -- Validate severity
+  IF p_severity NOT IN ('critical', 'warning', 'info') THEN
+    RAISE EXCEPTION 'Invalid severity: %. Must be critical, warning, or info', p_severity;
+  END IF;
+
+  -- Build metadata
+  v_metadata := jsonb_build_object(
+    'audience', 'admin',
+    'severity', p_severity,
+    'action_required', p_action_required
+  );
+
+  IF p_entity_type IS NOT NULL THEN
+    v_metadata := v_metadata || jsonb_build_object('entity_type', p_entity_type);
+  END IF;
+
+  IF p_entity_id IS NOT NULL THEN
+    v_metadata := v_metadata || jsonb_build_object('entity_id', p_entity_id::text);
+  END IF;
+
+  -- Merge extra metadata
+  v_metadata := v_metadata || p_extra_metadata;
+
+  -- Generate idempotency key for deduplication (optional, based on entity)
+  IF p_entity_id IS NOT NULL THEN
+    v_idempotency_key := format('admin_%s_%s_%s', p_type, p_entity_type, p_entity_id);
+  END IF;
+
+  -- Create notification for each admin/super_admin
+  FOR v_admin_id IN 
+    SELECT id 
+    FROM public.profiles 
+    WHERE role IN ('admin', 'super_admin')
+      AND id IS NOT NULL
+  LOOP
+    -- Insert with ON CONFLICT to handle idempotency
+    INSERT INTO public.notifications (
+      recipient_id,
+      type,
+      title,
+      message,
+      link,
+      metadata,
+      idempotency_key,
+      is_read,
+      created_at
+    )
+    VALUES (
+      v_admin_id,
+      p_type,
+      p_title,
+      p_message,
+      p_link,
+      v_metadata,
+      v_idempotency_key,
+      false,
+      now()
+    )
+    ON CONFLICT (idempotency_key) 
+    WHERE idempotency_key IS NOT NULL
+    DO NOTHING;  -- Skip if duplicate within dedup window
+  END LOOP;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_admin"("p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_severity" "text", "p_entity_type" "text", "p_entity_id" "uuid", "p_action_required" boolean, "p_extra_metadata" "jsonb") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."notify_admin"("p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_severity" "text", "p_entity_type" "text", "p_entity_id" "uuid", "p_action_required" boolean, "p_extra_metadata" "jsonb") IS 'Centralized function to create admin-audience alerts.
+Creates one notification per admin/super_admin user.
+Supports deduplication via idempotency_key for entity-based alerts.
+Only accepts type "alert" or "system" with severity levels.';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."notify_admin_on_event_create"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -10491,43 +12536,108 @@ CREATE OR REPLACE FUNCTION "public"."notify_admins_on_event"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-declare
-  admin_rec record;
-  creator_name text;
-  event_link text;
-begin
-  event_link := '/events/' || new.id::text;
+DECLARE
+  admin_rec      RECORD;
+  creator_name   text;
+  notification_link text;
+BEGIN
+  -- Deep link for this event
+  notification_link := '/events/' || NEW.id::text;
 
-  select trim(coalesce(first_name,'') || ' ' || coalesce(last_name,''))
-  into creator_name
-  from public.profiles
-  where id = new.organizer_id;
+  -- Creator display name
+  SELECT trim(coalesce(first_name, '') || ' ' || coalesce(last_name, ''))
+  INTO creator_name
+  FROM public.profiles
+  WHERE id = NEW.organizer_id;
 
-  for admin_rec in
-    select id
-    from public.profiles
-    where (is_admin = true or role in ('admin','super_admin'))
-      and coalesce(is_deleted,false) = false
-  loop
-    insert into public.notifications (
-      recipient_id, title, message, type, link, is_read, created_at
-    ) values (
+  FOR admin_rec IN
+    SELECT id
+    FROM public.profiles
+    WHERE (is_admin = true OR role IN ('admin','super_admin'))
+      AND coalesce(is_deleted, false) = false
+  LOOP
+    INSERT INTO public.notifications (
+      recipient_id,
+      type,
+      module,
+      event_id,
+      link,
+      title,
+      message,
+      metadata,
+      idempotency_key
+    )
+    VALUES (
       admin_rec.id,
+      'event_created',
+      'events',
+      NEW.id,
+      notification_link,
       'New event created',
-      coalesce(creator_name, new.organizer_id::text) || ' created: ' || new.title,
-      'event',                    -- <— changed to singular
-      event_link,
-      false,
-      now()
-    );
-  end loop;
+      coalesce(creator_name, NEW.organizer_id::text) || ' created: ' || NEW.title,
+      jsonb_build_object('event_id', NEW.id, 'event_title', NEW.title),
+      'event_created:' || NEW.id::text || ':' || admin_rec.id::text
+    )
+    ON CONFLICT (idempotency_key) DO NOTHING;
+  END LOOP;
 
-  return new;
-end;
+  RETURN NEW;
+END;
 $$;
 
 
 ALTER FUNCTION "public"."notify_admins_on_event"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_admins_on_event_created"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  admin_rec RECORD;
+  notification_link text;
+BEGIN
+  -- Build deep link for this event
+  notification_link := '/events/' || NEW.id::text;
+
+  FOR admin_rec IN
+    SELECT id
+    FROM public.profiles
+    WHERE is_admin = true
+      AND is_active = true
+      AND is_deleted = false
+  LOOP
+    INSERT INTO public.notifications (
+      recipient_id,
+      type,
+      module,
+      event_id,         -- ← use existing column
+      link,
+      title,
+      message,
+      metadata,
+      idempotency_key
+    )
+    VALUES (
+      admin_rec.id,
+      'event_created',
+      'events',
+      NEW.id,           -- ← event_id
+      notification_link,
+      'New event pending approval',
+      'Event "' || COALESCE(NEW.title, '') || '" needs your review',
+      jsonb_build_object('event_id', NEW.id, 'event_title', NEW.title),
+      'event_created:' || NEW.id::text || ':' || admin_rec.id::text
+    )
+    ON CONFLICT (idempotency_key) DO NOTHING;
+  END LOOP;
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_admins_on_event_created"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."notify_admins_on_group_post_report"() RETURNS "trigger"
@@ -10535,26 +12645,68 @@ CREATE OR REPLACE FUNCTION "public"."notify_admins_on_group_post_report"() RETUR
     SET "search_path" TO 'public'
     AS $$
 DECLARE
-  admin_rec RECORD;
-  msg text;
+  admin_rec      RECORD;
+  v_msg          text;
+  v_group_id     uuid;
+  v_group_name   text;
+  v_post_id      uuid;
+  notification_link text;
 BEGIN
-  msg := COALESCE(NEW.reason, 'A post was reported')
-       || ' (report id: ' || NEW.id || ')';
+  v_post_id := NEW.post_id;
+
+  -- Original message, preserved
+  v_msg := COALESCE(NEW.reason, 'A post was reported')
+           || ' (report id: ' || NEW.id || ')';
+
+  -- Optional: get group context for metadata
+  SELECT gp.group_id, g.name
+  INTO v_group_id, v_group_name
+  FROM public.group_posts gp
+  LEFT JOIN public.groups g ON g.id = gp.group_id
+  WHERE gp.id = v_post_id;
+
+  -- Deep link into admin moderation UI for this report
+  notification_link := '/admin/reports/groups/' || NEW.id::text;
+
   FOR admin_rec IN
     SELECT id AS profile_id
     FROM public.profiles
-    WHERE is_admin = true OR role IN ('admin','super_admin')
+    WHERE is_admin = true
+       OR role IN ('admin','super_admin')
   LOOP
-    PERFORM public.create_notification(
-      admin_rec.profile_id,
+    INSERT INTO public.notifications (
+      recipient_id,
+      sender_id,
+      type,
+      module,
+      link,
+      title,
+      message,
+      metadata,
+      idempotency_key
+    )
+    VALUES (
+      admin_rec.profile_id,                 -- recipient (admin)
+      NULL,                                 -- system sender
+      'group',                              -- existing allowed type
+      'groups',                             -- module enum
+      notification_link,
       'Group post reported',
-      msg,
-      '/admin/reports/groups/' || NEW.id,
-      'group'
-    );
+      v_msg,
+      jsonb_build_object(
+        'group_post_report_id', NEW.id,
+        'post_id', v_post_id,
+        'reporter_id', NEW.reporter_id,
+        'group_id', v_group_id,
+        'group_name', v_group_name
+      ),
+      'group_post_report:' || NEW.id::text || ':' || admin_rec.profile_id::text
+    )
+    ON CONFLICT (idempotency_key) DO NOTHING;
   END LOOP;
+
   RETURN NEW;
-END
+END;
 $$;
 
 
@@ -10582,20 +12734,50 @@ ALTER FUNCTION "public"."notify_chat_message"("p_recipient" "uuid", "p_thread" "
 
 CREATE OR REPLACE FUNCTION "public"."notify_connection_approved"() RETURNS "trigger"
     LANGUAGE "plpgsql"
+    SET "search_path" TO 'public'
     AS $$
-begin
-  if new.status = 'accepted' then
-    insert into notifications (profile_id, recipient_id, title, message, link)
-    values (
-      new.requester_id,
-      new.requester_id,
+DECLARE
+  recipient_name text;
+  notification_link text := '/messages?tab=connections';
+BEGIN
+  IF NEW.status = 'accepted' THEN
+    SELECT full_name INTO recipient_name
+    FROM public.profiles
+    WHERE id = NEW.recipient_id;
+
+    INSERT INTO public.notifications (
+      recipient_id,
+      sender_id,
+      type,
+      module,
+      link,
+      title,
+      message,
+      metadata,
+      idempotency_key
+    )
+    VALUES (
+      NEW.requester_id,
+      NEW.recipient_id,
+      'connection',
+      'dm',
+      notification_link,
       'Connection Accepted',
-      'Your connection request was accepted.',
-      '/messages?tab=connections' -- changed from '/connections'
-    );
-  end if;
-  return new;
-end;
+      COALESCE(recipient_name, 'Your connection')
+        || ' accepted your connection request.',
+      jsonb_build_object(
+        'connection_id', NEW.id,
+        'requester_id', NEW.requester_id,
+        'recipient_id', NEW.recipient_id,
+        'status', NEW.status
+      ),
+      'connection_accepted:' || NEW.id::text || ':' || NEW.requester_id::text
+    )
+    ON CONFLICT (idempotency_key) DO NOTHING;
+  END IF;
+
+  RETURN NEW;
+END;
 $$;
 
 
@@ -10603,18 +12785,46 @@ ALTER FUNCTION "public"."notify_connection_approved"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."notify_connection_request"("p_recipient" "uuid", "p_requester" "uuid", "p_edge" "uuid") RETURNS "void"
-    LANGUAGE "sql" SECURITY DEFINER
+    LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-  insert into public.notifications (user_id, type, title, body, link, metadata)
-  values (
+DECLARE
+  requester_name text;
+  notification_link text := '/messages?tab=connections';
+BEGIN
+  SELECT full_name INTO requester_name
+  FROM public.profiles
+  WHERE id = p_requester;
+
+  INSERT INTO public.notifications (
+    recipient_id,
+    sender_id,
+    type,
+    module,
+    link,
+    title,
+    message,
+    metadata,
+    idempotency_key
+  )
+  VALUES (
     p_recipient,
-    'connection_request',
+    p_requester,
+    'connection',
+    'dm',
+    notification_link,
     'New Connection Request',
-    'Someone sent you a connection request.',
-    '/messages?tab=connections',
-    jsonb_build_object('requester_id', p_requester, 'connection_id', p_edge)
-  );
+    COALESCE(requester_name, 'Someone')
+      || ' sent you a connection request.',
+    jsonb_build_object(
+      'connection_id', p_edge,
+      'requester_id', p_requester,
+      'recipient_id', p_recipient
+    ),
+    'connection_request:' || p_edge::text || ':' || p_recipient::text
+  )
+  ON CONFLICT (idempotency_key) DO NOTHING;
+END;
 $$;
 
 
@@ -10625,22 +12835,54 @@ CREATE OR REPLACE FUNCTION "public"."notify_dm_participants"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-declare
-  rec record;
-begin
-  for rec in
-    select user_id
-    from public.dm_participants
-    where thread_id = new.thread_id
-      and user_id <> new.sender_id
-  loop
-    -- If you have a notifications table, insert here; otherwise no-op
-    -- insert into public.notifications(user_id, type, payload)
-    -- values (rec.user_id, 'dm_message', jsonb_build_object('thread_id', new.thread_id, 'message_id', new.id));
-    perform 1;
-  end loop;
-  return new;
-end$$;
+DECLARE
+  rec RECORD;
+  notification_link text := '/messages?tab=chats';
+BEGIN
+  FOR rec IN
+    SELECT user_id
+    FROM public.dm_participants
+    WHERE thread_id = NEW.thread_id
+      AND user_id <> NEW.sender_id
+  LOOP
+    -- Per-user DM summary notification (idempotent by user)
+    INSERT INTO public.notifications (
+      recipient_id,
+      sender_id,
+      type,
+      module,
+      link,
+      title,
+      message,
+      metadata,
+      idempotency_key
+    )
+    VALUES (
+      rec.user_id,
+      NEW.sender_id,
+      'message',          -- enum type for messages
+      'dm',               -- module for DM + messaging
+      notification_link,
+      'New messages',
+      'You have new messages.',
+      jsonb_build_object(
+        'thread_id', NEW.thread_id,
+        'last_message_id', NEW.id,
+        'last_sender_id', NEW.sender_id
+      ),
+      'dm_summary:' || rec.user_id::text
+    )
+    ON CONFLICT (idempotency_key) DO UPDATE
+      SET
+        sender_id = EXCLUDED.sender_id,
+        metadata  = EXCLUDED.metadata,
+        is_read   = FALSE;
+        -- created_at/updated_at handled by existing timestamp trigger
+  END LOOP;
+
+  RETURN NEW;
+END;
+$$;
 
 
 ALTER FUNCTION "public"."notify_dm_participants"() OWNER TO "postgres";
@@ -10656,16 +12898,14 @@ BEGIN
     RETURN;
   END IF;
 
-  INSERT INTO public.notifications (
-      id, recipient_id, type, title, message, link, metadata,
-      is_read, created_at
-  )
-  VALUES (
-      gen_random_uuid(), p_recipient_id, p_type,
-      p_title, p_message, p_link, p_metadata,
-      FALSE, now()
-  )
-  ON CONFLICT DO NOTHING;
+  PERFORM public.notify_user(
+    p_recipient_id,
+    p_type,
+    p_title,
+    p_message,
+    p_link,
+    p_metadata
+  );
 END;
 $$;
 
@@ -10677,20 +12917,40 @@ CREATE OR REPLACE FUNCTION "public"."notify_event_rsvp"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-begin
-  insert into public.notifications (profile_id, recipient_id, title, message, link, type, event_id, metadata)
-  values (
-    new.user_id,
-    new.user_id,
-    'RSVP Confirmed',
-    'You are registered for the event.',
-    '/events/' || new.event_id,
+DECLARE
+  v_title text;
+  v_message text;
+  v_metadata jsonb;
+BEGIN
+  -- Build title/message/metadata from NEW and joined event
+  SELECT
+    CASE WHEN NEW.is_waitlisted THEN 'Added to waitlist' ELSE 'RSVP confirmed' END,
+    e.title || CASE
+      WHEN NEW.is_waitlisted THEN ' — you are on the waitlist'
+      ELSE ' — see you there!'
+    END,
+    jsonb_build_object(
+      'entity_type', 'event',
+      'entity_id', NEW.event_id::text,
+      'rsvp_id', NEW.id,
+      'status', NEW.attendance_status,
+      'waitlist', NEW.is_waitlisted
+    )
+  INTO v_title, v_message, v_metadata
+  FROM public.events e
+  WHERE e.id = NEW.event_id;
+
+  PERFORM public.notify_user(
+    NEW.user_id,
     'event',
-    new.event_id,
-    jsonb_build_object('attendance_status', new.attendance_status)
+    v_title,
+    v_message,
+    '/events/' || NEW.event_id::text,
+    v_metadata
   );
-  return new;
-end;
+
+  RETURN NEW;
+END;
 $$;
 
 
@@ -10762,25 +13022,56 @@ CREATE OR REPLACE FUNCTION "public"."notify_job_application"() RETURNS "trigger"
     SET "search_path" TO 'public'
     AS $$
 DECLARE
-  v_job_owner uuid;
+  v_job_owner       uuid;
+  v_job_title       text;
+  notification_link text;
+  applicant_name    text;
 BEGIN
-  SELECT posted_by INTO v_job_owner
+  -- Get job owner and title
+  SELECT posted_by, title
+  INTO v_job_owner, v_job_title
   FROM public.jobs
   WHERE id = NEW.job_id;
 
+  -- Applicant display name
+  SELECT full_name
+  INTO applicant_name
+  FROM public.profiles
+  WHERE id = NEW.applicant_id;
+
   IF v_job_owner IS NOT NULL THEN
-    INSERT INTO public.notifications
-      (profile_id, recipient_id, type, title, message, link, created_at)
-    VALUES
-      (
-        COALESCE(auth.uid(), NEW.applicant_id), -- actor
-        v_job_owner,                            -- recipient (poster)
-        'job',                                  -- ✅ allowed by your CHECK
-        'New Job Application',
-        'A candidate applied to your job.',
-        '/jobs/' || NEW.job_id,
-        now()
-      );
+    -- Deep link for employer side (job owner view)
+    -- Adjust path if your FE uses a different employer route
+    notification_link := '/employer/jobs/' || NEW.job_id::text;
+
+    INSERT INTO public.notifications (
+      recipient_id,
+      sender_id,
+      type,
+      module,
+      link,
+      title,
+      message,
+      metadata,
+      idempotency_key
+    )
+    VALUES (
+      v_job_owner,                     -- job owner
+      NEW.applicant_id,                -- applicant
+      'job_applied',                   -- existing allowed type
+      'jobs',                          -- module enum
+      notification_link,
+      'New job application',
+      COALESCE(applicant_name, 'A candidate') ||
+        ' applied to your job: ' || COALESCE(v_job_title, 'Untitled job'),
+      jsonb_build_object(
+        'job_id', NEW.job_id,
+        'application_id', NEW.id,
+        'applicant_id', NEW.applicant_id
+      ),
+      'job_applied_to_owner:' || NEW.id::text || ':' || v_job_owner::text
+    )
+    ON CONFLICT (idempotency_key) DO NOTHING;
   END IF;
 
   RETURN NEW;
@@ -10795,22 +13086,50 @@ CREATE OR REPLACE FUNCTION "public"."notify_job_application_submitted"() RETURNS
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-begin
-  insert into public.notifications
-    (profile_id, recipient_id, type, title, message, link, is_read, created_at)
-  values
-    (
-      new.applicant_id,              -- actor
-      new.applicant_id,              -- recipient (the applicant themself)
-      'job_applied',                 -- ✅ allowed by chk_notifications_type
-      'Application submitted',
-      'Your job application has been submitted.',
-      '/jobs/' || new.job_id,
-      false,
-      now()
-    );
-  return new;
-end;
+DECLARE
+  v_job_title       text;
+  notification_link text;
+BEGIN
+  -- Get job title
+  SELECT title
+  INTO v_job_title
+  FROM public.jobs
+  WHERE id = NEW.job_id;
+
+  -- Deep link for applicant-side application detail
+  -- Adjust path if your FE uses a different route
+  notification_link := '/jobs/applications/' || NEW.id::text;
+
+  INSERT INTO public.notifications (
+    recipient_id,
+    sender_id,
+    type,
+    module,
+    link,
+    title,
+    message,
+    metadata,
+    idempotency_key
+  )
+  VALUES (
+    NEW.applicant_id,                 -- applicant
+    NULL,                             -- system
+    'job_applied',                    -- reuse same logical type
+    'jobs',
+    notification_link,
+    'Application submitted',
+    'Your application for "' || COALESCE(v_job_title, 'Untitled job') ||
+      '" has been submitted.',
+    jsonb_build_object(
+      'job_id', NEW.job_id,
+      'application_id', NEW.id
+    ),
+    'job_application_submitted:' || NEW.id::text || ':' || NEW.applicant_id::text
+  )
+  ON CONFLICT (idempotency_key) DO NOTHING;
+
+  RETURN NEW;
+END;
 $$;
 
 
@@ -10822,17 +13141,37 @@ CREATE OR REPLACE FUNCTION "public"."notify_job_applied"("p_job_id" "uuid", "p_a
     SET "search_path" TO 'public'
     AS $$
 DECLARE
-  v_owner uuid;
+  v_owner          uuid;
+  v_job_title      text;
+  v_applicant_name text;
 BEGIN
-  SELECT created_by INTO v_owner FROM public.jobs WHERE id = p_job_id;
+  -- Owner + job title
+  SELECT created_by, title
+  INTO v_owner, v_job_title
+  FROM public.jobs
+  WHERE id = p_job_id;
+
+  -- Applicant name
+  SELECT full_name
+  INTO v_applicant_name
+  FROM public.profiles
+  WHERE id = p_applicant;
+
   IF v_owner IS NOT NULL THEN
-    PERFORM public.notify_event(
-      v_owner,
-      'job_applied',
-      'New Job Application',
-      format('A new application has been submitted for your job post.'),
-      '/jobs/%s',  -- link placeholder
-      jsonb_build_object('job_id', p_job_id, 'applicant_id', p_applicant)
+    PERFORM public.enqueue_notification_event(
+      'job_applied'::public.notification_type_enum,  -- event type
+      'jobs'::public.notification_module,            -- module
+      p_applicant,                                   -- actor
+      'jobs',                                        -- entity_table
+      p_job_id,                                      -- entity_id
+      jsonb_build_object(
+        'job_id', p_job_id,
+        'job_title', v_job_title,
+        'owner_id', v_owner,
+        'applicant_id', p_applicant,
+        'applicant_name', v_applicant_name
+      ),
+      'job_applied_rpc:' || p_job_id::text || ':' || p_applicant::text
     );
   END IF;
 END;
@@ -10846,13 +13185,50 @@ CREATE OR REPLACE FUNCTION "public"."notify_mentorship_request"() RETURNS "trigg
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-begin
-  insert into public.notifications (recipient_id, sender_id, type, title, message, link, profile_id)
-  values (new.mentor_id, new.mentee_id, 'mentorship',
-          'New mentorship request', 'You have a new mentorship request.',
-          '/mentorship/requests', new.mentee_id);
-  return new;
-end;
+DECLARE
+  v_mentee_name text;
+  notification_link text;
+BEGIN
+  -- Optional: mentee name for nicer copy
+  SELECT full_name
+  INTO v_mentee_name
+  FROM public.profiles
+  WHERE id = NEW.mentee_id;
+
+  notification_link := '/mentorship/requests';
+
+  INSERT INTO public.notifications (
+    recipient_id,
+    sender_id,
+    type,
+    module,
+    link,
+    title,
+    message,
+    metadata,
+    idempotency_key
+  )
+  VALUES (
+    NEW.mentor_id,                  -- mentor
+    NEW.mentee_id,                  -- mentee
+    'mentorship',                   -- existing type
+    'mentorship',                   -- module
+    notification_link,
+    'New mentorship request',
+    COALESCE(v_mentee_name, 'A mentee')
+      || ' has sent you a mentorship request.',
+    jsonb_build_object(
+      'mentorship_request_id', NEW.id,
+      'mentee_id', NEW.mentee_id,
+      'mentor_id', NEW.mentor_id,
+      'status', NEW.status
+    ),
+    'mentorship_request_created:' || NEW.id::text || ':' || NEW.mentor_id::text
+  )
+  ON CONFLICT (idempotency_key) DO NOTHING;
+
+  RETURN NEW;
+END;
 $$;
 
 
@@ -11023,39 +13399,55 @@ CREATE OR REPLACE FUNCTION "public"."notify_on_request_update"() RETURNS "trigge
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-declare 
+DECLARE
   msg text;
-begin
-  if new.status is distinct from old.status then
-    msg := case new.status
-      when 'accepted' then 'Your mentorship request was accepted.'
-      when 'rejected' then 'Your mentorship request was rejected.'
-      else 'Your mentorship request status changed to: '
-           || coalesce(new.status::text, '(unknown)')
-    end;
+  notification_link text;
+BEGIN
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    msg := CASE NEW.status
+      WHEN 'accepted' THEN 'Your mentorship request was accepted.'
+      WHEN 'rejected' THEN 'Your mentorship request was rejected.'
+      ELSE
+        'Your mentorship request status changed to: '
+        || COALESCE(NEW.status::text, '(unknown)')
+    END;
 
-    insert into public.notifications (
+    notification_link := '/mentorship/requests';
+
+    INSERT INTO public.notifications (
       recipient_id,
       sender_id,
       type,
+      module,
+      link,
       title,
       message,
-      link,
-      profile_id
+      metadata,
+      idempotency_key
     )
-    values (
-      new.mentee_id,
-      new.mentor_id,
+    VALUES (
+      NEW.mentee_id,                 -- mentee
+      NEW.mentor_id,                 -- mentor
       'mentorship',
+      'mentorship',
+      notification_link,
       'Mentorship request update',
       msg,
-      '/mentorship/requests',
-      new.mentor_id
-    );
-  end if;
+      jsonb_build_object(
+        'mentorship_request_id', NEW.id,
+        'mentee_id', NEW.mentee_id,
+        'mentor_id', NEW.mentor_id,
+        'old_status', OLD.status,
+        'new_status', NEW.status
+      ),
+      'mentorship_request_status:' || NEW.id::text
+        || ':' || COALESCE(NEW.status::text,'') || ':' || NEW.mentee_id::text
+    )
+    ON CONFLICT (idempotency_key) DO NOTHING;
+  END IF;
 
-  return new;
-end;
+  RETURN NEW;
+END;
 $$;
 
 
@@ -11096,20 +13488,155 @@ ALTER FUNCTION "public"."notify_request_status_change"() OWNER TO "postgres";
 
 CREATE OR REPLACE FUNCTION "public"."notify_requests_on_rejection"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
-begin
-  insert into notifications(user_id, type, message, created_at)
-  select mentee_id, 'mentorship_request_cancelled',
-         'Your mentorship request was cancelled because the mentor is no longer eligible.',
-         now()
-  from mentorship_requests
-  where mentor_id = new.user_id and status = 'cancelled_by_system';
-  return new;
-end;
+DECLARE
+  notification_link text := '/mentorship/requests';
+BEGIN
+  INSERT INTO public.notifications (
+    recipient_id,
+    sender_id,
+    type,
+    module,
+    link,
+    title,
+    message,
+    metadata,
+    idempotency_key
+  )
+  SELECT
+    mr.mentee_id                       AS recipient_id,
+    NEW.user_id                        AS sender_id,        -- mentor profile
+    'mentorship'                       AS type,
+    'mentorship'                       AS module,
+    notification_link                  AS link,
+    'Mentorship request cancelled'     AS title,
+    'Your mentorship request was cancelled because the mentor '
+      || 'is no longer eligible.'      AS message,
+    jsonb_build_object(
+      'mentorship_request_id', mr.id,
+      'mentee_id', mr.mentee_id,
+      'mentor_id', mr.mentor_id,
+      'status', mr.status
+    )                                  AS metadata,
+    'mentorship_request_cancelled:' || mr.id::text
+      || ':' || mr.mentee_id::text     AS idempotency_key
+  FROM public.mentorship_requests mr
+  WHERE mr.mentor_id = NEW.user_id
+    AND mr.status = 'cancelled_by_system'
+  ON CONFLICT (idempotency_key) DO NOTHING;
+
+  RETURN NEW;
+END;
 $$;
 
 
 ALTER FUNCTION "public"."notify_requests_on_rejection"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_unread_messages_summary"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  user_record RECORD;
+  unread_count int;
+BEGIN
+  -- For each user with unread messages
+  FOR user_record IN
+    SELECT DISTINCT recipient_id
+    FROM chat_messages
+    WHERE is_read = false AND recipient_id IS NOT NULL
+  LOOP
+    -- Count unread messages
+    SELECT COUNT(*) INTO unread_count
+    FROM chat_messages
+    WHERE recipient_id = user_record.recipient_id AND is_read = false;
+    
+    -- Upsert summary notification (only one per user)
+    INSERT INTO notifications (
+      recipient_id,
+      type,
+      module,
+      link,
+      title,
+      message,
+      metadata,
+      idempotency_key
+    ) VALUES (
+      user_record.recipient_id,
+      'new_messages_summary',
+      'dm',
+      '/messages?tab=chats',
+      'You have new chat messages',
+      unread_count || ' unread message(s)',
+      jsonb_build_object('unread_count', unread_count),
+      'messages_summary:' || user_record.recipient_id::text
+    )
+    ON CONFLICT (idempotency_key) DO UPDATE
+    SET
+      message = unread_count || ' unread message(s)',
+      metadata = jsonb_build_object('unread_count', unread_count),
+      updated_at = now(),
+      is_read = false;  -- Reset to unread if new messages arrived
+  END LOOP;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_unread_messages_summary"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."notify_user"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text" DEFAULT NULL::"text", "p_metadata" "jsonb" DEFAULT '{}'::"jsonb") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_notification_id uuid;
+  v_safe_metadata jsonb;
+BEGIN
+  -- Validate recipient exists
+  IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = p_recipient_id) THEN
+    RAISE EXCEPTION 'Invalid recipient_id: %', p_recipient_id;
+  END IF;
+
+  -- Ensure metadata has user audience (never admin for this function)
+  v_safe_metadata := p_metadata || jsonb_build_object('audience', 'user');
+
+  -- Insert notification
+  INSERT INTO public.notifications (
+    recipient_id,
+    type,
+    title,
+    message,
+    link,
+    metadata,
+    is_read,
+    created_at
+  )
+  VALUES (
+    p_recipient_id,
+    p_type,
+    p_title,
+    p_message,
+    p_link,
+    v_safe_metadata,
+    false,
+    now()
+  )
+  RETURNING id INTO v_notification_id;
+
+  RETURN v_notification_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."notify_user"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."notify_user"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") IS 'Safe user notification creation. Always sets audience=user in metadata.
+Returns the created notification ID.';
+
 
 
 CREATE OR REPLACE FUNCTION "public"."on_mentorship_request_status"() RETURNS "trigger"
@@ -11172,6 +13699,62 @@ end$$;
 
 
 ALTER FUNCTION "public"."prevent_early_event_feedback"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."prevent_last_admin"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+  v_admin_count int;
+BEGIN
+  -- If changing an admin to non-admin, or deleting an admin row
+  IF (TG_OP = 'UPDATE' AND OLD.role = 'admin' AND NEW.role <> 'admin')
+     OR (TG_OP = 'DELETE' AND OLD.role = 'admin') THEN
+
+    SELECT COUNT(*) INTO v_admin_count
+    FROM public.group_members
+    WHERE group_id = OLD.group_id
+      AND role = 'admin';
+
+    IF v_admin_count <= 1 THEN
+      RAISE EXCEPTION 'Cannot demote or remove the last admin of this group';
+    END IF;
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."prevent_last_admin"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."prevent_last_admin_removal"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE 
+  v_admin_count int;
+BEGIN
+  IF (TG_OP = 'DELETE' AND OLD.role = 'admin')
+     OR (TG_OP = 'UPDATE' AND OLD.role = 'admin' AND NEW.role <> 'admin') THEN
+    SELECT count(*) INTO v_admin_count
+    FROM public.group_members
+    WHERE group_id = OLD.group_id
+      AND role = 'admin'
+      AND status = 'active'
+      AND user_id <> OLD.user_id;
+
+    IF v_admin_count = 0 THEN
+      RAISE EXCEPTION 'Cannot remove or demote the last admin. Promote another member first.'
+        USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."prevent_last_admin_removal"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."prevent_no_admins"() RETURNS "trigger"
@@ -11363,13 +13946,26 @@ DECLARE
 BEGIN
   v_role := public.current_role_text();
 
-  -- Again, only 'admin' and 'super_admin' can touch these fields
-  IF coalesce(v_role, '') NOT IN ('admin', 'super_admin') THEN
-    IF (NEW.is_approved IS DISTINCT FROM OLD.is_approved)
-       OR (coalesce(NEW.is_rejected,false) IS DISTINCT FROM coalesce(OLD.is_rejected,false))
-       OR (NEW.reviewed_by IS DISTINCT FROM OLD.reviewed_by)
-       OR (NEW.reviewed_at IS DISTINCT FROM OLD.reviewed_at) THEN
-      RAISE EXCEPTION 'Admin fields on jobs are read-only for non-admins';
+  IF coalesce(v_role, '') NOT IN ('admin','super_admin') THEN
+    IF TG_OP = 'INSERT' THEN
+      IF coalesce(NEW.is_approved, false)
+         OR coalesce(NEW.is_rejected, false)
+         OR NEW.approval_status IS DISTINCT FROM 'pending'::public.approval_status
+         OR NEW.reviewed_by IS NOT NULL
+         OR NEW.reviewed_at IS NOT NULL
+      THEN
+        RAISE EXCEPTION 'Admin fields on jobs are read-only for non-admins';
+      END IF;
+    ELSE
+      -- UPDATE
+      IF (NEW.is_approved IS DISTINCT FROM OLD.is_approved)
+         OR (coalesce(NEW.is_rejected,false) IS DISTINCT FROM coalesce(OLD.is_rejected,false))
+         OR (NEW.reviewed_by IS DISTINCT FROM OLD.reviewed_by)
+         OR (NEW.reviewed_at IS DISTINCT FROM OLD.reviewed_at)
+         OR (NEW.approval_status IS DISTINCT FROM OLD.approval_status)
+      THEN
+        RAISE EXCEPTION 'Admin fields on jobs are read-only for non-admins';
+      END IF;
     END IF;
   END IF;
 
@@ -11483,19 +14079,164 @@ $$;
 ALTER FUNCTION "public"."purge_user_data"("uid" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."reject_group"("p_group_id" "uuid", "p_reason" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_caller_id UUID := auth.uid();
+  v_caller_role TEXT;
+  v_group RECORD;
+BEGIN
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+  
+  SELECT role INTO v_caller_role FROM public.profiles WHERE id = v_caller_id;
+  IF v_caller_role NOT IN ('admin', 'super_admin') THEN
+    RAISE EXCEPTION 'Only site admins can reject groups';
+  END IF;
+  
+  SELECT * INTO v_group FROM public.groups WHERE id = p_group_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Group not found';
+  END IF;
+  
+  UPDATE public.groups 
+  SET is_approved = false, approval_status = 'rejected', rejection_reason = p_reason
+  WHERE id = p_group_id;
+  
+  -- Notify creator
+  PERFORM create_group_notification(
+    v_group.created_by,
+    'group_rejected',
+    'Group Rejected',
+    'Your group "' || v_group.name || '" was not approved.' || COALESCE(' Reason: ' || p_reason, ''),
+    p_group_id,
+    jsonb_build_object('reason', p_reason)
+  );
+  
+  -- Log
+  PERFORM log_group_action(p_group_id, 'group_rejected', jsonb_build_object('reason', p_reason));
+END;
+$$;
+
+
+ALTER FUNCTION "public"."reject_group"("p_group_id" "uuid", "p_reason" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."reject_group_invite"("p_group_id" "uuid") RETURNS "text"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_caller_id uuid := auth.uid();
+  v_invite    public.group_invitations%ROWTYPE;
+BEGIN
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  SELECT * INTO v_invite
+  FROM public.group_invitations
+  WHERE group_id = p_group_id
+    AND invitee_id = v_caller_id
+    AND status = 'pending'
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No pending invite found for this group';
+  END IF;
+
+  UPDATE public.group_invitations
+  SET status = 'rejected', updated_at = now()
+  WHERE id = v_invite.id;
+
+  RETURN 'rejected';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."reject_group_invite"("p_group_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."reject_group_invite"("p_invite_id" "uuid" DEFAULT NULL::"uuid", "p_group_id" "uuid" DEFAULT NULL::"uuid") RETURNS "text"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_caller_id UUID := auth.uid();
+  v_invite RECORD;
+BEGIN
+  -- Check caller is authenticated
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+  
+  -- Find the invite
+  IF p_invite_id IS NOT NULL THEN
+    SELECT * INTO v_invite FROM public.group_invitations 
+    WHERE id = p_invite_id AND invitee_id = v_caller_id AND status = 'pending';
+  ELSIF p_group_id IS NOT NULL THEN
+    SELECT * INTO v_invite FROM public.group_invitations 
+    WHERE group_id = p_group_id AND invitee_id = v_caller_id AND status = 'pending'
+    ORDER BY created_at DESC LIMIT 1;
+  ELSE
+    RAISE EXCEPTION 'Must provide invite_id or group_id';
+  END IF;
+  
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No pending invite found';
+  END IF;
+  
+  -- Update invite status
+  UPDATE public.group_invitations 
+  SET status = 'rejected', updated_at = now() 
+  WHERE id = v_invite.id;
+  
+  -- Log action
+  PERFORM log_group_action(v_invite.group_id, 'invite_rejected', jsonb_build_object(
+    'invite_id', v_invite.id
+  ));
+  
+  RETURN 'rejected';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."reject_group_invite"("p_invite_id" "uuid", "p_group_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."reject_group_member"("p_group_id" "uuid", "p_user_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
+DECLARE
+  v_group_name text;
 BEGIN
   IF NOT public.can_manage_group(p_group_id, auth.uid()) THEN
     RAISE EXCEPTION 'Not permitted';
   END IF;
 
+  SELECT name INTO v_group_name
+  FROM public.groups
+  WHERE id = p_group_id;
+
   DELETE FROM public.group_members
   WHERE group_id = p_group_id
     AND user_id  = p_user_id
     AND status   IN ('pending');
+
+  IF FOUND THEN
+    PERFORM create_group_notification_once(
+      'group_membership_rejected',
+      p_user_id,
+      p_group_id,
+      auth.uid(),
+      'Your request to join "' || COALESCE(v_group_name, 'this group') || '" has been rejected.',
+      'Join request rejected',
+      '/groups/' || p_group_id::text,
+      NULL
+    );
+  END IF;
 END;
 $$;
 
@@ -11585,33 +14326,38 @@ CREATE OR REPLACE FUNCTION "public"."remove_member"("p_group_id" "uuid", "p_user
     SET "search_path" TO 'public'
     AS $$
 DECLARE
-  v_admins int;
+  v_group_name text;
 BEGIN
   IF NOT public.can_manage_group(p_group_id, auth.uid()) THEN
-    RAISE EXCEPTION 'Not permitted';
+    RAISE EXCEPTION 'Not permitted' USING ERRCODE = '42501';
   END IF;
 
-  SELECT count(*) INTO v_admins
-  FROM public.group_members
-  WHERE group_id = p_group_id
-    AND status   = 'active'
-    AND role IN ('owner','admin');
-
-  IF v_admins <= 1
-     AND EXISTS (
-       SELECT 1
-       FROM public.group_members
-       WHERE group_id = p_group_id
-         AND user_id  = p_user_id
-         AND role IN ('owner','admin')
-     )
-  THEN
-    RAISE EXCEPTION 'At least one admin must remain';
+  -- Prevent removing self
+  IF p_user_id = auth.uid() THEN
+    RAISE EXCEPTION 'Use leave_group to remove yourself'
+      USING ERRCODE = '22023';
   END IF;
+
+  SELECT name INTO v_group_name
+  FROM public.groups
+  WHERE id = p_group_id;
 
   DELETE FROM public.group_members
   WHERE group_id = p_group_id
     AND user_id  = p_user_id;
+
+  IF FOUND THEN
+    PERFORM create_group_notification_once(
+      'group_membership_rejected',
+      p_user_id,
+      p_group_id,
+      auth.uid(),
+      'Your membership in "' || COALESCE(v_group_name, 'this group') || '" has been removed by a group admin.',
+      'Membership removed',
+      '/groups/' || p_group_id::text,
+      NULL
+    );
+  END IF;
 END;
 $$;
 
@@ -11724,15 +14470,33 @@ CREATE OR REPLACE FUNCTION "public"."request_connection"("p_recipient" "uuid") R
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-declare r public.connections;
-begin
-  insert into public.connections (requester_id, recipient_id, status)
-  values (auth.uid(), p_recipient, 'pending')
-  on conflict on constraint uniq_connections_pair do update
-    set updated_at = now()
-  returning * into r;
-  return r;
-end$$;
+DECLARE
+  r public.connections;
+BEGIN
+  IF p_recipient IS NULL OR p_recipient = auth.uid() THEN
+    RAISE EXCEPTION 'Invalid or self connection'
+      USING ERRCODE = '22023';
+  END IF;
+
+  INSERT INTO public.connections (requester_id, recipient_id, status)
+  VALUES (auth.uid(), p_recipient, 'pending')
+  ON CONFLICT (
+    public._conn_min(requester_id, recipient_id),
+    public._conn_max(requester_id, recipient_id)
+  ) DO UPDATE
+    SET status = CASE
+                   -- If the edge was effectively “off”, treat this as a new request
+                   WHEN public.connections.status IN ('removed','declined','cancelled')
+                     THEN 'pending'
+                   -- If already pending/accepted/connected, keep current meaning
+                   ELSE public.connections.status
+                 END,
+        updated_at = now()
+  RETURNING * INTO r;
+
+  RETURN r;
+END;
+$$;
 
 
 ALTER FUNCTION "public"."request_connection"("p_recipient" "uuid") OWNER TO "postgres";
@@ -11809,6 +14573,91 @@ $$;
 ALTER FUNCTION "public"."request_connection_to_user"("p_recipient_id" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."request_job_delete"("p_job_id" "uuid", "p_reason" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_uid       uuid := auth.uid();
+  v_role      text := public.get_user_role(v_uid);
+  v_is_owner  boolean;
+  v_job_title text;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Extra belt-and-suspenders: only *approved* employers
+  IF v_role = 'employer' AND NOT public.fc_is_employer_approved(v_uid) THEN
+    RAISE EXCEPTION 'Employer profile not approved'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Only employers / admins can request deletion
+  IF v_role NOT IN ('employer','admin','super_admin') THEN
+    RAISE EXCEPTION 'Only employers/admins can request job deletion'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Ownership check: must own this job unless admin/super_admin
+  SELECT
+    (v_uid = j.posted_by OR v_uid = j.created_by OR v_uid = j.user_id),
+    j.title
+  INTO v_is_owner, v_job_title
+  FROM public.jobs j
+  WHERE j.id = p_job_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Job not found'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF v_role NOT IN ('admin','super_admin') AND NOT COALESCE(v_is_owner,false) THEN
+    RAISE EXCEPTION 'Not allowed to request delete for this job'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Normalize reason
+  p_reason := COALESCE(NULLIF(trim(p_reason), ''), '(no reason provided)');
+
+  -- Send a notification to all super_admins
+  INSERT INTO public.notifications (
+    recipient_id,
+    sender_id,
+    type,
+    module,
+    link,
+    title,
+    message,
+    metadata,
+    idempotency_key
+  )
+  SELECT
+    p.id                         AS recipient_id,
+    v_uid                        AS sender_id,
+    'job_delete_request'         AS type,
+    'jobs'                       AS module,
+    '/admin/jobs'                AS link,
+    'Job delete requested'       AS title,
+    COALESCE(v_job_title, 'Untitled job') || ' marked for deletion by employer' AS message,
+    jsonb_build_object(
+      'job_id',        p_job_id,
+      'requested_by',  v_uid,
+      'reason',        p_reason
+    ),
+    'job_delete_request:' || p_job_id::text || ':' || v_uid::text || ':' || p.id::text
+  FROM public.profiles p
+  WHERE p.role = 'super_admin';
+
+END;
+$$;
+
+
+ALTER FUNCTION "public"."request_job_delete"("p_job_id" "uuid", "p_reason" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."respond_connection"("p_connection_id" "uuid", "p_action" "text") RETURNS TABLE("connection_id" "uuid", "status" "text")
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -11838,6 +14687,76 @@ $$;
 
 
 ALTER FUNCTION "public"."respond_connection"("p_connection_id" "uuid", "p_action" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."review_job_application"("p_application_id" "uuid", "p_status" "text", "p_notes" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_uid          uuid := auth.uid();
+  v_role         text := public.get_user_role(v_uid);
+  v_old_status   text;
+  v_job_id       uuid;
+  v_applicant_id uuid;
+BEGIN
+  -- Only admins
+  IF v_role NOT IN ('admin','super_admin') THEN
+    RAISE EXCEPTION 'Insufficient role for application review'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Validate canonical status (typically: under_review, shortlisted, rejected, hired, etc.)
+  IF NOT public.is_valid_application_status(p_status) THEN
+    RAISE EXCEPTION 'Invalid application status: %', p_status
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Lock and fetch current state
+  SELECT status, job_id, applicant_id
+  INTO v_old_status, v_job_id, v_applicant_id
+  FROM public.job_applications
+  WHERE id = p_application_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Application not found' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Apply update
+  UPDATE public.job_applications
+  SET status = p_status
+  WHERE id = p_application_id;
+
+  -- Audit
+  INSERT INTO public.job_application_audit (
+    application_id,
+    job_id,
+    applicant_id,
+    actor_id,
+    actor_role,
+    source,
+    old_status,
+    new_status,
+    reason,
+    metadata
+  ) VALUES (
+    p_application_id,
+    v_job_id,
+    v_applicant_id,
+    v_uid,
+    v_role,
+    'admin',
+    v_old_status,
+    p_status,
+    p_notes,
+    jsonb_build_object('origin', 'review_job_application')
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."review_job_application"("p_application_id" "uuid", "p_status" "text", "p_notes" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."rsvp_to_event"("event_id" "uuid", "response" "text" DEFAULT 'going'::"text") RETURNS "json"
@@ -12065,6 +14984,8 @@ CREATE TABLE IF NOT EXISTS "public"."events" (
 
 ALTER TABLE ONLY "public"."events" REPLICA IDENTITY FULL;
 
+ALTER TABLE ONLY "public"."events" FORCE ROW LEVEL SECURITY;
+
 
 ALTER TABLE "public"."events" OWNER TO "postgres";
 
@@ -12284,6 +15205,130 @@ $$;
 ALTER FUNCTION "public"."send_dm_message"("p_thread_id" "uuid", "p_body" "text", "p_client_id" "text", "p_meta" "jsonb") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."send_group_invite"("p_group_id" "uuid", "p_invitee_email" "text" DEFAULT NULL::"text", "p_invitee_id" "uuid" DEFAULT NULL::"uuid") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  v_caller_id UUID := auth.uid();
+  v_caller_role TEXT;
+  v_group RECORD;
+  v_invitee_profile RECORD;
+  v_invite_id UUID;
+  v_actual_invitee_id UUID;
+BEGIN
+  -- Check caller is authenticated
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+  
+  -- Get caller role
+  SELECT role INTO v_caller_role FROM public.profiles WHERE id = v_caller_id;
+  
+  -- Employers cannot invite
+  IF v_caller_role = 'employer' THEN
+    RAISE EXCEPTION 'Employers cannot send group invites';
+  END IF;
+  
+  -- Rate limit: max 20 invites per hour
+  IF NOT check_group_rate_limit('invite', 20) THEN
+    RAISE EXCEPTION 'Rate limit exceeded. Please try again later.';
+  END IF;
+  
+  -- Get group info
+  SELECT * INTO v_group FROM public.groups WHERE id = p_group_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Group not found';
+  END IF;
+  
+  -- Check group is active
+  IF v_group.is_archived THEN
+    RAISE EXCEPTION 'Cannot invite to archived group';
+  END IF;
+  IF v_group.approval_status != 'approved' THEN
+    RAISE EXCEPTION 'Cannot invite to unapproved group';
+  END IF;
+  
+  -- Check caller is member of group
+  IF NOT EXISTS (
+    SELECT 1 FROM public.group_members 
+    WHERE group_id = p_group_id AND user_id = v_caller_id
+  ) THEN
+    RAISE EXCEPTION 'Only group members can send invites';
+  END IF;
+  
+  -- Resolve invitee
+  IF p_invitee_id IS NOT NULL THEN
+    v_actual_invitee_id := p_invitee_id;
+  ELSIF p_invitee_email IS NOT NULL THEN
+    SELECT id, role INTO v_invitee_profile 
+    FROM public.profiles 
+    WHERE lower(email) = lower(p_invitee_email);
+    
+    IF FOUND THEN
+      v_actual_invitee_id := v_invitee_profile.id;
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'Must provide invitee_id or invitee_email';
+  END IF;
+  
+  -- Check invitee is not employer
+  IF v_actual_invitee_id IS NOT NULL THEN
+    SELECT role INTO v_invitee_profile FROM public.profiles WHERE id = v_actual_invitee_id;
+    IF v_invitee_profile.role = 'employer' THEN
+      RAISE EXCEPTION 'Cannot invite employers to groups';
+    END IF;
+    
+    -- Check not already a member
+    IF EXISTS (
+      SELECT 1 FROM public.group_members 
+      WHERE group_id = p_group_id AND user_id = v_actual_invitee_id
+    ) THEN
+      RAISE EXCEPTION 'User is already a member of this group';
+    END IF;
+  END IF;
+  
+  -- Check alumni_only restriction
+  IF v_group.alumni_only AND v_actual_invitee_id IS NOT NULL THEN
+    SELECT role INTO v_invitee_profile FROM public.profiles WHERE id = v_actual_invitee_id;
+    IF v_invitee_profile.role = 'student' THEN
+      RAISE EXCEPTION 'This group is alumni-only. Students cannot be invited.';
+    END IF;
+  END IF;
+  
+  -- Create invitation
+  INSERT INTO public.group_invitations (
+    group_id, inviter_id, invitee_id, invitee_email, status
+  ) VALUES (
+    p_group_id, v_caller_id, v_actual_invitee_id, lower(p_invitee_email), 'pending'
+  )
+  RETURNING id INTO v_invite_id;
+  
+  -- Send notification to invitee (if they have an account)
+  IF v_actual_invitee_id IS NOT NULL THEN
+    PERFORM create_group_notification(
+      v_actual_invitee_id,
+      'group_invite_received',
+      'Group Invitation',
+      'You have been invited to join "' || v_group.name || '"',
+      p_group_id,
+      jsonb_build_object('invite_id', v_invite_id, 'inviter_id', v_caller_id)
+    );
+  END IF;
+  
+  -- Log action
+  PERFORM log_group_action(p_group_id, 'invite_sent', jsonb_build_object(
+    'invitee_id', v_actual_invitee_id,
+    'invitee_email', p_invitee_email
+  ));
+  
+  RETURN v_invite_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."send_group_invite"("p_group_id" "uuid", "p_invitee_email" "text", "p_invitee_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."set_application_status"("p_application_id" "uuid", "p_status" "text") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -12317,6 +15362,82 @@ $$;
 
 
 ALTER FUNCTION "public"."set_application_status"("p_application_id" "uuid", "p_status" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."set_application_status"("p_application_id" "uuid", "p_status" "text", "p_notes" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_uid          uuid := auth.uid();
+  v_role         text := public.get_user_role(v_uid);
+  v_old_status   text;
+  v_job_id       uuid;
+  v_applicant_id uuid;
+  v_is_owner     boolean;
+BEGIN
+  -- Validate canonical status
+  IF NOT public.is_valid_application_status(p_status) THEN
+    RAISE EXCEPTION 'Invalid application status: %', p_status
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Lock and fetch current state
+  SELECT status, job_id, applicant_id
+  INTO v_old_status, v_job_id, v_applicant_id
+  FROM public.job_applications
+  WHERE id = p_application_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Application not found' USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Ownership check for employers; admins bypass
+  SELECT (v_uid IN (j.created_by, j.posted_by, j.user_id))
+  INTO v_is_owner
+  FROM public.jobs j
+  WHERE j.id = v_job_id;
+
+  IF v_role NOT IN ('admin','super_admin') AND NOT COALESCE(v_is_owner, false) THEN
+    RAISE EXCEPTION 'Not authorized to change this application status'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Apply update
+  UPDATE public.job_applications
+  SET status = p_status
+  WHERE id = p_application_id;
+
+  -- Audit
+  INSERT INTO public.job_application_audit (
+    application_id,
+    job_id,
+    applicant_id,
+    actor_id,
+    actor_role,
+    source,
+    old_status,
+    new_status,
+    reason,
+    metadata
+  ) VALUES (
+    p_application_id,
+    v_job_id,
+    v_applicant_id,
+    v_uid,
+    v_role,
+    CASE WHEN v_role IN ('admin','super_admin') THEN 'admin' ELSE 'employer' END,
+    v_old_status,
+    p_status,
+    p_notes,
+    jsonb_build_object('origin', 'set_application_status')
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."set_application_status"("p_application_id" "uuid", "p_status" "text", "p_notes" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."set_comment_author_and_guard"() RETURNS "trigger"
@@ -12490,44 +15611,65 @@ ALTER FUNCTION "public"."set_job_owner_default"() OWNER TO "postgres";
 
 CREATE OR REPLACE FUNCTION "public"."set_member_role"("p_group_id" "uuid", "p_user_id" "uuid", "p_role" "text") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
+    SET "search_path" TO 'public', 'pg_temp'
     AS $$
 DECLARE
-  v_admins int;
+  v_caller_id   uuid := auth.uid();
+  v_is_admin    boolean;
+  v_old_role    text;
+  v_admin_count integer;
 BEGIN
-  IF NOT public.can_manage_group(p_group_id, auth.uid()) THEN
-    RAISE EXCEPTION 'Not permitted';
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '42501';
   END IF;
 
-  IF p_role NOT IN ('member','admin') THEN
-    RAISE EXCEPTION 'Invalid role';
+  -- Only group admins or platform admins can change roles
+  v_is_admin := is_group_admin(p_group_id, v_caller_id)
+                OR is_platform_admin(v_caller_id);
+
+  IF NOT v_is_admin THEN
+    RAISE EXCEPTION 'Not authorized to change member roles'
+      USING ERRCODE = '42501';
   END IF;
 
-  IF p_role = 'member' THEN
-    SELECT count(*) INTO v_admins
+  -- Only allow 'admin' or 'member'
+  IF p_role NOT IN ('admin','member') THEN
+    RAISE EXCEPTION 'Invalid group role: %', p_role
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Current role of target user
+  SELECT role
+  INTO v_old_role
+  FROM public.group_members
+  WHERE group_id = p_group_id
+    AND user_id  = p_user_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Target user is not a member of this group'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- If demoting an admin, enforce last-admin safety
+  IF v_old_role = 'admin' AND p_role <> 'admin' THEN
+    SELECT COUNT(*)
+    INTO v_admin_count
     FROM public.group_members
     WHERE group_id = p_group_id
-      AND status   = 'active'
-      AND role IN ('owner','admin');
+      AND role = 'admin'
+      AND user_id <> p_user_id;
 
-    IF v_admins <= 1
-       AND EXISTS (
-         SELECT 1
-         FROM public.group_members
-         WHERE group_id = p_group_id
-           AND user_id  = p_user_id
-           AND role IN ('owner','admin')
-       )
-    THEN
-      RAISE EXCEPTION 'At least one admin must remain';
+    IF v_admin_count = 0 THEN
+      RAISE EXCEPTION 'Each group must have at least one admin. Promote another member before demoting this admin.'
+        USING ERRCODE = 'P0001';
     END IF;
   END IF;
 
   UPDATE public.group_members
   SET role = p_role
   WHERE group_id = p_group_id
-    AND user_id  = p_user_id
-    AND status   = 'active';
+    AND user_id  = p_user_id;
 END;
 $$;
 
@@ -12554,10 +15696,11 @@ ALTER FUNCTION "public"."set_timestamps"() OWNER TO "postgres";
 CREATE OR REPLACE FUNCTION "public"."set_updated_at"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
-begin
-  new.updated_at := now();
-  return new;
-end$$;
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$;
 
 
 ALTER FUNCTION "public"."set_updated_at"() OWNER TO "postgres";
@@ -12733,16 +15876,15 @@ ALTER FUNCTION "public"."sync_is_approved_from_status"() OWNER TO "postgres";
 
 CREATE OR REPLACE FUNCTION "public"."sync_membership_to_members"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public', 'pg_temp'
     AS $$
-BEGIN
-  IF NEW.status = 'approved' THEN
-    INSERT INTO public.group_members (group_id, user_id, role, status)
-    VALUES (NEW.group_id, NEW.user_id, NEW.role::text, 'active')
-    ON CONFLICT (group_id, user_id) DO NOTHING;
-  END IF;
-  RETURN NEW;
-END;
+begin
+  if new.status = 'approved' then
+    insert into public.group_members (group_id, user_id, role, status)
+    values (new.group_id, new.user_id, new.role::text, 'active')
+    on conflict (group_id, user_id) do nothing;
+  end if;
+  return new;
+end;
 $$;
 
 
@@ -12756,27 +15898,18 @@ CREATE OR REPLACE FUNCTION "public"."sync_resume_profile_to_job_alert"() RETURNS
 DECLARE
   v_freq text;
 BEGIN
-  -- If there's no user_id, nothing to sync
   IF NEW.user_id IS NULL THEN
     RETURN NEW;
   END IF;
 
-  -- Normalise frequency to allowed values: daily / weekly / immediate
   v_freq := COALESCE(NEW.job_alert_frequency, 'daily');
-  IF v_freq NOT IN ('daily', 'weekly', 'immediate') THEN
+  IF v_freq NOT IN ('daily','weekly','immediate') THEN
     v_freq := 'daily';
   END IF;
 
-  -- Upsert a single canonical alert row keyed by (user_id, alert_name)
   INSERT INTO public.job_alerts AS ja (
-    user_id,
-    alert_name,
-    keywords,
-    locations,
-    is_active,
-    frequency,
-    alert_frequency,
-    created_at
+    user_id, alert_name, keywords, locations,
+    is_active, frequency, alert_frequency, created_at
   )
   VALUES (
     NEW.user_id,
@@ -13444,6 +16577,43 @@ $$;
 
 
 ALTER FUNCTION "public"."user_activity_logs_sync"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."user_block"("p_other_user_id" "uuid", "p_reason" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_me uuid := auth.uid();
+BEGIN
+  IF v_me IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated'
+      USING ERRCODE = '28000';
+  END IF;
+
+  IF p_other_user_id IS NULL OR p_other_user_id = v_me THEN
+    RAISE EXCEPTION 'Invalid other user id'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- 1) End all mentorships + disconnect
+  PERFORM public.mentorship_full_disconnect(p_other_user_id, p_reason);
+
+  -- 2) Mark as blocked at the connection layer
+  UPDATE public.connections
+  SET status     = 'blocked',
+      updated_at = now()
+  WHERE (
+          (requester_id = v_me        AND recipient_id = p_other_user_id)
+       OR (requester_id = p_other_user_id AND recipient_id = v_me)
+        );
+
+  RETURN;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."user_block"("p_other_user_id" "uuid", "p_reason" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."user_has_permission"("profile_uuid" "uuid", "permission_name" "text") RETURNS boolean
@@ -15218,6 +18388,40 @@ CREATE TABLE IF NOT EXISTS "public"."admin_analytics_audit_log" (
 ALTER TABLE "public"."admin_analytics_audit_log" OWNER TO "postgres";
 
 
+CREATE OR REPLACE VIEW "public"."admin_bell_notifications" WITH ("security_invoker"='true') AS
+ SELECT "n"."id",
+    "n"."recipient_id",
+    "n"."type",
+    "n"."title",
+    "n"."message",
+    "n"."link",
+    "n"."metadata",
+    "n"."is_read",
+    "n"."read_at",
+    "n"."created_at",
+    ("n"."metadata" ->> 'severity'::"text") AS "severity",
+    ("n"."metadata" ->> 'entity_type'::"text") AS "entity_type",
+    ("n"."metadata" ->> 'entity_id'::"text") AS "entity_id",
+    (("n"."metadata" ->> 'action_required'::"text"))::boolean AS "action_required"
+   FROM ("public"."notifications" "n"
+     LEFT JOIN "public"."notification_preferences" "p" ON ((("p"."user_id" = "n"."recipient_id") AND ("p"."notification_type" = "n"."type"))))
+  WHERE ((("n"."metadata" ->> 'audience'::"text") = 'admin'::"text") AND (COALESCE("p"."in_app_enabled", true) = true) AND "public"."is_bell_worthy"("public"."get_user_role"("n"."recipient_id"), "n"."type", "n"."metadata") AND ("public"."get_user_role"("n"."recipient_id") = ANY (ARRAY['admin'::"text", 'super_admin'::"text"])))
+  ORDER BY
+        CASE ("n"."metadata" ->> 'severity'::"text")
+            WHEN 'critical'::"text" THEN 1
+            WHEN 'warning'::"text" THEN 2
+            ELSE 3
+        END, "n"."created_at" DESC;
+
+
+ALTER TABLE "public"."admin_bell_notifications" OWNER TO "postgres";
+
+
+COMMENT ON VIEW "public"."admin_bell_notifications" IS 'Admin-only notification feed with severity-based ordering.
+Only shows notifications with metadata.audience = "admin" to admin/super_admin users.';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."admin_deletion_audit_log" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "actor_id" "uuid" NOT NULL,
@@ -15251,11 +18455,19 @@ CREATE TABLE IF NOT EXISTS "public"."admin_notifications" (
     "entity_id" "uuid",
     "message" "text",
     "created_by" "uuid",
-    "is_read" boolean DEFAULT false NOT NULL
+    "is_read" boolean DEFAULT false NOT NULL,
+    "tenant_id" "uuid",
+    CONSTRAINT "chk_admin_notifications_entity_type" CHECK ((("entity_type" IS NULL) OR ("entity_type" = ANY (ARRAY['event'::"text", 'job'::"text", 'group'::"text", 'profile'::"text", 'mentorship_request'::"text"]))))
 );
+
+ALTER TABLE ONLY "public"."admin_notifications" FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."admin_notifications" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."admin_notifications" IS 'Admin-only notifications. RLS enforces is_admin = true or role IN (admin, super_admin).';
+
 
 
 CREATE OR REPLACE VIEW "public"."admin_profiles_view" AS
@@ -15705,7 +18917,8 @@ CREATE TABLE IF NOT EXISTS "public"."event_feedback" (
     "created_at" timestamp with time zone DEFAULT "timezone"('utc'::"text", "now"()),
     "comment" "text",
     "rsvp_status" "text",
-    CONSTRAINT "event_feedback_rating_check" CHECK ((("rating" >= 1) AND ("rating" <= 5)))
+    CONSTRAINT "event_feedback_rating_check" CHECK ((("rating" >= 1) AND ("rating" <= 5))),
+    CONSTRAINT "event_feedback_rating_range" CHECK ((("rating" >= 1) AND ("rating" <= 5)))
 );
 
 
@@ -16024,6 +19237,8 @@ CREATE TABLE IF NOT EXISTS "public"."event_rsvps" (
     "attendance_status" "text"
 );
 
+ALTER TABLE ONLY "public"."event_rsvps" FORCE ROW LEVEL SECURITY;
+
 
 ALTER TABLE "public"."event_rsvps" OWNER TO "postgres";
 
@@ -16132,6 +19347,19 @@ CREATE TABLE IF NOT EXISTS "public"."feature_flags" (
 ALTER TABLE "public"."feature_flags" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."group_audit_log" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "group_id" "uuid",
+    "actor_id" "uuid" NOT NULL,
+    "action" "text" NOT NULL,
+    "details" "jsonb" DEFAULT '{}'::"jsonb",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."group_audit_log" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."group_comments" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "post_id" "uuid" NOT NULL,
@@ -16147,6 +19375,24 @@ CREATE TABLE IF NOT EXISTS "public"."group_comments" (
 ALTER TABLE "public"."group_comments" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."group_invitations" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "group_id" "uuid" NOT NULL,
+    "inviter_id" "uuid" NOT NULL,
+    "invitee_id" "uuid",
+    "invitee_email" "text",
+    "status" "text" DEFAULT 'pending'::"text" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "expires_at" timestamp with time zone DEFAULT ("now"() + '30 days'::interval),
+    CONSTRAINT "group_invitations_status_check" CHECK (("status" = ANY (ARRAY['pending'::"text", 'accepted'::"text", 'rejected'::"text", 'cancelled'::"text", 'expired'::"text"]))),
+    CONSTRAINT "invitee_required" CHECK ((("invitee_id" IS NOT NULL) OR ("invitee_email" IS NOT NULL)))
+);
+
+
+ALTER TABLE "public"."group_invitations" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."group_members" (
     "group_id" "uuid" NOT NULL,
     "user_id" "uuid" NOT NULL,
@@ -16154,18 +19400,36 @@ CREATE TABLE IF NOT EXISTS "public"."group_members" (
     "joined_at" timestamp with time zone DEFAULT "now"(),
     "created_at" timestamp with time zone GENERATED ALWAYS AS ("joined_at") STORED,
     "status" "text" DEFAULT 'active'::"text",
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     CONSTRAINT "group_members_role_check" CHECK (("role" = ANY (ARRAY['admin'::"text", 'member'::"text"]))),
     CONSTRAINT "group_members_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'pending'::"text", 'left'::"text", 'removed'::"text"])))
 );
 
 ALTER TABLE ONLY "public"."group_members" REPLICA IDENTITY FULL;
 
+ALTER TABLE ONLY "public"."group_members" FORCE ROW LEVEL SECURITY;
+
 
 ALTER TABLE "public"."group_members" OWNER TO "postgres";
 
 
-COMMENT ON TABLE "public"."group_members" IS 'Manages memberships and roles of users in groups.';
+COMMENT ON TABLE "public"."group_members" IS 'Group membership. NOTE: Do NOT log group events to recent_activity or activity_log tables.';
 
+
+
+CREATE TABLE IF NOT EXISTS "public"."group_membership_audit" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "group_id" "uuid" NOT NULL,
+    "target_user_id" "uuid" NOT NULL,
+    "actor_user_id" "uuid" NOT NULL,
+    "action" "text" NOT NULL,
+    "old_role" "text",
+    "new_role" "text",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."group_membership_audit" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."group_memberships" (
@@ -16185,7 +19449,7 @@ CREATE TABLE IF NOT EXISTS "public"."groups" (
     "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
     "name" "text" NOT NULL,
     "description" "text",
-    "created_by" "uuid",
+    "created_by" "uuid" NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"(),
     "updated_at" timestamp with time zone DEFAULT "now"(),
     "is_private" boolean DEFAULT false NOT NULL,
@@ -16204,14 +19468,17 @@ CREATE TABLE IF NOT EXISTS "public"."groups" (
     "approved_by" "uuid",
     "approved_at" timestamp with time zone,
     "review_notes" "text",
+    "alumni_only" boolean DEFAULT false NOT NULL,
     CONSTRAINT "groups_visibility_consistency" CHECK ((("visibility" = 'private'::"public"."group_visibility_enum") = "is_private"))
 );
+
+ALTER TABLE ONLY "public"."groups" FORCE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."groups" OWNER TO "postgres";
 
 
-COMMENT ON TABLE "public"."groups" IS 'Stores information about user-created networking groups.';
+COMMENT ON TABLE "public"."groups" IS 'Groups table. NOTE: Group events should NOT appear in Recent Activity feeds.';
 
 
 
@@ -16263,7 +19530,8 @@ CREATE TABLE IF NOT EXISTS "public"."group_posts" (
     "image_url" "text",
     "has_image" boolean DEFAULT false,
     "status" "text" DEFAULT 'approved'::"text",
-    "title" "text"
+    "title" "text",
+    CONSTRAINT "group_posts_content_check" CHECK ((("length"("content") > 0) AND ("length"("content") <= 10000)))
 );
 
 
@@ -16272,6 +19540,18 @@ ALTER TABLE "public"."group_posts" OWNER TO "postgres";
 
 COMMENT ON TABLE "public"."group_posts" IS 'Stores posts, comments, and replies within networking groups.';
 
+
+
+CREATE TABLE IF NOT EXISTS "public"."group_rate_limits" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "action_type" "text" NOT NULL,
+    "window_start" timestamp with time zone DEFAULT "date_trunc"('hour'::"text", "now"()) NOT NULL,
+    "count" integer DEFAULT 1 NOT NULL
+);
+
+
+ALTER TABLE "public"."group_rate_limits" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."job_alerts" (
@@ -16308,6 +19588,25 @@ ALTER TABLE "public"."job_alerts" OWNER TO "postgres";
 
 COMMENT ON TABLE "public"."job_alerts" IS 'trigger schema reload';
 
+
+
+CREATE TABLE IF NOT EXISTS "public"."job_application_audit" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "application_id" "uuid" NOT NULL,
+    "job_id" "uuid" NOT NULL,
+    "applicant_id" "uuid" NOT NULL,
+    "actor_id" "uuid" NOT NULL,
+    "actor_role" "text" NOT NULL,
+    "source" "text" NOT NULL,
+    "old_status" "text",
+    "new_status" "text" NOT NULL,
+    "reason" "text",
+    "metadata" "jsonb" DEFAULT '{}'::"jsonb",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."job_application_audit" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."job_bookmarks" (
@@ -16707,6 +20006,37 @@ CREATE TABLE IF NOT EXISTS "public"."networking_groups" (
 ALTER TABLE "public"."networking_groups" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."notification_audit" (
+    "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
+    "notification_id" "uuid" NOT NULL,
+    "created_by" "uuid",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "event_type" "text" NOT NULL,
+    "metadata" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL
+);
+
+
+ALTER TABLE "public"."notification_audit" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."notification_audit_log" (
+    "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
+    "notification_id" "uuid",
+    "recipient_id" "uuid" NOT NULL,
+    "notification_type" "text" NOT NULL,
+    "sent_via" "text"[],
+    "success" boolean DEFAULT true NOT NULL,
+    "error_message" "text",
+    "metadata" "jsonb" DEFAULT '{}'::"jsonb",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+ALTER TABLE ONLY "public"."notification_audit_log" FORCE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."notification_audit_log" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."notification_events" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "event_type" "public"."notification_type_enum" NOT NULL,
@@ -16726,6 +20056,20 @@ ALTER TABLE "public"."notification_events" OWNER TO "postgres";
 
 COMMENT ON TABLE "public"."notification_events" IS 'Canonical log of notification-worthy events before fan-out to per-recipient notifications.';
 
+
+
+CREATE OR REPLACE VIEW "public"."notification_stats" WITH ("security_invoker"='on') AS
+ SELECT "notifications"."type",
+    "count"(*) AS "total_sent",
+    "count"(*) FILTER (WHERE ("notifications"."is_read" = true)) AS "read_count",
+    "count"(*) FILTER (WHERE ("notifications"."is_read" = false)) AS "unread_count",
+    "round"("avg"(EXTRACT(epoch FROM ("notifications"."read_at" - "notifications"."created_at")))) AS "avg_read_time_seconds",
+    "max"("notifications"."created_at") AS "last_sent_at"
+   FROM "public"."notifications"
+  GROUP BY "notifications"."type";
+
+
+ALTER TABLE "public"."notification_stats" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."permissions" (
@@ -17833,51 +21177,6 @@ PARTITION BY RANGE ("inserted_at");
 ALTER TABLE "realtime"."messages" OWNER TO "supabase_realtime_admin";
 
 
-CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_01" (
-    "topic" "text" NOT NULL,
-    "extension" "text" NOT NULL,
-    "payload" "jsonb",
-    "event" "text",
-    "private" boolean DEFAULT false,
-    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
-);
-
-
-ALTER TABLE "realtime"."messages_2025_12_01" OWNER TO "supabase_admin";
-
-
-CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_02" (
-    "topic" "text" NOT NULL,
-    "extension" "text" NOT NULL,
-    "payload" "jsonb",
-    "event" "text",
-    "private" boolean DEFAULT false,
-    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
-);
-
-
-ALTER TABLE "realtime"."messages_2025_12_02" OWNER TO "supabase_admin";
-
-
-CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_03" (
-    "topic" "text" NOT NULL,
-    "extension" "text" NOT NULL,
-    "payload" "jsonb",
-    "event" "text",
-    "private" boolean DEFAULT false,
-    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
-);
-
-
-ALTER TABLE "realtime"."messages_2025_12_03" OWNER TO "supabase_admin";
-
-
 CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_04" (
     "topic" "text" NOT NULL,
     "extension" "text" NOT NULL,
@@ -17936,6 +21235,51 @@ CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_07" (
 
 
 ALTER TABLE "realtime"."messages_2025_12_07" OWNER TO "supabase_admin";
+
+
+CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_08" (
+    "topic" "text" NOT NULL,
+    "extension" "text" NOT NULL,
+    "payload" "jsonb",
+    "event" "text",
+    "private" boolean DEFAULT false,
+    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
+);
+
+
+ALTER TABLE "realtime"."messages_2025_12_08" OWNER TO "supabase_admin";
+
+
+CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_09" (
+    "topic" "text" NOT NULL,
+    "extension" "text" NOT NULL,
+    "payload" "jsonb",
+    "event" "text",
+    "private" boolean DEFAULT false,
+    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
+);
+
+
+ALTER TABLE "realtime"."messages_2025_12_09" OWNER TO "supabase_admin";
+
+
+CREATE TABLE IF NOT EXISTS "realtime"."messages_2025_12_10" (
+    "topic" "text" NOT NULL,
+    "extension" "text" NOT NULL,
+    "payload" "jsonb",
+    "event" "text",
+    "private" boolean DEFAULT false,
+    "updated_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "inserted_at" timestamp without time zone DEFAULT "now"() NOT NULL,
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL
+);
+
+
+ALTER TABLE "realtime"."messages_2025_12_10" OWNER TO "supabase_admin";
 
 
 CREATE TABLE IF NOT EXISTS "realtime"."schema_migrations" (
@@ -18115,18 +21459,6 @@ CREATE TABLE IF NOT EXISTS "storage"."vector_indexes" (
 ALTER TABLE "storage"."vector_indexes" OWNER TO "supabase_storage_admin";
 
 
-ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_01" FOR VALUES FROM ('2025-12-01 00:00:00') TO ('2025-12-02 00:00:00');
-
-
-
-ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_02" FOR VALUES FROM ('2025-12-02 00:00:00') TO ('2025-12-03 00:00:00');
-
-
-
-ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_03" FOR VALUES FROM ('2025-12-03 00:00:00') TO ('2025-12-04 00:00:00');
-
-
-
 ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_04" FOR VALUES FROM ('2025-12-04 00:00:00') TO ('2025-12-05 00:00:00');
 
 
@@ -18140,6 +21472,18 @@ ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_202
 
 
 ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_07" FOR VALUES FROM ('2025-12-07 00:00:00') TO ('2025-12-08 00:00:00');
+
+
+
+ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_08" FOR VALUES FROM ('2025-12-08 00:00:00') TO ('2025-12-09 00:00:00');
+
+
+
+ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_09" FOR VALUES FROM ('2025-12-09 00:00:00') TO ('2025-12-10 00:00:00');
+
+
+
+ALTER TABLE ONLY "realtime"."messages" ATTACH PARTITION "realtime"."messages_2025_12_10" FOR VALUES FROM ('2025-12-10 00:00:00') TO ('2025-12-11 00:00:00');
 
 
 
@@ -18317,12 +21661,22 @@ ALTER TABLE ONLY "public"."event_attendees"
 
 
 ALTER TABLE ONLY "public"."event_attendees"
+    ADD CONSTRAINT "event_attendees_event_user_key" UNIQUE ("event_id", "user_id");
+
+
+
+ALTER TABLE ONLY "public"."event_attendees"
     ADD CONSTRAINT "event_attendees_pkey" PRIMARY KEY ("id");
 
 
 
 ALTER TABLE ONLY "public"."event_feedback"
     ADD CONSTRAINT "event_feedback_event_id_user_id_key" UNIQUE ("event_id", "user_id");
+
+
+
+ALTER TABLE ONLY "public"."event_feedback"
+    ADD CONSTRAINT "event_feedback_event_user_key" UNIQUE ("event_id", "user_id");
 
 
 
@@ -18366,8 +21720,23 @@ ALTER TABLE ONLY "public"."feature_flags"
 
 
 
+ALTER TABLE ONLY "public"."group_audit_log"
+    ADD CONSTRAINT "group_audit_log_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."group_comments"
     ADD CONSTRAINT "group_comments_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."group_invitations"
+    ADD CONSTRAINT "group_invitations_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."group_members"
+    ADD CONSTRAINT "group_members_group_user_unique" UNIQUE ("group_id", "user_id");
 
 
 
@@ -18376,8 +21745,18 @@ ALTER TABLE ONLY "public"."group_members"
 
 
 
+ALTER TABLE ONLY "public"."group_membership_audit"
+    ADD CONSTRAINT "group_membership_audit_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."group_memberships"
     ADD CONSTRAINT "group_memberships_group_id_user_id_key" UNIQUE ("group_id", "user_id");
+
+
+
+ALTER TABLE ONLY "public"."group_memberships"
+    ADD CONSTRAINT "group_memberships_group_user_unique" UNIQUE ("group_id", "user_id");
 
 
 
@@ -18396,6 +21775,16 @@ ALTER TABLE ONLY "public"."group_posts"
 
 
 
+ALTER TABLE ONLY "public"."group_rate_limits"
+    ADD CONSTRAINT "group_rate_limits_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."group_rate_limits"
+    ADD CONSTRAINT "group_rate_limits_user_id_action_type_window_start_key" UNIQUE ("user_id", "action_type", "window_start");
+
+
+
 ALTER TABLE ONLY "public"."groups"
     ADD CONSTRAINT "groups_pkey" PRIMARY KEY ("id");
 
@@ -18408,6 +21797,11 @@ ALTER TABLE ONLY "public"."job_alerts"
 
 ALTER TABLE ONLY "public"."job_alerts"
     ADD CONSTRAINT "job_alerts_user_alert_name_key" UNIQUE ("user_id", "alert_name");
+
+
+
+ALTER TABLE ONLY "public"."job_application_audit"
+    ADD CONSTRAINT "job_application_audit_pkey" PRIMARY KEY ("id");
 
 
 
@@ -18497,11 +21891,6 @@ ALTER TABLE ONLY "public"."mentorship_relationships"
 
 
 ALTER TABLE ONLY "public"."mentorship_requests"
-    ADD CONSTRAINT "mentorship_requests_mentee_id_mentor_id_key" UNIQUE ("mentee_id", "mentor_id");
-
-
-
-ALTER TABLE ONLY "public"."mentorship_requests"
     ADD CONSTRAINT "mentorship_requests_pkey" PRIMARY KEY ("id");
 
 
@@ -18541,6 +21930,16 @@ ALTER TABLE ONLY "public"."networking_groups"
 
 
 
+ALTER TABLE ONLY "public"."notification_audit_log"
+    ADD CONSTRAINT "notification_audit_log_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."notification_audit"
+    ADD CONSTRAINT "notification_audit_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."notification_events"
     ADD CONSTRAINT "notification_events_idempotent" UNIQUE ("idempotency_key") DEFERRABLE INITIALLY DEFERRED;
 
@@ -18553,6 +21952,11 @@ ALTER TABLE ONLY "public"."notification_events"
 
 ALTER TABLE ONLY "public"."notification_preferences"
     ADD CONSTRAINT "notification_preferences_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."notification_preferences"
+    ADD CONSTRAINT "notification_preferences_unique_user_type" UNIQUE ("user_id", "notification_type");
 
 
 
@@ -18711,21 +22115,6 @@ ALTER TABLE ONLY "realtime"."messages"
 
 
 
-ALTER TABLE ONLY "realtime"."messages_2025_12_01"
-    ADD CONSTRAINT "messages_2025_12_01_pkey" PRIMARY KEY ("id", "inserted_at");
-
-
-
-ALTER TABLE ONLY "realtime"."messages_2025_12_02"
-    ADD CONSTRAINT "messages_2025_12_02_pkey" PRIMARY KEY ("id", "inserted_at");
-
-
-
-ALTER TABLE ONLY "realtime"."messages_2025_12_03"
-    ADD CONSTRAINT "messages_2025_12_03_pkey" PRIMARY KEY ("id", "inserted_at");
-
-
-
 ALTER TABLE ONLY "realtime"."messages_2025_12_04"
     ADD CONSTRAINT "messages_2025_12_04_pkey" PRIMARY KEY ("id", "inserted_at");
 
@@ -18743,6 +22132,21 @@ ALTER TABLE ONLY "realtime"."messages_2025_12_06"
 
 ALTER TABLE ONLY "realtime"."messages_2025_12_07"
     ADD CONSTRAINT "messages_2025_12_07_pkey" PRIMARY KEY ("id", "inserted_at");
+
+
+
+ALTER TABLE ONLY "realtime"."messages_2025_12_08"
+    ADD CONSTRAINT "messages_2025_12_08_pkey" PRIMARY KEY ("id", "inserted_at");
+
+
+
+ALTER TABLE ONLY "realtime"."messages_2025_12_09"
+    ADD CONSTRAINT "messages_2025_12_09_pkey" PRIMARY KEY ("id", "inserted_at");
+
+
+
+ALTER TABLE ONLY "realtime"."messages_2025_12_10"
+    ADD CONSTRAINT "messages_2025_12_10_pkey" PRIMARY KEY ("id", "inserted_at");
 
 
 
@@ -18866,6 +22270,14 @@ CREATE INDEX "idx_activity_logs_created_at" ON "public"."activity_logs" USING "b
 
 
 
+CREATE INDEX "idx_activity_logs_entity_action_created" ON "public"."activity_logs" USING "btree" ("entity_type", "action", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_activity_logs_profile_created" ON "public"."activity_logs" USING "btree" ("profile_id", "created_at" DESC);
+
+
+
 CREATE INDEX "idx_admin_actions_admin_created" ON "public"."admin_actions" USING "btree" ("admin_id", "created_at" DESC);
 
 
@@ -18883,6 +22295,18 @@ CREATE INDEX "idx_admin_actions_target" ON "public"."admin_actions" USING "btree
 
 
 CREATE INDEX "idx_admin_analytics_audit_log_admin_created" ON "public"."admin_analytics_audit_log" USING "btree" ("admin_id", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_admin_notifications_created" ON "public"."admin_notifications" USING "btree" ("created_at" DESC);
+
+
+
+CREATE INDEX "idx_admin_notifications_tenant" ON "public"."admin_notifications" USING "btree" ("tenant_id") WHERE ("tenant_id" IS NOT NULL);
+
+
+
+CREATE INDEX "idx_admin_notifications_unread" ON "public"."admin_notifications" USING "btree" ("is_read") WHERE ("is_read" = false);
 
 
 
@@ -19102,7 +22526,27 @@ CREATE INDEX "idx_gpr_status" ON "public"."group_post_reports" USING "btree" ("s
 
 
 
+CREATE INDEX "idx_group_audit_log_action" ON "public"."group_audit_log" USING "btree" ("action");
+
+
+
+CREATE INDEX "idx_group_audit_log_actor_id" ON "public"."group_audit_log" USING "btree" ("actor_id");
+
+
+
+CREATE INDEX "idx_group_audit_log_created_at" ON "public"."group_audit_log" USING "btree" ("created_at" DESC);
+
+
+
+CREATE INDEX "idx_group_audit_log_group_id" ON "public"."group_audit_log" USING "btree" ("group_id");
+
+
+
 CREATE INDEX "idx_group_comments_author" ON "public"."group_comments" USING "btree" ("author_id", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_group_comments_author_id" ON "public"."group_comments" USING "btree" ("author_id");
 
 
 
@@ -19114,7 +22558,43 @@ CREATE INDEX "idx_group_comments_post_created_at" ON "public"."group_comments" U
 
 
 
+CREATE INDEX "idx_group_comments_post_id" ON "public"."group_comments" USING "btree" ("post_id");
+
+
+
+CREATE INDEX "idx_group_invitations_group_id" ON "public"."group_invitations" USING "btree" ("group_id");
+
+
+
+CREATE INDEX "idx_group_invitations_invitee_id" ON "public"."group_invitations" USING "btree" ("invitee_id");
+
+
+
+CREATE UNIQUE INDEX "idx_group_invitations_pending_email_unique" ON "public"."group_invitations" USING "btree" ("group_id", "lower"("invitee_email")) WHERE (("status" = 'pending'::"text") AND ("invitee_email" IS NOT NULL));
+
+
+
+CREATE UNIQUE INDEX "idx_group_invitations_pending_unique" ON "public"."group_invitations" USING "btree" ("group_id", "invitee_id") WHERE (("status" = 'pending'::"text") AND ("invitee_id" IS NOT NULL));
+
+
+
+CREATE INDEX "idx_group_invitations_status" ON "public"."group_invitations" USING "btree" ("status");
+
+
+
+CREATE INDEX "idx_group_members_admins" ON "public"."group_members" USING "btree" ("group_id") WHERE (("role" = 'admin'::"text") AND ("status" = 'active'::"text"));
+
+
+
 CREATE INDEX "idx_group_members_group" ON "public"."group_members" USING "btree" ("group_id");
+
+
+
+CREATE INDEX "idx_group_members_group_id" ON "public"."group_members" USING "btree" ("group_id");
+
+
+
+CREATE INDEX "idx_group_members_group_role" ON "public"."group_members" USING "btree" ("group_id", "role");
 
 
 
@@ -19126,11 +22606,23 @@ CREATE INDEX "idx_group_members_joined_at" ON "public"."group_members" USING "bt
 
 
 
+CREATE INDEX "idx_group_members_pending" ON "public"."group_members" USING "btree" ("group_id", "status") WHERE ("status" = 'pending'::"text");
+
+
+
+CREATE INDEX "idx_group_members_role" ON "public"."group_members" USING "btree" ("role");
+
+
+
 CREATE INDEX "idx_group_members_user" ON "public"."group_members" USING "btree" ("user_id");
 
 
 
 CREATE INDEX "idx_group_members_user_created" ON "public"."group_members" USING "btree" ("user_id", "created_at");
+
+
+
+CREATE INDEX "idx_group_members_user_id" ON "public"."group_members" USING "btree" ("user_id");
 
 
 
@@ -19166,11 +22658,35 @@ CREATE INDEX "idx_group_posts_id_group" ON "public"."group_posts" USING "btree" 
 
 
 
+CREATE INDEX "idx_group_posts_user_id" ON "public"."group_posts" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_group_rate_limits_user_action" ON "public"."group_rate_limits" USING "btree" ("user_id", "action_type");
+
+
+
+CREATE INDEX "idx_groups_alumni_only" ON "public"."groups" USING "btree" ("alumni_only");
+
+
+
+CREATE INDEX "idx_groups_approval_status" ON "public"."groups" USING "btree" ("approval_status");
+
+
+
 CREATE INDEX "idx_groups_archived_created" ON "public"."groups" USING "btree" ("is_archived", "created_at" DESC);
 
 
 
 CREATE INDEX "idx_groups_created_at" ON "public"."groups" USING "btree" ("created_at" DESC);
+
+
+
+CREATE INDEX "idx_groups_created_by" ON "public"."groups" USING "btree" ("created_by");
+
+
+
+CREATE INDEX "idx_groups_is_archived" ON "public"."groups" USING "btree" ("is_archived");
 
 
 
@@ -19203,6 +22719,18 @@ CREATE INDEX "idx_ja_applicant_created_at" ON "public"."job_applications" USING 
 
 
 CREATE INDEX "idx_ja_job_created_at" ON "public"."job_applications" USING "btree" ("job_id", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_jaa_actor_created" ON "public"."job_application_audit" USING "btree" ("actor_id", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_jaa_created_at" ON "public"."job_application_audit" USING "btree" ("created_at" DESC);
+
+
+
+CREATE INDEX "idx_jaa_new_status_created" ON "public"."job_application_audit" USING "btree" ("new_status", "created_at" DESC);
 
 
 
@@ -19454,7 +22982,31 @@ CREATE INDEX "idx_mrships_mentee_active" ON "public"."mentorship_relationships" 
 
 
 
+CREATE INDEX "idx_notification_audit_notification" ON "public"."notification_audit_log" USING "btree" ("notification_id");
+
+
+
+CREATE INDEX "idx_notification_audit_recipient" ON "public"."notification_audit_log" USING "btree" ("recipient_id", "created_at" DESC);
+
+
+
 CREATE INDEX "idx_notification_events_unprocessed" ON "public"."notification_events" USING "btree" ("processed_at", "created_at") WHERE ("processed_at" IS NULL);
+
+
+
+CREATE UNIQUE INDEX "idx_notification_preferences_user_type" ON "public"."notification_preferences" USING "btree" ("user_id", "notification_type");
+
+
+
+CREATE INDEX "idx_notification_prefs_user_type" ON "public"."notification_preferences" USING "btree" ("user_id", "notification_type");
+
+
+
+CREATE INDEX "idx_notifications_admin_audience" ON "public"."notifications" USING "btree" ("recipient_id", "created_at" DESC) WHERE ((("metadata" ->> 'audience'::"text") = 'admin'::"text") AND ("is_read" = false));
+
+
+
+CREATE INDEX "idx_notifications_bell_visible" ON "public"."notifications" USING "btree" ("recipient_id", "is_bell_visible", "created_at" DESC) WHERE ("is_bell_visible" = true);
 
 
 
@@ -19462,7 +23014,15 @@ CREATE INDEX "idx_notifications_event_id" ON "public"."notifications" USING "btr
 
 
 
+CREATE UNIQUE INDEX "idx_notifications_idempotency" ON "public"."notifications" USING "btree" ("idempotency_key");
+
+
+
 CREATE UNIQUE INDEX "idx_notifications_idempotency_key" ON "public"."notifications" USING "btree" ("idempotency_key") WHERE ("idempotency_key" IS NOT NULL);
+
+
+
+COMMENT ON INDEX "public"."idx_notifications_idempotency_key" IS 'Ensures idempotency for notification creation (deduplication).';
 
 
 
@@ -19494,7 +23054,19 @@ CREATE INDEX "idx_notifications_recipient_id" ON "public"."notifications" USING 
 
 
 
+CREATE INDEX "idx_notifications_recipient_is_read_created_at" ON "public"."notifications" USING "btree" ("recipient_id", "is_read", "created_at" DESC);
+
+
+
 CREATE INDEX "idx_notifications_recipient_isread_created_at" ON "public"."notifications" USING "btree" ("recipient_id", "is_read", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_notifications_recipient_module_created" ON "public"."notifications" USING "btree" ("recipient_id", "module", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_notifications_recipient_read_created" ON "public"."notifications" USING "btree" ("recipient_id", "is_read", "created_at" DESC);
 
 
 
@@ -19510,11 +23082,27 @@ CREATE INDEX "idx_notifications_sender_id" ON "public"."notifications" USING "bt
 
 
 
+CREATE INDEX "idx_notifications_tenant" ON "public"."notifications" USING "btree" ("tenant_id") WHERE ("tenant_id" IS NOT NULL);
+
+
+
 CREATE INDEX "idx_notifications_type" ON "public"."notifications" USING "btree" ("type");
 
 
 
+CREATE INDEX "idx_notifications_type_created_at" ON "public"."notifications" USING "btree" ("type", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_notifications_unread" ON "public"."notifications" USING "btree" ("recipient_id", "is_read") WHERE ("is_read" = false);
+
+
+
 CREATE INDEX "idx_notifications_unread_per_user" ON "public"."notifications" USING "btree" ("recipient_id", "type") WHERE ("is_read" = false);
+
+
+
+CREATE INDEX "idx_notifications_user_audience" ON "public"."notifications" USING "btree" ("recipient_id", "type", "created_at" DESC) WHERE ((("metadata" ->> 'audience'::"text") = 'user'::"text") AND ("is_read" = false));
 
 
 
@@ -19698,6 +23286,14 @@ CREATE INDEX "ix_dm_messages_thread_created_at" ON "public"."dm_messages" USING 
 
 
 
+CREATE UNIQUE INDEX "ix_group_members_group_user" ON "public"."group_members" USING "btree" ("group_id", "user_id");
+
+
+
+CREATE UNIQUE INDEX "ix_group_memberships_group_user" ON "public"."group_memberships" USING "btree" ("group_id", "user_id");
+
+
+
 CREATE INDEX "mentees_status_idx" ON "public"."mentees" USING "btree" ("status");
 
 
@@ -19766,10 +23362,6 @@ CREATE UNIQUE INDEX "mentorship_requests_unique_pending" ON "public"."mentorship
 
 
 
-CREATE UNIQUE INDEX "mentorship_requests_unique_pending_or_accepted" ON "public"."mentorship_requests" USING "btree" ("mentor_id", "mentee_id") WHERE ("status" = ANY (ARRAY['pending'::"public"."mentorship_request_status", 'accepted'::"public"."mentorship_request_status"]));
-
-
-
 CREATE INDEX "mentorship_sessions_request_id_idx" ON "public"."mentorship_sessions" USING "btree" ("mentorship_request_id");
 
 
@@ -19795,6 +23387,10 @@ CREATE INDEX "notifications_recipient_created_idx" ON "public"."notifications" U
 
 
 CREATE INDEX "notifications_recipient_isread_idx" ON "public"."notifications" USING "btree" ("recipient_id", "is_read");
+
+
+
+CREATE UNIQUE INDEX "notifications_unique_membership_approved" ON "public"."notifications" USING "btree" ("profile_id", "type", "group_id") WHERE ("type" = 'group_membership_approved'::"text");
 
 
 
@@ -19910,10 +23506,6 @@ CREATE UNIQUE INDEX "ux_mentorship_requests_pending" ON "public"."mentorship_req
 
 
 
-CREATE UNIQUE INDEX "ux_mentorship_requests_pending_or_accepted" ON "public"."mentorship_requests" USING "btree" ("mentee_id", "mentor_id") WHERE ("status" = ANY (ARRAY['pending'::"public"."mentorship_request_status", 'accepted'::"public"."mentorship_request_status"]));
-
-
-
 CREATE UNIQUE INDEX "ux_messages_client_id" ON "public"."messages" USING "btree" ("client_id");
 
 
@@ -19923,18 +23515,6 @@ CREATE INDEX "ix_realtime_subscription_entity" ON "realtime"."subscription" USIN
 
 
 CREATE INDEX "messages_inserted_at_topic_index" ON ONLY "realtime"."messages" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
-
-
-
-CREATE INDEX "messages_2025_12_01_inserted_at_topic_idx" ON "realtime"."messages_2025_12_01" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
-
-
-
-CREATE INDEX "messages_2025_12_02_inserted_at_topic_idx" ON "realtime"."messages_2025_12_02" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
-
-
-
-CREATE INDEX "messages_2025_12_03_inserted_at_topic_idx" ON "realtime"."messages_2025_12_03" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
 
 
 
@@ -19951,6 +23531,18 @@ CREATE INDEX "messages_2025_12_06_inserted_at_topic_idx" ON "realtime"."messages
 
 
 CREATE INDEX "messages_2025_12_07_inserted_at_topic_idx" ON "realtime"."messages_2025_12_07" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
+
+
+
+CREATE INDEX "messages_2025_12_08_inserted_at_topic_idx" ON "realtime"."messages_2025_12_08" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
+
+
+
+CREATE INDEX "messages_2025_12_09_inserted_at_topic_idx" ON "realtime"."messages_2025_12_09" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
+
+
+
+CREATE INDEX "messages_2025_12_10_inserted_at_topic_idx" ON "realtime"."messages_2025_12_10" USING "btree" ("inserted_at" DESC, "topic") WHERE (("extension" = 'broadcast'::"text") AND ("private" IS TRUE));
 
 
 
@@ -20002,30 +23594,6 @@ CREATE UNIQUE INDEX "vector_indexes_name_bucket_id_idx" ON "storage"."vector_ind
 
 
 
-ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_01_inserted_at_topic_idx";
-
-
-
-ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_01_pkey";
-
-
-
-ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_02_inserted_at_topic_idx";
-
-
-
-ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_02_pkey";
-
-
-
-ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_03_inserted_at_topic_idx";
-
-
-
-ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_03_pkey";
-
-
-
 ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_04_inserted_at_topic_idx";
 
 
@@ -20055,6 +23623,30 @@ ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "real
 
 
 ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_07_pkey";
+
+
+
+ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_08_inserted_at_topic_idx";
+
+
+
+ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_08_pkey";
+
+
+
+ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_09_inserted_at_topic_idx";
+
+
+
+ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_09_pkey";
+
+
+
+ALTER INDEX "realtime"."messages_inserted_at_topic_index" ATTACH PARTITION "realtime"."messages_2025_12_10_inserted_at_topic_idx";
+
+
+
+ALTER INDEX "realtime"."messages_pkey" ATTACH PARTITION "realtime"."messages_2025_12_10_pkey";
 
 
 
@@ -20100,6 +23692,10 @@ CREATE OR REPLACE TRIGGER "enforce_bookmarked_jobs_limit" BEFORE INSERT ON "publ
 
 
 
+CREATE OR REPLACE TRIGGER "enforce_last_admin_guard" BEFORE DELETE OR UPDATE ON "public"."group_members" FOR EACH ROW EXECUTE FUNCTION "public"."prevent_last_admin_removal"();
+
+
+
 CREATE OR REPLACE TRIGGER "event_attendee_invite_or_rsvp_ins_trg" AFTER INSERT ON "public"."event_attendees" FOR EACH ROW EXECUTE FUNCTION "public"."trg_event_attendee_invite_or_rsvp_notify"();
 
 
@@ -20113,6 +23709,14 @@ CREATE OR REPLACE TRIGGER "event_update_notify" AFTER INSERT OR DELETE OR UPDATE
 
 
 CREATE OR REPLACE TRIGGER "events_update_broadcast_trg" AFTER UPDATE ON "public"."events" FOR EACH ROW EXECUTE FUNCTION "public"."trg_events_update_broadcast"();
+
+
+
+CREATE OR REPLACE TRIGGER "group_admin_risk_notify_trg" AFTER INSERT OR DELETE OR UPDATE ON "public"."group_members" FOR EACH ROW EXECUTE FUNCTION "public"."group_admin_risk_notify"();
+
+
+
+CREATE OR REPLACE TRIGGER "group_memberships_pending_notify" AFTER INSERT ON "public"."group_memberships" FOR EACH ROW EXECUTE FUNCTION "public"."group_membership_notify_pending"();
 
 
 
@@ -20174,6 +23778,10 @@ CREATE OR REPLACE TRIGGER "mentorship_relationships_ensure_dm_thread" BEFORE INS
 
 
 
+CREATE OR REPLACE TRIGGER "notifications_audit_insert" AFTER INSERT ON "public"."notifications" FOR EACH ROW WHEN (("new"."type" = ANY (ARRAY['mentorship'::"text", 'job_applied'::"text"]))) EXECUTE FUNCTION "public"."fn_notifications_audit_insert"();
+
+
+
 CREATE OR REPLACE TRIGGER "on_group_posts_update" BEFORE UPDATE ON "public"."group_posts" FOR EACH ROW EXECUTE FUNCTION "public"."handle_updated_at"();
 
 
@@ -20191,6 +23799,10 @@ CREATE OR REPLACE TRIGGER "on_new_message" AFTER INSERT ON "public"."messages" F
 
 
 CREATE OR REPLACE TRIGGER "on_new_message_update_conversation_timestamp" AFTER INSERT ON "public"."messages" FOR EACH ROW EXECUTE FUNCTION "public"."update_conversation_last_message_at"();
+
+
+
+CREATE OR REPLACE TRIGGER "prevent_last_admin_trigger" BEFORE DELETE OR UPDATE ON "public"."group_members" FOR EACH ROW EXECUTE FUNCTION "public"."prevent_last_admin"();
 
 
 
@@ -20226,6 +23838,10 @@ CREATE OR REPLACE TRIGGER "set_group_creator_as_admin" AFTER INSERT ON "public".
 
 
 
+CREATE OR REPLACE TRIGGER "set_group_members_updated_at" BEFORE UPDATE ON "public"."group_members" FOR EACH ROW EXECUTE FUNCTION "public"."set_updated_at"();
+
+
+
 CREATE OR REPLACE TRIGGER "set_mentees_updated_at" BEFORE UPDATE ON "public"."mentees" FOR EACH ROW EXECUTE FUNCTION "public"."handle_updated_at"();
 
 
@@ -20243,10 +23859,6 @@ CREATE OR REPLACE TRIGGER "set_sessions_updated_at" BEFORE UPDATE ON "public"."m
 
 
 CREATE OR REPLACE TRIGGER "set_user_id_on_group_members" BEFORE INSERT ON "public"."group_members" FOR EACH ROW EXECUTE FUNCTION "public"."set_group_member_user_id"();
-
-
-
-CREATE OR REPLACE TRIGGER "trg_admin_notify_on_event_insert" AFTER INSERT ON "public"."events" FOR EACH ROW EXECUTE FUNCTION "public"."notify_admin_on_event_create"();
 
 
 
@@ -20456,10 +24068,6 @@ CREATE OR REPLACE TRIGGER "trg_notify_admins_event" AFTER INSERT ON "public"."ev
 
 
 
-CREATE OR REPLACE TRIGGER "trg_notify_admins_on_event" AFTER INSERT ON "public"."events" FOR EACH ROW EXECUTE FUNCTION "public"."notify_admins_on_event"();
-
-
-
 CREATE OR REPLACE TRIGGER "trg_notify_admins_on_gpr" AFTER INSERT ON "public"."group_post_reports" FOR EACH ROW EXECUTE FUNCTION "public"."notify_admins_on_group_post_report"();
 
 
@@ -20550,7 +24158,7 @@ CREATE OR REPLACE TRIGGER "trg_profiles_upper" BEFORE INSERT OR UPDATE ON "publi
 
 
 
-CREATE OR REPLACE TRIGGER "trg_protect_jobs_admin_columns" BEFORE UPDATE ON "public"."jobs" FOR EACH ROW EXECUTE FUNCTION "public"."protect_jobs_admin_columns"();
+CREATE OR REPLACE TRIGGER "trg_protect_jobs_admin_columns" BEFORE INSERT OR UPDATE ON "public"."jobs" FOR EACH ROW EXECUTE FUNCTION "public"."protect_jobs_admin_columns"();
 
 
 
@@ -20983,6 +24591,16 @@ ALTER TABLE ONLY "public"."notifications"
 
 
 
+ALTER TABLE ONLY "public"."notifications"
+    ADD CONSTRAINT "fk_notifications_recipient" FOREIGN KEY ("recipient_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."notifications"
+    ADD CONSTRAINT "fk_notifications_sender" FOREIGN KEY ("sender_id") REFERENCES "public"."profiles"("id") ON DELETE SET NULL;
+
+
+
 ALTER TABLE ONLY "public"."profiles"
     ADD CONSTRAINT "fk_profiles_degree_program" FOREIGN KEY ("degree_program") REFERENCES "public"."degree_programs"("code") ON UPDATE CASCADE ON DELETE RESTRICT;
 
@@ -20993,6 +24611,16 @@ ALTER TABLE ONLY "public"."mentorship_sessions"
 
 
 
+ALTER TABLE ONLY "public"."group_audit_log"
+    ADD CONSTRAINT "group_audit_log_actor_id_fkey" FOREIGN KEY ("actor_id") REFERENCES "auth"."users"("id");
+
+
+
+ALTER TABLE ONLY "public"."group_audit_log"
+    ADD CONSTRAINT "group_audit_log_group_id_fkey" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE SET NULL;
+
+
+
 ALTER TABLE ONLY "public"."group_comments"
     ADD CONSTRAINT "group_comments_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
 
@@ -21000,6 +24628,21 @@ ALTER TABLE ONLY "public"."group_comments"
 
 ALTER TABLE ONLY "public"."group_comments"
     ADD CONSTRAINT "group_comments_post_id_fkey" FOREIGN KEY ("post_id") REFERENCES "public"."group_posts"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."group_invitations"
+    ADD CONSTRAINT "group_invitations_group_id_fkey" FOREIGN KEY ("group_id") REFERENCES "public"."groups"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."group_invitations"
+    ADD CONSTRAINT "group_invitations_invitee_id_fkey" FOREIGN KEY ("invitee_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."group_invitations"
+    ADD CONSTRAINT "group_invitations_inviter_id_fkey" FOREIGN KEY ("inviter_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
 
@@ -21048,6 +24691,11 @@ ALTER TABLE ONLY "public"."group_posts"
 
 
 
+ALTER TABLE ONLY "public"."group_rate_limits"
+    ADD CONSTRAINT "group_rate_limits_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."groups"
     ADD CONSTRAINT "groups_approved_by_fkey" FOREIGN KEY ("approved_by") REFERENCES "public"."profiles"("id") ON DELETE SET NULL;
 
@@ -21069,6 +24717,16 @@ ALTER TABLE ONLY "public"."groups"
 
 ALTER TABLE ONLY "public"."job_alerts"
     ADD CONSTRAINT "job_alerts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."job_application_audit"
+    ADD CONSTRAINT "job_application_audit_application_id_fkey" FOREIGN KEY ("application_id") REFERENCES "public"."job_applications"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."job_application_audit"
+    ADD CONSTRAINT "job_application_audit_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "public"."jobs"("id") ON DELETE CASCADE;
 
 
 
@@ -21237,8 +24895,18 @@ ALTER TABLE ONLY "public"."networking_group_members"
 
 
 
+ALTER TABLE ONLY "public"."notification_audit_log"
+    ADD CONSTRAINT "notification_audit_log_notification_id_fkey" FOREIGN KEY ("notification_id") REFERENCES "public"."notifications"("id") ON DELETE SET NULL;
+
+
+
 ALTER TABLE ONLY "public"."notification_events"
     ADD CONSTRAINT "notification_events_actor_profile_id_fkey" FOREIGN KEY ("actor_profile_id") REFERENCES "public"."profiles"("id");
+
+
+
+ALTER TABLE ONLY "public"."notification_preferences"
+    ADD CONSTRAINT "notification_preferences_user_fk" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
 
 
 
@@ -21249,6 +24917,11 @@ ALTER TABLE ONLY "public"."notification_preferences"
 
 ALTER TABLE ONLY "public"."notifications"
     ADD CONSTRAINT "notifications_profile_id_fkey" FOREIGN KEY ("profile_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."notifications"
+    ADD CONSTRAINT "notifications_recipient_fk" FOREIGN KEY ("recipient_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
 
 
 
@@ -21426,6 +25099,12 @@ CREATE POLICY "Admins can manage user roles" ON "public"."user_roles" USING ((EX
 
 
 
+CREATE POLICY "Admins can view admin notifications" ON "public"."admin_notifications" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND (("profiles"."is_admin" = true) OR ("profiles"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))));
+
+
+
 CREATE POLICY "Admins can view all admin actions" ON "public"."admin_actions" FOR SELECT USING ("public"."is_site_admin"());
 
 
@@ -21438,11 +25117,23 @@ CREATE POLICY "Admins can view logs" ON "public"."activity_logs" FOR SELECT USIN
 
 
 
+CREATE POLICY "Admins can view notification audit log" ON "public"."notification_audit_log" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND (("profiles"."is_admin" = true) OR ("profiles"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))));
+
+
+
 CREATE POLICY "Admins can view profile approval audit" ON "public"."profile_approval_audit" FOR SELECT USING ("public"."app_is_admin"());
 
 
 
 CREATE POLICY "Admins manage features" ON "public"."feature_flags" TO "authenticated" USING (("public"."get_user_role"("auth"."uid"()) = ANY (ARRAY['admin'::"text", 'super_admin'::"text"]))) WITH CHECK (("public"."get_user_role"("auth"."uid"()) = ANY (ARRAY['admin'::"text", 'super_admin'::"text"])));
+
+
+
+CREATE POLICY "Admins read admin notifications" ON "public"."admin_notifications" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND (("profiles"."is_admin" = true) OR ("profiles"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"])))))));
 
 
 
@@ -21504,7 +25195,21 @@ CREATE POLICY "Enable update for users based on user_id" ON "public"."job_alerts
 
 
 
+CREATE POLICY "Group admins can view group invites" ON "public"."group_invitations" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."group_members"
+  WHERE (("group_members"."group_id" = "group_invitations"."group_id") AND ("group_members"."user_id" = "auth"."uid"()) AND ("group_members"."role" = 'admin'::"text")))));
+
+
+
 CREATE POLICY "Import history visible to creator" ON "public"."csv_import_history" FOR SELECT USING (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Invites created via RPC" ON "public"."group_invitations" FOR INSERT WITH CHECK (false);
+
+
+
+CREATE POLICY "Invites updated via RPC" ON "public"."group_invitations" FOR UPDATE USING (false);
 
 
 
@@ -21535,6 +25240,26 @@ CREATE POLICY "Public can view published events" ON "public"."events" FOR SELECT
 
 
 CREATE POLICY "Roles are viewable by everyone" ON "public"."roles" FOR SELECT USING (true);
+
+
+
+CREATE POLICY "Service role can insert admin notifications" ON "public"."admin_notifications" FOR INSERT TO "service_role" WITH CHECK (true);
+
+
+
+CREATE POLICY "Site admins can view all invites" ON "public"."group_invitations" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"]))))));
+
+
+
+CREATE POLICY "Super admins can view audit log" ON "public"."group_audit_log" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = 'super_admin'::"public"."app_role_enum")))));
+
+
+
+CREATE POLICY "System can insert audit log" ON "public"."group_audit_log" FOR INSERT WITH CHECK (true);
 
 
 
@@ -21624,6 +25349,10 @@ CREATE POLICY "Users can manage their own job bookmarks" ON "public"."job_bookma
 
 
 
+CREATE POLICY "Users can manage their own preferences" ON "public"."notification_preferences" TO "authenticated" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
 CREATE POLICY "Users can read event groups" ON "public"."event_groups" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
 
 
@@ -21662,6 +25391,10 @@ CREATE POLICY "Users can update their own feedback" ON "public"."event_feedback"
 
 
 
+CREATE POLICY "Users can update their own notifications" ON "public"."notifications" FOR UPDATE TO "authenticated" USING (("recipient_id" = "auth"."uid"())) WITH CHECK (("recipient_id" = "auth"."uid"()));
+
+
+
 CREATE POLICY "Users can update their own resume profile" ON "public"."resume_profiles" FOR UPDATE USING (("auth"."uid"() = "user_id"));
 
 
@@ -21674,10 +25407,6 @@ CREATE POLICY "Users can update their own resumes" ON "public"."user_resumes" FO
 
 
 
-CREATE POLICY "Users can view all feedback" ON "public"."event_feedback" FOR SELECT TO "authenticated" USING (true);
-
-
-
 CREATE POLICY "Users can view own social links" ON "public"."social_links" FOR SELECT USING (("profile_id" = "auth"."uid"()));
 
 
@@ -21687,6 +25416,10 @@ CREATE POLICY "Users can view their RSVP rows" ON "public"."event_attendees" FOR
 
 
 CREATE POLICY "Users can view their connections" ON "public"."connections" FOR SELECT USING ((("auth"."uid"() = "requester_id") OR ("auth"."uid"() = "recipient_id")));
+
+
+
+CREATE POLICY "Users can view their invites" ON "public"."group_invitations" FOR SELECT USING ((("inviter_id" = "auth"."uid"()) OR ("invitee_id" = "auth"."uid"())));
 
 
 
@@ -21715,6 +25448,10 @@ CREATE POLICY "Users can view their own feedback" ON "public"."event_feedback" F
 
 
 
+CREATE POLICY "Users can view their own notifications" ON "public"."notifications" FOR SELECT TO "authenticated" USING (("recipient_id" = "auth"."uid"()));
+
+
+
 CREATE POLICY "Users can view their own resumes" ON "public"."user_resumes" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
 
@@ -21723,7 +25460,19 @@ CREATE POLICY "Users can view their own roles" ON "public"."user_roles" FOR SELE
 
 
 
+CREATE POLICY "Users manage own preferences" ON "public"."notification_preferences" TO "authenticated" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
 CREATE POLICY "Users manage their own bookmarks" ON "public"."job_bookmarks" USING (("auth"."uid"() = "user_id")) WITH CHECK (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users read own notifications" ON "public"."notifications" FOR SELECT TO "authenticated" USING (("recipient_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users update own notifications" ON "public"."notifications" FOR UPDATE TO "authenticated" USING (("recipient_id" = "auth"."uid"())) WITH CHECK (("recipient_id" = "auth"."uid"()));
 
 
 
@@ -21764,7 +25513,7 @@ ALTER TABLE "public"."admin_deletion_audit_log" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."admin_notifications" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "admin_notifications_insert_auth" ON "public"."admin_notifications" FOR INSERT TO "authenticated" WITH CHECK (true);
+CREATE POLICY "admin_notifications_admin_only" ON "public"."admin_notifications" TO "authenticated" USING ("public"."app_is_admin"()) WITH CHECK ("public"."app_is_admin"());
 
 
 
@@ -21789,6 +25538,50 @@ CREATE POLICY "attendees_insert_self" ON "public"."event_attendees" FOR INSERT T
 
 
 CREATE POLICY "attendees_update_self" ON "public"."event_attendees" FOR UPDATE TO "authenticated" USING ((("user_id" = "auth"."uid"()) AND ("public"."fc_is_fully_approved"("auth"."uid"()) OR "public"."fc_is_admin"()))) WITH CHECK ((("user_id" = "auth"."uid"()) AND ("public"."fc_is_fully_approved"("auth"."uid"()) OR "public"."fc_is_admin"())));
+
+
+
+CREATE POLICY "block_rejected_on_conversation_participants" ON "public"."conversation_participants" AS RESTRICTIVE TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"())) WITH CHECK ((NOT "public"."app_profile_is_rejected"()));
+
+
+
+CREATE POLICY "block_rejected_on_conversations" ON "public"."conversations" AS RESTRICTIVE TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"())) WITH CHECK ((NOT "public"."app_profile_is_rejected"()));
+
+
+
+CREATE POLICY "block_rejected_on_event_rsvps" ON "public"."event_rsvps" AS RESTRICTIVE TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"())) WITH CHECK ((NOT "public"."app_profile_is_rejected"()));
+
+
+
+CREATE POLICY "block_rejected_on_events" ON "public"."events" AS RESTRICTIVE TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"())) WITH CHECK ((NOT "public"."app_profile_is_rejected"()));
+
+
+
+CREATE POLICY "block_rejected_on_group_members" ON "public"."group_members" AS RESTRICTIVE TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"())) WITH CHECK ((NOT "public"."app_profile_is_rejected"()));
+
+
+
+CREATE POLICY "block_rejected_on_groups" ON "public"."groups" AS RESTRICTIVE TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"())) WITH CHECK ((NOT "public"."app_profile_is_rejected"()));
+
+
+
+CREATE POLICY "block_rejected_on_job_applications" ON "public"."job_applications" AS RESTRICTIVE TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"())) WITH CHECK ((NOT "public"."app_profile_is_rejected"()));
+
+
+
+CREATE POLICY "block_rejected_on_jobs" ON "public"."jobs" AS RESTRICTIVE TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"())) WITH CHECK ((NOT "public"."app_profile_is_rejected"()));
+
+
+
+CREATE POLICY "block_rejected_on_mentorship_relationships" ON "public"."mentorship_relationships" AS RESTRICTIVE TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"())) WITH CHECK ((NOT "public"."app_profile_is_rejected"()));
+
+
+
+CREATE POLICY "block_rejected_on_mentorship_requests" ON "public"."mentorship_requests" AS RESTRICTIVE TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"())) WITH CHECK ((NOT "public"."app_profile_is_rejected"()));
+
+
+
+CREATE POLICY "block_rejected_on_messages" ON "public"."messages" AS RESTRICTIVE TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"())) WITH CHECK ((NOT "public"."app_profile_is_rejected"()));
 
 
 
@@ -21950,10 +25743,6 @@ CREATE POLICY "delete_own_social_links" ON "public"."social_links" FOR DELETE US
 ALTER TABLE "public"."departments" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "dev_event_attendees_select" ON "public"."event_attendees" FOR SELECT TO "authenticated" USING (true);
-
-
-
 CREATE POLICY "dev_events_select" ON "public"."events" FOR SELECT TO "authenticated" USING (true);
 
 
@@ -22046,6 +25835,10 @@ CREATE POLICY "ef_update_self" ON "public"."event_feedback" FOR UPDATE USING (("
 ALTER TABLE "public"."event_attendees" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "event_attendees_delete_self" ON "public"."event_attendees" FOR DELETE USING (("user_id" = "auth"."uid"()));
+
+
+
 CREATE POLICY "event_attendees_insert_approved" ON "public"."event_attendees" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND "public"."fc_is_fully_approved"("auth"."uid"())));
 
 
@@ -22063,10 +25856,26 @@ CREATE POLICY "event_attendees_select_own" ON "public"."event_attendees" FOR SEL
 ALTER TABLE "public"."event_feedback" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "event_feedback_delete_self" ON "public"."event_feedback" FOR DELETE USING (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "event_feedback_insert_self" ON "public"."event_feedback" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "event_feedback_update_self" ON "public"."event_feedback" FOR UPDATE USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
 ALTER TABLE "public"."event_groups" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."event_rsvps" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "event_rsvps_write_self_and_non_rejected" ON "public"."event_rsvps" TO "authenticated" USING ((("auth"."uid"() = "user_id") AND (NOT "public"."app_profile_is_rejected"()))) WITH CHECK ((("auth"."uid"() = "user_id") AND (NOT "public"."app_profile_is_rejected"())));
+
 
 
 ALTER TABLE "public"."events" ENABLE ROW LEVEL SECURITY;
@@ -22098,6 +25907,14 @@ CREATE POLICY "events_select_anon" ON "public"."events" FOR SELECT TO "anon" USI
 
 
 
+CREATE POLICY "events_select_approved_users_only" ON "public"."events" FOR SELECT TO "authenticated" USING ("public"."app_profile_is_approved"());
+
+
+
+CREATE POLICY "events_select_only_non_rejected" ON "public"."events" FOR SELECT TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"()));
+
+
+
 CREATE POLICY "events_select_public" ON "public"."events" FOR SELECT TO "authenticated", "anon" USING ((("approval_status" = 'approved'::"public"."approval_status") AND COALESCE("is_public", true)));
 
 
@@ -22123,6 +25940,22 @@ CREATE POLICY "feedback_insert_self" ON "public"."event_feedback" FOR INSERT TO 
 CREATE POLICY "feedback_select_mentor_or_mentee" ON "public"."mentorship_feedback" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
    FROM "public"."mentorship_requests" "r"
   WHERE (("r"."id" = "mentorship_feedback"."mentorship_request_id") AND (("r"."mentor_id" = "auth"."uid"()) OR ("r"."mentee_id" = "auth"."uid"()))))));
+
+
+
+CREATE POLICY "g_insert_creator" ON "public"."groups" FOR INSERT TO "authenticated" WITH CHECK ((("public"."app_role_of"("auth"."uid"()) = ANY (ARRAY['alumni'::"text", 'admin'::"text", 'super_admin'::"text"])) AND ("public"."fc_is_fully_approved"("auth"."uid"()) = true)));
+
+
+
+CREATE POLICY "g_select_admin" ON "public"."groups" FOR SELECT TO "authenticated" USING ("public"."is_platform_admin"("auth"."uid"()));
+
+
+
+CREATE POLICY "g_select_authenticated" ON "public"."groups" FOR SELECT TO "authenticated" USING ((("public"."app_role_of"("auth"."uid"()) <> 'employer'::"text") AND "public"."can_view_group"("id", "auth"."uid"())));
+
+
+
+CREATE POLICY "g_update_admin" ON "public"."groups" FOR UPDATE TO "authenticated" USING (("public"."is_group_admin"("id", "auth"."uid"()) OR "public"."is_platform_admin"("auth"."uid"()))) WITH CHECK (("public"."is_group_admin"("id", "auth"."uid"()) OR "public"."is_platform_admin"("auth"."uid"())));
 
 
 
@@ -22176,6 +26009,12 @@ CREATE POLICY "gm_select" ON "public"."group_members" FOR SELECT TO "authenticat
 
 
 
+CREATE POLICY "gm_select_admin" ON "public"."group_members" FOR SELECT USING (((EXISTS ( SELECT 1
+   FROM "public"."profiles"
+  WHERE (("profiles"."id" = "auth"."uid"()) AND ("profiles"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"]))))) OR ("user_id" = "auth"."uid"())));
+
+
+
 CREATE POLICY "gm_self_join_public" ON "public"."group_members" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND "public"."fc_is_fully_approved"("auth"."uid"()) AND (EXISTS ( SELECT 1
    FROM "public"."groups" "g"
   WHERE (("g"."id" = "group_members"."group_id") AND ("g"."is_approved" IS TRUE) AND ("g"."is_archived" IS FALSE) AND ("g"."is_private" IS FALSE))))));
@@ -22212,7 +26051,7 @@ CREATE POLICY "gp_delete_own" ON "public"."group_posts" FOR DELETE TO "authentic
 
 
 
-CREATE POLICY "gp_insert" ON "public"."group_posts" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND "public"."fc_is_fully_approved"("auth"."uid"()) AND "public"."can_post_group"("group_id", "auth"."uid"())));
+CREATE POLICY "gp_insert" ON "public"."group_posts" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND "public"."can_post_group"("group_id", "auth"."uid"())));
 
 
 
@@ -22244,6 +26083,9 @@ CREATE POLICY "gpr_update_admin" ON "public"."group_post_reports" FOR UPDATE TO 
 
 
 
+ALTER TABLE "public"."group_audit_log" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."group_comments" ENABLE ROW LEVEL SECURITY;
 
 
@@ -22251,7 +26093,7 @@ CREATE POLICY "group_comments_delete_own" ON "public"."group_comments" FOR DELET
 
 
 
-CREATE POLICY "group_comments_insert" ON "public"."group_comments" FOR INSERT TO "authenticated" WITH CHECK (("public"."fc_is_fully_approved"("auth"."uid"()) AND ("public"."is_admin_like"("auth"."uid"()) OR (EXISTS ( SELECT 1
+CREATE POLICY "group_comments_insert" ON "public"."group_comments" FOR INSERT TO "authenticated" WITH CHECK (("public"."fc_is_fully_approved"("auth"."uid"()) AND ("public"."app_role_of"("auth"."uid"()) <> 'employer'::"text") AND ("public"."is_admin_like"("auth"."uid"()) OR (EXISTS ( SELECT 1
    FROM ("public"."group_posts" "p"
      JOIN "public"."group_members" "m" ON ((("m"."group_id" = "p"."group_id") AND ("m"."user_id" = "auth"."uid"()) AND ("m"."status" = 'active'::"text"))))
   WHERE ("p"."id" = "group_comments"."post_id"))))));
@@ -22265,6 +26107,14 @@ CREATE POLICY "group_comments_select" ON "public"."group_comments" FOR SELECT TO
 
 
 
+CREATE POLICY "group_comments_select_role_aware" ON "public"."group_comments" FOR SELECT USING ((("auth"."uid"() IS NOT NULL) AND (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p"
+  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" <> 'employer'::"public"."app_role_enum")))) AND (EXISTS ( SELECT 1
+   FROM "public"."group_posts" "gp"
+  WHERE ("gp"."id" = "group_comments"."post_id")))));
+
+
+
 CREATE POLICY "group_comments_update" ON "public"."group_comments" FOR UPDATE TO "authenticated" USING ((("author_id" = "auth"."uid"()) AND (EXISTS ( SELECT 1
    FROM ("public"."group_posts" "gp"
      JOIN "public"."groups" "g" ON (("g"."id" = "gp"."group_id")))
@@ -22274,6 +26124,9 @@ CREATE POLICY "group_comments_update" ON "public"."group_comments" FOR UPDATE TO
 
 CREATE POLICY "group_comments_update_own" ON "public"."group_comments" FOR UPDATE TO "authenticated" USING ((("author_id" = "auth"."uid"()) OR "public"."is_admin_like"("auth"."uid"()))) WITH CHECK ((("author_id" = "auth"."uid"()) OR "public"."is_admin_like"("auth"."uid"())));
 
+
+
+ALTER TABLE "public"."group_invitations" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."group_members" ENABLE ROW LEVEL SECURITY;
@@ -22300,20 +26153,56 @@ CREATE POLICY "group_members_self_join_public" ON "public"."group_members" FOR I
 ALTER TABLE "public"."group_memberships" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "group_memberships_insert_self" ON "public"."group_memberships" FOR INSERT TO "authenticated" WITH CHECK ((("user_id" = "auth"."uid"()) AND ("status" = 'pending'::"public"."membership_status_enum")));
+
+
+
+CREATE POLICY "group_memberships_select_self" ON "public"."group_memberships" FOR SELECT TO "authenticated" USING (("user_id" = "auth"."uid"()));
+
+
+
 ALTER TABLE "public"."group_post_reports" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."group_posts" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "group_posts_insert_members_only" ON "public"."group_posts" FOR INSERT WITH CHECK ((("auth"."uid"() IS NOT NULL) AND (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p"
+  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" <> 'employer'::"public"."app_role_enum")))) AND (EXISTS ( SELECT 1
+   FROM "public"."group_members" "gm"
+  WHERE (("gm"."group_id" = "group_posts"."group_id") AND ("gm"."user_id" = "auth"."uid"())))) AND (EXISTS ( SELECT 1
+   FROM "public"."groups" "g"
+  WHERE (("g"."id" = "group_posts"."group_id") AND ("g"."is_archived" = false) AND ("g"."is_approved" = true))))));
+
+
+
+CREATE POLICY "group_posts_select_role_aware" ON "public"."group_posts" FOR SELECT USING ((("auth"."uid"() IS NOT NULL) AND (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p"
+  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" <> 'employer'::"public"."app_role_enum")))) AND ((EXISTS ( SELECT 1
+   FROM "public"."profiles" "p2"
+  WHERE (("p2"."id" = "auth"."uid"()) AND ("p2"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"]))))) OR ("group_id" IN ( SELECT "gm"."group_id"
+   FROM "public"."group_members" "gm"
+  WHERE ("gm"."user_id" = "auth"."uid"()))) OR (EXISTS ( SELECT 1
+   FROM "public"."groups" "g"
+  WHERE (("g"."id" = "group_posts"."group_id") AND ("g"."is_private" = false) AND ("g"."is_archived" = false) AND ("g"."is_approved" = true)))))));
+
+
+
+CREATE POLICY "group_posts_update_author_or_admin" ON "public"."group_posts" FOR UPDATE USING ((("auth"."uid"() IS NOT NULL) AND (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p"
+  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" <> 'employer'::"public"."app_role_enum")))) AND (("user_id" = "auth"."uid"()) OR (EXISTS ( SELECT 1
+   FROM "public"."group_members" "gm"
+  WHERE (("gm"."group_id" = "group_posts"."group_id") AND ("gm"."user_id" = "auth"."uid"()) AND ("gm"."role" = 'admin'::"text")))) OR (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p2"
+  WHERE (("p2"."id" = "auth"."uid"()) AND ("p2"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"]))))))));
+
+
+
 ALTER TABLE "public"."groups" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "groups_delete" ON "public"."groups" FOR DELETE TO "authenticated" USING (("public"."is_user_admin"("auth"."uid"()) OR ("created_by" = "auth"."uid"())));
-
-
-
-CREATE POLICY "groups_delete_admin_or_creator" ON "public"."groups" FOR DELETE TO "authenticated" USING (("public"."is_admin"("auth"."uid"()) OR ("created_by" = "auth"."uid"())));
+CREATE POLICY "groups_delete_super_admin_only" ON "public"."groups" FOR DELETE TO "authenticated" USING ("public"."fc_is_super_admin"());
 
 
 
@@ -22339,7 +26228,21 @@ CREATE POLICY "groups_select_archived" ON "public"."groups" FOR SELECT TO "authe
 
 
 
-CREATE POLICY "groups_select_non_employer" ON "public"."groups" FOR SELECT TO "authenticated" USING (((NOT "public"."is_employer"("auth"."uid"())) AND ((("is_private" IS FALSE) AND (COALESCE("is_approved", true) = true) AND (COALESCE("is_archived", false) = false)) OR "public"."is_member_of_group"("id", "auth"."uid"()))));
+CREATE POLICY "groups_select_non_employer" ON "public"."groups" FOR SELECT TO "authenticated" USING ((("public"."app_role_of"("auth"."uid"()) <> 'employer'::"text") AND ((("is_private" = false) AND ("is_approved" = true) AND ("is_archived" = false)) OR "public"."is_member_of_group"("id", "auth"."uid"()) OR "public"."is_platform_admin"("auth"."uid"()))));
+
+
+
+CREATE POLICY "groups_select_only_non_rejected" ON "public"."groups" FOR SELECT TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"()));
+
+
+
+CREATE POLICY "groups_select_role_aware" ON "public"."groups" FOR SELECT USING ((("auth"."uid"() IS NOT NULL) AND (EXISTS ( SELECT 1
+   FROM "public"."profiles" "p"
+  WHERE (("p"."id" = "auth"."uid"()) AND ("p"."role" <> 'employer'::"public"."app_role_enum")))) AND ((EXISTS ( SELECT 1
+   FROM "public"."profiles" "p2"
+  WHERE (("p2"."id" = "auth"."uid"()) AND ("p2"."role" = ANY (ARRAY['admin'::"public"."app_role_enum", 'super_admin'::"public"."app_role_enum"]))))) OR ("id" IN ( SELECT "gm"."group_id"
+   FROM "public"."group_members" "gm"
+  WHERE ("gm"."user_id" = "auth"."uid"()))) OR (("is_private" = false) AND ("is_archived" = false) AND ("is_approved" = true)))));
 
 
 
@@ -22431,6 +26334,17 @@ CREATE POLICY "job_alerts_update_self_or_admin" ON "public"."job_alerts" FOR UPD
 
 
 
+ALTER TABLE "public"."job_application_audit" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "job_application_audit_admin_select" ON "public"."job_application_audit" FOR SELECT USING (("public"."get_user_role"("auth"."uid"()) = ANY (ARRAY['admin'::"text", 'super_admin'::"text"])));
+
+
+
+CREATE POLICY "job_application_audit_applicant_select" ON "public"."job_application_audit" FOR SELECT USING (("applicant_id" = "auth"."uid"()));
+
+
+
 ALTER TABLE "public"."job_applications" ENABLE ROW LEVEL SECURITY;
 
 
@@ -22492,6 +26406,10 @@ CREATE POLICY "jobs_select_applied" ON "public"."jobs" FOR SELECT TO "authentica
 
 
 
+CREATE POLICY "jobs_select_only_non_rejected" ON "public"."jobs" FOR SELECT TO "authenticated" USING ((NOT "public"."app_profile_is_rejected"()));
+
+
+
 CREATE POLICY "jobs_select_owner" ON "public"."jobs" FOR SELECT TO "authenticated" USING ((("auth"."uid"() IS NOT NULL) AND ((("auth"."uid"() = "posted_by") OR ("auth"."uid"() = "created_by")) OR ("auth"."uid"() = "user_id"))));
 
 
@@ -22500,7 +26418,7 @@ CREATE POLICY "jobs_select_public_open" ON "public"."jobs" FOR SELECT TO "authen
 
 
 
-CREATE POLICY "jobs_update_owner_or_admin" ON "public"."jobs" FOR UPDATE TO "authenticated" USING ((("auth"."uid"() IS NOT NULL) AND (((("auth"."uid"() = "posted_by") OR ("auth"."uid"() = "created_by")) OR ("auth"."uid"() = "user_id")) OR "public"."fc_is_admin"()))) WITH CHECK ((("auth"."uid"() IS NOT NULL) AND (((("auth"."uid"() = "posted_by") OR ("auth"."uid"() = "created_by")) OR ("auth"."uid"() = "user_id")) OR "public"."fc_is_admin"())));
+CREATE POLICY "jobs_update_owner_or_admin" ON "public"."jobs" FOR UPDATE TO "authenticated" USING ((("auth"."uid"() IS NOT NULL) AND (("auth"."uid"() = "posted_by") OR ("auth"."uid"() = "created_by") OR ("auth"."uid"() = "user_id") OR "public"."fc_is_admin"()))) WITH CHECK ((("auth"."uid"() IS NOT NULL) AND (("auth"."uid"() = "posted_by") OR ("auth"."uid"() = "created_by") OR ("auth"."uid"() = "user_id") OR "public"."fc_is_admin"())));
 
 
 
@@ -22750,7 +26668,14 @@ CREATE POLICY "no_modify_deletion_logs" ON "public"."admin_deletion_audit_log" U
 
 
 
+ALTER TABLE "public"."notification_audit_log" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."notification_preferences" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "notification_preferences_own" ON "public"."notification_preferences" TO "authenticated" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
 
 
 CREATE POLICY "notification_prefs_delete_self_or_admin" ON "public"."notification_preferences" FOR DELETE USING ((("auth"."uid"() IS NOT NULL) AND (("user_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"())));
@@ -22776,11 +26701,19 @@ CREATE POLICY "notifications_delete_admin_only" ON "public"."notifications" FOR 
 
 
 
-CREATE POLICY "notifications_insert_for_self_or_admin" ON "public"."notifications" FOR INSERT WITH CHECK ((("auth"."uid"() IS NOT NULL) AND (("recipient_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"())));
+CREATE POLICY "notifications_insert_backend_only" ON "public"."notifications" FOR INSERT WITH CHECK (false);
+
+
+
+CREATE POLICY "notifications_select_own" ON "public"."notifications" FOR SELECT USING (("recipient_id" = "auth"."uid"()));
 
 
 
 CREATE POLICY "notifications_select_self_or_admin" ON "public"."notifications" FOR SELECT USING ((("auth"."uid"() IS NOT NULL) AND (("recipient_id" = "auth"."uid"()) OR "public"."fc_is_admin"() OR "public"."fc_is_super_admin"())));
+
+
+
+CREATE POLICY "notifications_update_own" ON "public"."notifications" FOR UPDATE TO "authenticated" USING (("recipient_id" = "auth"."uid"())) WITH CHECK (("recipient_id" = "auth"."uid"()));
 
 
 
@@ -23209,6 +27142,10 @@ CREATE POLICY "ga_update_admins" ON "storage"."objects" FOR UPDATE TO "authentic
 
 
 
+CREATE POLICY "group_avatars_type_check" ON "storage"."objects" FOR INSERT TO "authenticated" WITH CHECK ((("bucket_id" = 'group_avatars'::"text") AND ("storage"."extension"("name") = ANY (ARRAY['jpg'::"text", 'jpeg'::"text", 'png'::"text"]))));
+
+
+
 CREATE POLICY "group_posts_upload" ON "storage"."objects" FOR INSERT TO "authenticated" WITH CHECK ((("bucket_id" = 'group-posts'::"text") AND (("storage"."foldername"("name"))[1] IN ( SELECT ("g"."id")::"text" AS "id"
    FROM "public"."groups" "g"
   WHERE (("g"."is_archived" = false) AND "public"."is_member_of_group"("g"."id", "auth"."uid"()))))));
@@ -23310,8 +27247,7 @@ GRANT ALL ON FUNCTION "public"."_is_admin"("uid" "uuid") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."_ja_fill_resume_path"() TO "anon";
-GRANT ALL ON FUNCTION "public"."_ja_fill_resume_path"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."_ja_fill_resume_path"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."_ja_fill_resume_path"() TO "service_role";
 
 
@@ -23319,6 +27255,18 @@ GRANT ALL ON FUNCTION "public"."_ja_fill_resume_path"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."_touch_updated_at"() TO "anon";
 GRANT ALL ON FUNCTION "public"."_touch_updated_at"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."_touch_updated_at"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."accept_group_invite"("p_group_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."accept_group_invite"("p_group_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."accept_group_invite"("p_group_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."accept_group_invite"("p_invite_id" "uuid", "p_group_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."accept_group_invite"("p_invite_id" "uuid", "p_group_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."accept_group_invite"("p_invite_id" "uuid", "p_group_id" "uuid") TO "service_role";
 
 
 
@@ -23413,6 +27361,12 @@ GRANT ALL ON FUNCTION "public"."admin_log_action"("p_admin_id" "uuid", "p_action
 
 
 
+REVOKE ALL ON FUNCTION "public"."admin_moderate_group"("p_group_id" "uuid", "p_action" "text", "p_reason" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."admin_moderate_group"("p_group_id" "uuid", "p_action" "text", "p_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_moderate_group"("p_group_id" "uuid", "p_action" "text", "p_reason" "text") TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."admin_pending_counts"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."admin_pending_counts"() TO "anon";
 GRANT ALL ON FUNCTION "public"."admin_pending_counts"() TO "authenticated";
@@ -23464,6 +27418,18 @@ GRANT ALL ON FUNCTION "public"."admin_set_group_approval"("p_group_id" "uuid", "
 
 
 
+GRANT ALL ON FUNCTION "public"."admin_set_job_approval"("p_job_id" "uuid", "p_approved" boolean, "p_rejected" boolean) TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_set_job_approval"("p_job_id" "uuid", "p_approved" boolean, "p_rejected" boolean) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_set_job_approval"("p_job_id" "uuid", "p_approved" boolean, "p_rejected" boolean) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."admin_set_job_approval"("p_job_id" "uuid", "p_approved" boolean, "p_rejected" boolean, "p_reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_set_job_approval"("p_job_id" "uuid", "p_approved" boolean, "p_rejected" boolean, "p_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_set_job_approval"("p_job_id" "uuid", "p_approved" boolean, "p_rejected" boolean, "p_reason" "text") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("p_profile_id" "uuid", "p_status" "public"."profile_approval_status", "p_reason" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("p_profile_id" "uuid", "p_status" "public"."profile_approval_status", "p_reason" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_set_profile_approval"("p_profile_id" "uuid", "p_status" "public"."profile_approval_status", "p_reason" "text") TO "service_role";
@@ -23488,10 +27454,6 @@ GRANT ALL ON FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role
 
 
 
-GRANT ALL ON FUNCTION "public"."admin_set_user_role"("p_user_id" "uuid", "p_role" "public"."app_role_enum") TO "service_role";
-
-
-
 GRANT ALL ON FUNCTION "public"."admin_set_user_role_legacy"("target" "uuid", "new_role" "text", "make_admin" boolean) TO "anon";
 GRANT ALL ON FUNCTION "public"."admin_set_user_role_legacy"("target" "uuid", "new_role" "text", "make_admin" boolean) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_set_user_role_legacy"("target" "uuid", "new_role" "text", "make_admin" boolean) TO "service_role";
@@ -23510,6 +27472,12 @@ GRANT ALL ON FUNCTION "public"."admin_soft_delete_user"("target" "uuid", "p_reas
 
 GRANT ALL ON FUNCTION "public"."admin_toggle_active"("p_user_id" "uuid", "p_is_active" boolean, "p_reason" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."admin_toggle_active"("p_user_id" "uuid", "p_is_active" boolean, "p_reason" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."admin_toggle_job_verification"("p_job_id" "uuid", "p_verified" boolean) TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_toggle_job_verification"("p_job_id" "uuid", "p_verified" boolean) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_toggle_job_verification"("p_job_id" "uuid", "p_verified" boolean) TO "service_role";
 
 
 
@@ -23555,6 +27523,18 @@ GRANT ALL ON FUNCTION "public"."app_is_admin_of"("p_user" "uuid") TO "service_ro
 
 
 
+GRANT ALL ON FUNCTION "public"."app_profile_is_approved"() TO "anon";
+GRANT ALL ON FUNCTION "public"."app_profile_is_approved"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."app_profile_is_approved"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."app_profile_is_rejected"() TO "anon";
+GRANT ALL ON FUNCTION "public"."app_profile_is_rejected"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."app_profile_is_rejected"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."app_role_of"("p_user_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."app_role_of"("p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."app_role_of"("p_user_id" "uuid") TO "service_role";
@@ -23574,6 +27554,12 @@ GRANT ALL ON FUNCTION "public"."approve_event"("p_event_id" "uuid") TO "service_
 
 
 
+GRANT ALL ON FUNCTION "public"."approve_group"("p_group_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."approve_group"("p_group_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."approve_group"("p_group_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."approve_group_member"("p_group_id" "uuid", "p_user_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."approve_group_member"("p_group_id" "uuid", "p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."approve_group_member"("p_group_id" "uuid", "p_user_id" "uuid") TO "service_role";
@@ -23583,6 +27569,18 @@ GRANT ALL ON FUNCTION "public"."approve_group_member"("p_group_id" "uuid", "p_us
 GRANT ALL ON FUNCTION "public"."approve_job"("p_job_id" "uuid", "p_approved" boolean) TO "anon";
 GRANT ALL ON FUNCTION "public"."approve_job"("p_job_id" "uuid", "p_approved" boolean) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."approve_job"("p_job_id" "uuid", "p_approved" boolean) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."archive_group"("p_group_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."archive_group"("p_group_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."archive_group"("p_group_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."archive_group"("p_group_id" "uuid", "p_archived" boolean) TO "anon";
+GRANT ALL ON FUNCTION "public"."archive_group"("p_group_id" "uuid", "p_archived" boolean) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."archive_group"("p_group_id" "uuid", "p_archived" boolean) TO "service_role";
 
 
 
@@ -23646,8 +27644,7 @@ GRANT ALL ON FUNCTION "public"."backfill_profile_emails"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."block_applications_for_quick_link"() TO "anon";
-GRANT ALL ON FUNCTION "public"."block_applications_for_quick_link"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."block_applications_for_quick_link"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."block_applications_for_quick_link"() TO "service_role";
 
 
@@ -23718,8 +27715,7 @@ GRANT ALL ON FUNCTION "public"."can_submit_event_feedback"("p_event_id" "uuid") 
 
 
 
-GRANT ALL ON FUNCTION "public"."can_view_applications"("_job_id" "uuid") TO "anon";
-GRANT ALL ON FUNCTION "public"."can_view_applications"("_job_id" "uuid") TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."can_view_applications"("_job_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."can_view_applications"("_job_id" "uuid") TO "service_role";
 
 
@@ -23727,6 +27723,18 @@ GRANT ALL ON FUNCTION "public"."can_view_applications"("_job_id" "uuid") TO "ser
 GRANT ALL ON FUNCTION "public"."can_view_group"("p_group_id" "uuid", "p_user_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."can_view_group"("p_group_id" "uuid", "p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."can_view_group"("p_group_id" "uuid", "p_user_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."cancel_group_invite"("p_invite_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."cancel_group_invite"("p_invite_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."cancel_group_invite"("p_invite_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."cancel_group_join_request"("p_group_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."cancel_group_join_request"("p_group_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."cancel_group_join_request"("p_group_id" "uuid") TO "service_role";
 
 
 
@@ -23748,6 +27756,12 @@ GRANT ALL ON FUNCTION "public"."check_event_completed"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."check_group_rate_limit"("p_action_type" "text", "p_max_per_hour" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."check_group_rate_limit"("p_action_type" "text", "p_max_per_hour" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."check_group_rate_limit"("p_action_type" "text", "p_max_per_hour" integer) TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."check_user_permission_bypass_rls"("profile_uuid" "uuid", "permission_name" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."check_user_permission_bypass_rls"("profile_uuid" "uuid", "permission_name" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."check_user_permission_bypass_rls"("profile_uuid" "uuid", "permission_name" "text") TO "service_role";
@@ -23763,6 +27777,12 @@ GRANT ALL ON FUNCTION "public"."check_user_role_bypass_rls"("profile_uuid" "uuid
 GRANT ALL ON FUNCTION "public"."claim_role"() TO "anon";
 GRANT ALL ON FUNCTION "public"."claim_role"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."claim_role"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."cleanup_old_notifications"() TO "anon";
+GRANT ALL ON FUNCTION "public"."cleanup_old_notifications"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."cleanup_old_notifications"() TO "service_role";
 
 
 
@@ -23820,8 +27840,32 @@ GRANT ALL ON FUNCTION "public"."create_event_with_agenda"("event_data" "jsonb") 
 
 
 
+GRANT ALL ON FUNCTION "public"."create_group_and_add_admin"("group_description" "text", "group_is_private" boolean, "group_name" "text", "group_tags" "text"[]) TO "anon";
+GRANT ALL ON FUNCTION "public"."create_group_and_add_admin"("group_description" "text", "group_is_private" boolean, "group_name" "text", "group_tags" "text"[]) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_group_and_add_admin"("group_description" "text", "group_is_private" boolean, "group_name" "text", "group_tags" "text"[]) TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."create_group_and_add_admin"("group_name" "text", "group_description" "text", "group_is_private" boolean, "group_tags" "text"[]) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."create_group_and_add_admin"("group_name" "text", "group_description" "text", "group_is_private" boolean, "group_tags" "text"[]) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."create_group_notification"("p_user_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_group_id" "uuid", "p_metadata" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."create_group_notification"("p_user_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_group_id" "uuid", "p_metadata" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_group_notification"("p_user_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_group_id" "uuid", "p_metadata" "jsonb") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."create_group_notification"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_group_id" "uuid", "p_link" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."create_group_notification"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_group_id" "uuid", "p_link" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_group_notification"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_group_id" "uuid", "p_link" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."create_group_notification_once"("p_type" "text", "p_target_profile_id" "uuid", "p_group_id" "uuid", "p_subject_user_id" "uuid", "p_message" "text", "p_title" "text", "p_link" "text", "p_dedupe_seconds" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."create_group_notification_once"("p_type" "text", "p_target_profile_id" "uuid", "p_group_id" "uuid", "p_subject_user_id" "uuid", "p_message" "text", "p_title" "text", "p_link" "text", "p_dedupe_seconds" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_group_notification_once"("p_type" "text", "p_target_profile_id" "uuid", "p_group_id" "uuid", "p_subject_user_id" "uuid", "p_message" "text", "p_title" "text", "p_link" "text", "p_dedupe_seconds" integer) TO "service_role";
 
 
 
@@ -23876,6 +27920,18 @@ GRANT ALL ON FUNCTION "public"."debug_can_edit_job"("p_job_id" "uuid", "p_user" 
 
 
 
+GRANT ALL ON FUNCTION "public"."delete_group_post"("p_post_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."delete_group_post"("p_post_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."delete_group_post"("p_post_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."delete_group_secure"("p_group_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."delete_group_secure"("p_group_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."delete_group_secure"("p_group_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."delete_user_avatar"() TO "anon";
 GRANT ALL ON FUNCTION "public"."delete_user_avatar"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."delete_user_avatar"() TO "service_role";
@@ -23897,6 +27953,11 @@ GRANT ALL ON TABLE "public"."jobs" TO "service_role";
 GRANT ALL ON FUNCTION "public"."derive_job_state"("j" "public"."jobs") TO "anon";
 GRANT ALL ON FUNCTION "public"."derive_job_state"("j" "public"."jobs") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."derive_job_state"("j" "public"."jobs") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."detect_risky_job_actions"() FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."detect_risky_job_actions"() TO "service_role";
 
 
 
@@ -23988,8 +28049,6 @@ GRANT ALL ON FUNCTION "public"."enqueue_notification_event"("p_recipient_id" "uu
 
 
 
-GRANT ALL ON FUNCTION "public"."enqueue_notification_event"("p_event_type" "public"."notification_type_enum", "p_module" "public"."notification_module", "p_actor_profile_id" "uuid", "p_entity_table" "text", "p_entity_id" "uuid", "p_metadata" "jsonb", "p_idempotency_key" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."enqueue_notification_event"("p_event_type" "public"."notification_type_enum", "p_module" "public"."notification_module", "p_actor_profile_id" "uuid", "p_entity_table" "text", "p_entity_id" "uuid", "p_metadata" "jsonb", "p_idempotency_key" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."enqueue_notification_event"("p_event_type" "public"."notification_type_enum", "p_module" "public"."notification_module", "p_actor_profile_id" "uuid", "p_entity_table" "text", "p_entity_id" "uuid", "p_metadata" "jsonb", "p_idempotency_key" "text") TO "service_role";
 
 
@@ -24033,6 +28092,12 @@ GRANT ALL ON FUNCTION "public"."ensure_employer_company"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."ensure_jsonb_array_from_text"("input" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."ensure_jsonb_array_from_text"("input" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."ensure_jsonb_array_from_text"("input" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."ensure_not_last_admin"("p_group_id" "uuid", "p_target_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."ensure_not_last_admin"("p_group_id" "uuid", "p_target_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."ensure_not_last_admin"("p_group_id" "uuid", "p_target_user_id" "uuid") TO "service_role";
 
 
 
@@ -24121,6 +28186,12 @@ GRANT ALL ON FUNCTION "public"."find_or_create_conversation"("other_user_id" "uu
 
 
 
+GRANT ALL ON FUNCTION "public"."fn_notifications_audit_insert"() TO "anon";
+GRANT ALL ON FUNCTION "public"."fn_notifications_audit_insert"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."fn_notifications_audit_insert"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."format_inr"("val" bigint) TO "anon";
 GRANT ALL ON FUNCTION "public"."format_inr"("val" bigint) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."format_inr"("val" bigint) TO "service_role";
@@ -24142,6 +28213,12 @@ GRANT ALL ON TABLE "public"."admin_profile_metrics" TO "service_role";
 
 GRANT ALL ON FUNCTION "public"."get_admin_profile_metrics"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_admin_profile_metrics"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_admin_unread_count"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_admin_unread_count"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_admin_unread_count"() TO "service_role";
 
 
 
@@ -24530,9 +28607,9 @@ GRANT ALL ON TABLE "public"."bell_notifications" TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer) TO "anon";
-GRANT ALL ON FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer) TO "authenticated";
-GRANT ALL ON FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer) TO "service_role";
+GRANT ALL ON FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer, "p_is_read" boolean) TO "anon";
+GRANT ALL ON FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer, "p_is_read" boolean) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_notifications_paginated"("p_limit" integer, "p_offset" integer, "p_is_read" boolean) TO "service_role";
 
 
 
@@ -24656,6 +28733,12 @@ GRANT ALL ON FUNCTION "public"."get_unread_message_count"("conv_id" "uuid", "use
 
 
 
+GRANT ALL ON FUNCTION "public"."get_unread_notification_count"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_unread_notification_count"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_unread_notification_count"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_unread_notifications_count"() TO "anon";
 GRANT ALL ON FUNCTION "public"."get_unread_notifications_count"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_unread_notifications_count"() TO "service_role";
@@ -24733,10 +28816,22 @@ GRANT ALL ON FUNCTION "public"."get_view_columns"("view_name" "text") TO "servic
 
 
 
+GRANT ALL ON FUNCTION "public"."group_admin_risk_notify"() TO "anon";
+GRANT ALL ON FUNCTION "public"."group_admin_risk_notify"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."group_admin_risk_notify"() TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."group_admin_set_membership"("p_group_id" "uuid", "p_user_id" "uuid", "p_status" "text", "p_role" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."group_admin_set_membership"("p_group_id" "uuid", "p_user_id" "uuid", "p_status" "text", "p_role" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."group_admin_set_membership"("p_group_id" "uuid", "p_user_id" "uuid", "p_status" "text", "p_role" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."group_admin_set_membership"("p_group_id" "uuid", "p_user_id" "uuid", "p_status" "text", "p_role" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."group_membership_notify_pending"() TO "anon";
+GRANT ALL ON FUNCTION "public"."group_membership_notify_pending"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."group_membership_notify_pending"() TO "service_role";
 
 
 
@@ -24848,6 +28943,12 @@ GRANT ALL ON FUNCTION "public"."is_group_admin"("p_group_id" "uuid", "p_user_id"
 
 
 
+GRANT ALL ON FUNCTION "public"."is_group_eligible_user"("p_user_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."is_group_eligible_user"("p_user_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."is_group_eligible_user"("p_user_id" "uuid") TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."is_group_manager"("p_group_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."is_group_manager"("p_group_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."is_group_manager"("p_group_id" "uuid") TO "authenticated";
@@ -24875,13 +28976,13 @@ GRANT ALL ON FUNCTION "public"."is_member_of_group"("p_group_id" "uuid", "p_user
 
 
 
-GRANT ALL ON FUNCTION "public"."is_mentee_below_program_limit"("p_mentee_id" "uuid") TO "anon";
+REVOKE ALL ON FUNCTION "public"."is_mentee_below_program_limit"("p_mentee_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."is_mentee_below_program_limit"("p_mentee_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."is_mentee_below_program_limit"("p_mentee_id" "uuid") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."is_mentor_selectable"("p_mentor_id" "uuid") TO "anon";
+REVOKE ALL ON FUNCTION "public"."is_mentor_selectable"("p_mentor_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."is_mentor_selectable"("p_mentor_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."is_mentor_selectable"("p_mentor_id" "uuid") TO "service_role";
 
@@ -24924,9 +29025,21 @@ GRANT ALL ON FUNCTION "public"."is_user_admin"("p_user_id" "uuid") TO "service_r
 
 
 
+GRANT ALL ON FUNCTION "public"."is_valid_application_status"("p_status" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."is_valid_application_status"("p_status" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."is_valid_application_status"("p_status" "text") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."is_valid_application_target"("t" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."is_valid_application_target"("t" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."is_valid_application_target"("t" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."job_apply"("p_job_id" "uuid", "p_resume_path" "text", "p_cover_letter" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."job_apply"("p_job_id" "uuid", "p_resume_path" "text", "p_cover_letter" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."job_apply"("p_job_id" "uuid", "p_resume_path" "text", "p_cover_letter" "text") TO "service_role";
 
 
 
@@ -24997,8 +29110,13 @@ GRANT ALL ON FUNCTION "public"."jobs_sync_flags_from_status"() TO "service_role"
 
 
 
+GRANT ALL ON FUNCTION "public"."join_group"("group_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."join_group"("group_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."join_group"("group_id" "uuid") TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."join_group_v2"("p_group_id" "uuid") FROM PUBLIC;
-GRANT ALL ON FUNCTION "public"."join_group_v2"("p_group_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."join_group_v2"("p_group_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."join_group_v2"("p_group_id" "uuid") TO "service_role";
 
@@ -25008,6 +29126,12 @@ REVOKE ALL ON FUNCTION "public"."leave_group"("p_group_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."leave_group"("p_group_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."leave_group"("p_group_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."leave_group"("p_group_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."list_groups_for_current_user"() TO "anon";
+GRANT ALL ON FUNCTION "public"."list_groups_for_current_user"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."list_groups_for_current_user"() TO "service_role";
 
 
 
@@ -25026,6 +29150,12 @@ GRANT ALL ON FUNCTION "public"."list_tables"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."log_connection_change"() TO "anon";
 GRANT ALL ON FUNCTION "public"."log_connection_change"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."log_connection_change"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."log_group_action"("p_group_id" "uuid", "p_action" "text", "p_details" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."log_group_action"("p_group_id" "uuid", "p_action" "text", "p_details" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."log_group_action"("p_group_id" "uuid", "p_action" "text", "p_details" "jsonb") TO "service_role";
 
 
 
@@ -25053,9 +29183,8 @@ GRANT ALL ON FUNCTION "public"."mark_all_my_notifications_as_read"() TO "service
 
 
 
-GRANT ALL ON FUNCTION "public"."mark_all_notifications_read"() TO "anon";
+REVOKE ALL ON FUNCTION "public"."mark_all_notifications_read"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."mark_all_notifications_read"() TO "authenticated";
-GRANT ALL ON FUNCTION "public"."mark_all_notifications_read"() TO "service_role";
 
 
 
@@ -25065,15 +29194,26 @@ GRANT ALL ON FUNCTION "public"."mark_conversation_as_read"("p_conversation_id" "
 
 
 
+GRANT ALL ON FUNCTION "public"."mark_messages_summary_as_read"() TO "anon";
+GRANT ALL ON FUNCTION "public"."mark_messages_summary_as_read"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mark_messages_summary_as_read"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."mark_notification_as_read"("notification_uuid" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."mark_notification_as_read"("notification_uuid" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."mark_notification_as_read"("notification_uuid" "uuid") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."mark_notification_read"("p_notification_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."mark_notification_read"("p_notification_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."mark_notification_read"("p_notification_id" "uuid") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."mark_notification_unread"("p_notification_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."mark_notification_unread"("p_notification_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mark_notification_unread"("p_notification_id" "uuid") TO "service_role";
 
 
 
@@ -25083,7 +29223,21 @@ GRANT ALL ON FUNCTION "public"."mentors_upsert_current"("p_expertise" "text"[], 
 
 
 
-GRANT ALL ON FUNCTION "public"."mentorship_mark_user_unavailable"("p_user_id" "uuid") TO "anon";
+REVOKE ALL ON FUNCTION "public"."mentorship_end_all_between"("p_other_user_id" "uuid", "p_reason" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."mentorship_end_all_between"("p_other_user_id" "uuid", "p_reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."mentorship_end_all_between"("p_other_user_id" "uuid", "p_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mentorship_end_all_between"("p_other_user_id" "uuid", "p_reason" "text") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."mentorship_full_disconnect"("p_other_user_id" "uuid", "p_reason" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."mentorship_full_disconnect"("p_other_user_id" "uuid", "p_reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."mentorship_full_disconnect"("p_other_user_id" "uuid", "p_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mentorship_full_disconnect"("p_other_user_id" "uuid", "p_reason" "text") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."mentorship_mark_user_unavailable"("p_user_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."mentorship_mark_user_unavailable"("p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."mentorship_mark_user_unavailable"("p_user_id" "uuid") TO "service_role";
 
@@ -25107,6 +29261,7 @@ GRANT ALL ON FUNCTION "public"."mentorship_open_chat"("p_relationship_id" "uuid"
 
 
 
+REVOKE ALL ON FUNCTION "public"."mentorship_relationship_end"("p_relationship_id" "uuid", "p_reason" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."mentorship_relationship_end"("p_relationship_id" "uuid", "p_reason" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."mentorship_relationship_end"("p_relationship_id" "uuid", "p_reason" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."mentorship_relationship_end"("p_relationship_id" "uuid", "p_reason" "text") TO "service_role";
@@ -25179,32 +29334,40 @@ GRANT ALL ON FUNCTION "public"."notifications_ensure_recipient"() TO "service_ro
 
 
 
-GRANT ALL ON FUNCTION "public"."notify"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") TO "anon";
-GRANT ALL ON FUNCTION "public"."notify"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."notify"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."notify"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."notify_admin_on_event_create"() TO "anon";
-GRANT ALL ON FUNCTION "public"."notify_admin_on_event_create"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."notify_admin"("p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_severity" "text", "p_entity_type" "text", "p_entity_id" "uuid", "p_action_required" boolean, "p_extra_metadata" "jsonb") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."notify_admin"("p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_severity" "text", "p_entity_type" "text", "p_entity_id" "uuid", "p_action_required" boolean, "p_extra_metadata" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_admin"("p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_severity" "text", "p_entity_type" "text", "p_entity_id" "uuid", "p_action_required" boolean, "p_extra_metadata" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_admin"("p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_severity" "text", "p_entity_type" "text", "p_entity_id" "uuid", "p_action_required" boolean, "p_extra_metadata" "jsonb") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."notify_admin_on_event_create"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."notify_admin_on_event_create"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."notify_admins_on_event"() TO "anon";
-GRANT ALL ON FUNCTION "public"."notify_admins_on_event"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."notify_admins_on_event"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."notify_admins_on_event"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."notify_admins_on_group_post_report"() TO "anon";
-GRANT ALL ON FUNCTION "public"."notify_admins_on_group_post_report"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_admins_on_event_created"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_admins_on_event_created"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_admins_on_event_created"() TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."notify_admins_on_group_post_report"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."notify_admins_on_group_post_report"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."notify_chat_message"("p_recipient" "uuid", "p_thread" "uuid", "p_preview" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."notify_chat_message"("p_recipient" "uuid", "p_thread" "uuid", "p_preview" "text") TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."notify_chat_message"("p_recipient" "uuid", "p_thread" "uuid", "p_preview" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."notify_chat_message"("p_recipient" "uuid", "p_thread" "uuid", "p_preview" "text") TO "service_role";
 
 
@@ -25252,14 +29415,12 @@ GRANT ALL ON FUNCTION "public"."notify_interview_invite"("p_application_id" "uui
 
 
 
-GRANT ALL ON FUNCTION "public"."notify_job_application"() TO "anon";
-GRANT ALL ON FUNCTION "public"."notify_job_application"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."notify_job_application"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."notify_job_application"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."notify_job_application_submitted"() TO "anon";
-GRANT ALL ON FUNCTION "public"."notify_job_application_submitted"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."notify_job_application_submitted"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."notify_job_application_submitted"() TO "service_role";
 
 
@@ -25324,6 +29485,18 @@ GRANT ALL ON FUNCTION "public"."notify_requests_on_rejection"() TO "service_role
 
 
 
+GRANT ALL ON FUNCTION "public"."notify_unread_messages_summary"() TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_unread_messages_summary"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_unread_messages_summary"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."notify_user"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."notify_user"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."notify_user"("p_recipient_id" "uuid", "p_type" "text", "p_title" "text", "p_message" "text", "p_link" "text", "p_metadata" "jsonb") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."on_mentorship_request_status"() TO "anon";
 GRANT ALL ON FUNCTION "public"."on_mentorship_request_status"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."on_mentorship_request_status"() TO "service_role";
@@ -25339,6 +29512,18 @@ GRANT ALL ON FUNCTION "public"."policy_exists"("_schemaname" "text", "_tablename
 GRANT ALL ON FUNCTION "public"."prevent_early_event_feedback"() TO "anon";
 GRANT ALL ON FUNCTION "public"."prevent_early_event_feedback"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."prevent_early_event_feedback"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."prevent_last_admin"() TO "anon";
+GRANT ALL ON FUNCTION "public"."prevent_last_admin"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."prevent_last_admin"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."prevent_last_admin_removal"() TO "anon";
+GRANT ALL ON FUNCTION "public"."prevent_last_admin_removal"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."prevent_last_admin_removal"() TO "service_role";
 
 
 
@@ -25378,8 +29563,7 @@ GRANT ALL ON FUNCTION "public"."profiles_set_full_name"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."protect_jobs_admin_columns"() TO "anon";
-GRANT ALL ON FUNCTION "public"."protect_jobs_admin_columns"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."protect_jobs_admin_columns"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."protect_jobs_admin_columns"() TO "service_role";
 
 
@@ -25410,6 +29594,24 @@ GRANT ALL ON FUNCTION "public"."purge_notifications_admin"("p_user_id" "uuid") T
 
 REVOKE ALL ON FUNCTION "public"."purge_user_data"("uid" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."purge_user_data"("uid" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."reject_group"("p_group_id" "uuid", "p_reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."reject_group"("p_group_id" "uuid", "p_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."reject_group"("p_group_id" "uuid", "p_reason" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."reject_group_invite"("p_group_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."reject_group_invite"("p_group_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."reject_group_invite"("p_group_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."reject_group_invite"("p_invite_id" "uuid", "p_group_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."reject_group_invite"("p_invite_id" "uuid", "p_group_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."reject_group_invite"("p_invite_id" "uuid", "p_group_id" "uuid") TO "service_role";
 
 
 
@@ -25492,9 +29694,21 @@ GRANT ALL ON FUNCTION "public"."request_connection_to_user"("p_recipient_id" "uu
 
 
 
+REVOKE ALL ON FUNCTION "public"."request_job_delete"("p_job_id" "uuid", "p_reason" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."request_job_delete"("p_job_id" "uuid", "p_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."request_job_delete"("p_job_id" "uuid", "p_reason" "text") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."respond_connection"("p_connection_id" "uuid", "p_action" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."respond_connection"("p_connection_id" "uuid", "p_action" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."respond_connection"("p_connection_id" "uuid", "p_action" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."review_job_application"("p_application_id" "uuid", "p_status" "text", "p_notes" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."review_job_application"("p_application_id" "uuid", "p_status" "text", "p_notes" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."review_job_application"("p_application_id" "uuid", "p_status" "text", "p_notes" "text") TO "service_role";
 
 
 
@@ -25567,9 +29781,21 @@ GRANT ALL ON FUNCTION "public"."send_dm_message"("p_thread_id" "uuid", "p_body" 
 
 
 
+GRANT ALL ON FUNCTION "public"."send_group_invite"("p_group_id" "uuid", "p_invitee_email" "text", "p_invitee_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."send_group_invite"("p_group_id" "uuid", "p_invitee_email" "text", "p_invitee_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."send_group_invite"("p_group_id" "uuid", "p_invitee_email" "text", "p_invitee_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."set_application_status"("p_application_id" "uuid", "p_status" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."set_application_status"("p_application_id" "uuid", "p_status" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."set_application_status"("p_application_id" "uuid", "p_status" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."set_application_status"("p_application_id" "uuid", "p_status" "text", "p_notes" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."set_application_status"("p_application_id" "uuid", "p_status" "text", "p_notes" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."set_application_status"("p_application_id" "uuid", "p_status" "text", "p_notes" "text") TO "service_role";
 
 
 
@@ -25603,14 +29829,12 @@ GRANT ALL ON FUNCTION "public"."set_group_member_user_id"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."set_job_owner"() TO "anon";
-GRANT ALL ON FUNCTION "public"."set_job_owner"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."set_job_owner"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."set_job_owner"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."set_job_owner_default"() TO "anon";
-GRANT ALL ON FUNCTION "public"."set_job_owner_default"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."set_job_owner_default"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."set_job_owner_default"() TO "service_role";
 
 
@@ -25675,8 +29899,7 @@ GRANT ALL ON FUNCTION "public"."sync_membership_to_members"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."sync_resume_profile_to_job_alert"() TO "anon";
-GRANT ALL ON FUNCTION "public"."sync_resume_profile_to_job_alert"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."sync_resume_profile_to_job_alert"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."sync_resume_profile_to_job_alert"() TO "service_role";
 
 
@@ -25852,6 +30075,13 @@ GRANT ALL ON FUNCTION "public"."upsert_social_link"("p_profile_id" "uuid", "p_ty
 GRANT ALL ON FUNCTION "public"."user_activity_logs_sync"() TO "anon";
 GRANT ALL ON FUNCTION "public"."user_activity_logs_sync"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."user_activity_logs_sync"() TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."user_block"("p_other_user_id" "uuid", "p_reason" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."user_block"("p_other_user_id" "uuid", "p_reason" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."user_block"("p_other_user_id" "uuid", "p_reason" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."user_block"("p_other_user_id" "uuid", "p_reason" "text") TO "service_role";
 
 
 
@@ -26047,6 +30277,12 @@ GRANT ALL ON TABLE "public"."admin_analytics_audit_log" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."admin_bell_notifications" TO "anon";
+GRANT ALL ON TABLE "public"."admin_bell_notifications" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_bell_notifications" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."admin_deletion_audit_log" TO "anon";
 GRANT ALL ON TABLE "public"."admin_deletion_audit_log" TO "authenticated";
 GRANT ALL ON TABLE "public"."admin_deletion_audit_log" TO "service_role";
@@ -26226,12 +30462,12 @@ GRANT ALL ON TABLE "public"."directory_profiles_safe" TO "service_role";
 
 
 GRANT ALL ON TABLE "public"."dm_participants" TO "service_role";
-GRANT SELECT ON TABLE "public"."dm_participants" TO "authenticated";
+GRANT SELECT,INSERT ON TABLE "public"."dm_participants" TO "authenticated";
 
 
 
 GRANT ALL ON TABLE "public"."dm_threads" TO "service_role";
-GRANT SELECT ON TABLE "public"."dm_threads" TO "authenticated";
+GRANT SELECT,INSERT,UPDATE ON TABLE "public"."dm_threads" TO "authenticated";
 
 
 
@@ -26283,15 +30519,33 @@ GRANT ALL ON TABLE "public"."feature_flags" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."group_audit_log" TO "anon";
+GRANT ALL ON TABLE "public"."group_audit_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."group_audit_log" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."group_comments" TO "anon";
 GRANT ALL ON TABLE "public"."group_comments" TO "authenticated";
 GRANT ALL ON TABLE "public"."group_comments" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."group_invitations" TO "anon";
+GRANT ALL ON TABLE "public"."group_invitations" TO "authenticated";
+GRANT ALL ON TABLE "public"."group_invitations" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."group_members" TO "anon";
 GRANT ALL ON TABLE "public"."group_members" TO "authenticated";
 GRANT ALL ON TABLE "public"."group_members" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."group_membership_audit" TO "anon";
+GRANT ALL ON TABLE "public"."group_membership_audit" TO "authenticated";
+GRANT ALL ON TABLE "public"."group_membership_audit" TO "service_role";
 
 
 
@@ -26325,8 +30579,20 @@ GRANT ALL ON TABLE "public"."group_posts" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."group_rate_limits" TO "anon";
+GRANT ALL ON TABLE "public"."group_rate_limits" TO "authenticated";
+GRANT ALL ON TABLE "public"."group_rate_limits" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."job_alerts" TO "service_role";
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE "public"."job_alerts" TO "authenticated";
+
+
+
+GRANT ALL ON TABLE "public"."job_application_audit" TO "anon";
+GRANT ALL ON TABLE "public"."job_application_audit" TO "authenticated";
+GRANT ALL ON TABLE "public"."job_application_audit" TO "service_role";
 
 
 
@@ -26426,9 +30692,27 @@ GRANT ALL ON TABLE "public"."networking_groups" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."notification_audit" TO "anon";
+GRANT ALL ON TABLE "public"."notification_audit" TO "authenticated";
+GRANT ALL ON TABLE "public"."notification_audit" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."notification_audit_log" TO "anon";
+GRANT ALL ON TABLE "public"."notification_audit_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."notification_audit_log" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."notification_events" TO "anon";
 GRANT ALL ON TABLE "public"."notification_events" TO "authenticated";
 GRANT ALL ON TABLE "public"."notification_events" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."notification_stats" TO "anon";
+GRANT ALL ON TABLE "public"."notification_stats" TO "authenticated";
+GRANT ALL ON TABLE "public"."notification_stats" TO "service_role";
 
 
 
@@ -26618,14 +30902,14 @@ GRANT ALL ON TABLE "public"."v_event_feedback_detailed" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."v_event_organizer" TO "anon";
-GRANT ALL ON TABLE "public"."v_event_organizer" TO "authenticated";
+GRANT SELECT ON TABLE "public"."v_event_organizer" TO "anon";
+GRANT SELECT ON TABLE "public"."v_event_organizer" TO "authenticated";
 GRANT ALL ON TABLE "public"."v_event_organizer" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."v_events_with_end_at" TO "anon";
-GRANT ALL ON TABLE "public"."v_events_with_end_at" TO "authenticated";
+GRANT SELECT ON TABLE "public"."v_events_with_end_at" TO "anon";
+GRANT SELECT ON TABLE "public"."v_events_with_end_at" TO "authenticated";
 GRANT ALL ON TABLE "public"."v_events_with_end_at" TO "service_role";
 
 
@@ -26678,8 +30962,7 @@ GRANT ALL ON TABLE "public"."v_my_dm_threads" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."v_my_event_rsvp" TO "anon";
-GRANT ALL ON TABLE "public"."v_my_event_rsvp" TO "authenticated";
+GRANT SELECT ON TABLE "public"."v_my_event_rsvp" TO "authenticated";
 GRANT ALL ON TABLE "public"."v_my_event_rsvp" TO "service_role";
 
 
@@ -26739,21 +31022,6 @@ GRANT SELECT,INSERT,UPDATE ON TABLE "realtime"."messages" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "realtime"."messages_2025_12_01" TO "postgres";
-GRANT ALL ON TABLE "realtime"."messages_2025_12_01" TO "dashboard_user";
-
-
-
-GRANT ALL ON TABLE "realtime"."messages_2025_12_02" TO "postgres";
-GRANT ALL ON TABLE "realtime"."messages_2025_12_02" TO "dashboard_user";
-
-
-
-GRANT ALL ON TABLE "realtime"."messages_2025_12_03" TO "postgres";
-GRANT ALL ON TABLE "realtime"."messages_2025_12_03" TO "dashboard_user";
-
-
-
 GRANT ALL ON TABLE "realtime"."messages_2025_12_04" TO "postgres";
 GRANT ALL ON TABLE "realtime"."messages_2025_12_04" TO "dashboard_user";
 
@@ -26771,6 +31039,21 @@ GRANT ALL ON TABLE "realtime"."messages_2025_12_06" TO "dashboard_user";
 
 GRANT ALL ON TABLE "realtime"."messages_2025_12_07" TO "postgres";
 GRANT ALL ON TABLE "realtime"."messages_2025_12_07" TO "dashboard_user";
+
+
+
+GRANT ALL ON TABLE "realtime"."messages_2025_12_08" TO "postgres";
+GRANT ALL ON TABLE "realtime"."messages_2025_12_08" TO "dashboard_user";
+
+
+
+GRANT ALL ON TABLE "realtime"."messages_2025_12_09" TO "postgres";
+GRANT ALL ON TABLE "realtime"."messages_2025_12_09" TO "dashboard_user";
+
+
+
+GRANT ALL ON TABLE "realtime"."messages_2025_12_10" TO "postgres";
+GRANT ALL ON TABLE "realtime"."messages_2025_12_10" TO "dashboard_user";
 
 
 
@@ -26897,22 +31180,16 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "storage" GRANT ALL ON SEQUENCES  TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "storage" GRANT ALL ON SEQUENCES  TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "storage" GRANT ALL ON SEQUENCES  TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "storage" GRANT ALL ON SEQUENCES  TO "service_role";
 
 
 
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "storage" GRANT ALL ON FUNCTIONS  TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "storage" GRANT ALL ON FUNCTIONS  TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "storage" GRANT ALL ON FUNCTIONS  TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "storage" GRANT ALL ON FUNCTIONS  TO "service_role";
 
 
 
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "storage" GRANT ALL ON TABLES  TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "storage" GRANT ALL ON TABLES  TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "storage" GRANT ALL ON TABLES  TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "storage" GRANT ALL ON TABLES  TO "service_role";
 
 

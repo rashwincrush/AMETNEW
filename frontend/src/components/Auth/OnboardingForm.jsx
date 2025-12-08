@@ -116,10 +116,7 @@ export default function OnboardingForm() {
     // Job/company
     if (!form.company_name.trim()) errs.company_name = 'Company is required.';
     if (!form.current_job_title.trim()) errs.current_job_title = 'Current job title is required.';
-    // Avatar required: either existing in profile (pre-filled later) or new upload
-    if (!form.avatar_file && !user?.user_metadata?.avatar_url && !form.prefill_avatar_url) {
-      errs.avatar_file = 'Please upload a profile photo.';
-    }
+    // Avatar is optional: if provided, it will be uploaded via AvatarService
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -297,9 +294,8 @@ export default function OnboardingForm() {
             {errors.email && <p className="text-xs text-rose-600 mt-1">{errors.email}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700">Avatar *</label>
-            <input name="avatar_file" type="file" accept="image/*" onChange={onChange} className={`w-full ${errors.avatar_file ? 'border border-rose-400 rounded-lg px-2 py-1' : ''}`} />
-            {errors.avatar_file && <p className="text-xs text-rose-600 mt-1">{errors.avatar_file}</p>}
+            <label className="block text-sm font-medium text-slate-700">Avatar (optional)</label>
+            <input name="avatar_file" type="file" accept="image/*" onChange={onChange} className="w-full" />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700">Graduation Year *</label>

@@ -1648,7 +1648,7 @@ export default function GroupManage() {
           BLOCK 3: DANGER ZONE
           Contains: Archive Group, Leave Group - Collapsed by default for safety
           ═══════════════════════════════════════════════════════════════════════════ */}
-      <div className="mt-2">
+      <div className={`mt-2 ${activeTab !== 'settings' ? 'hidden lg:block' : ''}`}>
         <CollapsibleSection
           id="danger-zone"
           title="Danger Zone"

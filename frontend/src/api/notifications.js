@@ -1,12 +1,17 @@
 import { supabase, onPostgresChangesOnce } from '../utils/supabase';
 
 // Allowed types per spec
+// Keep this in sync with public.notifications chk_notifications_type and
+// any module-specific notification types we actually emit from the backend.
 export const ALLOWED_TYPES = new Set([
-  'system','connection','message',
-  'event','event_created','event_published','event_updated',
-  'job','job_posted','job_approved','job_applied',
-  'application','application_status',
-  'mentorship','group','alert',
+  'system', 'connection', 'message',
+  'event', 'event_created', 'event_published', 'event_updated',
+  'job', 'job_posted', 'job_approved', 'job_applied',
+  'application', 'application_status',
+  'mentorship',
+  // Groups
+  'group', 'group_join_request', 'group_membership_approved', 'group_membership_rejected', 'group_admin_risk',
+  'alert',
 ]);
 
 // ---------------------------------------------------------------------------

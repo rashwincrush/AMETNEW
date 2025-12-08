@@ -30,6 +30,11 @@ export const CANONICAL_NOTIFICATION_TYPES = [
   'group_membership_approved',
   'group_membership_rejected',
   'group_admin_risk',
+  'group_invite_received',
+  'group_invite_accepted',
+  'group_approved',
+  'group_rejected',
+  'group_deleted',
   'alert',
 ] as const;
 

@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import Avatar from '../common/Avatar';
 import { useAvatars } from '../../hooks/useAvatar';
 import logger from '../../utils/logger';
+import { getNotificationLink } from '../../api/notifications';
 
 const NotificationsPage = ({ currentUser }) => {
   const [notifications, setNotifications] = useState([]);
@@ -33,18 +34,19 @@ const NotificationsPage = ({ currentUser }) => {
 
     setLoading(true);
     try {
+      // Use bell_notifications view so we respect notification preferences
+      // and RLS based on recipient_id; no need to filter by user explicitly.
       let query = supabase
-        .from('notifications')
+        .from('bell_notifications')
         .select('*')
-        .eq('profile_id', currentUser.id)
         .order('created_at', { ascending: false });
-      
+
       if (activeTab === 'unread') {
         query = query.eq('is_read', false);
       } else if (activeTab === 'read') {
         query = query.eq('is_read', true);
       }
-      
+
       const { data, error } = await query;
 
       if (error) throw error;
@@ -370,12 +372,15 @@ const NotificationsPage = ({ currentUser }) => {
           ) : notifications.length > 0 ? (
             <div className="divide-y">
               {notifications.map(notification => (
-                <Link 
-                  key={notification.id}
-                  to={notification.link || '#'}
-                  className="block"
-                  onClick={() => !notification.is_read && markAsRead(notification.id)}
-                >
+                (() => {
+                  const safeLink = getNotificationLink(notification);
+                  return (
+                    <Link 
+                      key={notification.id}
+                      to={safeLink}
+                      className="block"
+                      onClick={() => !notification.is_read && markAsRead(notification.id)}
+                    >
                   <div className={`p-4 hover:bg-gray-50 ${!notification.is_read ? 'bg-ocean-50' : ''}`}>
                     <div className="flex justify-between">
                       <h3 className="font-medium text-gray-900">{notification.title}</h3>
@@ -383,7 +388,9 @@ const NotificationsPage = ({ currentUser }) => {
                     </div>
                     <p className="mt-1 text-gray-600">{notification.message}</p>
                   </div>
-                </Link>
+                    </Link>
+                  );
+                })()
               ))}
             </div>
           ) : (

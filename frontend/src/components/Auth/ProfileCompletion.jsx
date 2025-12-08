@@ -28,8 +28,9 @@ export default function ProfileCompletion() {
   const [success, setSuccess] = useState('');
 
   // DB-level required fields (also used by is_profile_complete)
+  // Avatar is optional: users can complete profile without a profile photo
   const required = useMemo(() => (
-    ['email','first_name','last_name','graduation_year','degree_program','company_name','job_title','avatar_url']
+    ['email','first_name','last_name','graduation_year','degree_program','company_name','job_title']
   ), []);
 
   const onChange = (e) => {
@@ -48,7 +49,6 @@ export default function ProfileCompletion() {
     if (!isNonEmpty(form.degree_program)) errs.push('degree_program');
     if (!isNonEmpty(form.company_name)) errs.push('company_name');
     if (!isNonEmpty(form.job_title)) errs.push('job_title');
-    if (!form.prefill_avatar_url && !form.avatar_file) errs.push('avatar_url');
     return errs;
   };
 
@@ -152,7 +152,7 @@ export default function ProfileCompletion() {
         <Field label="Current Position" name="job_title" placeholder="e.g., Chief Officer" />
 
         <div className="space-y-1">
-          <label className="block text-sm font-medium text-slate-700">Avatar <span className="text-rose-600">*</span></label>
+          <label className="block text-sm font-medium text-slate-700">Avatar (optional)</label>
           <input type="file" accept="image/*" onChange={(e)=> setForm((f)=>({ ...f, avatar_file: e.target.files?.[0] || null }))} className="w-full" />
           {form.prefill_avatar_url && <p className="text-xs text-slate-500">Existing avatar will be kept if you don't upload a new one.</p>}
         </div>

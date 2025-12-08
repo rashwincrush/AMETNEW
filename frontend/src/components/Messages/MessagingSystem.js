@@ -172,6 +172,7 @@ const MessagingSystem = () => {
       const inFilter = `in.(${batch.join(',')})`;
 
       ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_messages', filter: `thread_id=${inFilter}` }, () => debouncedRefresh());
+      ch.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dm_messages', filter: `thread_id=${inFilter}` }, () => debouncedRefresh());
       ch.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dm_threads', filter: `id=${inFilter}` }, () => debouncedRefresh());
       ch.subscribe();
     }
@@ -203,7 +204,8 @@ const MessagingSystem = () => {
       try {
         const params = new URLSearchParams(location.search || window.location.search);
         const threadIdParam = params.get('threadId');
-        const thread = threadIdParam || params.get('thread');
+        const conversationIdParam = params.get('conversationId');
+        const thread = threadIdParam || conversationIdParam || params.get('thread');
         const peer = params.get('peer');
         const src = params.get('source');
         setSource(src || null);
@@ -224,6 +226,7 @@ const MessagingSystem = () => {
               const params2 = new URLSearchParams(window.location.search);
               params2.set('thread', found.thread_id);
               params2.delete('threadId');
+              params2.delete('conversationId');
               params2.delete('peer');
               const newUrl = `${window.location.pathname}?${params2.toString()}`;
               window.history.replaceState({}, '', newUrl);
@@ -240,6 +243,7 @@ const MessagingSystem = () => {
               const params2 = new URLSearchParams(window.location.search);
               params2.set('thread', existing.thread_id);
               params2.delete('threadId');
+              params2.delete('conversationId');
               params2.delete('peer');
               const newUrl = `${window.location.pathname}?${params2.toString()}`;
               window.history.replaceState({}, '', newUrl);
@@ -292,6 +296,7 @@ const MessagingSystem = () => {
     }
 
     try {
+      showInfo('Creating conversation...');
       setLoading(true);
       let ensuredId = null;
       try {
@@ -319,7 +324,7 @@ const MessagingSystem = () => {
           setSelectedThread(data);
           showSuccess('Conversation ready.');
         } else {
-          showInfo('Thread will appear shortly or after connection is established.');
+          showInfo("You're not connected yet. The conversation will appear after your connection is approved.");
         }
       }
     } catch (err) {
@@ -402,6 +407,7 @@ const MessagingSystem = () => {
             <div className={`${selectedThread ? 'hidden' : 'block'} md:block w-full md:w-96 lg:w-[26rem] border-r border-gray-200`}>
               <ConversationList
                 threads={threads}
+                loading={loading}
                 onSelectThread={handleSelectThread}
                 selectedThread={selectedThread}
                 currentUser={currentUser}

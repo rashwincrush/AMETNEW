@@ -2,6 +2,7 @@ import logger from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { supabase, createThread } from '../../utils/supabase';
+import { mapDmErrorToMessage } from '../../api/dm';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import Avatar from '../common/Avatar';
 import { useAvatars } from '../../hooks/useAvatar';
@@ -67,7 +68,7 @@ const NewConversationModal = ({ isOpen, onClose, onConversationStarted }) => {
       onClose();
     } catch (err) {
       logger.error('Error starting conversation:', err);
-      setError('Could not start conversation.');
+      setError(mapDmErrorToMessage(err));
     }
   };
 

@@ -4,6 +4,8 @@ import { idempotentConnect, acceptPending, declinePending } from '../utils/conne
 import logger from '../utils/logger';
 import { useConnectionStatus } from '../hooks/useConnectionStatus';
 import { useNavigate } from 'react-router-dom';
+import { mapDmErrorToMessage } from '../api/dm';
+import toast from 'react-hot-toast';
 import {
   MapPinIcon,
   AcademicCapIcon,
@@ -116,6 +118,8 @@ export default function AlumniProfileCard({ profile, currentUserId, avatarUrl })
       navigate(`/messages?conversation=${data}`);
     } catch (error) {
       logger.error('Error starting conversation:', error);
+      const msg = mapDmErrorToMessage(error);
+      toast.error(msg);
     }
   };
 

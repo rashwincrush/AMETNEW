@@ -139,7 +139,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
   useEffect(() => {
     if (!currentUser) return;
 
-    // If we have a thread id, reset state and load messages
+    // If we have a thread id, reset state, load messages, and mark the thread as read
     if (activeThread?.thread_id) {
       const threadId = activeThread.thread_id;
       const load = async () => {
@@ -167,6 +167,16 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
           const sinceISO = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
           const msgs = await fetchThreadMessages(threadId, { since: sinceISO });
           setMessages(Array.isArray(msgs) ? msgs : []);
+
+          // Mark this thread as read for the current user so unread counts clear
+          try {
+            await supabase.rpc('dm_mark_thread_read', {
+              p_thread_id: threadId,
+              p_user_id: currentUser.id,
+            });
+          } catch (markErr) {
+            logger.warn('Failed to mark DM thread as read', markErr);
+          }
         } catch (err) {
           logger.error('Error loading thread:', err);
           toast.error('Failed to load messages.');
