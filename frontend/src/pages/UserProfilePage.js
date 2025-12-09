@@ -24,6 +24,7 @@ import {
   adminUpdateMenteeStatus,
   adminUpdateMentorStatus,
 } from '../services/adminMentorship';
+import { ConfirmationDialog } from '../components/shared';
 
 const UserProfilePage = () => {
   const { userId } = useParams();
@@ -32,6 +33,7 @@ const UserProfilePage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isMutating, setIsMutating] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null);
   const { avatarUrl } = useAvatar(userId, { useSignedUrl: true, autoFetch: !!userId });
 
   const fetchProfile = useCallback(async () => {
@@ -67,6 +69,111 @@ const UserProfilePage = () => {
   const canPurge = role === 'super_admin';
 
   const accountStatus = profile ? getAccountStatus(profile) : null;
+
+  const runToggleActive = async () => {
+    if (!profile) return;
+    if (profile.is_deleted) return;
+
+    const currentlyActive = profile.is_active !== false;
+
+    setIsMutating(true);
+    try {
+      await adminUsersToggleActive({
+        userId: profile.id,
+        isActive: !currentlyActive,
+        reason: currentlyActive
+          ? 'Blocked from profile page'
+          : 'Unblocked from profile page',
+      });
+      await fetchProfile();
+      toast.success(currentlyActive ? 'User has been blocked.' : 'User has been unblocked.');
+    } catch (err) {
+      logger.error('Error toggling active from profile page:', err);
+      toast.error(
+        getFriendlyErrorMessage(err, 'Unable to change user active status.')
+      );
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const runSoftDelete = async () => {
+    if (!profile) return;
+    if (profile.id === currentUser?.id) {
+      toast.error('You cannot delete your own account.');
+      return;
+    }
+
+    setIsMutating(true);
+    try {
+      await adminUsersSoftDelete({
+        userId: profile.id,
+        reason: 'Soft delete from profile page',
+      });
+      await fetchProfile();
+      toast.success('User soft-deleted');
+    } catch (err) {
+      logger.error('Error soft-deleting user from profile page:', err);
+      toast.error(
+        `Failed to delete user: ${getFriendlyErrorMessage(
+          err,
+          'Unable to delete user.'
+        )}`
+      );
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const runPurgeData = async () => {
+    if (!profile) return;
+    if (profile.id === currentUser?.id) {
+      toast.error('You cannot purge your own account data.');
+      return;
+    }
+
+    setIsMutating(true);
+    try {
+      await adminUsersPurgeData({ userId: profile.id });
+      await fetchProfile();
+      toast.success('User data purged');
+    } catch (err) {
+      logger.error('Error purging user data from profile page:', err);
+      toast.error(
+        `Failed to purge user data: ${getFriendlyErrorMessage(
+          err,
+          'Unable to purge user data.'
+        )}`
+      );
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const runDeleteAuthUser = async () => {
+    if (!profile) return;
+    if (profile.id === currentUser?.id) {
+      toast.error('You cannot delete your own account.');
+      return;
+    }
+
+    setIsMutating(true);
+    try {
+      await adminUsersDeleteAuthUser({ userId: profile.id });
+      await fetchProfile();
+      toast.success('Auth user deleted successfully');
+    } catch (err) {
+      logger.error('Error deleting auth user from profile page:', err);
+      toast.error(
+        `Failed to delete auth user: ${getFriendlyErrorMessage(
+          err,
+          'Unable to delete auth user.'
+        )}`
+      );
+    } finally {
+      setIsMutating(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -302,28 +409,11 @@ const UserProfilePage = () => {
                       const confirmLabel = currentlyActive
                         ? `Block ${profile.email || profile.full_name || 'this user'}? They will not be able to use the platform.`
                         : `Unblock ${profile.email || profile.full_name || 'this user'} and allow access again?`;
-
-                      if (!window.confirm(confirmLabel)) return;
-
-                      setIsMutating(true);
-                      try {
-                        await adminUsersToggleActive({
-                          userId: profile.id,
-                          isActive: !currentlyActive,
-                          reason: currentlyActive
-                            ? 'Blocked from profile page'
-                            : 'Unblocked from profile page',
-                        });
-                        await fetchProfile();
-                        toast.success(currentlyActive ? 'User has been blocked.' : 'User has been unblocked.');
-                      } catch (err) {
-                        logger.error('Error toggling active from profile page:', err);
-                        toast.error(
-                          getFriendlyErrorMessage(err, 'Unable to change user active status.')
-                        );
-                      } finally {
-                        setIsMutating(false);
-                      }
+                      setConfirmDialog({
+                        type: 'toggle-active',
+                        message: confirmLabel,
+                        currentlyActive,
+                      });
                     }}
                     className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium border border-orange-500 text-orange-700 hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -340,33 +430,10 @@ const UserProfilePage = () => {
                         return;
                       }
 
-                      if (
-                        !window.confirm(
-                          `Are you sure you want to soft delete user ${profile.email || profile.id}? They can be restored later.`
-                        )
-                      ) {
-                        return;
-                      }
-
-                      setIsMutating(true);
-                      try {
-                        await adminUsersSoftDelete({
-                          userId: profile.id,
-                          reason: 'Soft delete from profile page',
-                        });
-                        await fetchProfile();
-                        toast.success('User soft-deleted');
-                      } catch (err) {
-                        logger.error('Error soft-deleting user from profile page:', err);
-                        toast.error(
-                          `Failed to delete user: ${getFriendlyErrorMessage(
-                            err,
-                            'Unable to delete user.'
-                          )}`
-                        );
-                      } finally {
-                        setIsMutating(false);
-                      }
+                      setConfirmDialog({
+                        type: 'soft-delete',
+                        message: `Are you sure you want to soft delete user ${profile.email || profile.id}? They can be restored later.`,
+                      });
                     }}
                     className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium border border-red-500 text-red-700 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -384,32 +451,12 @@ const UserProfilePage = () => {
                           return;
                         }
 
-                        if (
-                          !window.confirm(
-                            `Are you sure you want to PERMANENTLY PURGE all data for user ${
-                              profile.email || profile.id
-                            }? This cannot be undone!`
-                          )
-                        ) {
-                          return;
-                        }
-
-                        setIsMutating(true);
-                        try {
-                          await adminUsersPurgeData({ userId: profile.id });
-                          await fetchProfile();
-                          toast.success('User data purged');
-                        } catch (err) {
-                          logger.error('Error purging user data from profile page:', err);
-                          toast.error(
-                            `Failed to purge user data: ${getFriendlyErrorMessage(
-                              err,
-                              'Unable to purge user data.'
-                            )}`
-                          );
-                        } finally {
-                          setIsMutating(false);
-                        }
+                        setConfirmDialog({
+                          type: 'purge',
+                          message: `Are you sure you want to PERMANENTLY PURGE all data for user ${
+                            profile.email || profile.id
+                          }? This cannot be undone!`,
+                        });
                       }}
                       className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium border border-red-600 text-red-800 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
@@ -428,32 +475,12 @@ const UserProfilePage = () => {
                           return;
                         }
 
-                        if (
-                          !window.confirm(
-                            `This will permanently delete the user from Supabase Auth. Continue for ${
-                              profile.email || profile.id
-                            }?`
-                          )
-                        ) {
-                          return;
-                        }
-
-                        setIsMutating(true);
-                        try {
-                          await adminUsersDeleteAuthUser({ userId: profile.id });
-                          await fetchProfile();
-                          toast.success('Auth user deleted successfully');
-                        } catch (err) {
-                          logger.error('Error deleting auth user from profile page:', err);
-                          toast.error(
-                            `Failed to delete auth user: ${getFriendlyErrorMessage(
-                              err,
-                              'Unable to delete auth user.'
-                            )}`
-                          );
-                        } finally {
-                          setIsMutating(false);
-                        }
+                        setConfirmDialog({
+                          type: 'delete-auth',
+                          message: `This will permanently delete the user from Supabase Auth. Continue for ${
+                            profile.email || profile.id
+                          }?`,
+                        });
                       }}
                       className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium border border-red-700 text-red-900 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
@@ -573,8 +600,54 @@ const UserProfilePage = () => {
           )}
         </div>
       </div>
+
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'toggle-active'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          await runToggleActive();
+          setConfirmDialog(null);
+        }}
+        title={confirmDialog?.currentlyActive ? 'Block user' : 'Unblock user'}
+        description={confirmDialog?.message || ''}
+        variant="warning"
+      />
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'soft-delete'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          await runSoftDelete();
+          setConfirmDialog(null);
+        }}
+        title="Soft delete user"
+        description={confirmDialog?.message || ''}
+        variant="danger"
+      />
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'purge'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          await runPurgeData();
+          setConfirmDialog(null);
+        }}
+        title="Purge user data"
+        description={confirmDialog?.message || ''}
+        variant="danger"
+      />
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'delete-auth'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          await runDeleteAuthUser();
+          setConfirmDialog(null);
+        }}
+        title="Delete Auth user"
+        description={confirmDialog?.message || ''}
+        variant="danger"
+      />
     </div>
   );
 };
 
 export default UserProfilePage;
+

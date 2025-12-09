@@ -1,11 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../../contexts/AuthContext';
 import { supabase } from '../../../utils/supabase';
-import { endMentorshipRelationship } from '../../../api/mentorshipApi';
-import { mapMentorshipError } from '../../../utils/mentorshipErrorMap';
 import MentorshipRelationshipCard from '../cards/MentorshipRelationshipCard';
-import { toast } from 'react-hot-toast';
 import { getPublicIdentity } from '../../../lib/hydrateIdentity';
 import { MENTORSHIP_COPY } from '../../../constants/mentorshipCopy';
 
@@ -70,20 +67,38 @@ export default function MyMenteesPanel({ highlightRelationshipId }) {
     }
   }, [highlightRelationshipId]);
   
-  const handleEndMentorship = async (relationshipId) => {
-    try {
-      await endMentorshipRelationship(relationshipId);
-      toast.success('Mentorship ended');
-      refetch();
-    } catch (error) {
-      const mapped = mapMentorshipError(error);
-      toast.error(mapped.message);
-    }
+  const handleEndMentorship = () => {
+    // Card handles RPC + toasts; panel only needs to refresh the list.
+    refetch();
   };
-  
+
+  // Deduplicate by mentee so each mentee appears at most once.
+  // If there are multiple relationships with the same mentee, keep the one
+  // with the latest start_date (status then drives Active vs Past).
+  const dedupedRelationships = useMemo(() => {
+    if (!relationships || !Array.isArray(relationships)) return [];
+
+    const byMentee = new Map();
+    for (const rel of relationships) {
+      const existing = byMentee.get(rel.mentee_id);
+      if (!existing) {
+        byMentee.set(rel.mentee_id, rel);
+        continue;
+      }
+
+      const existingStart = existing.start_date ? new Date(existing.start_date).getTime() : 0;
+      const currentStart = rel.start_date ? new Date(rel.start_date).getTime() : 0;
+      if (currentStart > existingStart) {
+        byMentee.set(rel.mentee_id, rel);
+      }
+    }
+
+    return Array.from(byMentee.values());
+  }, [relationships]);
+
   // Separate active and past
-  const activeRelationships = relationships?.filter(r => r.status === 'active') || [];
-  const pastRelationships = relationships?.filter(r => r.status !== 'active') || [];
+  const activeRelationships = dedupedRelationships.filter(r => r.status === 'active');
+  const pastRelationships = dedupedRelationships.filter(r => r.status !== 'active');
   
   if (error) {
     return (
@@ -168,7 +183,7 @@ export default function MyMenteesPanel({ highlightRelationshipId }) {
                 relationshipId={rel.id}
                 startedAt={rel.start_date}
                 hasMessages={rel.has_messages}
-                onEndMentorship={() => handleEndMentorship(rel.id)}
+                onEndMentorship={handleEndMentorship}
                 highlighted={rel.id === highlightRelationshipId}
               />
             </div>

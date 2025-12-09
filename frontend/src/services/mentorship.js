@@ -96,6 +96,14 @@ export function mapMentorshipError(error) {
     };
   }
 
+  // Ending a non-active mentorship relationship
+  if (rawMessage.includes('only active mentorships can be ended')) {
+    return {
+      code: 'ALREADY_ENDED',
+      message: 'This mentorship is no longer active.',
+    };
+  }
+
   if (
     pgCode === '42501' ||
     rawMessage.includes('permission denied') ||

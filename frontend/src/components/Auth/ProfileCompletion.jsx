@@ -29,9 +29,16 @@ export default function ProfileCompletion() {
 
   // DB-level required fields (also used by is_profile_complete)
   // Avatar is optional: users can complete profile without a profile photo
-  const required = useMemo(() => (
-    ['email','first_name','last_name','graduation_year','degree_program','company_name','job_title']
-  ), []);
+  const required = useMemo(() => {
+    const base = ['email','first_name','last_name','degree_program','company_name','job_title'];
+    // Only alumni are strictly required to provide graduation_year in this step.
+    // Students and other roles are not blocked on graduation_year here; their
+    // expected graduation year can be captured via other flows.
+    if (role === 'alumni') {
+      return [...base, 'graduation_year'];
+    }
+    return base;
+  }, [role]);
 
   const onChange = (e) => {
     const { name, value } = e.target;
@@ -44,8 +51,11 @@ export default function ProfileCompletion() {
     if (!isNonEmpty(form.email)) errs.push('email');
     if (!isNonEmpty(form.first_name) || !/^[A-Za-z ]+$/.test(form.first_name)) errs.push('first_name');
     if (!isNonEmpty(form.last_name) || !/^[A-Za-z ]+$/.test(form.last_name)) errs.push('last_name');
-    const yr = Number(form.graduation_year);
-    if (!yr || yr < 1980 || yr > new Date().getFullYear() + 1) errs.push('graduation_year');
+    // Only enforce graduation_year for alumni in this lightweight completion step.
+    if (role === 'alumni') {
+      const yr = Number(form.graduation_year);
+      if (!yr || yr < 1980 || yr > new Date().getFullYear() + 1) errs.push('graduation_year');
+    }
     if (!isNonEmpty(form.degree_program)) errs.push('degree_program');
     if (!isNonEmpty(form.company_name)) errs.push('company_name');
     if (!isNonEmpty(form.job_title)) errs.push('job_title');

@@ -4,7 +4,7 @@ import { supabase } from '../utils/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { approveGroupRpc, rejectGroupRpc, archiveGroupRpc, deleteGroupRpc } from '../api/groups';
 import { getFriendlyErrorMessage } from '../utils/errors';
-import toast from 'react-hot-toast';
+import { showSuccess, showError } from '../components/shared';
 import logger from '../utils/logger';
 import {
   Users,
@@ -119,10 +119,10 @@ export default function AdminGroupsPage() {
     setActionLoading(prev => ({ ...prev, [groupId]: 'approve' }));
     try {
       await approveGroupRpc(groupId);
-      toast.success('Group approved');
+      showSuccess('Group approved');
       await fetchGroups();
     } catch (err) {
-      toast.error(getFriendlyErrorMessage(err, 'Failed to approve group'));
+      showError(getFriendlyErrorMessage(err, 'Failed to approve group'));
     } finally {
       setActionLoading(prev => ({ ...prev, [groupId]: null }));
     }
@@ -133,10 +133,10 @@ export default function AdminGroupsPage() {
     setActionLoading(prev => ({ ...prev, [groupId]: 'reject' }));
     try {
       await rejectGroupRpc(groupId, reason || undefined);
-      toast.success('Group rejected');
+      showSuccess('Group rejected');
       await fetchGroups();
     } catch (err) {
-      toast.error(getFriendlyErrorMessage(err, 'Failed to reject group'));
+      showError(getFriendlyErrorMessage(err, 'Failed to reject group'));
     } finally {
       setActionLoading(prev => ({ ...prev, [groupId]: null }));
     }
@@ -166,11 +166,11 @@ export default function AdminGroupsPage() {
     setActionLoading(prev => ({ ...prev, [groupId]: 'archive' }));
     try {
       await archiveGroupRpc(groupId);
-      toast.success('Group archived successfully');
+      showSuccess('Group archived successfully');
       closeConfirmDialog();
       await fetchGroups();
     } catch (err) {
-      toast.error(getFriendlyErrorMessage(err, 'Failed to archive group'));
+      showError(getFriendlyErrorMessage(err, 'Failed to archive group'));
     } finally {
       setActionLoading(prev => ({ ...prev, [groupId]: null }));
     }
@@ -184,11 +184,11 @@ export default function AdminGroupsPage() {
     setActionLoading(prev => ({ ...prev, [groupId]: 'delete' }));
     try {
       await deleteGroupRpc(groupId);
-      toast.success('Group deleted permanently');
+      showSuccess('Group deleted permanently');
       closeConfirmDialog();
       await fetchGroups();
     } catch (err) {
-      toast.error(getFriendlyErrorMessage(err, 'Failed to delete group'));
+      showError(getFriendlyErrorMessage(err, 'Failed to delete group'));
     } finally {
       setActionLoading(prev => ({ ...prev, [groupId]: null }));
     }

@@ -5,6 +5,7 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { getRequestStatusUI } from '../../utils/mentorshipStatus';
+import { ConfirmationDialog } from '../../components/shared';
 
 /**
  * My Requests page - Requests I sent as a mentee
@@ -17,6 +18,7 @@ export default function MyRequestsPage() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [cancellingId, setCancellingId] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   useEffect(() => {
     if (user?.id) {
@@ -44,8 +46,6 @@ export default function MyRequestsPage() {
   }
 
   async function handleCancelRequest(requestId) {
-    if (!window.confirm('Are you sure you want to cancel this request?')) return;
-
     try {
       setCancellingId(requestId);
       const { error } = await supabase.rpc('mentorship_request_cancel', {
@@ -203,7 +203,11 @@ export default function MyRequestsPage() {
                     <div className="mt-4 flex flex-wrap gap-2">
                       {isPending && (
                         <button
-                          onClick={() => handleCancelRequest(request.id)}
+                          onClick={() => setConfirmDialog({
+                            type: 'cancel-request',
+                            requestId: request.id,
+                            description: 'Are you sure you want to cancel this request?',
+                          })}
                           disabled={cancellingId === request.id}
                           className="px-4 py-2 text-sm border border-red-300 text-red-700 rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
@@ -232,6 +236,19 @@ export default function MyRequestsPage() {
           })}
         </div>
       )}
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'cancel-request'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          if (!confirmDialog?.requestId) return;
+          const id = confirmDialog.requestId;
+          setConfirmDialog(null);
+          await handleCancelRequest(id);
+        }}
+        title="Cancel mentorship request"
+        description={confirmDialog?.description || 'Are you sure you want to cancel this request?'}
+        variant="warning"
+      />
     </div>
   );
 }

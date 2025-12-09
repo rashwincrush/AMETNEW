@@ -52,11 +52,17 @@ export function getProfileYearWriteFields(role, year) {
  */
 export function getEffectiveBatchYear(profile) {
   if (!profile) return null;
-  
+
+  const normalizeYear = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const n = typeof value === 'string' ? parseInt(value, 10) : value;
+    return Number.isFinite(n) ? n : null;
+  };
+
   return (
-    profile.graduation_year ??
-    profile.expected_graduation_year ??
-    profile.batch_year ??
+    normalizeYear(profile.graduation_year) ??
+    normalizeYear(profile.expected_graduation_year) ??
+    normalizeYear(profile.batch_year) ??
     null
   );
 }

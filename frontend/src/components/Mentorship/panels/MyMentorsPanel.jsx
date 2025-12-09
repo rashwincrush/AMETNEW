@@ -3,10 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../../contexts/AuthContext';
 import { supabase } from '../../../utils/supabase';
-import { endMentorshipRelationship } from '../../../api/mentorshipApi';
-import { mapMentorshipError } from '../../../utils/mentorshipErrorMap';
 import MentorshipRelationshipCard from '../cards/MentorshipRelationshipCard';
-import { toast } from 'react-hot-toast';
 import { getPublicIdentity } from '../../../lib/hydrateIdentity';
 import { MENTORSHIP_COPY } from '../../../constants/mentorshipCopy';
 
@@ -80,15 +77,9 @@ export default function MyMentorsPanel({ highlightRelationshipId }) {
     }
   }, [highlightRelationshipId]);
   
-  const handleEndMentorship = async (relationshipId) => {
-    try {
-      await endMentorshipRelationship(relationshipId);
-      toast.success('Mentorship ended');
-      refetch();
-    } catch (error) {
-      const mapped = mapMentorshipError(error);
-      toast.error(mapped.message);
-    }
+  const handleEndMentorship = () => {
+    // Card handles RPC + toasts; panel only needs to refresh the list.
+    refetch();
   };
   
   // Separate active and past
@@ -173,7 +164,7 @@ export default function MyMentorsPanel({ highlightRelationshipId }) {
                 relationshipId={rel.id}
                 startedAt={rel.start_date}
                 hasMessages={rel.has_messages}
-                onEndMentorship={() => handleEndMentorship(rel.id)}
+                onEndMentorship={handleEndMentorship}
                 highlighted={rel.id === highlightRelationshipId}
               />
             </div>

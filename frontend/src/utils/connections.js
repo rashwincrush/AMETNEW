@@ -224,7 +224,6 @@ export async function cancelPending(meId, otherId) {
   if (edge?.status === 'pending' && edge.requester_id === meId) {
     try {
       await updateEdge(edge.id, 'removed');
-      toast.success('Request cancelled');
     } catch (e) {
       logger.error('cancelPending error', e);
       toast.error('Failed to cancel request');
@@ -246,8 +245,6 @@ export async function acceptPending(meId, otherId) {
         logger.error('connection_accept RPC error', error);
         throw error;
       }
-
-      toast.success('Connection accepted');
     } catch (e) {
       logger.error('acceptPending error', e);
       toast.error('Failed to accept request');
@@ -261,7 +258,6 @@ export async function declinePending(meId, otherId) {
   if (edge?.status === 'pending' && edge.recipient_id === meId) {
     try {
       await updateEdge(edge.id, 'declined');
-      toast('Request declined', { icon: '👋' });
     } catch (e) {
       logger.error('declinePending error', e);
       toast.error('Failed to decline request');

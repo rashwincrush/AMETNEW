@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,6 +14,7 @@ import { useOpenMentorshipChat } from '../../hooks/useOpenMentorshipChat';
 
 const MentorProfile = () => {
   const { id: mentorId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
   const [mentor, setMentor] = useState(null);
@@ -44,6 +45,8 @@ const MentorProfile = () => {
 
     return { activeRelationship: null, relationshipState: 'none' };
   }, [relationships, mentorId, user?.id, mentor?.user_id]);
+
+  const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
 
   const handleRequestSubmit = async () => {
     if (!requestMessage.trim() && !requestGoals.trim()) {
@@ -150,7 +153,9 @@ const MentorProfile = () => {
 
         setMentor({ ...(mentorRow || {}), profile: ident || { full_name: 'Mentor', avatar_url: null } });
 
-        // Check for an existing mentorship request (pending or accepted)
+        // Check for the latest mentorship request (pending or accepted) between
+        // this mentee and mentor. Use order/limit so we never trigger the
+        // PostgREST "JSON object requested, multiple (or no) rows returned" error.
         const effectiveMentorUserId = mentorRow?.user_id || mentorId;
         const { data: requestData, error: requestError } = await supabase
           .from('mentorship_requests')
@@ -158,9 +163,12 @@ const MentorProfile = () => {
           .eq('mentor_id', effectiveMentorUserId)
           .eq('mentee_id', user.id)
           .in('status', ['pending', 'accepted'])
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
 
-        if (requestError) throw requestError;
+        // PGRST116 = no rows in single mode; treat as non-fatal
+        if (requestError && requestError.code !== 'PGRST116') throw requestError;
         if (requestData) setExistingRequest(requestData);
 
       } catch (error) {
@@ -173,6 +181,30 @@ const MentorProfile = () => {
     fetchMentorAndRequestStatus();
   }, [mentorId, user]);
 
+  const pendingRequest = existingRequest && existingRequest.status === 'pending';
+  const acceptedRequest = existingRequest && existingRequest.status === 'accepted';
+  const hasActiveMentorship = !!activeRelationship || acceptedRequest;
+  const isOpening = !!activeRelationship && loadingId === activeRelationship.id;
+  const isSelf = user?.id && (user.id === (mentor?.profile?.id || mentor?.user_id || mentorId));
+
+  const shouldAutoOpenRequest = useMemo(() => {
+    const flag = qs.get('openRequest');
+    const wantsOpen = flag === '1' || flag === 'true';
+    if (!wantsOpen) return false;
+    // Only auto-open when the viewer is not the mentor, there is no
+    // active or pending mentorship, and the mentor profile is approved.
+    if (isSelf) return false;
+    if (hasActiveMentorship || pendingRequest) return false;
+    if (mentor?.status !== 'approved') return false;
+    return true;
+  }, [qs, isSelf, hasActiveMentorship, pendingRequest, mentor?.status]);
+
+  useEffect(() => {
+    if (shouldAutoOpenRequest) {
+      setShowRequestModal(true);
+    }
+  }, [shouldAutoOpenRequest]);
+
   if (loading) {
     return <div className="text-center p-8">Loading mentor profile...</div>;
   }
@@ -180,12 +212,6 @@ const MentorProfile = () => {
   if (!mentor) {
     return <div className="text-center p-8">Mentor not found.</div>;
   }
-
-  const pendingRequest = existingRequest && existingRequest.status === 'pending';
-  const acceptedRequest = existingRequest && existingRequest.status === 'accepted';
-  const hasActiveMentorship = !!activeRelationship || acceptedRequest;
-  const isOpening = !!activeRelationship && loadingId === activeRelationship.id;
-  const isSelf = user?.id && (user.id === (mentor.profile?.id || mentor.user_id || mentorId));
 
   return (
     <div className="container mx-auto p-4 md:p-8">

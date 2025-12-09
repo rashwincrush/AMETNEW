@@ -36,7 +36,6 @@ export default function ProfileCard({
   const {
     full_name,
     avatar_url,
-    graduation_year,
     current_job_title,
     company_name,
     location,
@@ -46,6 +45,8 @@ export default function ProfileCard({
     is_verified,
     role,
   } = profile;
+
+  const batchYear = profile.graduation_year ?? profile.expected_graduation_year ?? profile.batch_year ?? null;
 
   // Resolve avatar src: prefer prop from hook, fallback to profile data, then default
   const avatarSrc = avatarUrl || avatar_url || '/default-avatar.svg';
@@ -66,7 +67,7 @@ export default function ProfileCard({
 
           <div className="text-center">
             <h3 className="line-clamp-1 text-[15px] font-semibold leading-6 text-slate-900" title={full_name}>
-              {full_name || '—'}
+              {full_name || ''}
             </h3>
             {is_verified && <CheckBadgeIcon className="h-4 w-4 text-sky-600 mx-auto mt-1" title="Verified" />}
             {isAdmin && role === 'employer' && (
@@ -77,9 +78,9 @@ export default function ProfileCard({
               </div>
             )}
 
-            {graduation_year && (
+            {batchYear && (
               <span className="inline-block mt-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
-                {formatBatchLabel(graduation_year)}
+                {formatBatchLabel(batchYear)}
               </span>
             )}
 

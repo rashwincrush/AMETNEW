@@ -5,7 +5,7 @@ import { supabase } from '../../../utils/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOpenMentorshipChat } from '../../../hooks/useOpenMentorshipChat';
 import { useMentorshipSummary } from '../../../hooks/useMentorshipSummary';
-import { createMentorshipRequest, cancelMentorshipRequest } from '../../../api/mentorshipApi';
+import { cancelMentorshipRequest } from '../../../api/mentorshipApi';
 import { mapMentorshipError } from '../../../utils/mentorshipErrorMap';
 import { getMentorCapacityState } from '../../../utils/mentorshipStatus';
 import MentorCapacityPill from '../MentorCapacityPill';
@@ -22,7 +22,6 @@ export default function FindMentorsPanel() {
   const { openChat, loadingId } = useOpenMentorshipChat();
   const [searchQuery, setSearchQuery] = useState('');
   const [showAcceptingOnly, setShowAcceptingOnly] = useState(true);
-  const [requestingMentorId, setRequestingMentorId] = useState(null);
   const [cancellingRequestId, setCancellingRequestId] = useState(null);
   const { requests, relationships, pendingRequestCount, hasReachedRequestLimit, refetch: refetchSummary } = useMentorshipSummary();
   
@@ -93,26 +92,11 @@ export default function FindMentorsPanel() {
     return { state: 'none', activeRel: null, pendingRequest: null };
   };
 
-  const handleRequestMentorship = async (mentorProfileId) => {
-    if (!mentorProfileId) return;
-
-    // Track the profile id for loading state
-    setRequestingMentorId(mentorProfileId);
-    try {
-      await createMentorshipRequest(
-        mentorProfileId,
-        'I would like to request mentorship from you.',
-        null
-      );
-      toast.success('Mentorship request sent!');
-      // Refetch summary to update request state
-      if (refetchSummary) refetchSummary();
-    } catch (error) {
-      const mapped = mapMentorshipError(error);
-      toast.error(mapped.message);
-    } finally {
-      setRequestingMentorId(null);
-    }
+  const handleRequestMentorship = (mentorRouteId) => {
+    if (!mentorRouteId) return;
+    // Route through the mentor profile page so the user can write a
+    // personalized message and goals in the existing modal.
+    navigate(`/mentorship/mentor/${mentorRouteId}?openRequest=1`);
   };
 
   const handleCancelRequest = async (requestId) => {
@@ -331,11 +315,10 @@ export default function FindMentorsPanel() {
                     </button>
                   ) : (
                     <button
-                      onClick={() => handleRequestMentorship(mentor.user_id)}
+                      onClick={() => handleRequestMentorship(mentor.user_id || mentor.id)}
                       disabled={
                         capacityState === 'at_capacity' ||
-                        hasReachedRequestLimit ||
-                        requestingMentorId === mentor.user_id
+                        hasReachedRequestLimit
                       }
                       title={
                         hasReachedRequestLimit
@@ -346,11 +329,7 @@ export default function FindMentorsPanel() {
                       }
                       className="flex-1 inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                     >
-                      {requestingMentorId === mentor.id
-                        ? 'Sending…'
-                        : hasReachedRequestLimit
-                          ? 'Limit Reached'
-                          : 'Request Mentorship'}
+                      {hasReachedRequestLimit ? 'Limit Reached' : 'Request Mentorship'}
                     </button>
                   )}
                   <button

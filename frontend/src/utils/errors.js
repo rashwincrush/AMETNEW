@@ -24,6 +24,12 @@ export function getFriendlyErrorMessage(err, fallback = 'Something went wrong. P
 
   // Duplicate/unique violations
   if (code === '23505' || /duplicate|unique constraint/i.test(msg)) {
+    // Profiles: email/phone already tied to another user
+    if (/uq_profiles_email_lower|uniq_profiles_email_active|profiles_phone_unique/i.test(msg)) {
+      return 'An account with this email or phone number already exists. Please log in or contact support.';
+    }
+
+    // Default for membership/connection/group-style duplicates
     return 'Already a member or request pending.';
   }
 

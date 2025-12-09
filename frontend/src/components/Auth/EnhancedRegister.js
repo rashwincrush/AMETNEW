@@ -591,19 +591,72 @@ const EnhancedRegister = () => {
     }
 
     setErrors(newErrors);
-    const ok = Object.keys(newErrors).length === 0;
+    const errorKeys = Object.keys(newErrors);
+    const ok = errorKeys.length === 0;
     if (!ok) {
-      const count = Object.keys(newErrors).length;
-      toast.error(`${count} field${count > 1 ? 's are' : ' is'} required or invalid. Please fix and try again.`);
+      const count = errorKeys.length;
+      // If only the password is invalid, surface a clear password-specific message
+      if (count === 1 && errorKeys[0] === 'password' && newErrors.password) {
+        toast.error(newErrors.password || 'Password must be at least 12 characters long.');
+      } else {
+        toast.error(`${count} field${count > 1 ? 's are' : ' is'} required or invalid. Please fix and try again.`);
+      }
     }
     return ok;
   };
 
-  const handleNext = () => {
-    if (validateStep(currentStep)) {
-      setCurrentStep(currentStep + 1);
-      setError(''); // Clear general error message when moving to next step
+  const handleNext = async () => {
+    // First run local validation for the current step
+    if (!validateStep(currentStep)) return;
+
+    // On Step 1, proactively check for existing email/phone in profiles
+    if (currentStep === 1) {
+      const email = formData.email.trim().toLowerCase();
+      const normalizedPhone = normalizePhoneForDb(formData.phone);
+
+      try {
+        const { data, error } = await supabase.rpc('registration_check_identity', {
+          p_email: email || null,
+          p_phone: normalizedPhone || null,
+        });
+
+        if (error) {
+          logger.error('registration_check_identity RPC error:', error.message || error);
+        } else if (data) {
+          const emailTaken = !!data.email_taken;
+          const phoneTaken = !!data.phone_taken;
+
+          if (emailTaken || phoneTaken) {
+            setErrors(prev => ({
+              ...prev,
+              ...(emailTaken
+                ? { email: 'This email address is already registered. Please log in instead.' }
+                : {}),
+              ...(phoneTaken
+                ? { phone: 'This phone number is already registered to a different user. Please log in or use another number.' }
+                : {}),
+            }));
+
+            const parts = [];
+            if (emailTaken) parts.push('email');
+            if (phoneTaken) parts.push('phone number');
+            const label = parts.join(' and ');
+
+            toast.error(
+              `The ${label} you entered is already registered to another user. Please log in or use different details.`
+            );
+            return; // Do not advance to Step 2
+          }
+        }
+      } catch (err) {
+        logger.error('registration_check_identity unexpected error:', err?.message || err);
+        // In case of RPC failure, fall through; backend unique constraints still enforce safety
+      }
     }
+
+    // Either not Step 1 or identity pre-check passed → advance
+    setCurrentStep(currentStep + 1);
+    setError(''); // Clear general error message when moving to next step
   };
 
   const handlePrevious = () => {
@@ -634,6 +687,8 @@ const EnhancedRegister = () => {
 
     setIsSubmitting(true);
     setError('');
+
+    let didSignUp = false;
 
     try {
       // Debug: surface submit start in console for easier tracing
@@ -706,6 +761,8 @@ const EnhancedRegister = () => {
           : 'Registration failed. If this keeps happening, try again later or contact support.');
       }
 
+      didSignUp = true;
+
       // Try to hydrate the session/user; if confirmation required, user may be null
       const { data: { user: hydratedUser } } = await supabase.auth.getUser();
 
@@ -759,7 +816,7 @@ const EnhancedRegister = () => {
 
       // eslint-disable-next-line no-console
       logger.log('[Register] Upserting profile with Stage-2 payload:', profilePayload);
-      const { error: upsertErr } = await supabase
+      const { data: upsertedProfile, error: upsertErr } = await supabase
         .from('profiles')
         .upsert(profilePayload, { onConflict: 'id' })
         .select()
@@ -775,6 +832,50 @@ const EnhancedRegister = () => {
           toast.error(`Profile save failed: ${getFriendlyErrorMessage(upsertErr, 'Unable to save profile.')}`);
         }
         throw upsertErr;
+      }
+
+      if (!upsertedProfile) {
+        throw new Error('Profile save failed: no data returned from database.');
+      }
+
+      // Defensive check: ensure core fields we just collected actually persisted.
+      const coreMissing = [];
+      if (!upsertedProfile.first_name) coreMissing.push('first_name');
+      if (!upsertedProfile.last_name) coreMissing.push('last_name');
+      if (!upsertedProfile.email) coreMissing.push('email');
+      if (!upsertedProfile.phone) coreMissing.push('phone');
+      if (!upsertedProfile.location) coreMissing.push('location');
+
+      if (isAlumni || isStudent) {
+        if (!upsertedProfile.degree_code) coreMissing.push('degree_code');
+        if (!upsertedProfile.department_id) coreMissing.push('department_id');
+      }
+
+      if (isAlumni) {
+        if (!upsertedProfile.graduation_year && !upsertedProfile.expected_graduation_year) {
+          coreMissing.push('graduation_year/expected_graduation_year');
+        }
+      }
+
+      if (isStudent) {
+        if (!upsertedProfile.expected_graduation_year) {
+          coreMissing.push('expected_graduation_year');
+        }
+      }
+
+      if (isAlumni || isEmployerRole) {
+        if (!upsertedProfile.company_name) coreMissing.push('company_name');
+        if (!upsertedProfile.current_job_title) coreMissing.push('current_job_title');
+      }
+
+      if (coreMissing.length > 0) {
+        logger.error('[Register] Profile upsert missing core fields after registration:', {
+          userId: hydratedUser.id,
+          role: selectedRole,
+          coreMissing,
+          upsertedProfile,
+        });
+        throw new Error('Profile save failed. Please try again or contact support.');
       }
 
       // Seed social_links with optional URLs captured during registration so Profile Settings sees them
@@ -820,6 +921,18 @@ const EnhancedRegister = () => {
     } catch (err) {
       // eslint-disable-next-line no-console
       logger.error('Registration process error:', err?.message || err);
+
+      // If signup succeeded but a later step (like profile upsert) failed,
+      // treat this as a hard failure by signing the user back out so they
+      // are not left in a partially-initialized state.
+      if (didSignUp) {
+        try {
+          await supabase.auth.signOut();
+        } catch (signOutErr) {
+          logger.warn('Sign-out after failed registration also failed:', signOutErr);
+        }
+      }
+
       setError(getFriendlyErrorMessage(err, 'An unexpected error occurred during registration.'));
     } finally {
       setIsSubmitting(false);

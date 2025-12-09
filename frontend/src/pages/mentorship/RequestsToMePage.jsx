@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { getRequestStatusUI } from '../../utils/mentorshipStatus';
 import { useMentorshipSummary } from '../../hooks/useMentorshipSummary';
+import { ConfirmationDialog } from '../../components/shared';
 
 /**
  * Requests to Me page - Mentor's inbox for incoming requests
@@ -20,6 +21,7 @@ export default function RequestsToMePage() {
   const [actionLoading, setActionLoading] = useState(null);
   const [actionType, setActionType] = useState(null); // 'accept' or 'decline'
   const { hasMentorProfile, mentorProfileStatus, isApprovedMentor } = useMentorshipSummary();
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   useEffect(() => {
     if (user?.id) {
@@ -77,9 +79,15 @@ export default function RequestsToMePage() {
     }
   }
 
-  async function handleDecline(requestId) {
-    if (!window.confirm('Are you sure you want to decline this request?')) return;
+  function openDeclineDialog(requestId) {
+    setConfirmDialog({
+      type: 'decline',
+      requestId,
+      description: 'Are you sure you want to decline this request?',
+    });
+  }
 
+  async function handleDecline(requestId) {
     try {
       setActionLoading(requestId);
       setActionType('decline');
@@ -293,7 +301,11 @@ export default function RequestsToMePage() {
                             {isLoading && actionType === 'accept' ? 'Accepting...' : 'Accept'}
                           </button>
                           <button
-                            onClick={() => handleDecline(request.id)}
+                            onClick={() => setConfirmDialog({
+                              type: 'decline',
+                              requestId: request.id,
+                              description: `Are you sure you want to decline ${request.mentee_full_name}'s request?`,
+                            })}
                             disabled={isLoading}
                             className="px-4 py-2 text-sm border border-red-300 text-red-700 rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                           >
@@ -317,6 +329,19 @@ export default function RequestsToMePage() {
           })}
         </div>
       )}
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'decline'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          if (!confirmDialog?.requestId) return;
+          const id = confirmDialog.requestId;
+          setConfirmDialog(null);
+          await handleDecline(id);
+        }}
+        title="Decline mentorship request"
+        description={confirmDialog?.description || 'Are you sure you want to decline this request?'}
+        variant="warning"
+      />
     </div>
   );
 }

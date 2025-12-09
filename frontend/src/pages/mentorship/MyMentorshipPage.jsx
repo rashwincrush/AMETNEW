@@ -7,6 +7,7 @@ import { toast } from 'react-hot-toast';
 import { getRelationshipStatusUI } from '../../utils/mentorshipStatus';
 import MentorCapacityPill from '../../components/Mentorship/MentorCapacityPill';
 import { endMentorshipRelationship } from '../../services/mentorship';
+import { ConfirmationDialog } from '../../components/shared';
 
 /**
  * My Mentorship page - View all active and past mentorship relationships
@@ -20,6 +21,7 @@ export default function MyMentorshipPage() {
   const [mentorData, setMentorData] = useState(null);
   const [isAvailable, setIsAvailable] = useState(false);
   const [toggleLoading, setToggleLoading] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   useEffect(() => {
     if (user?.id) {
@@ -46,8 +48,6 @@ export default function MyMentorshipPage() {
   }
 
   async function handleEndRelationship(relationshipId) {
-    if (!window.confirm('Are you sure you want to end this mentorship?')) return;
-
     try {
       await endMentorshipRelationship(relationshipId);
       toast.success('The mentorship has been ended.');
@@ -321,7 +321,11 @@ export default function MyMentorshipPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleEndRelationship(rel.id)}
+                              onClick={() => setConfirmDialog({
+                                type: 'end-relationship',
+                                relationshipId: rel.id,
+                                description: 'Are you sure you want to end this mentorship?',
+                              })}
                               className="px-4 py-2 text-sm border border-red-300 text-red-700 rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors"
                             >
                               End mentorship
@@ -432,7 +436,11 @@ export default function MyMentorshipPage() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleEndRelationship(rel.id)}
+                                onClick={() => setConfirmDialog({
+                                  type: 'end-relationship',
+                                  relationshipId: rel.id,
+                                  description: 'Are you sure you want to end this mentorship?',
+                                })}
                                 className="px-4 py-2 text-sm border border-red-300 text-red-700 rounded-md hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors"
                               >
                                 End mentorship
@@ -478,6 +486,19 @@ export default function MyMentorshipPage() {
           )}
         </div>
       )}
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'end-relationship'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          if (!confirmDialog?.relationshipId) return;
+          const id = confirmDialog.relationshipId;
+          setConfirmDialog(null);
+          await handleEndRelationship(id);
+        }}
+        title="End mentorship"
+        description={confirmDialog?.description || 'Are you sure you want to end this mentorship?'}
+        variant="warning"
+      />
     </div>
   );
 }

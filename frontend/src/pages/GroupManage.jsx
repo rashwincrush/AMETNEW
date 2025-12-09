@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import logger from '../utils/logger';
-import { toast } from 'react-hot-toast';
+import { showSuccess, showError, LeaveConfirmationDialog } from '../components/shared';
+import toast from 'react-hot-toast';
 import { 
   fetchGroupDetails,
   updateGroupDetails,
@@ -175,6 +176,7 @@ export default function GroupManage() {
   const [formErrors, setFormErrors] = useState({}); // { name: 'error', email: 'error' }
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('settings'); // 'settings' | 'members' for mobile
+  const [isLeaveDialogOpen, setIsLeaveDialogOpen] = useState(false);
   const dialogRef = useRef(null);
   const previousFocusRef = useRef(null);
   const inviteInputRef = useRef(null);
@@ -240,12 +242,11 @@ export default function GroupManage() {
       const pendingItems = pendingResult || [];
       setPending(pendingItems);
       
-      // Auto-open pending section if there are items
       if (pendingItems.length > 0) {
         setSectionStates(prev => ({ ...prev, pending: true }));
       }
       
-      // PERFORMANCE: Process auth check from parallel fetch (instead of separate useEffect)
+      // Process auth check from parallel fetch (instead of separate useEffect)
       const siteAdmin = profile?.is_admin === true;
       setIsSiteAdmin(siteAdmin);
       const mem = myMembershipResult?.data;
@@ -254,256 +255,165 @@ export default function GroupManage() {
       setIsGroupAdmin(mem?.role === 'admin');
       setAuthorized(!!can);
       if (!can) {
-        toast.error('You are not authorized to manage this group.');
+        showError('You are not authorized to manage this group.');
         navigate(`/groups/${id}`);
       }
     } catch (e) {
       logger.error('Failed to load group:', e);
-      toast.error('Failed to load group');
+      showError('Failed to load group');
     } finally {
       setLoading(false);
     }
   }, [id, profile?.is_admin, user?.id, navigate]);
 
-  useEffect(() => { load(); }, [load]);
+  const leaveGroup = async () => {
+    setLeaving(true);
+    try {
+      await leaveGroupRpc(id);
+      showSuccess('You left the group');
+      navigate(`/groups/${id}`);
+    } catch (e) {
+      logger.error(e);
+      showError(getFriendlyErrorMessage(e, 'Unable to leave group. You may be the last admin.'));
+    } finally {
+      setLeaving(false);
+    }
+  };
 
-  // Refresh function for manual refresh
-  const handleRefresh = useCallback(async () => {
+  const archiveGroup = async () => {
+    setSaving(true);
+    try {
+      await archiveGroupRpc(id);
+      showSuccess('Group archived');
+      navigate('/groups');
+    } catch (e) {
+      logger.error(e);
+      showError(getFriendlyErrorMessage(e, 'Unable to archive the group. Please try again.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRefresh = async () => {
     setRefreshing(true);
     try {
       await load();
-      toast.success('Data refreshed');
+      showSuccess('Group data refreshed');
     } catch (e) {
-      toast.error('Failed to refresh');
+      logger.error('Failed to refresh group:', e);
+      showError('Failed to refresh group data');
     } finally {
       setRefreshing(false);
     }
-  }, [load]);
-
-  // Focus management for confirmation dialog
-  useEffect(() => {
-    if (confirmDialog) {
-      previousFocusRef.current = document.activeElement;
-      // Focus the dialog after a short delay to ensure it's rendered
-      setTimeout(() => {
-        dialogRef.current?.focus();
-      }, 50);
-    } else if (previousFocusRef.current) {
-      previousFocusRef.current.focus();
-      previousFocusRef.current = null;
-    }
-  }, [confirmDialog]);
-
-  // Keyboard handler for dialog
-  useEffect(() => {
-    if (!confirmDialog) return;
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        setConfirmDialog(null);
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [confirmDialog]);
-
-  // Route guard: Auth check is now integrated into load() for performance
-  // The load() function handles authorization and redirects if not authorized
-
-  const ensureAnotherAdminExists = async (excludingUserId) => {
-    const { count, error } = await supabase
-      .from('group_members')
-      .select('role', { count: 'exact', head: true })
-      .eq('group_id', id)
-      .eq('role', 'admin')
-      .neq('user_id', excludingUserId);
-    if (error) throw error;
-    return (count ?? 0) > 0;
   };
 
-  const validateBasics = () => {
-    const errors = {};
-    if (!name.trim()) {
-      errors.name = 'Group name is required';
-    } else if (name.trim().length < 3) {
-      errors.name = 'Group name must be at least 3 characters';
-    } else if (name.trim().length > 100) {
-      errors.name = 'Group name must be less than 100 characters';
-    }
-    if (description && description.length > 2000) {
-      errors.description = 'Description must be less than 2000 characters';
-    }
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const saveBasics = async () => {
-    if (!validateBasics()) {
-      toast.error('Please fix the errors before saving');
-      return;
-    }
-    setSaving(true);
-    try {
-      const payload = {
-        name: name.trim(),
-        description: description.trim(),
-        tags: tags.split(',').map(t => t.trim()).filter(Boolean),
-      };
-      const { data, error } = await updateGroupDetails(id, payload);
-      if (error) throw error;
-      setGroup(prev => ({ ...prev, ...data }));
-      toast.success('Basics updated');
-    } catch (e) {
-      logger.error(e);
-      const msg = getFriendlyErrorMessage(e, 'Unable to save changes. Please try again.');
-      toast.error(msg);
-      if (String(e?.code) === '42501') {
-        // Refetch membership and group, then lock UI if not admin anymore
-        try {
-          const [{ data: mem }, { data: fresh }] = await Promise.all([
-            getMyGroupMembership(id),
-            fetchGroupDetails(id)
-          ]);
-          setGroup(fresh || group);
-          const siteAdmin = profile?.is_admin === true;
-          const isCreator = (fresh?.created_by === user?.id);
-          const can = canManageGroup(!!siteAdmin, !!isCreator, mem || undefined);
-          if (!can) {
-            setAuthorized(false);
-            setAuthMessage("You’re no longer a group admin.");
-          }
-        } catch (_) { /* ignore */ }
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const savePrivacy = async (nextValue) => {
-    setSaving(true);
-    try {
-      const payload = {
-        is_private: typeof nextValue === 'boolean' ? nextValue : isPrivate,
-      };
-      const { data, error } = await updateGroupDetails(id, payload);
-      if (error) throw error;
-      setGroup(prev => ({ ...prev, ...data }));
-      if (typeof data?.is_private === 'boolean') {
-        setIsPrivate(data.is_private);
-      }
-      toast.success('Privacy updated');
-    } catch (e) {
-      logger.error(e);
-      const msg = getFriendlyErrorMessage(e, 'Unable to update privacy. Please try again.');
-      toast.error(msg);
-      if (String(e?.code) === '42501') {
-        try {
-          const [{ data: mem }, { data: fresh }] = await Promise.all([
-            getMyGroupMembership(id),
-            fetchGroupDetails(id)
-          ]);
-          setGroup(fresh || group);
-          const siteAdmin = profile?.is_admin === true;
-          const isCreator = (fresh?.created_by === user?.id);
-          const can = canManageGroup(!!siteAdmin, !!isCreator, mem || undefined);
-          if (!can) {
-            setAuthorized(false);
-            setAuthMessage("You’re no longer a group admin.");
-          }
-        } catch (_) { /* ignore */ }
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Use secure RPCs for approval/rejection
   const handleApprove = async () => {
+    if (!id) return;
     setSaving(true);
     try {
       await approveGroupRpc(id);
-      // isApproved is now derived from approvalStatus
       setApprovalStatus('approved');
-      setGroup(prev => ({ ...prev, is_approved: true, approval_status: 'approved' }));
-      toast.success('Group approved');
+      showSuccess('Group approved');
+      await load();
     } catch (e) {
-      logger.error(e);
-      toast.error(getFriendlyErrorMessage(e, 'Unable to approve group. Please try again.'));
+      logger.error('Failed to approve group:', e);
+      showError(getFriendlyErrorMessage(e, 'Failed to approve group'));
     } finally {
       setSaving(false);
     }
   };
 
   const handleReject = async () => {
-    const reason = window.prompt('Rejection reason (optional):');
+    if (!id) return;
     setSaving(true);
     try {
-      await rejectGroupRpc(id, reason || undefined);
-      // isApproved is now derived from approvalStatus
+      await rejectGroupRpc(id, null);
       setApprovalStatus('rejected');
-      setGroup(prev => ({ ...prev, is_approved: false, approval_status: 'rejected' }));
-      toast.success('Group rejected');
+      showSuccess('Group rejected');
+      await load();
     } catch (e) {
-      logger.error(e);
-      toast.error(getFriendlyErrorMessage(e, 'Unable to reject group. Please try again.'));
+      logger.error('Failed to reject group:', e);
+      showError(getFriendlyErrorMessage(e, 'Failed to reject group'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveBasics = async () => {
+    const trimmedName = name.trim();
+    const trimmedDescription = description.trim();
+    const nextErrors = {};
+
+    if (!trimmedName) {
+      nextErrors.name = 'Group name is required';
+    }
+    if (trimmedDescription.length > 2000) {
+      nextErrors.description = 'Description is too long';
+    }
+
+    if (Object.keys(nextErrors).length) {
+      setFormErrors(prev => ({ ...prev, ...nextErrors }));
+      showError('Please fix the highlighted fields');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const tagArray = (tags || '')
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean);
+
+      const updates = {
+        name: trimmedName,
+        description: trimmedDescription || null,
+        tags: tagArray,
+      };
+
+      const { data, error } = await updateGroupDetails(id, updates);
+      if (error) throw error;
+
+      setGroup(prev => ({ ...(prev || {}), ...(data || updates) }));
+      showSuccess('Group details updated');
+    } catch (e) {
+      logger.error('Failed to save group basics:', e);
+      showError(getFriendlyErrorMessage(e, 'Failed to save group details'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const savePrivacy = async (nextIsPrivate) => {
+    setSaving(true);
+    try {
+      const { data, error } = await updateGroupDetails(id, { is_private: nextIsPrivate });
+      if (error) throw error;
+
+      setGroup(prev => ({ ...(prev || {}), ...(data || { is_private: nextIsPrivate }) }));
+      showSuccess(nextIsPrivate ? 'Group set to private' : 'Group set to public');
+    } catch (e) {
+      logger.error('Failed to update privacy:', e);
+      showError(getFriendlyErrorMessage(e, 'Failed to update privacy settings'));
+      await load();
     } finally {
       setSaving(false);
     }
   };
 
   const handleAlumniOnlyToggle = async () => {
+    const next = !alumniOnly;
+    setAlumniOnlyState(next);
     setSaving(true);
     try {
-      const newValue = !alumniOnly;
-      await setAlumniOnly(id, newValue);
-      setAlumniOnlyState(newValue);
-      setGroup(prev => ({ ...prev, alumni_only: newValue }));
-      toast.success(newValue ? 'Group is now alumni-only' : 'Group is now open to all members');
+      await setAlumniOnly(id, next);
+      setGroup(prev => ({ ...(prev || {}), alumni_only: next }));
+      showSuccess(next ? 'Group set to alumni only' : 'Group now open to alumni and students');
     } catch (e) {
-      logger.error(e);
-      toast.error(getFriendlyErrorMessage(e, 'Unable to update alumni-only setting.'));
+      logger.error('Failed to toggle alumni-only:', e);
+      showError(getFriendlyErrorMessage(e, 'Failed to update membership restrictions'));
+      await load();
     } finally {
       setSaving(false);
-    }
-  };
-
-  const promote = async (member) => {
-    setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'loading', message: 'Promoting...' } }));
-    try {
-      await setMemberRoleRpc(id, member.user.id, 'admin');
-      setMembers(prev => {
-        const updated = prev.map(m => m.user.id === member.user.id ? { ...m, role: 'admin' } : m);
-        // Re-sort: admins first
-        return updated.sort((a, b) => {
-          if (a.role === 'admin' && b.role !== 'admin') return -1;
-          if (a.role !== 'admin' && b.role === 'admin') return 1;
-          return (a.user.full_name || '').localeCompare(b.user.full_name || '');
-        });
-      });
-      setAdminCount(prev => prev + 1);
-      setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'success', message: `${member.user.full_name} is now a group admin` } }));
-      toast.success(`${member.user.full_name} promoted to admin`);
-      setTimeout(() => {
-        setActionStatus(prev => {
-          const next = { ...prev };
-          delete next[member.user.id];
-          return next;
-        });
-      }, 3000);
-    } catch (e) {
-      logger.error(e);
-      const msg = String(e?.message || '');
-      const friendlyMsg = /permission denied/i.test(msg) 
-        ? `Unable to promote ${member.user.full_name}. You may no longer have admin permissions.`
-        : `Unable to promote ${member.user.full_name}. Please try again.`;
-      setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'error', message: 'Failed to promote' } }));
-      toast.error(friendlyMsg);
-      setTimeout(() => {
-        setActionStatus(prev => {
-          const next = { ...prev };
-          delete next[member.user.id];
-          return next;
-        });
-      }, 3000);
     }
   };
 
@@ -511,141 +421,53 @@ export default function GroupManage() {
     setConfirmDialog({ type: 'demote', member });
   };
 
-  const demote = async (member) => {
-    setConfirmDialog(null);
-    setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'loading', message: 'Demoting...' } }));
-    try {
-      if (member.role === 'admin') {
-        const ok = await ensureAnotherAdminExists(member.user.id);
-        if (!ok) {
-          const msg = 'Cannot demote the last admin. Promote another member first.';
-          setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'error', message: msg } }));
-          toast.error(msg);
-          setTimeout(() => {
-            setActionStatus(prev => {
-              const next = { ...prev };
-              delete next[member.user.id];
-              return next;
-            });
-          }, 3000);
-          return;
-        }
-      }
-      await setMemberRoleRpc(id, member.user.id, 'member');
-      setMembers(prev => {
-        const updated = prev.map(m => m.user.id === member.user.id ? { ...m, role: 'member' } : m);
-        // Re-sort: admins first
-        return updated.sort((a, b) => {
-          if (a.role === 'admin' && b.role !== 'admin') return -1;
-          if (a.role !== 'admin' && b.role === 'admin') return 1;
-          return (a.user.full_name || '').localeCompare(b.user.full_name || '');
-        });
-      });
-      setAdminCount(prev => prev - 1);
-      setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'success', message: `${member.user.full_name} is now a group member` } }));
-      toast.success(`${member.user.full_name} demoted to member`);
-      setTimeout(() => {
-        setActionStatus(prev => {
-          const next = { ...prev };
-          delete next[member.user.id];
-          return next;
-        });
-      }, 3000);
-    } catch (e) {
-      logger.error(e);
-      const msg = String(e?.message || '');
-      const friendlyMsg = /permission denied/i.test(msg) 
-        ? `Unable to demote ${member.user.full_name}. You may no longer have admin permissions.`
-        : `Unable to demote ${member.user.full_name}. Please try again.`;
-      setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'error', message: 'Failed to demote' } }));
-      toast.error(friendlyMsg);
-      setTimeout(() => {
-        setActionStatus(prev => {
-          const next = { ...prev };
-          delete next[member.user.id];
-          return next;
-        });
-      }, 3000);
-    }
-  };
-
   const handleRemoveClick = (member) => {
     setConfirmDialog({ type: 'remove', member });
   };
 
+  const promote = async (member) => {
+    setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'loading' } }));
+    try {
+      await setMemberRoleRpc(id, member.user.id, 'admin');
+      setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'success', message: 'Promoted to admin' } }));
+      await load();
+      toast.success('Member promoted to admin');
+    } catch (e) {
+      logger.error('Failed to promote member:', e);
+      setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'error', message: 'Failed to promote' } }));
+      showError('Failed to promote member');
+    }
+  };
+
+  const demote = async (member) => {
+    setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'loading' } }));
+    try {
+      await setMemberRoleRpc(id, member.user.id, 'member');
+      setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'success', message: 'Demoted to member' } }));
+      await load();
+      toast.success('Admin demoted to member');
+    } catch (e) {
+      logger.error('Failed to demote member:', e);
+      setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'error', message: 'Failed to demote' } }));
+      showError('Failed to demote member');
+    } finally {
+      setConfirmDialog(null);
+    }
+  };
+
   const remove = async (member) => {
-    setConfirmDialog(null);
-    setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'loading', message: 'Removing...' } }));
+    setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'loading' } }));
     try {
-      if (member.role === 'admin') {
-        const ok = await ensureAnotherAdminExists(member.user.id);
-        if (!ok) {
-          const msg = 'Cannot remove the last admin. Promote another member first.';
-          setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'error', message: msg } }));
-          toast.error(msg);
-          setTimeout(() => {
-            setActionStatus(prev => {
-              const next = { ...prev };
-              delete next[member.user.id];
-              return next;
-            });
-          }, 3000);
-          return;
-        }
-      }
       await removeMemberRpc(id, member.user.id);
-      setMembers(prev => {
-        const filtered = prev.filter(m => m.user.id !== member.user.id);
-        return filtered;
-      });
-      if (member.role === 'admin') setAdminCount(prev => prev - 1);
-      setMemberCount(prev => prev - 1);
-      toast.success(`${member.user.full_name} has been removed from the group`);
+      setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'success', message: 'Removed from group' } }));
+      await load();
+      toast.success('Member removed from group');
     } catch (e) {
-      logger.error(e);
-      const msg = String(e?.message || '');
-      const friendlyMsg = /permission denied/i.test(msg) 
-        ? `Unable to remove ${member.user.full_name}. You may no longer have admin permissions.`
-        : `Unable to remove ${member.user.full_name}. Please try again.`;
+      logger.error('Failed to remove member:', e);
       setActionStatus(prev => ({ ...prev, [member.user.id]: { type: 'error', message: 'Failed to remove' } }));
-      toast.error(friendlyMsg);
-      setTimeout(() => {
-        setActionStatus(prev => {
-          const next = { ...prev };
-          delete next[member.user.id];
-          return next;
-        });
-      }, 3000);
-    }
-  };
-
-  const leaveGroup = async () => {
-    if (!window.confirm('Are you sure you want to leave this group?')) return;
-    setLeaving(true);
-    try {
-      await leaveGroupRpc(id);
-      toast.success('You left the group');
-      navigate(`/groups/${id}`);
-    } catch (e) {
-      logger.error(e);
-      toast.error(getFriendlyErrorMessage(e, 'Unable to leave group. You may be the last admin.'));
+      showError('Failed to remove member');
     } finally {
-      setLeaving(false);
-    }
-  };
-
-  // Use secure RPC for archiving
-  const archiveGroup = async () => {
-    setSaving(true);
-    try {
-      await archiveGroupRpc(id);
-      toast.success('Group archived');
-      navigate('/groups');
-    } catch (e) {
-      logger.error(e);
-      toast.error(getFriendlyErrorMessage(e, 'Unable to archive the group. Please try again.'));
-    } finally {
-      setSaving(false);
+      setConfirmDialog(null);
     }
   };
 
@@ -1176,11 +998,11 @@ export default function GroupManage() {
                           try {
                             await approveGroupMember(id, p.user_id); 
                             setActionStatus(prev => ({ ...prev, [p.user_id]: { type: 'success', message: 'Approved' } }));
-                            toast.success('Member approved'); 
+                            showSuccess('Member approved'); 
                             setTimeout(() => load(), 1000);
                           } catch (e) {
                             setActionStatus(prev => ({ ...prev, [p.user_id]: { type: 'error', message: 'Failed to approve' } }));
-                            toast.error('Failed to approve');
+                            showError('Failed to approve');
                           }
                         }} 
                         disabled={status?.type === 'loading'}
@@ -1195,11 +1017,11 @@ export default function GroupManage() {
                           try {
                             await rejectGroupMember(id, p.user_id); 
                             setActionStatus(prev => ({ ...prev, [p.user_id]: { type: 'success', message: 'Rejected' } }));
-                            toast.success('Request rejected'); 
+                            showSuccess('Request rejected'); 
                             setTimeout(() => load(), 1000);
                           } catch (e) {
                             setActionStatus(prev => ({ ...prev, [p.user_id]: { type: 'error', message: 'Failed to reject' } }));
-                            toast.error('Failed to reject');
+                            showError('Failed to reject');
                           }
                         }} 
                         disabled={status?.type === 'loading'}
@@ -1289,7 +1111,7 @@ export default function GroupManage() {
                     setInviting(true);
                     try {
                       await inviteMemberByEmail(id, inviteEmail);
-                      toast.success('Invitation sent! The user will receive a notification.');
+                      showSuccess('Invitation sent! The user will receive a notification.');
                       setInviteEmail('');
                       // Refresh group and pending requests so counts reflect the latest state
                       await load();
@@ -1298,25 +1120,25 @@ export default function GroupManage() {
                       const msg = String(e?.message || '').toLowerCase();
                       // Surface specific RPC error messages for better UX
                       if (/employer/i.test(msg)) {
-                        toast.error('Employers cannot be invited to groups.');
+                        showError('Employers cannot be invited to groups.');
                       } else if (/alumni.?only/i.test(msg) || /students cannot be invited/i.test(msg)) {
-                        toast.error('This group is alumni-only. Students cannot be invited.');
+                        showError('This group is alumni-only. Students cannot be invited.');
                       } else if (/already a member/i.test(msg)) {
-                        toast.error('This user is already a member of this group.');
+                        showError('This user is already a member of this group.');
                       } else if (/not authenticated/i.test(msg)) {
-                        toast.error('You must be logged in to send invites.');
+                        showError('You must be logged in to send invites.');
                       } else if (/only group members/i.test(msg)) {
-                        toast.error('Only group members can send invites.');
+                        showError('Only group members can send invites.');
                       } else if (/archived/i.test(msg)) {
-                        toast.error('Cannot invite to an archived group.');
+                        showError('Cannot invite to an archived group.');
                       } else if (/unapproved/i.test(msg) || /pending approval/i.test(msg)) {
-                        toast.error('Cannot invite to a group that is not yet approved.');
+                        showError('Cannot invite to a group that is not yet approved.');
                       } else if (/rate limit/i.test(msg)) {
-                        toast.error('Too many invites sent. Please wait before sending more.');
+                        showError('Too many invites sent. Please wait before sending more.');
                       } else if (/no user found/i.test(msg) || /user not found/i.test(msg)) {
-                        toast.error('No user found with this email address.');
+                        showError('No user found with this email address.');
                       } else {
-                        toast.error(getFriendlyErrorMessage(e, 'Failed to invite member. Please try again.'));
+                        showError(getFriendlyErrorMessage(e, 'Failed to invite member. Please try again.'));
                       }
                     } finally {
                       setInviting(false);
@@ -1678,7 +1500,7 @@ export default function GroupManage() {
                 {adminCount <= 1 && isGroupAdmin && ' You cannot leave as the only admin.'}
               </p>
               <button 
-                onClick={leaveGroup} 
+                onClick={() => setIsLeaveDialogOpen(true)} 
                 disabled={leaving || (adminCount <= 1 && isGroupAdmin)} 
                 className="px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
                 title={adminCount <= 1 && isGroupAdmin ? 'Cannot leave as the only admin' : ''}
@@ -1690,7 +1512,7 @@ export default function GroupManage() {
         </CollapsibleSection>
       </div>
 
-      {/* Confirmation Dialog */}
+      {/* Confirmation Dialog for member demote/remove */}
       {confirmDialog && (
         <div 
           className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200" 
@@ -1813,6 +1635,17 @@ export default function GroupManage() {
           </div>
         </div>
       )}
+      <LeaveConfirmationDialog
+        isOpen={isLeaveDialogOpen}
+        onClose={() => setIsLeaveDialogOpen(false)}
+        onConfirm={async () => {
+          await leaveGroup();
+          setIsLeaveDialogOpen(false);
+        }}
+        itemType="group"
+        itemName={group?.name}
+        loading={leaving}
+      />
       </div>
     </div>
   );

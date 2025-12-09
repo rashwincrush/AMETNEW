@@ -306,6 +306,26 @@ const Profile = () => {
           logger.log('Setting initial company name:', initialCompany);
           logger.log('Cleaned profile data:', cleanedProfile);
 
+          // Precompute effective batch/graduation year from all possible sources and log
+          const effectiveBatchYear = getEffectiveBatchYear(cleanedProfile);
+          logger.log('[Profile] Year fields snapshot:', {
+            id: cleanedProfile.id,
+            role: cleanedProfile.role,
+            graduation_year: cleanedProfile.graduation_year,
+            expected_graduation_year: cleanedProfile.expected_graduation_year,
+            batch_year: cleanedProfile.batch_year,
+            effectiveBatchYear,
+          });
+
+          if ((cleanedProfile.role === 'student' || cleanedProfile.role === 'mentee') && effectiveBatchYear == null) {
+            logger.warn('[Profile] Student/Mentee profile missing effective batch year after initialization', {
+              id: cleanedProfile.id,
+              graduation_year: cleanedProfile.graduation_year,
+              expected_graduation_year: cleanedProfile.expected_graduation_year,
+              batch_year: cleanedProfile.batch_year,
+            });
+          }
+
           // Set the main form data with potentially updated company name
           const formDataInitial = {
             first_name: cleanedProfile.first_name || '',
@@ -321,7 +341,7 @@ const Profile = () => {
             degree_code: cleanedProfile.degree_code || '',
             department_id: cleanedProfile.department_id || '',
             // Use centralized helper to get effective batch year from any source
-            batchYear: getEffectiveBatchYear(cleanedProfile) || '',
+            batchYear: effectiveBatchYear || '',
             graduation_year: cleanedProfile.graduation_year || '',
             expected_graduation_year: cleanedProfile.expected_graduation_year || '',
             student_id: cleanedProfile.student_id || '',

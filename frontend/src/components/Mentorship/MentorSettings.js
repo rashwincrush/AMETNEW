@@ -4,6 +4,7 @@ import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { toFriendlyToast, getFriendlyErrorMessage } from '../../utils/errors';
 import logger from '../../utils/logger';
+import { ConfirmationDialog } from '../../components/shared';
 
 const MentorSettings = () => {
   const navigate = useNavigate();
@@ -17,6 +18,7 @@ const MentorSettings = () => {
   const [defaultLink, setDefaultLink] = useState('');
   const [linkSaving, setLinkSaving] = useState(false);
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   const validate = () => {
     if (!title.trim()) {
@@ -108,12 +110,7 @@ const MentorSettings = () => {
     }
   };
 
-  const bulkApplyDefaultLink = async () => {
-    if (!defaultLink || !validHttpUrl(defaultLink)) {
-      toast.error('Please set a valid default link first');
-      return;
-    }
-    if (!window.confirm('Apply the default meeting link to all upcoming sessions that are missing a link?')) return;
+  const runBulkApplyDefaultLink = async () => {
     setBulkUpdating(true);
     try {
       const { data: auth } = await supabase.auth.getUser();
@@ -156,12 +153,18 @@ const MentorSettings = () => {
     }
   };
 
-  const broadcastLinkToAccepted = async () => {
+  const bulkApplyDefaultLink = () => {
     if (!defaultLink || !validHttpUrl(defaultLink)) {
       toast.error('Please set a valid default link first');
       return;
     }
-    if (!window.confirm('Send your meeting link to all accepted mentees?')) return;
+    setConfirmDialog({
+      type: 'bulk-apply-default-link',
+      description: 'Apply the default meeting link to all upcoming sessions that are missing a link?',
+    });
+  };
+
+  const runBroadcastLinkToAccepted = async () => {
     try {
       const { data: auth } = await supabase.auth.getUser();
       const uid = auth?.user?.id;
@@ -186,6 +189,17 @@ const MentorSettings = () => {
     } catch (e) {
       toFriendlyToast(toast, e, 'Failed to send link');
     }
+  };
+
+  const broadcastLinkToAccepted = () => {
+    if (!defaultLink || !validHttpUrl(defaultLink)) {
+      toast.error('Please set a valid default link first');
+      return;
+    }
+    setConfirmDialog({
+      type: 'broadcast-link',
+      description: 'Send your meeting link to all accepted mentees?',
+    });
   };
 
   const handleCreateProgram = async (e) => {
@@ -315,6 +329,28 @@ const MentorSettings = () => {
 
         <p className="text-gray-700">Additional mentor preferences and availability settings can be configured here later.</p>
       </div>
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'bulk-apply-default-link'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          setConfirmDialog(null);
+          await runBulkApplyDefaultLink();
+        }}
+        title="Apply default meeting link"
+        description={confirmDialog?.description || 'Apply the default meeting link to all upcoming sessions that are missing a link?'}
+        variant="warning"
+      />
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'broadcast-link'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          setConfirmDialog(null);
+          await runBroadcastLinkToAccepted();
+        }}
+        title="Send meeting link to mentees"
+        description={confirmDialog?.description || 'Send your meeting link to all accepted mentees?'}
+        variant="warning"
+      />
     </div>
   );
 };

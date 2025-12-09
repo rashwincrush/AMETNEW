@@ -1,7 +1,7 @@
 const COMMON = ['password','passw0rd','123456','qwerty','letmein','admin','welcome','iloveyou'];
 
 export function validatePassword(pw, email) {
-  if (!pw || pw.length < 12) return { ok: false, message: 'Use at least 12 characters.' };
+  if (!pw || pw.length < 12) return { ok: false, message: 'Password must be at least 12 characters long.' };
 
   const lowers = /[a-z]/.test(pw);
   const uppers = /[A-Z]/.test(pw);

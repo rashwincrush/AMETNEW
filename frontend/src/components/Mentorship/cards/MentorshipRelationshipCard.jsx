@@ -129,8 +129,12 @@ export default function MentorshipRelationshipCard({
       setShowMenu(false);
     } catch (error) {
       logger.error('Error ending mentorship:', error);
-      const message = mapMentorshipError(error);
-      toast.error(message || 'Failed to end mentorship');
+      const { code, message } = mapMentorshipError(error);
+      if (code === 'ALREADY_ENDED') {
+        toast.success('This mentorship is already ended.');
+      } else {
+        toast.error(message || 'Failed to end mentorship');
+      }
     } finally {
       setIsEnding(false);
     }

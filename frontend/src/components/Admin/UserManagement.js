@@ -35,6 +35,7 @@ import UserDetailsModal from './UserDetailsModal';
 import EditUserModal from './EditUserModal';
 import RejectUserModal from './RejectUserModal';
 import MentorsTab from './MentorsTab';
+import { ConfirmationDialog, DeleteConfirmationDialog } from '../../components/shared';
 
 const UserManagement = () => {
   const { hasPermission, user: currentUser, getUserRole, role } = useAuth();
@@ -57,6 +58,7 @@ const UserManagement = () => {
   const [deletingId, setDeletingId] = useState(null);
   const canHardDelete = role === 'super_admin';
   const canPurge = role === 'super_admin';
+  const [confirmDialog, setConfirmDialog] = useState(null);
   
   const softDeleteUser = async (userId, reason) => {
     setDeletingId(userId);
@@ -92,10 +94,6 @@ const UserManagement = () => {
       toast.error('You cannot delete your own account.');
       return { success: false };
     }
-
-    const ok = window.confirm('This will permanently delete the user from Supabase Auth. Continue?');
-    if (!ok) return { success: false, cancelled: true };
-
     setDeletingId(userId);
     setLoading(true);
     try {
@@ -124,9 +122,6 @@ const UserManagement = () => {
   };
   
   const purgeUserData = async (userId) => {
-    const ok = window.confirm('Purge will permanently remove user-owned data in app DB. Continue?');
-    if (!ok) return { success: false, cancelled: true };
-    
     setDeletingId(userId);
     setLoading(true);
     try {
@@ -380,17 +375,11 @@ const UserManagement = () => {
           toast.error('You cannot delete your own account.');
           return;
         }
-        
-        if (window.confirm(`Are you sure you want to soft delete user ${user.email || user.id}? They can be restored later.`)) {
-          try {
-            await softDeleteUser(userId);
-            // Don't filter out the user - instead update the UI to show deleted status
-            setUsers(prev => prev.map(u => u.id === userId ? {...u, is_deleted: true} : u));
-          } catch (err) {
-            logger.error('Error soft-deleting user:', err);
-            toast.error(`Failed to delete user: ${getFriendlyErrorMessage(err, 'Unable to delete user.')}`);
-          }
-        }
+        setConfirmDialog({
+          type: 'soft-delete-single',
+          userId,
+          message: `Are you sure you want to soft delete user ${user.email || user.id}? They can be restored later.`,
+        });
         break;
       case 'purge':
         // Prevent self-purge
@@ -398,17 +387,11 @@ const UserManagement = () => {
           toast.error('You cannot purge your own account data.');
           return;
         }
-        
-        if (window.confirm(`Are you sure you want to PERMANENTLY PURGE all data for user ${user.email || user.id}? This cannot be undone!`)) {
-          try {
-            await purgeUserData(userId);
-            // After purging, keep the user in the list but mark data as purged
-            setUsers(prev => prev.map(u => u.id === userId ? {...u, is_data_purged: true} : u));
-          } catch (err) {
-            logger.error('Error purging user data:', err);
-            toast.error(`Failed to purge user data: ${getFriendlyErrorMessage(err, 'Unable to purge user data.')}`);
-          }
-        }
+        setConfirmDialog({
+          type: 'purge-single',
+          userId,
+          message: `Are you sure you want to PERMANENTLY PURGE all data for user ${user.email || user.id}? This cannot be undone!`,
+        });
         break;
       case 'delete-auth':
         // Prevent self-delete
@@ -416,12 +399,11 @@ const UserManagement = () => {
           toast.error('You cannot delete your own account.');
           return;
         }
-        try {
-          await deleteAuthUser(userId);
-        } catch (err) {
-          logger.error('Error deleting auth user:', err);
-          toast.error(`Failed to delete auth user: ${getFriendlyErrorMessage(err, 'Unable to delete auth user.')}`);
-        }
+        setConfirmDialog({
+          type: 'delete-auth-single',
+          userId,
+          message: 'This will permanently delete the user from Supabase Auth. Continue?',
+        });
         break;
       default: {
         toast.error(`Unknown action: ${action}`);
@@ -440,31 +422,12 @@ const UserManagement = () => {
       ? `Block ${user.email || user.full_name || 'this user'}? They will not be able to use the platform.`
       : `Unblock ${user.email || user.full_name || 'this user'} and allow access again?`;
 
-    const ok = window.confirm(confirmLabel);
-    if (!ok) return;
-
-    setLoading(true);
-    try {
-      const { error } = await supabase.rpc('admin_toggle_active', {
-        p_user_id: user.id,
-        p_is_active: !currentlyActive,
-        p_reason: currentlyActive
-          ? 'Blocked from Admin User Management'
-          : 'Unblocked from Admin User Management',
-      });
-
-      if (error) {
-        throw error;
-      }
-
-      await fetchUsers();
-      toast.success(currentlyActive ? 'User has been blocked.' : 'User has been unblocked.');
-    } catch (err) {
-      logger.error('Error toggling user active state:', err);
-      toast.error(getFriendlyErrorMessage(err, 'Unable to change user active status.'));
-    } finally {
-      setLoading(false);
-    }
+    setConfirmDialog({
+      type: 'toggle-active',
+      userId: user.id,
+      message: confirmLabel,
+      currentlyActive,
+    });
   };
 
   const handleSaveUser = async (userId, newRole) => {
@@ -517,23 +480,11 @@ const UserManagement = () => {
     }
 
     if (action === 'delete') {
-      if (!window.confirm(`Soft delete ${selectedUsers.length} user(s)? They can be restored later.`)) return;
-      // Check if trying to delete self
-      if (selectedUsers.includes(currentUser?.id)) {
-        toast.error('You cannot delete your own account.');
-        return;
-      }
-      setLoading(true);
-      const results = await Promise.allSettled(
-        selectedUsers.map(id => softDeleteUser(id, 'Bulk soft delete from User Management'))
-      );
-      const ok = results.filter(r => r.status === 'fulfilled' && r.value?.success).length;
-      const failed = results.length - ok;
-      setUsers(prev => prev.map(u => selectedUsers.includes(u.id) ? {...u, is_deleted: true} : u));
-      setSelectedUsers([]);
-      setLoading(false);
-      if (ok) toast.success(`Soft-deleted ${ok} user(s).`);
-      if (failed) toast.error(`Failed to delete ${failed} user(s).`);
+      setConfirmDialog({
+        type: 'bulk-soft-delete',
+        userIds: selectedUsers,
+        message: `Soft delete ${selectedUsers.length} user(s)? They can be restored later.`,
+      });
       return;
     }
   };
@@ -590,6 +541,84 @@ const UserManagement = () => {
   if (initialLoading) {
     return <div className="p-8">Loading user data...</div>;
   }
+
+  const runToggleActive = async () => {
+    if (!confirmDialog?.userId) return;
+    const user = users.find(u => u.id === confirmDialog.userId);
+    if (!user || user.is_deleted) return;
+
+    const currentlyActive = user.is_active !== false;
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.rpc('admin_toggle_active', {
+        p_user_id: user.id,
+        p_is_active: !currentlyActive,
+        p_reason: currentlyActive
+          ? 'Blocked from Admin User Management'
+          : 'Unblocked from Admin User Management',
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      await fetchUsers();
+      toast.success(currentlyActive ? 'User has been blocked.' : 'User has been unblocked.');
+    } catch (err) {
+      logger.error('Error toggling user active state:', err);
+      toast.error(getFriendlyErrorMessage(err, 'Unable to change user active status.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runSingleSoftDelete = async () => {
+    if (!confirmDialog?.userId) return;
+    const userId = confirmDialog.userId;
+    try {
+      await softDeleteUser(userId);
+      // Don't filter out the user - instead update the UI to show deleted status
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_deleted: true } : u));
+    } catch (err) {
+      logger.error('Error soft-deleting user:', err);
+      toast.error(`Failed to delete user: ${getFriendlyErrorMessage(err, 'Unable to delete user.')}`);
+    }
+  };
+
+  const runSinglePurge = async () => {
+    if (!confirmDialog?.userId) return;
+    const userId = confirmDialog.userId;
+    try {
+      await purgeUserData(userId);
+      // After purging, keep the user in the list but mark data as purged
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_data_purged: true } : u));
+    } catch (err) {
+      logger.error('Error purging user data:', err);
+      toast.error(`Failed to purge user data: ${getFriendlyErrorMessage(err, 'Unable to purge user data.')}`);
+    }
+  };
+
+  const runBulkSoftDelete = async () => {
+    const ids = confirmDialog?.userIds || [];
+    if (!ids.length) return;
+    // Check if trying to delete self
+    if (ids.includes(currentUser?.id)) {
+      toast.error('You cannot delete your own account.');
+      return;
+    }
+    setLoading(true);
+    const results = await Promise.allSettled(
+      ids.map(id => softDeleteUser(id, 'Bulk soft delete from User Management'))
+    );
+    const ok = results.filter(r => r.status === 'fulfilled' && r.value?.success).length;
+    const failed = results.length - ok;
+    setUsers(prev => prev.map(u => ids.includes(u.id) ? { ...u, is_deleted: true } : u));
+    setSelectedUsers([]);
+    setLoading(false);
+    if (ok) toast.success(`Soft-deleted ${ok} user(s).`);
+    if (failed) toast.error(`Failed to delete ${failed} user(s).`);
+  };
 
   return (
     <div className="bg-gray-50/50 min-h-screen p-4 sm:p-6 lg:p-8">
@@ -966,6 +995,69 @@ const UserManagement = () => {
         isOpen={isRejectModalOpen}
         onClose={() => setIsRejectModalOpen(false)}
         onReject={handleRejectUser}
+      />
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'soft-delete-single'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          await runSingleSoftDelete();
+          setConfirmDialog(null);
+        }}
+        title="Soft delete user"
+        description={confirmDialog?.message || ''}
+        variant="danger"
+      />
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'toggle-active'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          await runToggleActive();
+          setConfirmDialog(null);
+        }}
+        title={confirmDialog?.currentlyActive ? 'Block user' : 'Unblock user'}
+        description={confirmDialog?.message || ''}
+        variant="warning"
+      />
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'bulk-soft-delete'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          await runBulkSoftDelete();
+          setConfirmDialog(null);
+        }}
+        title="Soft delete users"
+        description={confirmDialog?.message || ''}
+        variant="danger"
+      />
+      <DeleteConfirmationDialog
+        isOpen={confirmDialog?.type === 'purge-single'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          await runSinglePurge();
+          setConfirmDialog(null);
+        }}
+        itemType="User data"
+        itemName={undefined}
+        loading={deletingId === confirmDialog?.userId}
+      />
+      <DeleteConfirmationDialog
+        isOpen={confirmDialog?.type === 'delete-auth-single'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={async () => {
+          try {
+            if (confirmDialog?.userId) {
+              await deleteAuthUser(confirmDialog.userId);
+            }
+          } catch (err) {
+            logger.error('Error deleting auth user:', err);
+            toast.error(`Failed to delete auth user: ${getFriendlyErrorMessage(err, 'Unable to delete auth user.')}`);
+          } finally {
+            setConfirmDialog(null);
+          }
+        }}
+        itemType="Auth user"
+        itemName={undefined}
+        loading={deletingId === confirmDialog?.userId}
       />
     </div>
   );
