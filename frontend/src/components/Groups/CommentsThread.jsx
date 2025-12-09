@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { addComment, editComment, fetchComments } from '../../api/comments'
-import { onPostgresChangesOnce, waitForRealtimeReady } from '../../utils/supabase'
+import { supabase } from '../../utils/supabase'
 import { canCommentOnGroup, isEmployer, getGroupStatus } from '../../utils/acl'
 import { useAuth } from '../../contexts/AuthContext'
 import { useApproval } from '../../hooks/useApproval'
@@ -60,24 +60,29 @@ export default function CommentsThread({ postId, group, isMember }) {
 
   useEffect(() => {
     if (!postId) return;
-    let dispose;
-    (async () => {
-      await waitForRealtimeReady(3000);
-      dispose = onPostgresChangesOnce(
-        `gc:${postId}`,
-        `*:public:group_comments:post_id=eq.${postId}`,
-        { event: '*', schema: 'public', table: 'group_comments', filter: `post_id=eq.${postId}` },
-        (payload) => {
-          setComments((prev) => {
-            if (payload.eventType === 'INSERT') return [...prev, payload.new]
-            if (payload.eventType === 'UPDATE') return prev.map(c => c.id === payload.new.id ? payload.new : c)
-            if (payload.eventType === 'DELETE') return prev.filter(c => c.id !== payload.old.id)
-            return prev
-          })
-        }
-      );
-    })();
-    return () => { try { dispose && dispose(); } catch (_) { void 0; } };
+
+    // Use a fresh per-mount channel for this post, same pattern as useDmRealtime
+    const topic = `gc:${postId}:${Date.now()}`
+    const ch = supabase.channel(topic)
+
+    ch.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'group_comments', filter: `post_id=eq.${postId}` },
+      (payload) => {
+        setComments((prev) => {
+          if (payload.eventType === 'INSERT') return [...prev, payload.new]
+          if (payload.eventType === 'UPDATE') return prev.map(c => c.id === payload.new.id ? payload.new : c)
+          if (payload.eventType === 'DELETE') return prev.filter(c => c.id !== payload.old.id)
+          return prev
+        })
+      }
+    )
+
+    ch.subscribe()
+
+    return () => {
+      try { ch.unsubscribe() } catch (_) { void 0 }
+    }
   }, [postId])
 
   const onSubmit = async (e) => {
@@ -108,7 +113,6 @@ export default function CommentsThread({ postId, group, isMember }) {
 
   return (
     <div className="space-y-4">
-      {loading && <div className="text-sm opacity-70">Loading comments…</div>}
       {!loading && comments.length === 0 && (
         <div className="text-sm opacity-70">No comments yet.</div>
       )}

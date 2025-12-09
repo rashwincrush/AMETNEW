@@ -153,17 +153,12 @@ function MyGroupsWidget() {
 
       {/* Loading */}
       {rows === null && !err && (
-        <ul className="space-y-3">
-          {[0,1,2].map(i => (
-            <li key={i} className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-gray-200 rounded-md animate-pulse" />
-              <div className="flex-1">
-                <div className="h-4 w-2/3 bg-gray-200 rounded mb-2 animate-pulse" />
-                <div className="h-3 w-24 bg-gray-100 rounded animate-pulse" />
-              </div>
-            </li>
-          ))}
-        </ul>
+        <div className="flex items-center justify-center py-8" role="status" aria-live="polite">
+          <div className="flex flex-col items-center gap-2">
+            <div className="spinner spinner-md" aria-hidden="true" />
+            <span className="sr-only">Loading groups...</span>
+          </div>
+        </div>
       )}
 
       {/* Error */}

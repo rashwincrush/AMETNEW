@@ -176,18 +176,12 @@ export default function FindMentorsPanel() {
 
       {/* Loading State */}
       {isLoading && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-white rounded-xl border border-slate-200 p-6 animate-pulse">
-              <div className="flex items-start gap-4 mb-4">
-                <div className="h-12 w-12 bg-slate-200 rounded-full" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-5 bg-slate-200 rounded w-3/4" />
-                  <div className="h-4 bg-slate-200 rounded w-1/2" />
-                </div>
-              </div>
-            </div>
-          ))}
+        <div className="flex items-center justify-center py-16" role="status" aria-live="polite">
+          <div className="flex flex-col items-center gap-3">
+            <div className="spinner spinner-lg" aria-hidden="true" />
+            <p className="text-sm text-slate-500 font-medium">Finding mentors...</p>
+            <span className="sr-only">Loading mentors...</span>
+          </div>
         </div>
       )}
 
@@ -222,8 +216,8 @@ export default function FindMentorsPanel() {
 
       {/* Mentor Cards */}
       {!isLoading && !error && mentors.length > 0 && filteredMentors.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {filteredMentors.map((mentor) => {
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 page-enter">
+          {filteredMentors.map((mentor, index) => {
             const currentCount = mentor.current_mentees_count || 0;
             const maxCount = mentor.max_mentees || 0;
             const capacityState = getMentorCapacityState(

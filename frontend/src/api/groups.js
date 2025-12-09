@@ -30,6 +30,18 @@ export async function fetchGroupsRpc() {
   return data || [];
 }
 
+// Paged listing via list_groups_for_current_user_paged. This preserves the
+// same visibility rules but only returns a window of rows per call so that
+// callers can implement server-side pagination.
+export async function fetchGroupsPagedRpc({ limit = 20, offset = 0 } = {}) {
+  const { data, error } = await supabase.rpc('list_groups_for_current_user_paged', {
+    p_limit: limit,
+    p_offset: offset,
+  });
+  if (error) throw error;
+  return data || [];
+}
+
 // One group + my membership (if any)
 export async function fetchGroup(groupId, userId) {
   const [g, m] = await Promise.all([
@@ -108,9 +120,9 @@ export async function deletePost(postId) {
   if (error) throw error;
 }
 
-// Comments: use group_comments (canonical)
-export async function createComment(postId, groupId, content, userId) {
-  const { error } = await supabase.from('group_comments').insert({ post_id: postId, group_id: groupId, user_id: userId, content });
+// Comments: use group_comments (canonical) — table has (post_id, author_id, content, ...)
+export async function createComment(postId, _groupId, content, userId) {
+  const { error } = await supabase.from('group_comments').insert({ post_id: postId, author_id: userId, content });
   if (error) throw error;
 }
 export async function updateComment(id, content) {
@@ -123,10 +135,10 @@ export async function deleteComment(id) {
 }
 
 // Moderation RPCs (JS build uses this file by default when importing '../api/groups')
-// Join a group using the hardened join_group_v2 RPC.
+// Join a group using the hardened join_group RPC.
 // Returns a membership state string: 'active' | 'pending'.
 export async function joinGroup(groupId) {
-  const { data, error } = await supabase.rpc('join_group_v2', { p_group_id: groupId });
+  const { data, error } = await supabase.rpc('join_group', { p_group_id: groupId });
   if (error) throw error;
   return data; // expected to be 'active' or 'pending'
 }

@@ -390,10 +390,11 @@ const EventDetails = () => {
           {/* Event Description */}
           <div className="glass-card rounded-lg p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">About This Event</h2>
-            <div 
-              className="prose max-w-none text-gray-700"
-              dangerouslySetInnerHTML={{ __html: event.longDescription }}
-            />
+            <div className="prose max-w-none text-gray-700">
+              {event.longDescription && String(event.longDescription).split('\n').map((paragraph, index) => (
+                <p key={index} className="mb-2">{paragraph}</p>
+              ))}
+            </div>
           </div>
 
           {/* Event Agenda */}

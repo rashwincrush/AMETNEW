@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RealtimeProvider } from './utils/supabase';
 import { Toaster } from 'react-hot-toast';
@@ -70,7 +70,7 @@ import JobAlerts from './components/Jobs/JobAlerts';
 import Messages from './components/Messages/Messages';
 import JobPostingForm from './components/Jobs/JobPostingForm';
 import ResumeUploadForm from './components/Jobs/ResumeUploadForm';
-import JobApplication from './components/Jobs/JobApplication';
+// REMOVED: JobApplication - legacy direct-insert component, use ApplyDialog via JobDetailsInApp instead
 import ApplicationTracking from './components/Jobs/ApplicationTracking';
 import EditJob from './components/Jobs/EditJob';
 import Mentorship from './components/Mentorship/Mentorship';
@@ -123,6 +123,13 @@ const queryClient = new QueryClient({
   },
 });
 
+// Parameter-aware redirect for legacy /jobs/:jobId/apply route
+// Redirects to job details page since in-app applications are handled via ApplyDialog
+const JobApplyRedirect = () => {
+  const { jobId } = useParams();
+  return <Navigate to={`/jobs/${jobId}`} replace />;
+};
+
 function AppContent() {
   const { user, profile, loading, getUserRole, rejectionStatus } = useAuth();
   const location = useLocation();
@@ -173,11 +180,14 @@ function AppContent() {
     );
   }
 
-  // If loading, show a spinner and wait for auth to resolve
+  // If loading, show a minimal spinner and wait for auth to resolve
   if (loading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <LoadingSpinner message="Initializing application..." />
+      <div className="min-h-screen bg-gradient-to-br from-ocean-50 to-ocean-100 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="spinner spinner-lg" aria-hidden="true" />
+          <p className="text-sm text-gray-600 font-medium">Initializing...</p>
+        </div>
       </div>
     );
   }
@@ -234,7 +244,7 @@ function AppContent() {
             <Route path="/jobs/create" element={<ApprovedGuard require="approved-employer" skeleton={<div/>}><ProtectedRoute requiredPermission="post:jobs"><JobPostingForm /></ProtectedRoute></ApprovedGuard>} />
             <Route path="/jobs/applications" element={<ProtectedRoute requiredPermission="apply:jobs"><ApplicationTracking /></ProtectedRoute>} />
             <Route path="/jobs/applications/:id" element={<ProtectedRoute requiredPermission="apply:jobs"><ApplicationTracking /></ProtectedRoute>} />
-            <Route path="/jobs/:jobId/apply" element={<Navigate to="/jobs/:jobId" replace />} />
+            <Route path="/jobs/:jobId/apply" element={<JobApplyRedirect />} />
             <Route path="/jobs/:jobId/application-success" element={<Navigate to="/jobs/applications" />} />
             <Route path="/jobs/:id" element={<ProtectedRoute requiredPermission="view:jobs"><JobDetails /></ProtectedRoute>} />
             {/* Support canonical edit route used by details components */}
@@ -245,6 +255,14 @@ function AppContent() {
             <Route path="/jobs/:jobId/manage" element={<ProtectedRoute requiredPermission="view:job_applications"><ManageJobApplications /></ProtectedRoute>} />
             <Route path="/jobs/:id/applications" element={<ProtectedRoute requiredPermission="view:job_applications"><ManageJobApplications /></ProtectedRoute>} />
             <Route path="/my-applications" element={<ProtectedRoute requiredPermission="apply:jobs"><JobApplicationStatus /></ProtectedRoute>} />
+            <Route
+              path="/jobs/:jobId/applicants/:id"
+              element={
+                <ProtectedRoute>
+                  <AlumniProfile />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/profile/:userId" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:alumni_directory"><UserProfilePage /></ProtectedRoute></RequireCompleteProfile>} />
             <Route
               path="/directory"
@@ -262,7 +280,19 @@ function AppContent() {
               }
             />
             <Route path="/directory-actions" element={<Navigate to="/directory" replace />} />
-            <Route path="/directory/:id" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:alumni_directory"><AlumniProfile /></ProtectedRoute></RequireCompleteProfile>} />
+            <Route
+              path="/directory/:id"
+              element={
+                <RequireCompleteProfile>
+                  <ProtectedRoute
+                    requiredPermission="view:alumni_directory"
+                    allowRoles={['employer', 'admin', 'super_admin']}
+                  >
+                    <AlumniProfile />
+                  </ProtectedRoute>
+                </RequireCompleteProfile>
+              }
+            />
             
             <Route path="/notifications" element={<Notifications />} />
             

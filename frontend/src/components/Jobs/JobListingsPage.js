@@ -1382,6 +1382,11 @@ const JobListingsPage = () => {
     return (<div className="flex justify-center items-center h-screen"><CircularProgress /></div>);
   }
 
+  // UX: only show the skeleton grid when we truly have no jobs yet.
+  // If we already have jobs on screen and a fast refetch happens (filters/page/refresh),
+  // keep the existing list visible instead of flashing the skeleton.
+  const showSkeleton = loading && jobs.length === 0;
+
   return (
     <main id="main-content" className="p-4 md:p-6 lg:p-8 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
@@ -1539,7 +1544,7 @@ const JobListingsPage = () => {
       </div>
 
       {/* Jobs */}
-      {loading ? (
+      {showSkeleton ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {[...Array(6)].map((_, i) => (
             <div key={i} className="glass-card rounded-lg p-6 space-y-4">

@@ -148,7 +148,9 @@ const Header = ({ user }) => {
                 </p>
               </div>
               {isLoading ? (
-                <div className="w-12 h-12 rounded-full bg-gray-200 animate-pulse" />
+                <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center">
+                  <div className="spinner spinner-sm" aria-hidden="true" />
+                </div>
               ) : (
                 <img 
                   src={avatarSrc}

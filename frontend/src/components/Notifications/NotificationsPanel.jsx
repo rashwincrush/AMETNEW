@@ -4,22 +4,13 @@ import { CheckCircleIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import NotificationItem from './NotificationItem';
 import { useNotifications } from '../../hooks/useNotifications';
 
-function NotificationsSkeleton() {
+function NotificationsLoading() {
   return (
-    <div className="space-y-2">
-      {Array.from({ length: 4 }).map((_, idx) => (
-        <div
-          key={idx}
-          className="flex items-center space-x-3 rounded-lg border border-slate-100 p-3 animate-pulse"
-        >
-          <div className="h-8 w-8 rounded-full bg-slate-100" />
-          <div className="flex-1 space-y-2">
-            <div className="h-3 w-24 rounded bg-slate-100" />
-            <div className="h-3 w-40 rounded bg-slate-100" />
-          </div>
-          <div className="h-3 w-10 rounded bg-slate-100" />
-        </div>
-      ))}
+    <div className="flex items-center justify-center py-8" role="status" aria-live="polite">
+      <div className="flex flex-col items-center gap-2">
+        <div className="spinner spinner-md" aria-hidden="true" />
+        <span className="sr-only">Loading notifications...</span>
+      </div>
     </div>
   );
 }
@@ -91,7 +82,7 @@ export default function NotificationsPanel({ onClose }) {
       <div className="max-h-[70vh] overflow-auto mt-2" role="list">
         {isLoading && (
           <div className="p-3">
-            <NotificationsSkeleton />
+            <NotificationsLoading />
           </div>
         )}
         {error && <div className="p-4 text-sm text-red-600">Failed to load</div>}

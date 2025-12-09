@@ -30,9 +30,27 @@ export async function createGroup({
 /**
  * Load groups visible to the current user via the secure RPC.
  * The RPC handles role-aware filtering (employer exclusion, alumni_only, etc.)
+ * This variant returns the full result set and is kept for backward
+ * compatibility. Prefer fetchGroupsPagedRpc for new code.
  */
 export async function fetchGroupsRpc(): Promise<any[]> {
   const { data, error } = await supabase.rpc('list_groups_for_current_user');
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Paged listing via list_groups_for_current_user_paged. This does not change
+ * the underlying visibility rules; it only limits how many rows are returned
+ * per call so that the frontend can implement server-side pagination.
+ */
+export async function fetchGroupsPagedRpc(options?: { limit?: number; offset?: number }): Promise<any[]> {
+  const limit = options?.limit ?? 20;
+  const offset = options?.offset ?? 0;
+  const { data, error } = await supabase.rpc('list_groups_for_current_user_paged', {
+    p_limit: limit,
+    p_offset: offset,
+  });
   if (error) throw error;
   return data || [];
 }
@@ -115,10 +133,10 @@ export async function deletePost(postId: string) {
   if (error) throw error;
 }
 
-/** Comments: use group_comments (canonical) */
-export async function createComment(postId: string, groupId: string, content: string, userId: string) {
+/** Comments: use group_comments (canonical). Note: table has (post_id, author_id, content, ...) */
+export async function createComment(postId: string, _groupId: string, content: string, userId: string) {
   await guardEmployers();
-  const { error } = await supabase.from('group_comments').insert({ post_id: postId, group_id: groupId, user_id: userId, content });
+  const { error } = await supabase.from('group_comments').insert({ post_id: postId, author_id: userId, content });
   if (error) throw error;
 }
 export async function updateComment(id: string, content: string) {

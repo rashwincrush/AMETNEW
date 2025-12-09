@@ -5,6 +5,21 @@ import { upsertMyProfileFillOnly } from '../services/profile';
 import { ROLES, isRole } from '../constants/roles';
 import logger from '../utils/logger';
 
+const fingerprintToken = (token) => {
+  if (!token) return null;
+  try {
+    let hash = 0;
+    const str = String(token);
+    for (let i = 0; i < str.length; i += 1) {
+      hash = (hash * 31 + str.charCodeAt(i)) | 0;
+    }
+    const hex = (hash >>> 0).toString(16);
+    return `h${str.length}_${hex}`;
+  } catch (_) {
+    return null;
+  }
+};
+
 // Whitelist of user-editable profile fields to avoid admin-only columns
 const SAFE_PROFILE_FIELDS = [
   'id',
@@ -428,16 +443,19 @@ export const AuthProvider = ({ children }) => {
     // Track that we've explicitly signed out this session
     if (currentSessionId) {
       // Remember this session was explicitly logged out to prevent auto-login
-      const loggedOutSessions = JSON.parse(localStorage.getItem('amet_logged_out_sessions') || '[]');
-      loggedOutSessions.push({
-        id: currentSessionId,
-        timestamp: Date.now()
-      });
-      // Keep only the last 5 sessions to prevent localStorage bloat
-      while (loggedOutSessions.length > 5) {
-        loggedOutSessions.shift();
+      const fingerprint = fingerprintToken(currentSessionId);
+      if (fingerprint) {
+        const loggedOutSessions = JSON.parse(localStorage.getItem('amet_logged_out_sessions') || '[]');
+        loggedOutSessions.push({
+          id: fingerprint,
+          timestamp: Date.now()
+        });
+        // Keep only the last 5 sessions to prevent localStorage bloat
+        while (loggedOutSessions.length > 5) {
+          loggedOutSessions.shift();
+        }
+        localStorage.setItem('amet_logged_out_sessions', JSON.stringify(loggedOutSessions));
       }
-      localStorage.setItem('amet_logged_out_sessions', JSON.stringify(loggedOutSessions));
     }
 
     // Redirect to login page
@@ -621,7 +639,8 @@ export const AuthProvider = ({ children }) => {
       // Check for explicitly logged-out sessions to prevent auto-login conflicts
       if (event === 'SIGNED_IN' && newSession?.access_token) {
         const loggedOutSessions = JSON.parse(localStorage.getItem('amet_logged_out_sessions') || '[]');
-        const wasExplicitlyLoggedOut = loggedOutSessions.some(s => s.id === newSession.access_token);
+        const fingerprint = fingerprintToken(newSession.access_token);
+        const wasExplicitlyLoggedOut = fingerprint && loggedOutSessions.some(s => s.id === fingerprint);
         
         if (wasExplicitlyLoggedOut) {
           logger.log('⚠️ Ignoring auto-login attempt for previously logged out session');

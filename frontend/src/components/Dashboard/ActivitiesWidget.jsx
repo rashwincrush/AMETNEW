@@ -129,17 +129,12 @@ function ActivitiesWidget() {
 
       {/* Loading */}
       {!rows && !err && (
-        <ul className="space-y-3">
-          {[...Array(5)].map((_, i) => (
-            <li key={i} className="animate-pulse flex items-start space-x-3">
-              <div className="w-10 h-10 bg-gray-200 rounded-full" />
-              <div className="flex-1">
-                <div className="h-4 w-3/4 bg-gray-200 rounded mb-2" />
-                <div className="h-3 w-1/3 bg-gray-100 rounded" />
-              </div>
-            </li>
-          ))}
-        </ul>
+        <div className="flex items-center justify-center py-8" role="status" aria-live="polite">
+          <div className="flex flex-col items-center gap-2">
+            <div className="spinner spinner-md" aria-hidden="true" />
+            <span className="sr-only">Loading activities...</span>
+          </div>
+        </div>
       )}
 
       {/* Error */}
@@ -159,7 +154,7 @@ function ActivitiesWidget() {
 
       {/* List */}
       {rows && rows.length > 0 && (
-        <ul className="space-y-3">
+        <ul className="space-y-3 page-enter">
           {rows.slice(0, 5).map((a, idx) => {
             const text = renderLine(a);
             if (!text) return null;

@@ -3,41 +3,17 @@ import DirectoryCardSplit from './DirectoryCardSplit';
 import { useAvatars } from '../../hooks/useAvatar';
 
 function DirectoryGrid({ items = [], meId, currentTab = 'all', onChanged, compact = false, loading = false }) {
-  const Skeleton = () => (
+  // Minimal loading state - no skeleton, just a centered spinner
+  const LoadingState = () => (
     <div 
-      className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm animate-pulse" 
-      aria-hidden="true"
+      className="flex items-center justify-center py-16" 
       role="status"
+      aria-live="polite"
     >
-      {/* Header: Avatar + Name + Identity */}
-      <div className="flex items-start gap-3 mb-3">
-        {/* Avatar skeleton - 60px */}
-        <div className="h-[60px] w-[60px] flex-shrink-0 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 ring-2 ring-slate-100" />
-        
-        {/* Name and identity lines */}
-        <div className="flex-1 space-y-2 pt-1">
-          {/* Name */}
-          <div className="h-4 bg-slate-200 rounded w-3/4" />
-          {/* Identity line: Degree · Batch */}
-          <div className="h-3 bg-slate-100 rounded w-1/2" />
-          {/* Role line: position · company */}
-          <div className="h-3 bg-slate-100 rounded w-2/3" />
-        </div>
-      </div>
-      
-      {/* Chips row - max 3 */}
-      <div className="flex flex-wrap gap-1.5 mb-4">
-        <div className="h-7 bg-slate-100 rounded-md w-24" />
-        <div className="h-7 bg-slate-100 rounded-md w-20" />
-        <div className="h-7 bg-slate-100 rounded-md w-28" />
-      </div>
-      
-      {/* Actions row */}
-      <div className="flex flex-col sm:flex-row items-stretch gap-2 pt-3 border-t border-slate-100">
-        {/* Connection CTA skeleton */}
-        <div className="flex-1 h-11 bg-gradient-to-r from-slate-200 to-slate-300 rounded-lg" />
-        {/* View Profile skeleton */}
-        <div className="h-11 bg-gradient-to-r from-indigo-100 to-purple-100 rounded-lg w-full sm:w-32" />
+      <div className="flex flex-col items-center gap-3">
+        <div className="spinner spinner-lg" aria-hidden="true" />
+        <p className="text-sm text-slate-500 font-medium">Loading profiles...</p>
+        <span className="sr-only">Loading profiles...</span>
       </div>
     </div>
   );
@@ -56,15 +32,7 @@ function DirectoryGrid({ items = [], meId, currentTab = 'all', onChanged, compac
   const isLoading = loading || avatarsLoading;
 
   if (isLoading) {
-    const count = Math.max(6, items.length || 0);
-    return (
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" role="status" aria-label="Loading profiles">
-        {Array.from({ length: count }).map((_, i) => (
-          <Skeleton key={`sk-${i}`} />
-        ))}
-        <span className="sr-only">Loading profiles...</span>
-      </div>
-    );
+    return <LoadingState />;
   }
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -90,16 +58,21 @@ function DirectoryGrid({ items = [], meId, currentTab = 'all', onChanged, compac
 
   // Responsive grid: 1 col mobile, 2 cols tablet, 3 cols desktop, 4 cols large screens
   return (
-    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-      {items.map((profile) => (
-        <DirectoryCardSplit
-          key={profile.id}
-          profile={profile}
-          avatarUrl={avatarUrls[profile.id] || null}
-          meId={meId}
-          currentTab={currentTab}
-          onChanged={onChanged}
-        />
+    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 page-enter">
+      {items.map((profile, index) => (
+        <div 
+          key={profile.id} 
+          className={`card-enter stagger-${Math.min(index + 1, 8)}`}
+          style={{ animationFillMode: 'forwards', opacity: 0 }}
+        >
+          <DirectoryCardSplit
+            profile={profile}
+            avatarUrl={avatarUrls[profile.id] || null}
+            meId={meId}
+            currentTab={currentTab}
+            onChanged={onChanged}
+          />
+        </div>
       ))}
     </div>
   );

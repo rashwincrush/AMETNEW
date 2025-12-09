@@ -202,17 +202,23 @@ export default function GroupManage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // PERFORMANCE: Fetch group details, members, pending, AND my membership in parallel
-      const [groupResult, membersResult, pendingResult, myMembershipResult] = await Promise.all([
+      // PERFORMANCE: Stage loading so the shell appears quickly.
+      // 1) Fetch group + my membership (if needed for non-admins) in parallel
+      const isSiteAdminFromRole = userRole === 'admin' || userRole === 'super_admin';
+      const siteAdminFlag = isSiteAdminFromRole || profile?.is_admin === true;
+
+      const membershipPromise = siteAdminFlag
+        ? Promise.resolve({ data: { role: 'admin' } })
+        : getMyGroupMembership(id).catch(() => ({ data: null }));
+
+      const [groupResult, myMembershipResult] = await Promise.all([
         fetchGroupDetails(id, { includeMembers: false }), // Group data only
-        fetchGroupMembers(id, 100, 0), // Members with pagination
-        listPendingMembers(id).catch(() => []), // Pending requests (ignore errors)
-        getMyGroupMembership(id).catch(() => ({ data: null })), // My membership for auth check
+        membershipPromise, // My membership for auth check when required
       ]);
-      
+
       const { data, error } = groupResult;
       if (error) throw error;
-      
+
       setGroup(data);
       setName(data?.name || '');
       setDescription(data?.description || '');
@@ -222,6 +228,30 @@ export default function GroupManage() {
       // is_admin_only_posts removed from UI
       // isApproved is derived from approvalStatus
       setApprovalStatus(data?.approval_status || (data?.is_approved ? 'approved' : 'pending'));
+
+      // Process auth check from parallel fetch (instead of separate useEffect)
+      const siteAdmin = siteAdminFlag;
+      setIsSiteAdmin(siteAdmin);
+      const mem = myMembershipResult?.data;
+      const isCreator = (data?.created_by === user?.id);
+      const can = canManageGroup(!!siteAdmin, !!isCreator, mem || undefined);
+      setIsGroupAdmin(mem?.role === 'admin');
+      setAuthorized(!!can);
+      if (!can) {
+        showError('You are not authorized to manage this group.');
+        navigate(`/groups/${id}`);
+        setLoading(false);
+        return;
+      }
+
+      // At this point we have enough data to render the page shell.
+      setLoading(false);
+
+      // 2) In the background, fetch members and pending requests.
+      const [membersResult, pendingResult] = await Promise.all([
+        fetchGroupMembers(id, 100, 0), // Members with pagination
+        listPendingMembers(id).catch(() => []), // Pending requests (ignore errors)
+      ]);
 
       // Process members from parallel fetch
       const mems = membersResult.data || [];
@@ -237,34 +267,25 @@ export default function GroupManage() {
       const admins = mems.filter(m => m.role === 'admin');
       setAdminCount(admins.length);
       setMemberCount(mems.length);
-      
+
       // Process pending requests from parallel fetch
       const pendingItems = pendingResult || [];
       setPending(pendingItems);
-      
+
       if (pendingItems.length > 0) {
         setSectionStates(prev => ({ ...prev, pending: true }));
-      }
-      
-      // Process auth check from parallel fetch (instead of separate useEffect)
-      const siteAdmin = profile?.is_admin === true;
-      setIsSiteAdmin(siteAdmin);
-      const mem = myMembershipResult?.data;
-      const isCreator = (data?.created_by === user?.id);
-      const can = canManageGroup(!!siteAdmin, !!isCreator, mem || undefined);
-      setIsGroupAdmin(mem?.role === 'admin');
-      setAuthorized(!!can);
-      if (!can) {
-        showError('You are not authorized to manage this group.');
-        navigate(`/groups/${id}`);
       }
     } catch (e) {
       logger.error('Failed to load group:', e);
       showError('Failed to load group');
-    } finally {
       setLoading(false);
     }
-  }, [id, profile?.is_admin, user?.id, navigate]);
+  }, [id, profile?.is_admin, user?.id, userRole, navigate]);
+
+  useEffect(() => {
+    // Load group details and membership data on mount
+    load();
+  }, [load]);
 
   const leaveGroup = async () => {
     setLeaving(true);

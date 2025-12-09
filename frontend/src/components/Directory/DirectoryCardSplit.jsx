@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { CheckBadgeIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 import ConnectionCTA from '../shared/ConnectionCTA';
 import { DegreeChip, BatchChip, DeptChip, CompanyChip, PositionChip } from '../shared/Chips';
-import { SecondaryButton } from '../shared/Buttons';
+import { Button } from '../shared/Buttons';
 import { useAuth } from '../../contexts/AuthContext';
 import { getAccountStatus } from '../../utils/accountStatus';
 import Avatar from '../common/Avatar';
@@ -236,15 +236,17 @@ function DirectoryCardSplit({ meId, profile, avatarUrl, currentTab = 'all', onCh
             />
           </div>
           
-          {/* View Profile button (right, secondary) */}
-          <SecondaryButton
+          {/* View Profile button (right, subtle ghost style) */}
+          <Button
+            variant="ghost"
+            size="md"
             onClick={viewProfile}
-            className="shrink-0 min-h-[44px] w-full sm:w-auto"
+            className="shrink-0 min-h-[44px] w-full sm:w-auto text-ocean-700 hover:text-ocean-900 hover:bg-ocean-50 border border-transparent"
             aria-label={`View ${displayName}'s full profile`}
+            rightIcon={<ChevronRightIcon className="h-4 w-4" aria-hidden="true" />}
           >
-            <span>View Profile</span>
-            <ChevronRightIcon className="h-4 w-4" aria-hidden="true" />
-          </SecondaryButton>
+            View profile
+          </Button>
         </div>
       </div>
     </div>

@@ -386,6 +386,14 @@ const EditEvent = () => {
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       <div className="mb-6">
+        <button
+          type="button"
+          onClick={() => navigate(`/events/${id}`)}
+          className="flex items-center text-sm font-medium text-gray-600 hover:text-gray-900 mb-2"
+        >
+          <span className="mr-1">&larr;</span>
+          Back to Event
+        </button>
         <h1 className="text-2xl font-bold text-gray-900">Edit Event</h1>
         <p className="text-gray-600">Update your event details below</p>
       </div>
@@ -558,24 +566,7 @@ const EditEvent = () => {
                 {errors.venue && <p className="text-red-500 text-sm mt-1">{errors.venue}</p>}
               </div>
             )}
-            
-            {formData.type === 'virtual' && (
-              <div className="md:col-span-3">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Virtual Meeting Link *
-                </label>
-                <input
-                  type="url"
-                  name="virtualLink"
-                  value={formData.virtualLink || ''}
-                  onChange={handleInputChange}
-                  className={`form-input w-full px-3 py-2 rounded-lg ${errors.virtualLink ? 'border-red-500' : ''}`}
-                  placeholder="https://zoom.us/j/123456789"
-                />
-                {errors.virtualLink && <p className="text-red-500 text-sm mt-1">{errors.virtualLink}</p>}
-              </div>
-            )}
-            
+
             {(formData.type === 'in-person' || formData.type === 'hybrid') && (
               <div className="md:col-span-3">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -592,19 +583,19 @@ const EditEvent = () => {
                 {errors.address && <p className="text-red-500 text-sm mt-1">{errors.address}</p>}
               </div>
             )}
-            
+
             {(formData.type === 'virtual' || formData.type === 'hybrid') && (
               <div className="md:col-span-3">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Virtual Link
+                  Virtual Meeting Link
                 </label>
                 <input
-                  type="text"
+                  type="url"
                   name="virtualLink"
-                  value={formData.virtualLink}
+                  value={formData.virtualLink || ''}
                   onChange={handleInputChange}
                   className={`form-input w-full px-3 py-2 rounded-lg ${errors.virtualLink ? 'border-red-500' : ''}`}
-                  placeholder="URL for virtual attendance"
+                  placeholder="https://zoom.us/j/123456789"
                 />
                 {errors.virtualLink && <p className="text-red-500 text-sm mt-1">{errors.virtualLink}</p>}
               </div>

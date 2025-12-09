@@ -112,6 +112,13 @@ const EventDetail = () => {
     return label;
   }, [event?.start_date, event?.end_date]);
 
+  const isVirtualEvent = useMemo(() => {
+    if (!event) return false;
+    if (event.event_type === 'virtual' || event.event_type === 'hybrid') return true;
+    if (typeof event.is_virtual === 'boolean') return event.is_virtual;
+    return false;
+  }, [event]);
+
   // Realtime subscription for RSVP changes
   useEffect(() => {
     if (!id || !user?.id) return;
@@ -571,10 +578,17 @@ const EventDetail = () => {
                   </span>
                 </div>
 
-                {event.is_virtual && event.virtual_link ? (
+                {isVirtualEvent && event.virtual_link ? (
                   <div className="flex items-center text-gray-600 mb-2">
                     <MapPin className="w-5 h-5 mr-3 text-green-500"/>
-                    <a href={event.virtual_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Join Virtual Event</a>
+                    <a
+                      href={event.virtual_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      Join Virtual Event
+                    </a>
                   </div>
                 ) : ((event.venue || event.address) && (
                   <div className="flex items-start text-gray-600 mb-2">

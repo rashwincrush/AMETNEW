@@ -14,73 +14,60 @@ import {
 import { Button } from './Buttons';
 
 // ============================================
-// SKELETON COMPONENTS
+// LOADING COMPONENTS - Smooth transitions instead of skeletons
 // ============================================
 
 /**
- * Skeleton Card - for loading card-based lists (directory, groups, events)
+ * LoadingSpinner - Minimal centered spinner for loading states
+ * Replaces skeleton cards with a clean, non-jarring loading indicator
  */
-export function SkeletonCard({ className = '' }) {
+export function LoadingSpinner({ 
+  message = 'Loading...', 
+  size = 'lg',
+  className = '' 
+}) {
+  const sizeClasses = {
+    sm: 'spinner-sm',
+    md: 'spinner-md',
+    lg: 'spinner-lg',
+  };
+
   return (
     <div 
-      className={`card animate-pulse ${className}`}
-      aria-hidden="true"
+      className={`flex items-center justify-center py-12 ${className}`}
+      role="status"
+      aria-live="polite"
     >
-      <div className="card-body">
-        <div className="flex items-start gap-4">
-          {/* Avatar skeleton */}
-          <div className="w-12 h-12 rounded-full bg-gray-200 shrink-0" />
-          
-          <div className="flex-1 min-w-0 space-y-3">
-            {/* Name skeleton */}
-            <div className="h-5 bg-gray-200 rounded w-2/3" />
-            
-            {/* Details skeleton */}
-            <div className="space-y-2">
-              <div className="h-4 bg-gray-200 rounded w-full" />
-              <div className="h-4 bg-gray-200 rounded w-4/5" />
-            </div>
-            
-            {/* Chips skeleton */}
-            <div className="flex gap-2 flex-wrap">
-              <div className="h-6 bg-gray-200 rounded-full w-16" />
-              <div className="h-6 bg-gray-200 rounded-full w-20" />
-              <div className="h-6 bg-gray-200 rounded-full w-14" />
-            </div>
-          </div>
-        </div>
-        
-        {/* Action buttons skeleton */}
-        <div className="flex gap-2 mt-4 pt-4 border-t border-gray-100">
-          <div className="h-10 bg-gray-200 rounded-lg w-24" />
-          <div className="h-10 bg-gray-200 rounded-lg w-24" />
-        </div>
+      <div className="flex flex-col items-center gap-3">
+        <div className={`spinner ${sizeClasses[size] || 'spinner-lg'}`} aria-hidden="true" />
+        {message && (
+          <p className="text-sm text-gray-500 font-medium">{message}</p>
+        )}
+        <span className="sr-only">{message}</span>
       </div>
     </div>
   );
 }
 
 /**
- * Skeleton Row - for loading table/list rows
+ * @deprecated Use LoadingSpinner instead for smooth transitions
+ * Skeleton Card - kept for backward compatibility
  */
-export function SkeletonRow({ columns = 4, className = '' }) {
-  return (
-    <div 
-      className={`flex items-center gap-4 p-4 border-b border-gray-100 animate-pulse ${className}`}
-      aria-hidden="true"
-    >
-      {Array.from({ length: columns }).map((_, i) => (
-        <div 
-          key={i} 
-          className={`h-4 bg-gray-200 rounded ${i === 0 ? 'w-1/4' : 'flex-1'}`} 
-        />
-      ))}
-    </div>
-  );
+export function SkeletonCard({ className = '' }) {
+  return <LoadingSpinner message="" className={className} />;
 }
 
 /**
- * Skeleton List - renders multiple skeleton items
+ * @deprecated Use LoadingSpinner instead for smooth transitions
+ * Skeleton Row - kept for backward compatibility
+ */
+export function SkeletonRow({ columns = 4, className = '' }) {
+  return <LoadingSpinner message="" size="sm" className={className} />;
+}
+
+/**
+ * @deprecated Use LoadingSpinner instead for smooth transitions
+ * Skeleton List - kept for backward compatibility
  */
 export function SkeletonList({ 
   count = 3, 
@@ -88,42 +75,19 @@ export function SkeletonList({
   columns = 4,
   className = '' 
 }) {
-  const SkeletonComponent = variant === 'row' ? SkeletonRow : SkeletonCard;
-  
-  return (
-    <div 
-      className={`space-y-4 ${className}`}
-      role="status"
-      aria-label="Loading content"
-    >
-      <span className="sr-only">Loading...</span>
-      {Array.from({ length: count }).map((_, i) => (
-        <SkeletonComponent key={i} columns={columns} />
-      ))}
-    </div>
-  );
+  return <LoadingSpinner message="Loading content..." className={className} />;
 }
 
 /**
- * Skeleton Grid - for grid layouts
+ * @deprecated Use LoadingSpinner instead for smooth transitions
+ * Skeleton Grid - kept for backward compatibility
  */
 export function SkeletonGrid({ 
   count = 6, 
   columns = 3,
   className = '' 
 }) {
-  return (
-    <div 
-      className={`grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-${columns} ${className}`}
-      role="status"
-      aria-label="Loading content"
-    >
-      <span className="sr-only">Loading...</span>
-      {Array.from({ length: count }).map((_, i) => (
-        <SkeletonCard key={i} />
-      ))}
-    </div>
-  );
+  return <LoadingSpinner message="Loading content..." className={className} />;
 }
 
 // ============================================
@@ -416,11 +380,11 @@ export function ListContainer({
   className = '',
   children,
 }) {
-  // Loading state
+  // Loading state - use minimal spinner instead of skeletons
   if (loading) {
     return (
       <div className={className}>
-        <SkeletonList count={skeletonCount} variant={skeletonVariant} />
+        <LoadingSpinner message="Loading..." />
       </div>
     );
   }
@@ -447,9 +411,9 @@ export function ListContainer({
     );
   }
 
-  // Content with optional partial results banner
+  // Content with optional partial results banner - smooth fade-in
   return (
-    <div className={className}>
+    <div className={`${className} page-enter`}>
       {(filterDescription || (totalCount && totalCount !== count)) && (
         <PartialResultsBanner
           count={count}

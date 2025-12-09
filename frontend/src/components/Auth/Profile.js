@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../contexts/AuthContext';
 import logger from '../../utils/logger';
 import { 
@@ -57,6 +58,7 @@ const normalizeUrl = (value) => {
 const Profile = () => {
   const navigate = useNavigate();
   const { user, profile, loading, updateProfile, getUserRole, fetchUserProfile } = useAuth();
+  const queryClient = useQueryClient();
   
   // Centralized avatar hook
   const { avatarUrl, loading: avatarLoading, refetch: refetchAvatar } = useAvatar(user?.id, {
@@ -743,7 +745,15 @@ const Profile = () => {
         // Immediately update local preview for instant UI feedback
         if (publicUrl) {
           setImageUrl(publicUrl);
-          await refetchAvatar(); // Refresh avatar hook
+          await refetchAvatar(); // Refresh avatar hook for this page
+
+          // Invalidate global avatar caches so headers, directory, groups, etc. refresh
+          try {
+            await queryClient.invalidateQueries({ queryKey: ['avatar'] });
+            await queryClient.invalidateQueries({ queryKey: ['avatars'] });
+          } catch (_) {
+            // ignore cache invalidation errors
+          }
 
           // Also update the user object in AuthContext immediately for header, etc.
           if (user) {

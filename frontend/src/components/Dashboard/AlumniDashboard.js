@@ -22,23 +22,13 @@ import {
 } from '@heroicons/react/24/outline';
 
 
-// Skeleton Card Component for loading states
-const SkeletonCard = ({ className = '' }) => (
-  <div className={`bg-ocean-50 animate-pulse rounded-lg p-6 border border-ocean-100 ${className}`}>
-    <div className="h-6 bg-ocean-100 rounded-lg w-3/4 mb-4"></div>
-    <div className="h-10 bg-ocean-100 rounded-lg w-1/2 mb-2"></div>
-    <div className="h-4 bg-ocean-100 rounded-lg w-full"></div>
-  </div>
-);
-
-const StatSkeletonCard = ({ className = '' }) => (
-  <div className={`bg-ocean-50 animate-pulse rounded-lg p-4 border border-ocean-100 ${className}`}>
-    <div className="flex items-center">
-      <div className="h-8 w-8 bg-ocean-100 rounded-full mr-3"></div>
-      <div>
-        <div className="h-4 bg-ocean-100 rounded-lg w-24 mb-2"></div>
-        <div className="h-6 bg-ocean-100 rounded-lg w-12"></div>
-      </div>
+// Minimal loading spinner for initial page load
+const PageLoadingSpinner = ({ message = 'Loading dashboard...' }) => (
+  <div className="flex items-center justify-center min-h-[300px]" role="status" aria-live="polite">
+    <div className="flex flex-col items-center gap-3">
+      <div className="spinner spinner-lg" aria-hidden="true" />
+      <p className="text-sm text-gray-500 font-medium">{message}</p>
+      <span className="sr-only">Loading dashboard content...</span>
     </div>
   </div>
 );
@@ -296,25 +286,7 @@ const AlumniDashboard = () => {
     return (
       <div className="p-6 bg-gray-50 min-h-screen">
         <div className="max-w-7xl mx-auto">
-          <div className="animate-pulse mb-6">
-            <div className="h-8 bg-gray-300 rounded w-1/3"></div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-            <StatSkeletonCard />
-            <StatSkeletonCard />
-            <StatSkeletonCard />
-            <StatSkeletonCard />
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-6">
-              <SkeletonCard className="h-48" />
-              <SkeletonCard className="h-64" />
-            </div>
-            <div className="space-y-6">
-              <SkeletonCard className="h-64" />
-              <SkeletonCard className="h-64" />
-            </div>
-          </div>
+          <PageLoadingSpinner message="Loading your dashboard..." />
         </div>
       </div>
     );
@@ -351,16 +323,14 @@ const AlumniDashboard = () => {
         <QuickActions className="mb-6 md:hidden" />
 
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-            <StatSkeletonCard />
-            <StatSkeletonCard />
-            <StatSkeletonCard />
-            <StatSkeletonCard />
+          <div className="flex items-center justify-center py-8 mb-6" role="status">
+            <div className="spinner spinner-md" aria-hidden="true" />
+            <span className="sr-only">Loading stats...</span>
           </div>
         ) : (
           <React.Fragment>
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6 page-enter">
               {/* Total Alumni */}
               <div className="glass-card p-4 flex items-center">
                 <div className="bg-ocean-100 rounded-full p-3 mr-4">

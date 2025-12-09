@@ -476,6 +476,170 @@
 }
 
 /* ============================================
+   SMOOTH TRANSITIONS SYSTEM
+   Replaces skeleton loaders with elegant fade-ins
+   ============================================ */
+
+/* Base transition for content appearing */
+.transition-content {
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 300ms ease-out, transform 300ms ease-out;
+}
+
+.transition-content.content-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Fade transition */
+.transition-fade {
+  opacity: 0;
+  transition: opacity 250ms ease-out;
+}
+
+.transition-fade.visible {
+  opacity: 1;
+}
+
+/* Slide up transition */
+.transition-slide-up {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 250ms ease-out, transform 250ms ease-out;
+}
+
+.transition-slide-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Scale transition */
+.transition-scale {
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+
+.transition-scale.visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Shimmer animation for image placeholders only */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite linear;
+}
+
+/* Page enter animation */
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-enter {
+  animation: pageEnter 300ms ease-out forwards;
+}
+
+/* Card enter animation with stagger support */
+@keyframes cardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.card-enter {
+  animation: cardEnter 250ms ease-out forwards;
+}
+
+/* Stagger delays for list items */
+.stagger-1 { animation-delay: 50ms; }
+.stagger-2 { animation-delay: 100ms; }
+.stagger-3 { animation-delay: 150ms; }
+.stagger-4 { animation-delay: 200ms; }
+.stagger-5 { animation-delay: 250ms; }
+.stagger-6 { animation-delay: 300ms; }
+.stagger-7 { animation-delay: 350ms; }
+.stagger-8 { animation-delay: 400ms; }
+
+/* Initially hidden for staggered animation */
+.stagger-item {
+  opacity: 0;
+}
+
+.stagger-item.animate {
+  animation: cardEnter 250ms ease-out forwards;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .transition-content,
+  .transition-fade,
+  .transition-slide-up,
+  .transition-scale {
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .transition-content.content-visible,
+  .transition-fade.visible,
+  .transition-slide-up.visible,
+  .transition-scale.visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  .page-enter,
+  .card-enter,
+  .stagger-item.animate {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .animate-shimmer {
+    animation: none !important;
+  }
+}
+
+/* Smooth loading state for existing content */
+.loading-dim {
+  opacity: 0.6;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+
+/* Content refresh indicator */
+.refresh-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+}
+
+/* ============================================
    ARIA LIVE REGIONS
    ============================================ */
 /* Screen reader announcements container */

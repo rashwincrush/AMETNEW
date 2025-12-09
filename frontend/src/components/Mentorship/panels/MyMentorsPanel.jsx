@@ -113,18 +113,12 @@ export default function MyMentorsPanel({ highlightRelationshipId }) {
       
       {/* Loading State */}
       {isLoading && (
-        <div className="space-y-4">
-          {[1, 2].map((i) => (
-            <div key={i} className="bg-white rounded-xl border border-slate-200 p-4 animate-pulse">
-              <div className="flex gap-3">
-                <div className="w-12 h-12 bg-slate-200 rounded-full" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-4 bg-slate-200 rounded w-1/3" />
-                  <div className="h-3 bg-slate-200 rounded w-1/2" />
-                </div>
-              </div>
-            </div>
-          ))}
+        <div className="flex items-center justify-center py-12" role="status" aria-live="polite">
+          <div className="flex flex-col items-center gap-3">
+            <div className="spinner spinner-lg" aria-hidden="true" />
+            <p className="text-sm text-slate-500 font-medium">Loading mentors...</p>
+            <span className="sr-only">Loading mentors...</span>
+          </div>
         </div>
       )}
       
@@ -150,7 +144,7 @@ export default function MyMentorsPanel({ highlightRelationshipId }) {
       
       {/* Active Mentorships */}
       {!isLoading && activeRelationships.length > 0 && (
-        <div className="space-y-4">
+        <div className="space-y-4 page-enter">
           <h3 className="text-lg font-semibold text-slate-900">Active</h3>
           {activeRelationships.map((rel) => (
             <div

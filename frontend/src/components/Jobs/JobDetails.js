@@ -23,7 +23,7 @@ import {
   TrashIcon,
 } from '@heroicons/react/24/outline';
 import { BookmarkIcon as BookmarkIconSolid } from '@heroicons/react/24/solid';
-import JobApplicationForm from './JobApplicationForm';
+// REMOVED: JobApplicationForm - legacy direct-insert component, use ApplyDialog via JobDetailsInApp instead
 import { useAuth } from '../../contexts/AuthContext';
 import EmployerGuard from '../Auth/EmployerGuard';
 import { coalesceAppUrl, isQuickLink, getJobLogoUrl, getJobCompanyName } from '../../utils/jobs';

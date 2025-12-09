@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
-import { fetchGroupsRpc, joinGroupRpc, leaveGroupRpc } from '../../api/groups';
+import { fetchGroupsPagedRpc, joinGroupRpc, leaveGroupRpc } from '../../api/groups';
 import { fetchMembershipMap } from '../../utils/memberships';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApproval } from '../../hooks/useApproval';
@@ -11,14 +11,13 @@ import ImageWithFallback from '../common/ImageWithFallback';
 import { getFriendlyErrorMessage } from '../../utils/errors';
 import logger from '../../utils/logger';
 
-// Skeleton loader component for a better loading experience
-const GroupCardSkeleton = () => (
-  <div className="border border-gray-200 rounded-lg p-4 shadow-sm animate-pulse">
-    <div className="w-full h-32 bg-gray-300 rounded-md mb-4"></div>
-    <div className="h-6 bg-gray-300 rounded w-3/4 mb-2"></div>
-    <div className="h-4 bg-gray-300 rounded w-full mb-4"></div>
-    <div className="flex items-center text-sm text-gray-500">
-      <div className="h-4 bg-gray-300 rounded w-16"></div>
+// Minimal loading spinner for smooth transitions
+const GroupsLoadingSpinner = () => (
+  <div className="flex items-center justify-center py-16" role="status" aria-live="polite">
+    <div className="flex flex-col items-center gap-3">
+      <div className="spinner spinner-lg" aria-hidden="true" />
+      <p className="text-sm text-gray-500 font-medium">Loading groups...</p>
+      <span className="sr-only">Loading groups...</span>
     </div>
   </div>
 );
@@ -249,6 +248,7 @@ const GroupsList = () => {
   // P0: Ref for aria-live announcements
   const liveRegionRef = useRef(null);
   const isMountedRef = useRef(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -315,12 +315,12 @@ const GroupsList = () => {
       setLoading(true);
       // P2: Don't clear error immediately - only clear on success
       try {
-        // Fetch groups via secure RPC (handles role-aware filtering)
+        // Fetch first page of groups via secure RPC (handles role-aware filtering)
         let data;
         try {
-          data = await fetchGroupsRpc();
+          data = await fetchGroupsPagedRpc({ limit: itemsPerPage, offset: 0 });
         } catch (rpcErr) {
-          logger.warn('fetchGroupsRpc failed, will fall back to direct query:', rpcErr);
+          logger.warn('fetchGroupsPagedRpc failed, will fall back to direct query:', rpcErr);
           data = null;
         }
 
@@ -331,7 +331,8 @@ const GroupsList = () => {
           const { data: legacy, error: legacyError } = await supabase
             .from('groups')
             .select('id,name,description,is_private,is_admin_only_posts,is_archived,is_approved,approval_status,created_by,group_avatar_url,tags,created_at,alumni_only')
-            .order('created_at', { ascending: false });
+            .order('created_at', { ascending: false })
+            .range(0, itemsPerPage - 1);
           if (legacyError) {
             throw legacyError;
           }
@@ -362,7 +363,7 @@ const GroupsList = () => {
           if (isMountedRef.current) {
             setUserMemberships(memberships);
           }
-          // Build membership map for all visible groups to drive accurate CTAs
+          // Build membership map for the first page of visible groups to drive accurate CTAs
           const ids = (data || []).map(g => g.id);
           try {
             const mm = await fetchMembershipMap(supabase, ids);
@@ -515,8 +516,79 @@ const GroupsList = () => {
     );
   }
 
-  const displayedGroups = groups.slice(0, page * itemsPerPage);
-  const canLoadMore = groups.length > displayedGroups.length;
+  const displayedGroups = groups;
+  const canLoadMore = hasMore;
+
+  const loadMoreGroups = async () => {
+    if (!canLoadMore || isLoadingMore || loading) return;
+    setIsLoadingMore(true);
+    try {
+      const offset = allFetchedGroups.length;
+      let data;
+      try {
+        data = await fetchGroupsPagedRpc({ limit: itemsPerPage, offset });
+      } catch (rpcErr) {
+        logger.warn('fetchGroupsPagedRpc (load more) failed, will fall back to direct query:', rpcErr);
+        data = null;
+      }
+
+      if (!data || data.length === 0) {
+        if (isMountedRef.current) {
+          setHasMore(false);
+        }
+        return;
+      }
+
+      let combined = [];
+      if (isMountedRef.current) {
+        setAllFetchedGroups(prev => {
+          combined = [...(prev || []), ...data];
+          return combined;
+        });
+      }
+
+      if (user && isMountedRef.current) {
+        const memberships = (combined || [])
+          .filter(group => group.is_member === true)
+          .map(group => group.id);
+        setUserMemberships(memberships);
+
+        const ids = (data || []).map(g => g.id);
+        if (ids.length > 0) {
+          try {
+            const mm = await fetchMembershipMap(supabase, ids);
+            if (isMountedRef.current) {
+              setMembershipMap(prev => ({ ...(prev || {}), ...(mm || {}) }));
+            }
+          } catch (mmErr) {
+            logger.warn('Failed to load membership map for additional groups:', mmErr);
+          }
+        }
+
+        const mine = (combined || []).filter(g => g.is_member === true).slice(0, 3);
+        setMyGroups(mine);
+      }
+
+      if (isMountedRef.current) {
+        setHasMore((data || []).length >= itemsPerPage);
+      }
+    } catch (err) {
+      const msg = String(err?.message || '');
+      const errorMsg = /JSON object requested, multiple \(or no\) rows returned/i.test(msg)
+        ? 'Some additional groups may be hidden right now due to policy changes. Please try again later.'
+        : 'Failed to load more groups. Please try again.';
+
+      if (isMountedRef.current) {
+        setFeedbackMessage({ type: 'error', text: errorMsg });
+        setTimeout(() => setFeedbackMessage(null), 5000);
+      }
+      logger.error('Error loading more groups:', err);
+    } finally {
+      if (isMountedRef.current) {
+        setIsLoadingMore(false);
+      }
+    }
+  };
 
   return (
     <div className="container mx-auto p-4 md:p-6">
@@ -673,10 +745,11 @@ const GroupsList = () => {
       )}
       
       {/* Groups grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" role="list" aria-label="Groups list">
-        {loading ? (
-          Array.from({ length: 8 }).map((_, index) => <GroupCardSkeleton key={index} />)
-        ) : displayedGroups.length > 0 ? (
+      {loading ? (
+        <GroupsLoadingSpinner />
+      ) : (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 page-enter" role="list" aria-label="Groups list">
+        {displayedGroups.length > 0 ? (
           displayedGroups.map(group => {
             const mm = membershipMap[group.id] || { isMember: group.is_member === true || userMembershipSet.has(group.id), isAdmin: false, isPending: false };
             return (
@@ -729,18 +802,20 @@ const GroupsList = () => {
           </div>
         )}
       </div>
+      )}
 
       {/* Load More */}
       {!loading && canLoadMore && (
         <div className="mt-8 text-center">
           <button
-            onClick={() => setPage(prev => prev + 1)}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-white border-2 border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+            onClick={loadMoreGroups}
+            disabled={isLoadingMore}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-white border-2 border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Load more groups
+            {isLoadingMore ? 'Loading more…' : 'Load more groups'}
           </button>
           <p className="text-sm text-gray-500 mt-2">
-            Showing {displayedGroups.length} of {groups.length} groups
+            Showing {displayedGroups.length} groups
           </p>
         </div>
       )}

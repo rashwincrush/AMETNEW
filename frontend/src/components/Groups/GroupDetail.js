@@ -108,6 +108,8 @@ const GroupDetail = () => {
   const [memberSearch, setMemberSearch] = useState('');
   const [memberRoleFilter, setMemberRoleFilter] = useState('all'); // 'all', 'admin', 'member'
   const [confirmDialogData, setConfirmDialogData] = useState(null); // { type, title, message, onConfirm }
+  const [postsLoading, setPostsLoading] = useState(true);
+  const [postsError, setPostsError] = useState(null);
   // Edit group modal
   const [showEditGroup, setShowEditGroup] = useState(false);
   const [editGroupName, setEditGroupName] = useState('');
@@ -204,17 +206,37 @@ const GroupDetail = () => {
         setIsMember(memberCheck);
         setIsAdmin(adminCheck);
         setJoinPending(pendingCheck);
+        // Group and membership are ready; we can render the shell.
+        setLoading(false);
       }
 
       // Fetch posts if user is a member or the group is public (paged)
       // This is done after membership check since it depends on the result
+      if (isMountedRef.current) {
+        setPostsError(null);
+        setPostsLoading(true);
+      }
       if ((memberCheck || !groupData.is_private)) {
-        const { data: postsData, error: postsError } = await fetchGroupPosts(id, { limit: 10 });
-        if (postsError) throw postsError;
-        if (isMountedRef.current) {
-          setPosts(postsData || []);
-          setHasMore((postsData || []).length === 10);
+        try {
+          const { data: postsData, error: postsFetchError } = await fetchGroupPosts(id, { limit: 10 });
+          if (postsFetchError) throw postsFetchError;
+          if (isMountedRef.current) {
+            setPosts(postsData || []);
+            setHasMore((postsData || []).length === 10);
+          }
+        } catch (postErr) {
+          if (isMountedRef.current) {
+            setPostsError('Failed to load posts. Please try again.');
+          }
+          logger.error('Error loading group posts:', postErr);
+        } finally {
+          if (isMountedRef.current) {
+            setPostsLoading(false);
+          }
         }
+      } else if (isMountedRef.current) {
+        // User cannot view posts; mark posts as not loading
+        setPostsLoading(false);
       }
     } catch (err) {
       const msg = String(err?.message || '');
@@ -334,7 +356,13 @@ const GroupDetail = () => {
       await loadGroupData();
     } catch (err) {
       logger.error("Error handling membership change:", err);
-      setError(getFriendlyErrorMessage(err, 'An unexpected error occurred. Please try again.'));
+      const msg = String(err?.message || '');
+      // Surface the last-admin safety guard with a clear, specific message
+      if (/at least one admin must remain in each group/i.test(msg) || /must have at least one admin/i.test(msg)) {
+        setError('Every group needs at least one admin. Transfer admin role to someone else before leaving.');
+      } else {
+        setError(getFriendlyErrorMessage(err, 'An unexpected error occurred. Please try again.'));
+      }
     }
   };
 
@@ -668,6 +696,40 @@ const GroupDetail = () => {
       if (isMountedRef.current) {
         setUploadingPost(false);
       }
+    }
+  };
+
+  const handleRequestJoin = async () => {
+    try {
+      if (!user) {
+        window.location.href = `/login?redirect=/groups/${id}`;
+        return;
+      }
+
+      const joinCheck = canJoinGroup(group, userRole, isMember);
+      if (!joinCheck.allowed && !isMember) {
+        setError(joinCheck.reason || 'You cannot join this group.');
+        toast.error(joinCheck.reason || 'You cannot join this group.');
+        return;
+      }
+
+      if (!isUserApproved && !isMember) {
+        setError('Your account is pending approval. You can browse groups but cannot join until approved.');
+        return;
+      }
+
+      const status = await joinGroupRpc(id);
+      if (status === 'active') {
+        toast.success('Joined group');
+        setJoinPending(false);
+        await loadGroupData();
+      } else {
+        setJoinPending(true);
+        toast.success('Join request sent to group admins.');
+      }
+    } catch (err) {
+      logger.error('Error requesting to join group:', err);
+      setError(getFriendlyErrorMessage(err, 'An unexpected error occurred. Please try again.'));
     }
   };
 
@@ -1073,9 +1135,18 @@ const GroupDetail = () => {
                 </span>
               )}
               {headerShowRequest && (
-                <span className="px-4 py-2.5 rounded-lg bg-gray-100 text-gray-700 text-sm font-semibold min-h-[44px] flex items-center">
-                  Invite-only group. Ask a member or group admin to invite you.
-                </span>
+                joinPending ? (
+                  <span className="px-4 py-2.5 rounded-lg bg-gray-100 text-gray-700 text-sm font-semibold min-h-[44px] flex items-center">
+                    Join request pending approval.
+                  </span>
+                ) : (
+                  <button
+                    onClick={handleRequestJoin}
+                    className="px-6 py-2.5 rounded-lg font-semibold text-white transition-all bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 min-h-[44px]"
+                  >
+                    Request to Join
+                  </button>
+                )
               )}
               {headerShowManage && (
                 <>
@@ -1166,10 +1237,32 @@ const GroupDetail = () => {
               const canPost = !group.is_archived && isMember && (isAdmin || !adminOnlyPost);
               if (!canViewPosts) {
                 if (group.is_archived) return <p className="text-center text-gray-600">This group is archived.</p>;
-                if (group.is_private && !isMember) return <p className="text-center text-gray-600">This group is private. Ask an admin for access.</p>;
+                if (group.is_private && !isMember) {
+                  if (isSiteAdmin) {
+                    return <p className="text-center text-gray-600">You're not a member of this private group. Add yourself as a member in Group Manage to view posts.</p>;
+                  }
+                  return <p className="text-center text-gray-600">This group is private. Ask an admin for access.</p>;
+                }
                 if (!group.is_approved) return <p className="text-center text-gray-600">This group is pending review.</p>;
                 return <p className="text-center text-gray-600">You don't have access to view posts.</p>;
               }
+
+              if (postsLoading) {
+                return (
+                  <div className="bg-white shadow-md rounded-lg p-6 text-center text-gray-600">
+                    Loading posts...
+                  </div>
+                );
+              }
+
+              if (postsError) {
+                return (
+                  <div className="bg-white shadow-md rounded-lg p-6 text-center text-red-600">
+                    {postsError}
+                  </div>
+                );
+              }
+
               return (
                 <div>
                   {/* Composer */}

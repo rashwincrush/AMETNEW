@@ -23,7 +23,9 @@ const ThreadRow = ({ thread, selected, onSelect, avatarUrl }) => {
       <div className="flex items-center">
         <div className="relative">
           {isLoading ? (
-            <div className="w-12 h-12 bg-gray-200 rounded-full animate-pulse" />
+            <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center">
+              <div className="spinner spinner-sm" aria-hidden="true" />
+            </div>
           ) : (
             <Avatar
               src={resolvedAvatar}
@@ -147,18 +149,11 @@ const ConversationList = ({
 
   if (loading) {
     return (
-      <div className="w-full bg-white p-4 space-y-4">
-        <div className="animate-pulse space-y-4">
-          <div className="h-10 bg-gray-200 rounded"></div>
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="flex items-center space-x-3 p-3">
-              <div className="rounded-full bg-gray-200 h-12 w-12"></div>
-              <div className="flex-1 space-y-2">
-                <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                <div className="h-3 bg-gray-200 rounded w-1/2"></div>
-              </div>
-            </div>
-          ))}
+      <div className="w-full bg-white p-4 flex items-center justify-center py-12" role="status" aria-live="polite">
+        <div className="flex flex-col items-center gap-3">
+          <div className="spinner spinner-lg" aria-hidden="true" />
+          <p className="text-sm text-gray-500 font-medium">Loading conversations...</p>
+          <span className="sr-only">Loading conversations...</span>
         </div>
       </div>
     );
@@ -186,22 +181,7 @@ const ConversationList = ({
 
       {/* Threads list (no inner scrollbar) */}
       <div className="flex-1">
-        {loading ? (
-          // Loading placeholders
-          <>
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="px-4 py-3 border-b animate-pulse">
-                <div className="flex items-center">
-                  <div className="w-12 h-12 bg-gray-200 rounded-full"></div>
-                  <div className="ml-4 flex-1">
-                    <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                    <div className="h-3 bg-gray-200 rounded w-1/2"></div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </>
-        ) : filteredThreads.length > 0 ? (
+        {filteredThreads.length > 0 ? (
           filteredThreads.map((thread) => (
             <ThreadRow
               key={thread.thread_id}

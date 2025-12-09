@@ -39,7 +39,7 @@ const AchievementCard = ({ achievement }) => (
 );
 
 const AlumniProfile = () => {
-  const { id } = useParams();
+  const { id, jobId } = useParams();
   const navigate = useNavigate();
   const [alumnus, setAlumnus] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -69,21 +69,44 @@ const AlumniProfile = () => {
       setError(null);
 
       try {
-        const { data, error: supabaseError } = await supabase
-          .from('directory_profiles_public')
-          .select('*')
-          .eq('id', id)
-          .maybeSingle();
+        let row = null;
 
-        if (supabaseError || !data) {
-          setError('This profile isn’t publicly visible.');
-          if (supabaseError) {
-            logger.error('Error fetching alumni from directory_profiles_public:', supabaseError);
+        if (jobId) {
+          // Employer/admin viewing an applicant from Manage Applications.
+          // Use secure RPC that enforces job ownership + application existence.
+          const { data, error: rpcError } = await supabase.rpc('get_applicant_profile_for_job', {
+            p_job_id: jobId,
+            p_applicant_id: id,
+          });
+
+          if (rpcError || !data) {
+            setError("This profile isn’t available in the context of this job.");
+            if (rpcError) {
+              logger.error('Error fetching applicant via get_applicant_profile_for_job:', rpcError);
+            }
+            return;
           }
-          return;
-        }
+          row = data;
+        } else {
+          // Normal directory flow: use directory_profiles_public view
+          const { data, error: supabaseError } = await supabase
+            .from('directory_profiles_public')
+            .select('*')
+            .eq('id', id)
+            .maybeSingle();
 
-        logger.log('Fetched alumni from directory_profiles_public:', data);
+          if (supabaseError || !data) {
+            setError('This profile isn’t publicly visible.');
+            if (supabaseError) {
+              logger.error('Error fetching alumni from directory_profiles_public:', supabaseError);
+            }
+            return;
+          }
+          row = data;
+        }
+        const data = row;
+
+        logger.log('Fetched alumni profile:', data);
 
         const city = data.location_city || '';
         const country = data.location_country || '';

@@ -63,21 +63,13 @@ export default function Bell() {
           setShowNewAlert(false);
         }}
       >
+        {showNewAlert && (
+          <span className="pointer-events-none absolute inset-0 rounded-full border-2 border-blue-400 opacity-60 animate-ping" />
+        )}
         <BellIcon className="w-6 h-6 text-gray-700" />
         {unreadCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] leading-[18px] text-center">
             {unreadCount}
-          </span>
-        )}
-        {showNewAlert && (
-          <span
-            className="absolute -bottom-1 -right-1 px-2 py-0.5 rounded-full bg-blue-500 text-white text-[10px] leading-none shadow-sm cursor-pointer"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowNewAlert(false);
-            }}
-          >
-            New
           </span>
         )}
       </button>

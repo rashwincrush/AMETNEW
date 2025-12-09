@@ -20,7 +20,9 @@ export async function addComment(postId, content, groupId) {
   try {
     const { data, error } = await supabase
       .from('group_comments')
-      .insert({ post_id: postId, group_id: groupId || null, user_id: uid, content: trimmed })
+      // Schema uses author_id; there is no group_id column. Group membership and
+      // visibility are enforced via RLS using the post's group_id.
+      .insert({ post_id: postId, author_id: uid, content: trimmed })
       .select()
       .single()
     if (error) throw error

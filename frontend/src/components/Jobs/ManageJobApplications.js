@@ -242,6 +242,7 @@ const ManageJobApplications = () => {
       const { error } = await supabase.rpc('set_application_status', {
         p_application_id: applicationId,
         p_status: newStatus,
+        p_notes: null,
       });
 
       if (error) throw error;
@@ -369,7 +370,7 @@ const ManageJobApplications = () => {
                   <div key={app.id} className="bg-white shadow rounded-lg p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <Link to={`/directory/${app.applicant_id}`} className="block font-medium text-gray-900 truncate hover:underline">
+                        <Link to={`/jobs/${actualJobId}/applicants/${app.applicant_id}`} className="block font-medium text-gray-900 truncate hover:underline">
                           {app._applicant_display || app.applicant_name || 'Applicant'}
                         </Link>
                         <div className="mt-1 text-xs text-gray-500">Applied on {new Date(app.created_at).toLocaleDateString()}</div>
@@ -422,7 +423,7 @@ const ManageJobApplications = () => {
                         )}
                       </div>
                       <div className="flex items-center gap-3">
-                        <Link to={`/directory/${app.applicant_id}`} className="text-ocean-600 hover:underline text-sm">View Profile</Link>
+                        <Link to={`/jobs/${actualJobId}/applicants/${app.applicant_id}`} className="text-ocean-600 hover:underline text-sm">View Profile</Link>
                         {canMessage(app.applicant_id) ? (
                           <button onClick={() => navigate(`/messages?peer=${app.applicant_id}&job=${actualJobId}`)} className="text-blue-600 hover:underline text-sm">Message</button>
                         ) : (
@@ -502,7 +503,7 @@ const ManageJobApplications = () => {
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 space-x-2">
-                          <Link to={`/directory/${app.applicant_id}`} className="text-ocean-600 hover:underline">View Profile</Link>
+                          <Link to={`/jobs/${actualJobId}/applicants/${app.applicant_id}`} className="text-ocean-600 hover:underline">View Profile</Link>
                           {canMessage(app.applicant_id) ? (
                             <button onClick={() => navigate(`/messages?peer=${app.applicant_id}&job=${actualJobId}`)} className="text-blue-600 hover:underline">Message</button>
                           ) : (

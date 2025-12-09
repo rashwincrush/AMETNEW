@@ -33,6 +33,7 @@ export {
 
 // List States (Loading, Empty, Error, Partial)
 export {
+  LoadingSpinner,
   SkeletonCard,
   SkeletonRow,
   SkeletonList,

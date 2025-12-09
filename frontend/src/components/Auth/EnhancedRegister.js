@@ -838,13 +838,14 @@ const EnhancedRegister = () => {
         throw new Error('Profile save failed: no data returned from database.');
       }
 
-      // Defensive check: ensure core fields we just collected actually persisted.
+      // Defensive check: ensure critical core fields we just collected actually persisted.
+      // Note: location is allowed to be null/optional at DB level and is validated per-role earlier,
+      // so it is not treated as a hard-fail core field here.
       const coreMissing = [];
       if (!upsertedProfile.first_name) coreMissing.push('first_name');
       if (!upsertedProfile.last_name) coreMissing.push('last_name');
       if (!upsertedProfile.email) coreMissing.push('email');
       if (!upsertedProfile.phone) coreMissing.push('phone');
-      if (!upsertedProfile.location) coreMissing.push('location');
 
       if (isAlumni || isStudent) {
         if (!upsertedProfile.degree_code) coreMissing.push('degree_code');

@@ -104,10 +104,10 @@ const PostJob = () => {
       return;
     }
     
-    // Validate file size (max 2MB)
-    const maxSize = 2 * 1024 * 1024; // 2MB
+    // Validate file size (max 1MB)
+    const maxSize = 1 * 1024 * 1024; // 1MB
     if (file.size > maxSize) {
-      toast.error('Your file is too large (max 2 MB). Please upload a smaller image.');
+      toast.error('Your file is too large (max 1 MB). Please upload a smaller image.');
       return;
     }
     
@@ -178,15 +178,96 @@ const PostJob = () => {
       }
 
       let companyId = null;
+      let logoUrl = formData.logo_url || null;
       const companyNameTrim = String(formData.company_name || '').trim();
+
+      // If a logo file was chosen, upload it to the shared company-logos bucket
+      if (logoFile) {
+        try {
+          const cleanFileName = logoFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
+          const fileName = `${session.user.id}/${Date.now()}_${cleanFileName}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from('company-logos')
+            .upload(fileName, logoFile, {
+              cacheControl: '3600',
+              upsert: false
+            });
+
+          if (uploadError) {
+            throw new Error(`Failed to upload logo: ${uploadError.message}`);
+          }
+
+          const { data: urlData } = supabase.storage
+            .from('company-logos')
+            .getPublicUrl(fileName);
+          logoUrl = urlData.publicUrl;
+        } catch (err) {
+          logger.error('Logo upload failed (quick link):', err);
+          toast.error(`We could not upload the logo: ${err.message || 'Unknown error'}`);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       if (companyNameTrim) {
-        const { data: existingCompany } = await supabase.from('companies').select('id').eq('name', companyNameTrim).maybeSingle();
-        companyId = existingCompany?.id || null;
-        if (!companyId) {
+        const { data: existingCompanies, error: findError } = await supabase
+          .from('companies')
+          .select('id, logo_url')
+          .eq('name', companyNameTrim);
+
+        if (findError) {
+          logger.error('Error finding company (quick link):', findError);
+          throw new Error(`Failed to find company: ${findError.message}`);
+        }
+
+        if (existingCompanies && existingCompanies.length > 0) {
+          const existing = existingCompanies[0];
+          companyId = existing.id;
+
+          // Start from the current company logo as canonical
+          let finalLogoUrl = existing.logo_url || null;
+
+          if (logoFile && logoUrl) {
+            // Explicit new upload: always override existing logo
+            finalLogoUrl = logoUrl;
+          } else if (!existing.logo_url) {
+            // Company has no logo yet; initialise from fallback (form/logo or employer DP)
+            const fallbackLogo = logoUrl || (userRole === 'employer' ? (profile?.logo_url || profile?.avatar_url || '') : null);
+            finalLogoUrl = fallbackLogo || null;
+          }
+
+          if (finalLogoUrl && finalLogoUrl !== existing.logo_url) {
+            const { error: updateError } = await supabase
+              .from('companies')
+              .update({ logo_url: finalLogoUrl })
+              .eq('id', companyId);
+
+            if (updateError) {
+              logger.error('Error updating company logo (quick link):', updateError);
+              throw new Error(`Failed to update company logo: ${updateError.message}`);
+            }
+          }
+        } else {
+          // New company: derive logo from explicit upload, form, or employer DP
+          let newCompanyLogoUrl = logoUrl;
+          if (!newCompanyLogoUrl && userRole === 'employer') {
+            newCompanyLogoUrl = profile?.logo_url || profile?.avatar_url || null;
+          }
+
           const { data: newCompany, error: createError } = await supabase
             .from('companies')
-            .insert({ name: companyNameTrim, created_by: session.user.id }, { returning: 'representation' });
-          if (createError) throw createError;
+            .insert({
+              name: companyNameTrim,
+              logo_url: newCompanyLogoUrl || null,
+              created_by: session.user.id
+            }, { returning: 'representation' });
+
+          if (createError) {
+            logger.error('Error creating company (quick link):', createError);
+            throw new Error(`Failed to create company: ${createError.message}`);
+          }
+
           companyId = Array.isArray(newCompany) ? newCompany[0]?.id : newCompany?.id;
         }
       }
@@ -816,6 +897,40 @@ const PostJob = () => {
                     </Grid>
                     <Grid item xs={12}>
                       <TextField required fullWidth type="url" name="external_application_url" label="External Application URL (https:// or mailto:)" value={formData.external_application_url} onChange={handleChange} error={!!errors.external_application_url} helperText={errors.external_application_url} />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle1" gutterBottom>Company Logo (Optional)</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Avatar
+                          src={logoPreview || formData.logo_url || profile.logo_url || profile.avatar_url || ''}
+                          alt="Company Logo Preview"
+                          sx={{ width: 60, height: 60, border: '1px solid #ddd' }}
+                        />
+                        <Button variant="outlined" component="label">
+                          Upload Company Logo
+                          <input
+                            type="file"
+                            hidden
+                            accept="image/png, image/jpeg, image/jpg, image/svg+xml"
+                            onChange={handleLogoChange}
+                          />
+                        </Button>
+                        {logoPreview && (
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              setLogoFile(null);
+                              setLogoPreview('');
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Upload your official <strong>company logo</strong> (max 1 MB). This logo will be used for this company across all of
+                        its jobs in the portal.
+                      </Typography>
                     </Grid>
                     <Grid item xs={12} sm={6}>
                       <TextField

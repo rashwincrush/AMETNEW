@@ -64,9 +64,13 @@ export default function NotificationItem({ n, onToggleRead, onNavigate }: Props)
               {labelForType(n.type)}
             </span>
           </div>
-          <p className={`text-sm truncate ${unread ? 'font-semibold text-gray-900' : 'text-gray-800'}`}>{title}</p>
+          <p
+            className={`text-sm ${unread ? 'font-semibold text-gray-900' : 'text-gray-800'} break-words`}
+          >
+            {title}
+          </p>
           {message && (
-            <p className="mt-0.5 text-xs text-gray-600 line-clamp-1">{message}</p>
+            <p className="mt-0.5 text-xs text-gray-600 break-words">{message}</p>
           )}
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
