@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useOpenMentorshipChat } from '../../../hooks/useOpenMentorshipChat';
 import { formatDistanceToNow } from 'date-fns';
 import clsx from 'clsx';
@@ -39,6 +40,7 @@ export default function MentorshipRelationshipCard({
   onEndMentorship,
   highlighted = false,
 }) {
+  const navigate = useNavigate();
   const { openChat, loadingId } = useOpenMentorshipChat();
   const statusCopy = MENTORSHIP_COPY.chips.statuses.relationship;
   const roleCopy = MENTORSHIP_COPY.chips.roles;
@@ -78,9 +80,24 @@ export default function MentorshipRelationshipCard({
     );
   };
   
-  const handleOpenChat = () => {
-    if (relationshipId) {
-      openChat(relationshipId);
+  const handleNameClick = () => {
+    if (!otherUser?.id) return;
+
+    if (isMentee) {
+      // Viewer is mentee, otherUser is mentor → mentorship profile
+      navigate(`/mentorship/mentor/${otherUser.id}`);
+    } else {
+      // Viewer is mentor, otherUser is mentee → standard alumni profile
+      navigate(`/profile/${otherUser.id}`);
+    }
+  };
+
+  const handleOpenChat = async () => {
+    if (!relationshipId) return;
+
+    const result = await openChat(relationshipId);
+    if (result && result.message) {
+      toast.error(result.message);
     }
   };
   
@@ -152,9 +169,13 @@ export default function MentorshipRelationshipCard({
         {/* Details */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <h3 className="text-base font-semibold text-slate-900 truncate">
+            <button
+              type="button"
+              onClick={handleNameClick}
+              className="text-left text-base font-semibold text-slate-900 truncate hover:underline focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 rounded"
+            >
               {otherUser?.full_name || otherUser?.name || 'Unknown User'}
-            </h3>
+            </button>
             {getRoleChip()}
             {getStatusChip()}
           </div>

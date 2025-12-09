@@ -99,6 +99,10 @@ const EnhancedRegister = () => {
     'experience',
     'skills',
     'interests',
+    // Social links stored directly in profiles table
+    'linkedin_url',
+    'github_url',
+    'website',
   ];
 
   const pickSafeProfileFields = (src) => {
@@ -1049,7 +1053,7 @@ const EnhancedRegister = () => {
             </div>
             <div>
               <label htmlFor="expectedGraduationYear" className={commonLabelClass}>Expected Graduation Year *</label>
-              <input id="expectedGraduationYear" name="expectedGraduationYear" type="number" min="1950" max={new Date().getFullYear() + 1} required value={formData.expectedGraduationYear} onChange={handleChange} placeholder="YYYY" className={commonInputClass(errors.expectedGraduationYear)} />
+              <input id="expectedGraduationYear" name="expectedGraduationYear" type="number" min="1950" max={new Date().getFullYear() + 6} required value={formData.expectedGraduationYear} onChange={handleChange} placeholder="YYYY" className={commonInputClass(errors.expectedGraduationYear)} />
               {errors.expectedGraduationYear && <p className={commonErrorClass}>{errors.expectedGraduationYear}</p>}
             </div>
           </div>

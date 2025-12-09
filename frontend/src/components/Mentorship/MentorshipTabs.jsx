@@ -13,7 +13,7 @@ export default function MentorshipTabs() {
   const navigate = useNavigate();
   const roleContext = useMentorshipRoleContext();
   
-  const activeTab = searchParams.get('tab') || 'find';
+  const tabParam = searchParams.get('tab');
   
   // Build role-aware tab configuration
   const tabs = useMemo(() => {
@@ -22,6 +22,9 @@ export default function MentorshipTabs() {
       hasMentorProfile,
       isDualRole,
       isStudent,
+      menteeActiveCount,
+      menteeRequestsSentCount,
+      menteeRequestsReceivedCount,
     } = roleContext;
     
     const allTabs = [];
@@ -67,6 +70,40 @@ export default function MentorshipTabs() {
     return allTabs;
   }, [roleContext]);
   
+  // Mirror MentorshipHub defaultTab logic so the highlighted tab
+  // always matches the rendered panel when no explicit ?tab= is set.
+  const defaultTab = useMemo(() => {
+    const {
+      isDualRole,
+      hasMentorProfile,
+      isMenteeApproved,
+      menteeActiveCount,
+      menteeRequestsSentCount,
+      menteeRequestsReceivedCount,
+    } = roleContext || {};
+
+    if (isDualRole) {
+      const hasPendingRequests =
+        (menteeRequestsSentCount && menteeRequestsSentCount > 0) ||
+        (menteeRequestsReceivedCount && menteeRequestsReceivedCount > 0);
+      return hasPendingRequests ? 'requests' : 'mentee';
+    }
+
+    if (hasMentorProfile && !isMenteeApproved) {
+      return 'mentor';
+    }
+
+    if (isMenteeApproved && !hasMentorProfile) {
+      const hasActiveMentors = menteeActiveCount && menteeActiveCount > 0;
+      const hasSentRequests = menteeRequestsSentCount && menteeRequestsSentCount > 0;
+      return hasActiveMentors || hasSentRequests ? 'mentee' : 'find';
+    }
+
+    return 'find';
+  }, [roleContext]);
+
+  const activeTab = tabParam || defaultTab;
+  
   const handleTabClick = (tab) => {
     const params = new URLSearchParams();
     params.set('tab', tab.key);
@@ -84,6 +121,20 @@ export default function MentorshipTabs() {
     navigate(`/mentorship?${params.toString()}`);
   };
   
+  const handleKeyDown = (event, index) => {
+    if (!tabs || tabs.length === 0) return;
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+      event.preventDefault();
+      const direction = event.key === 'ArrowRight' ? 1 : -1;
+      const nextIndex = (index + direction + tabs.length) % tabs.length;
+      const nextTab = tabs[nextIndex];
+      if (nextTab) {
+        handleTabClick(nextTab);
+      }
+    }
+  };
+  
   if (tabs.length === 0) return null;
   
   return (
@@ -94,7 +145,7 @@ export default function MentorshipTabs() {
           role="tablist"
           aria-label="Mentorship navigation"
         >
-          {tabs.map((tab) => {
+          {tabs.map((tab, index) => {
             const isActive = activeTab === tab.key;
             
             return (
@@ -104,6 +155,8 @@ export default function MentorshipTabs() {
                 role="tab"
                 aria-selected={isActive}
                 aria-controls={`${tab.key}-panel`}
+                tabIndex={isActive ? 0 : -1}
+                onKeyDown={(event) => handleKeyDown(event, index)}
                 className={clsx(
                   'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium',
                   'transition-colors duration-150 whitespace-nowrap',

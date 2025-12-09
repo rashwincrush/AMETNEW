@@ -77,17 +77,22 @@ export default function Bell() {
             {badgeCount}
           </span>
         )}
+        {/* Blinking blue circle indicator for new notifications */}
         {showNewAlert && (
           <span
-            className="absolute -bottom-1 -right-1 px-2 py-0.5 rounded-full bg-blue-500 text-white text-[10px] leading-none shadow-sm cursor-pointer"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowNewAlert(false);
+            className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-blue-500 shadow-sm animate-pulse"
+            style={{
+              animation: 'bellPulse 0.5s ease-in-out 6', // Blink 6 times over 3 seconds
             }}
-          >
-            New
-          </span>
+            aria-hidden
+          />
         )}
+        <style>{`
+          @keyframes bellPulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(0.8); }
+          }
+        `}</style>
       </button>
 
       {open && (

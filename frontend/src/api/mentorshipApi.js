@@ -68,8 +68,14 @@ export async function openMentorshipChat(relationshipId) {
   });
   if (error) throw error;
 
+  // The RPC may return the thread identifier in different shapes depending
+  // on how it is implemented (plain text, object, or array of objects).
+  // Normalize the value here so callers always get a usable ID.
+  const row = Array.isArray(data) ? data[0] : data;
+
   const conversationId =
-    (typeof data === 'string' ? data : data && data.conversation_id) ||
+    (typeof row === 'string' ? row : null) ||
+    (row && (row.conversation_id || row.thread_id || row.thread || row.id)) ||
     null;
 
   if (!conversationId) {

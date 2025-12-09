@@ -116,12 +116,30 @@ export function deriveNotificationLink(notification: Notification): string | nul
   if (!metadata) return null;
   
   // Mentorship-specific routing
-  if (type === 'mentorship' && metadata.status) {
+  if (type === 'mentorship' || type?.startsWith('mentorship_')) {
+    const originalType = metadata.original_type || type;
+    
+    // New request received by mentor -> go to Requests Received tab
+    if (originalType === 'mentorship_request_created' && metadata.actor === 'mentee') {
+      return '/mentorship?tab=requests&sub=received';
+    }
+    
+    // Request accepted/rejected -> mentee goes to My Mentors or Sent Requests
     if (metadata.status === 'accepted' && metadata.relationship_id) {
       return `/mentorship?tab=mentee&highlightRelationshipId=${metadata.relationship_id}`;
     }
     if (metadata.status === 'rejected' || metadata.status === 'pending') {
       return '/mentorship?tab=requests&sub=sent';
+    }
+    
+    // Confirmation for mentee that request was sent
+    if (originalType === 'mentorship_request_confirmation') {
+      return '/mentorship?tab=requests&sub=sent';
+    }
+    
+    // Cancelled by user -> mentor sees this
+    if (originalType === 'mentorship_request_cancelled_by_user') {
+      return '/mentorship?tab=requests&sub=received';
     }
   }
   

@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../../utils/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useOpenMentorshipChat } from '../../../hooks/useOpenMentorshipChat';
-import logger from '../../../utils/logger';
 import { useMentorshipSummary } from '../../../hooks/useMentorshipSummary';
-import { createMentorshipRequest } from '../../../api/mentorshipApi';
+import { createMentorshipRequest, cancelMentorshipRequest } from '../../../api/mentorshipApi';
 import { mapMentorshipError } from '../../../utils/mentorshipErrorMap';
 import { getMentorCapacityState } from '../../../utils/mentorshipStatus';
 import MentorCapacityPill from '../MentorCapacityPill';
@@ -20,24 +20,22 @@ export default function FindMentorsPanel() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { openChat, loadingId } = useOpenMentorshipChat();
-  const [mentors, setMentors] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAcceptingOnly, setShowAcceptingOnly] = useState(true);
   const [requestingMentorId, setRequestingMentorId] = useState(null);
-  const { requests, relationships, pendingRequestCount, hasReachedRequestLimit } = useMentorshipSummary();
+  const [cancellingRequestId, setCancellingRequestId] = useState(null);
+  const { requests, relationships, pendingRequestCount, hasReachedRequestLimit, refetch: refetchSummary } = useMentorshipSummary();
   
   // Max pending requests constant (matches backend)
   const MAX_PENDING_REQUESTS = 5;
-
-  useEffect(() => {
-    fetchMentors();
-  }, [showAcceptingOnly]);
-
-  async function fetchMentors() {
-    try {
-      setLoading(true);
-      
+  const {
+    data: mentors = [],
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ['find-mentors', user?.id, showAcceptingOnly],
+    queryFn: async () => {
       const { data, error } = await supabase.rpc('get_mentors_for_current_mentee', {
         p_limit: 50,
         p_offset: 0,
@@ -56,14 +54,13 @@ export default function FindMentorsPanel() {
         });
       }
 
-      setMentors(filtered);
-    } catch (error) {
-      logger.error('Error fetching mentors:', error);
-      toast.error('Failed to load mentors');
-    } finally {
-      setLoading(false);
-    }
-  }
+      return filtered;
+    },
+    enabled: !!user?.id,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  });
 
   // Client-side text search over the fetched mentor list
   const filteredMentors = useMemo(() => {
@@ -90,10 +87,10 @@ export default function FindMentorsPanel() {
       (r) => r.mentor_id === mentorUserId && r.mentee_id === user.id
     );
 
-    const hasPending = reqs.some((r) => r.status === 'pending');
-    if (hasPending) return { state: 'request_pending', activeRel: null };
+    const pendingReq = reqs.find((r) => r.status === 'pending');
+    if (pendingReq) return { state: 'request_pending', activeRel: null, pendingRequest: pendingReq };
 
-    return { state: 'none', activeRel: null };
+    return { state: 'none', activeRel: null, pendingRequest: null };
   };
 
   const handleRequestMentorship = async (mentorProfileId) => {
@@ -108,12 +105,30 @@ export default function FindMentorsPanel() {
         null
       );
       toast.success('Mentorship request sent!');
-      // Optionally refetch mentors or update local state
+      // Refetch summary to update request state
+      if (refetchSummary) refetchSummary();
     } catch (error) {
       const mapped = mapMentorshipError(error);
       toast.error(mapped.message);
     } finally {
       setRequestingMentorId(null);
+    }
+  };
+
+  const handleCancelRequest = async (requestId) => {
+    if (!requestId) return;
+    
+    setCancellingRequestId(requestId);
+    try {
+      await cancelMentorshipRequest(requestId);
+      toast.success('Mentorship request cancelled');
+      // Refetch summary to update request state
+      if (refetchSummary) refetchSummary();
+    } catch (error) {
+      const mapped = mapMentorshipError(error);
+      toast.error(mapped.message || 'Failed to cancel request');
+    } finally {
+      setCancellingRequestId(null);
     }
   };
 
@@ -176,7 +191,7 @@ export default function FindMentorsPanel() {
       </div>
 
       {/* Loading State */}
-      {loading && (
+      {isLoading && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="bg-white rounded-xl border border-slate-200 p-6 animate-pulse">
@@ -192,8 +207,24 @@ export default function FindMentorsPanel() {
         </div>
       )}
 
+      {/* Error State */}
+      {error && !isLoading && (
+        <div className="bg-white rounded-lg border border-slate-200 p-6">
+          <p className="text-rose-600 mb-3">
+            We couldn’t load mentors. Please try again.
+          </p>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Empty State */}
-      {!loading && mentors.length === 0 && (
+      {!isLoading && !error && mentors.length === 0 && (
         <div className="bg-white rounded-lg border border-slate-200 p-12 text-center">
           <div className="text-4xl mb-4">🔍</div>
           <h3 className="text-lg font-semibold text-slate-900 mb-2">
@@ -206,7 +237,7 @@ export default function FindMentorsPanel() {
       )}
 
       {/* Mentor Cards */}
-      {!loading && mentors.length > 0 && filteredMentors.length > 0 && (
+      {!isLoading && !error && mentors.length > 0 && filteredMentors.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {filteredMentors.map((mentor) => {
             const currentCount = mentor.current_mentees_count || 0;
@@ -217,7 +248,7 @@ export default function FindMentorsPanel() {
               maxCount
             );
 
-            const { state: relationshipState, activeRel } = getRelationshipState(mentor.id);
+            const { state: relationshipState, activeRel, pendingRequest } = getRelationshipState(mentor.user_id);
             const isAccepted = relationshipState === 'request_accepted';
             const isPending = relationshipState === 'request_pending';
 
@@ -292,10 +323,11 @@ export default function FindMentorsPanel() {
                     </button>
                   ) : isPending ? (
                     <button
-                      disabled
-                      className="flex-1 inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium text-slate-600 bg-slate-100 cursor-not-allowed"
+                      onClick={() => handleCancelRequest(pendingRequest?.id)}
+                      disabled={cancellingRequestId === pendingRequest?.id}
+                      className="flex-1 inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-colors disabled:opacity-60"
                     >
-                      Request Pending
+                      {cancellingRequestId === pendingRequest?.id ? 'Cancelling…' : 'Cancel Request'}
                     </button>
                   ) : (
                     <button

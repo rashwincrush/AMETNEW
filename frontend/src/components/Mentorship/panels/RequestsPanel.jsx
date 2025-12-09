@@ -146,7 +146,14 @@ export default function RequestsPanel({ sub, highlightRequestId }) {
   if (error) {
     return (
       <div className="bg-white rounded-lg border border-slate-200 p-6">
-        <p className="text-rose-600">Error loading requests: {error.message}</p>
+        <p className="text-rose-600 mb-3">Error loading requests: {error.message}</p>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
+        >
+          Retry
+        </button>
       </div>
     );
   }

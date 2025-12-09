@@ -102,13 +102,6 @@ const MentorProfile = () => {
 
       try {
         setLoading(true);
-        // 1) Hydrate identity using the shared helper so we always get the
-        // canonical name/avatar from alumni_directory_public or profiles.
-        const ident = await getPublicIdentity(mentorId).catch((e) => {
-          logger.warn('MentorProfile: getPublicIdentity failed', e);
-          return null;
-        });
-
         // 2) Try to fetch mentor core row (capacity, expertise, etc.).
         // We support both URL shapes:
         // - /mentorship/mentor/:id where :id = mentors.user_id (new)
@@ -140,6 +133,14 @@ const MentorProfile = () => {
             logger.warn('MentorProfile: mentors row not accessible', errByUser || errById);
           }
         }
+
+        // 1) Hydrate identity using the shared helper so we always get the
+        // canonical name/avatar from alumni_directory_public or profiles.
+        const effectiveMentorUserIdForIdentity = mentorRow?.user_id || mentorId;
+        const ident = await getPublicIdentity(effectiveMentorUserIdForIdentity).catch((e) => {
+          logger.warn('MentorProfile: getPublicIdentity failed', e);
+          return null;
+        });
 
         if (!mentorRow && !ident) {
           toast.error('Mentor not found.');
@@ -184,6 +185,7 @@ const MentorProfile = () => {
   const acceptedRequest = existingRequest && existingRequest.status === 'accepted';
   const hasActiveMentorship = !!activeRelationship || acceptedRequest;
   const isOpening = !!activeRelationship && loadingId === activeRelationship.id;
+  const isSelf = user?.id && (user.id === (mentor.profile?.id || mentor.user_id || mentorId));
 
   return (
     <div className="container mx-auto p-4 md:p-8">
@@ -203,7 +205,10 @@ const MentorProfile = () => {
                 </span>
               )}
             </h1>
-            <p className="text-xl text-gray-600">Maritime Professional</p>
+            <p className="text-xl text-gray-600">
+              {mentor.profile?.current_job_title || 'Professional'}
+              {mentor.profile?.company_name && ` at ${mentor.profile.company_name}`}
+            </p>
             {activeRelationship?.start_date && (
               <p className="mt-1 text-sm text-gray-500">
                 Mentoring you since{' '}
@@ -277,12 +282,12 @@ const MentorProfile = () => {
 
             {/* Contact unlock panel: only shows contact post-acceptance; otherwise CTA */}
             <div className="mt-4">
-              <MentorContactPanel mentorId={mentorId} />
+              <MentorContactPanel mentorId={mentor.profile?.id || mentor.user_id || mentorId} />
             </div>
 
             {hasPermission?.('request:mentorship') && mentor?.status === 'approved' && (
               <div className="mt-6 space-y-3">
-                {user?.id === mentorId ? (
+                {isSelf ? (
                   <button className="btn-ocean w-full py-2" disabled>
                     This is your profile
                   </button>

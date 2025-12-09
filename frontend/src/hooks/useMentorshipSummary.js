@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from '../utils/supabase';
 import logger from '../utils/logger';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,6 +15,12 @@ export function useMentorshipSummary() {
   const [mentorRow, setMentorRow] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
+
+  // Manual refetch function
+  const refetch = useCallback(() => {
+    setRefetchTrigger((prev) => prev + 1);
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
@@ -74,7 +80,7 @@ export function useMentorshipSummary() {
     return () => {
       isCancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, refetchTrigger]);
 
   const derived = useMemo(() => {
     if (!user?.id) {
@@ -125,6 +131,7 @@ export function useMentorshipSummary() {
     requests,
     relationships,
     mentorRow,
+    refetch,
     ...derived,
   };
 }
