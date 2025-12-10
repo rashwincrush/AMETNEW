@@ -302,8 +302,13 @@ const GroupDetail = () => {
       // Use centralized join check
       const joinCheck = canJoinGroup(group, userRole, isMember);
       if (!joinCheck.allowed && !isMember) {
-        setError(joinCheck.reason || 'You cannot join this group.');
-        toast.error(joinCheck.reason || 'You cannot join this group.');
+        const reason = joinCheck.reason || 'You cannot join this group.';
+        setError(reason);
+        // Avoid duplicate noisy toast when this is an alumni-only restriction;
+        // the inline access-denied card already explains the rule clearly.
+        if (!String(reason).toLowerCase().includes('alumni only')) {
+          toast.error(reason);
+        }
         return;
       }
       if (!isUserApproved && !isMember) {
