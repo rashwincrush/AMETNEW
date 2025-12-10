@@ -178,6 +178,7 @@ function RowActionsMenu({
               )}
               {!user.is_deleted && user.id !== currentUserId && (
                 <button
+                  title="Soft delete: close the account but keep all data. User becomes read-only and cannot perform new actions. Contact your administrator for more information."
                   onClick={() => {
                     onSoftDelete(user);
                     setIsOpen(false);
@@ -466,7 +467,7 @@ export default function UserTable({
                         <>
                           {user.is_deleted && canPurge && (
                             <button
-                              title="Purge User Data"
+                              title="Purge data: permanently remove this user's data from the app. This cannot be undone. Contact your administrator for more information."
                               onClick={() => onPurge(user)}
                               className="inline-flex items-center justify-center w-[40px] h-[40px] rounded-lg text-gray-400 hover:text-red-800 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                             >
@@ -475,7 +476,7 @@ export default function UserTable({
                           )}
                           {user.is_deleted && canHardDelete && (
                             <button
-                              title="Delete Auth User"
+                              title="Delete Auth user: remove this user's data and login from the system. This cannot be undone. Contact your administrator for more information."
                               onClick={() => onDeleteAuth(user)}
                               className="inline-flex items-center justify-center w-[40px] h-[40px] rounded-lg text-gray-400 hover:text-red-900 hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                             >

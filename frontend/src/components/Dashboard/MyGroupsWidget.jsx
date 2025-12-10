@@ -45,13 +45,13 @@ function MyGroupsWidget() {
       <div className="w-12 h-12 bg-ocean-50 rounded-full flex items-center justify-center mx-auto mb-3">
         <UsersIcon className="w-6 h-6 text-ocean-600" />
       </div>
-      <h4 className="text-md font-semibold text-gray-700">No Groups Joined</h4>
-      <p className="text-sm text-gray-500 mt-1">Join a group to start networking with peers.</p>
+      <h4 className="text-md font-semibold text-gray-700">No Groups/Chapters Joined</h4>
+      <p className="text-sm text-gray-500 mt-1">Join a group/chapter to start networking with peers.</p>
       <Link
         to="/groups"
         className="mt-4 inline-block btn-ocean-fill text-sm py-2 px-4 rounded-lg focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
       >
-        Explore Groups
+        Explore Groups/Chapters
       </Link>
     </div>
   );
@@ -149,7 +149,7 @@ function MyGroupsWidget() {
 
   return (
     <div className="glass-card p-6 rounded-lg">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">My Networking Groups</h3>
+      <h3 className="text-lg font-semibold text-gray-900 mb-4">My Networking Groups/Chapters</h3>
 
       {/* Loading */}
       {rows === null && !err && (
@@ -163,7 +163,7 @@ function MyGroupsWidget() {
 
       {/* Error */}
       {err && (
-        <div className="text-sm text-gray-500">Couldn’t load your groups.</div>
+        <div className="text-sm text-gray-500">Couldn’t load your groups/chapters.</div>
       )}
 
       {/* List or Empty */}
@@ -183,7 +183,7 @@ function MyGroupsWidget() {
       {(!rows || rows.length >= 0) && (
         <div className="mt-4">
           <Link to="/groups" className="btn-ocean-outline w-full py-2 px-4 rounded-lg text-center block text-sm focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">
-            Explore Groups
+            Explore Groups/Chapters
           </Link>
         </div>
       )}

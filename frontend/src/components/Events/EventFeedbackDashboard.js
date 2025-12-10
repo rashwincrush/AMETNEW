@@ -35,6 +35,7 @@ const EventFeedbackDashboard = () => {
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
   const [event, setEvent] = useState(null);
+  const [attendees, setAttendees] = useState([]);
   const [feedback, setFeedback] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -83,7 +84,7 @@ const EventFeedbackDashboard = () => {
 
         if (isMounted.current) {
           setEvent(eventData);
-          await fetchFeedback();
+          await Promise.all([fetchFeedback(), fetchAttendees()]);
         }
       } catch (err) {
         if (isMounted.current) {
@@ -115,6 +116,25 @@ const EventFeedbackDashboard = () => {
       if (isMounted.current) {
         setError(err.message || 'Failed to load feedback');
         setLoading(false);
+      }
+    }
+  };
+
+  const fetchAttendees = async () => {
+    try {
+      const { data: attendeeData, error: attendeeError } = await supabase
+        .from('event_attendees')
+        .select('id, attendance_status, registration_date, profiles(id, full_name, email)')
+        .eq('event_id', id);
+
+      if (attendeeError) throw attendeeError;
+
+      if (isMounted.current) {
+        setAttendees(attendeeData || []);
+      }
+    } catch (err) {
+      if (isMounted.current) {
+        setAttendees([]);
       }
     }
   };
@@ -157,6 +177,28 @@ const EventFeedbackDashboard = () => {
     document.body.removeChild(link);
   };
 
+  const exportAttendeesCSV = () => {
+    const headers = ['Full Name', 'Email', 'Attendance Status', 'Registration Date'];
+    const rows = attendees.map(item => [
+      item.profiles?.full_name || 'Anonymous',
+      item.profiles?.email || '',
+      item.attendance_status || '',
+      item.registration_date ? formatInIST(item.registration_date, 'yyyy-MM-dd HH:mm:ss') : 'N/A',
+    ]);
+
+    let csvContent = "data:text/csv;charset=utf-8,"
+      + headers.join(",") + "\n"
+      + rows.map(e => e.join(",")).join("\n");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `event-attendees-${id}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (loading) {
     return <LoadingSpinner message="Loading feedback data..." />;
   }
@@ -182,6 +224,9 @@ const EventFeedbackDashboard = () => {
         </Typography>
         <Typography variant="subtitle1" color="text.secondary">
           {event?.date ? formatInIST(event.date, 'PPP') : 'Date not available'}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          Reports are generated per individual event. Open a specific event and its feedback dashboard to download feedback and attendee reports for that event.
         </Typography>
       </Paper>
 
@@ -224,7 +269,7 @@ const EventFeedbackDashboard = () => {
         </Grid>
       </Grid>
 
-      <Box display="flex" justifyContent="flex-end" mb={3}>
+      <Box display="flex" justifyContent="flex-end" mb={3} sx={{ gap: 2 }}>
         <Button
           variant="contained"
           color="secondary"
@@ -232,7 +277,16 @@ const EventFeedbackDashboard = () => {
           onClick={exportFeedbackCSV}
           disabled={feedback.length === 0}
         >
-          Export as CSV
+          Export feedback CSV
+        </Button>
+        <Button
+          variant="outlined"
+          color="secondary"
+          startIcon={<FileDownloadIcon />}
+          onClick={exportAttendeesCSV}
+          disabled={attendees.length === 0}
+        >
+          Export attendees CSV
         </Button>
       </Box>
 

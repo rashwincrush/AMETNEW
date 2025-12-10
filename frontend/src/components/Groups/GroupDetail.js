@@ -1408,7 +1408,7 @@ const GroupDetail = () => {
                           </div>
                         </div>
 
-                        <p className="mb-3">{post.content}</p>
+                        <p className="mb-3 whitespace-pre-wrap break-words">{post.content}</p>
 
                         {post.image_url && (
                           <div className="mt-2 mb-3">

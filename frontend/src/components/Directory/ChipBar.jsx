@@ -82,7 +82,7 @@ export default function ChipBar({ counts, active, onChange, showEmployers = fals
           </span>
         </button>
         <div
-          className={`absolute left-0 top-full mt-2 w-56 rounded-xl border border-slate-200 bg-white shadow-2xl transform origin-top transition-all duration-150 z-30 ${
+          className={`absolute right-0 top-full mt-2 w-64 rounded-xl border border-slate-200 bg-white shadow-2xl transform origin-top transition-all duration-150 z-30 ${
             isOpen ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none'
           }`}
         >

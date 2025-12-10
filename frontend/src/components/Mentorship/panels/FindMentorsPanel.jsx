@@ -13,7 +13,7 @@ import { toast } from 'react-hot-toast';
 import { MENTORSHIP_COPY } from '../../../constants/mentorshipCopy';
 
 /**
- * Panel for browsing and requesting mentors.
+ * Panel for browsing and requesting trainers.
  * Integrated with useOpenMentorshipChat for accepted relationships.
  */
 export default function FindMentorsPanel() {
@@ -126,9 +126,9 @@ export default function FindMentorsPanel() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-bold text-slate-900">Find Mentors</h2>
+        <h2 className="text-xl font-bold text-slate-900">Find Trainers</h2>
         <p className="text-sm text-slate-600 mt-1">
-          Browse alumni mentors and send requests
+          Browse alumni trainers and send mentorship requests
         </p>
       </div>
 
@@ -179,8 +179,8 @@ export default function FindMentorsPanel() {
         <div className="flex items-center justify-center py-16" role="status" aria-live="polite">
           <div className="flex flex-col items-center gap-3">
             <div className="spinner spinner-lg" aria-hidden="true" />
-            <p className="text-sm text-slate-500 font-medium">Finding mentors...</p>
-            <span className="sr-only">Loading mentors...</span>
+            <p className="text-sm text-slate-500 font-medium">Finding trainers...</p>
+            <span className="sr-only">Loading trainers...</span>
           </div>
         </div>
       )}
@@ -189,7 +189,7 @@ export default function FindMentorsPanel() {
       {error && !isLoading && (
         <div className="bg-white rounded-lg border border-slate-200 p-6">
           <p className="text-rose-600 mb-3">
-            We couldn’t load mentors. Please try again.
+            We couldn’t load trainers. Please try again.
           </p>
           <button
             type="button"
@@ -264,7 +264,7 @@ export default function FindMentorsPanel() {
                           ? `${mentor.mentoring_capacity_hours_per_month} hrs/mo`
                           : null,
                         mentor.max_mentees != null
-                          ? `Max ${mentor.max_mentees} mentees`
+                          ? `Max ${mentor.max_mentees} trainees`
                           : null,
                       ]
                         .filter(Boolean)
@@ -318,7 +318,7 @@ export default function FindMentorsPanel() {
                         hasReachedRequestLimit
                           ? `You have ${pendingRequestCount} pending requests (max ${MAX_PENDING_REQUESTS})`
                           : capacityState === 'at_capacity'
-                            ? 'This mentor is at capacity'
+                            ? 'This trainer is at capacity'
                             : 'Request mentorship'
                       }
                       className="flex-1 inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"

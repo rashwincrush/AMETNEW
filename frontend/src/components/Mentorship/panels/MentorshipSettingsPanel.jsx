@@ -156,11 +156,11 @@ export default function MentorshipSettingsPanel({ mode }) {
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Become a Mentor */}
+        {/* Become a Trainer */}
         <div className="bg-white rounded-lg border border-slate-200 p-6 hover:shadow-md transition-shadow">
           <div className="text-4xl mb-4">👨‍🏫</div>
           <h3 className="text-lg font-semibold text-slate-900 mb-2">
-            Become a Mentor
+            Become a Trainer
           </h3>
           <p className="text-slate-600 mb-4">
             Share your experience and guide students or younger alumni
@@ -169,15 +169,15 @@ export default function MentorshipSettingsPanel({ mode }) {
             href="/mentorship?tab=settings&mode=mentor"
             className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
           >
-            Set up mentor profile
+            Set up trainer profile
           </a>
         </div>
         
-        {/* Mentee Goals */}
+        {/* Trainee Goals */}
         <div className="bg-white rounded-lg border border-slate-200 p-6 hover:shadow-md transition-shadow">
           <div className="text-4xl mb-4">🎓</div>
           <h3 className="text-lg font-semibold text-slate-900 mb-2">
-            Find a Mentor
+            Find a Trainer
           </h3>
           <p className="text-slate-600 mb-4">
             Browse experienced alumni and request mentorship
@@ -186,7 +186,7 @@ export default function MentorshipSettingsPanel({ mode }) {
             href="/mentorship?tab=find"
             className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
           >
-            Browse mentors
+            Browse trainers
           </a>
         </div>
       </div>

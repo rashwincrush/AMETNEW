@@ -1,3 +1,13 @@
+/**
+ * @deprecated This component is deprecated. Use Bell.tsx or Bell.jsx instead.
+ * 
+ * This legacy component:
+ * - Uses direct table access instead of bell_notifications view
+ * - Uses deprecated get_unread_notifications_count_by_type RPC
+ * - Uses legacy onPostgresChangesOnce realtime helper
+ * 
+ * Migration: Import Bell from './Bell' instead of NotificationBell
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase, onPostgresChangesOnce } from '../../utils/supabase';
 import { NOTIF_ID_FIELD, notifScopeFilter } from '../../utils/notifications';
@@ -6,6 +16,9 @@ import { BellIcon, EnvelopeIcon, UserIcon, CalendarIcon, BriefcaseIcon, ChatBubb
 import { Link } from 'react-router-dom';
 import { format, formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
+
+// eslint-disable-next-line no-console
+console.warn('NotificationBell.js is deprecated. Use Bell.tsx or Bell.jsx instead.');
 
 const NotificationBell = ({ currentUser }) => {
   const [unreadCount, setUnreadCount] = useState(0);

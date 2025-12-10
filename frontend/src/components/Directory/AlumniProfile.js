@@ -45,6 +45,7 @@ const AlumniProfile = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
+  const [isAvatarOpen, setIsAvatarOpen] = useState(false);
   // Connection rel (live)
   const rel = useConnectionRel(currentUser?.id, id);
   const { getUserRole } = useAuth();
@@ -108,6 +109,14 @@ const AlumniProfile = () => {
 
         logger.log('Fetched alumni profile:', data);
 
+        // Experience data comes from the directory view as work_experience (with
+        // a possible legacy fallback to experience). Normalize it once so the
+        // rest of the component can rely on alumnus.experience / experience_text.
+        const rawExperience =
+          typeof data.work_experience !== 'undefined' && data.work_experience !== null
+            ? data.work_experience
+            : data.experience;
+
         const city = data.location_city || '';
         const country = data.location_country || '';
         const location =
@@ -135,7 +144,13 @@ const AlumniProfile = () => {
             ? new Date(data.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
             : '',
           about: data.about || '',
-          experience: Array.isArray(data.experience) ? data.experience : [],
+          // Prefer structured experience when available, but preserve the plain-text
+          // experience string from Profile settings so it can still be shown.
+          experience: Array.isArray(rawExperience) ? rawExperience : [],
+          experience_text:
+            !Array.isArray(rawExperience) && typeof rawExperience === 'string'
+              ? rawExperience
+              : '',
           education: Array.isArray(data.education) ? data.education : [],
           skills: Array.isArray(data.skills) ? data.skills : [],
           achievements: Array.isArray(data.achievements)
@@ -150,6 +165,29 @@ const AlumniProfile = () => {
           degree_code: data.degree_code || null,
           department_id: data.department_id || null,
         };
+
+        // If the directory view doesn't yet project any work_experience but the
+        // core profile has a simple experience string, load it as a fallback so
+        // users still see what they entered in Profile settings.
+        try {
+          if (
+            Array.isArray(rawExperience) &&
+            rawExperience.length === 0 &&
+            !transformed.experience_text
+          ) {
+            const { data: profileRow, error: profileErr } = await supabase
+              .from('profiles')
+              .select('experience')
+              .eq('id', id)
+              .maybeSingle();
+
+            if (!profileErr && profileRow && typeof profileRow.experience === 'string') {
+              transformed.experience_text = profileRow.experience;
+            }
+          }
+        } catch (expErr) {
+          logger.error('Error loading fallback experience from profiles:', expErr);
+        }
 
         const socialLinks = await loadProfileSocialLinks(id);
         const mergedSocialLinks = {
@@ -189,6 +227,22 @@ const AlumniProfile = () => {
     if (!currentUser || !alumnus) return;
     navigate(`/messages?peer=${alumnus.id}`);
   };
+  
+  // Close avatar lightbox on Escape key
+  useEffect(() => {
+    if (!isAvatarOpen) return;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsAvatarOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isAvatarOpen]);
   
   if (loading) {
     return (
@@ -242,8 +296,8 @@ const AlumniProfile = () => {
   ].filter(Boolean);
   // Avatar precedence: prefer signed URL from useAvatar, fall back to view/avatar field
   const avatarSrc = avatarUrl || alumnus?.avatar || null;
-
   return (
+  <React.Fragment>
     <div className="min-h-[calc(100vh-80px)] bg-gradient-to-b from-sky-50/70 via-slate-50 to-white">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-10 space-y-6">
         {/* Centered Header */}
@@ -252,13 +306,21 @@ const AlumniProfile = () => {
           <div className="relative z-10 px-6 pt-8 pb-6 sm:px-8 sm:pt-10 sm:pb-7 flex flex-col items-center text-center space-y-4">
             {/* Profile Picture */}
             <div className="relative mb-1">
-              <Avatar
-                src={avatarSrc}
-                alt={`${alumnus.name}'s profile picture`}
-                size={96}
-                version={alumnus.updated_at}
-                className="ring-2 ring-ocean-500/70 shadow-md"
-              />
+              <button
+                type="button"
+                onClick={() => avatarSrc && setIsAvatarOpen(true)}
+                className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 cursor-zoom-in"
+                aria-label="View profile picture in full screen"
+              >
+                <Avatar
+                  src={avatarSrc}
+                  alt={`${alumnus.name}'s profile picture`}
+                  size={96}
+                  version={alumnus.updated_at}
+                  className="ring-2 ring-ocean-500/70 shadow-md"
+                  loading="eager"
+                />
+              </button>
             </div>
             {/* Basic Info */}
             <div className="space-y-1">
@@ -321,11 +383,13 @@ const AlumniProfile = () => {
                       <div className="flex-1">
                         <h3 className="font-semibold text-slate-900">{exp.position}</h3>
                         <p className="text-ocean-600 font-medium">{exp.company}</p>
-                        <p className="text-sm text-slate-600">{exp.duration} f {exp.location}</p>
+                        <p className="text-sm text-slate-600">{exp.duration} 􏿾f {exp.location}</p>
                         <p className="text-slate-700 mt-2">{exp.description}</p>
                       </div>
                     </div>
                   ))
+                ) : alumnus.experience_text && alumnus.experience_text.trim() ? (
+                  <p className="text-slate-700 whitespace-pre-wrap">{alumnus.experience_text}</p>
                 ) : (
                   <p className="text-slate-500">No experience information available.</p>
                 )}
@@ -345,7 +409,7 @@ const AlumniProfile = () => {
                       <div className="flex-1">
                         <h3 className="font-semibold text-slate-900">{edu.degree}</h3>
                         <p className="text-ocean-600 font-medium">{edu.institution}</p>
-                        <p className="text-sm text-slate-600">{edu.year} f {edu.grade}</p>
+                        <p className="text-sm text-slate-600">{edu.year} 􏿾f {edu.grade}</p>
                       </div>
                     </div>
                   ))
@@ -466,7 +530,36 @@ const AlumniProfile = () => {
         </div>
       </div>
     </div>
-  );
+    {avatarSrc && isAvatarOpen && (
+      <div
+        className="fixed inset-0 z-[999] bg-black/80 flex items-center justify-center p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Enlarged profile picture"
+        onClick={() => setIsAvatarOpen(false)}
+      >
+        <div
+          className="relative w-[90vw] sm:w-[70vw] md:w-[55vw] max-w-3xl max-h-[80vh] bg-black/40 sm:bg-black/20 rounded-2xl flex items-center justify-center shadow-2xl border border-white/10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => setIsAvatarOpen(false)}
+            className="absolute top-3 right-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white text-sm font-semibold hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/60"
+            aria-label="Close enlarged profile picture"
+          >
+            ×
+          </button>
+          <img
+            src={avatarSrc}
+            alt={`${alumnus.name}'s profile picture`}
+            className="max-h-[70vh] max-w-[80vw] sm:max-w-[60vw] md:max-w-[50vw] object-contain rounded-xl"
+          />
+        </div>
+      </div>
+    )}
+  </React.Fragment>
+);
 };
 
 export default AlumniProfile;

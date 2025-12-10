@@ -10,6 +10,12 @@ import {
   MapPinIcon,
   BriefcaseIcon,
   AcademicCapIcon,
+  BuildingOffice2Icon,
+  GlobeAltIcon,
+  LinkIcon,
+  CalendarDaysIcon,
+  PencilSquareIcon,
+  ClockIcon,
   CameraIcon,
   PencilIcon,
   XMarkIcon,
@@ -34,17 +40,46 @@ import {
   getBatchYearPlaceholder,
   getProfileYearWriteFields 
 } from '../../utils/batchYear';
+import { COUNTRY_CODE_OPTIONS, getCountryByCode } from '../../constants/countryCodes';
 import { getAccountStatus } from '../../utils/accountStatus';
 
-// Normalize phone to E.164 or null to satisfy DB constraint chk_phone_e164
+// Normalize phone to strict E.164 (+digits, 7-15 digits) or null to satisfy DB constraint chk_phone_e164
 const normalizePhone = (raw) => {
   const input = (raw ?? '').trim();
   if (!input) return null; // empty -> NULL passes CHECK
-  const hasPlus = input.startsWith('+');
   const digits = input.replace(/[^0-9]/g, '');
-  const normalized = hasPlus ? `+${digits}` : digits;
-  const isValid = /^\+?\d{7,15}$/.test(normalized);
-  return isValid ? normalized : { error: 'Please enter a valid phone in international format (E.164), e.g. +14155552671 or 9876543210 (7-15 digits).' };
+  if (digits.length < 7 || digits.length > 15) {
+    return { error: 'Please enter a valid phone in international format (E.164), e.g. +14155552671 or 9876543210 (7-15 digits).' };
+  }
+  return `+${digits}`;
+};
+
+// Best-effort split of a stored E.164 phone into country calling code and local digits
+const splitPhoneForUi = (rawPhone) => {
+  const norm = normalizePhone(rawPhone);
+  if (!norm || typeof norm === 'object') {
+    return { code: '+91', local: '' };
+  }
+
+  // Find the longest matching country code prefix from our known list
+  let best = null;
+  for (const opt of COUNTRY_CODE_OPTIONS) {
+    if (norm.startsWith(opt.code)) {
+      if (!best || opt.code.length > best.code.length) {
+        best = opt;
+      }
+    }
+  }
+
+  if (best) {
+    const localDigits = norm.slice(best.code.length).replace(/[^0-9]/g, '');
+    return { code: best.code, local: localDigits };
+  }
+
+  // Fallback: default to +91 and treat the rest as local digits
+  const digits = norm.replace(/[^0-9]/g, '');
+  const localDigits = digits.startsWith('91') ? digits.slice(2) : digits;
+  return { code: '+91', local: localDigits };
 };
 
 // Normalize social URLs to ensure exactly one https:// and avoid partial scheme duplication
@@ -127,6 +162,8 @@ const Profile = () => {
   // Define isEmployer constant
   const isEmployer = getUserRole() === 'employer';
   const isStudent = getUserRole() === 'student';
+  const [phoneCountryCode, setPhoneCountryCode] = useState('+91');
+  const [phoneLocal, setPhoneLocal] = useState('');
   
   // Handle changes to company form fields
   const handleCompanyChange = (e) => {
@@ -415,6 +452,16 @@ const Profile = () => {
           logger.log('Final form data being set:', formDataInitial);
           setFormData(formDataInitial);
 
+          const rawPhone = (formDataInitial.phone || '').trim();
+          if (rawPhone) {
+            const { code, local } = splitPhoneForUi(rawPhone);
+            setPhoneCountryCode(code);
+            setPhoneLocal(local);
+          } else {
+            setPhoneCountryCode('+91');
+            setPhoneLocal('');
+          }
+
         } catch (error) {
           logger.error('Error in profile initialization:', error);
           toast.error('Failed to initialize profile data');
@@ -579,18 +626,30 @@ const Profile = () => {
     setIsSubmitting(true);
 
     try {
-      // Normalize phone to E.164 or null to satisfy DB constraint chk_phone_e164
-      const normalizePhone = (raw) => {
-        const input = (raw ?? '').trim();
-        if (!input) return null; // empty -> NULL passes CHECK
-        const hasPlus = input.startsWith('+');
-        const digits = input.replace(/[^0-9]/g, '');
-        const normalized = hasPlus ? `+${digits}` : digits;
-        const isValid = /^\+?\d{7,15}$/.test(normalized);
-        return isValid ? normalized : { error: 'Please enter a valid phone in international format (E.164), e.g. +14155552671 or 9876543210 (7-15 digits).' };
-      };
+      // Build full phone from current UI state (dropdown + local input)
+      const fullPhone = phoneLocal ? `${phoneCountryCode} ${phoneLocal}`.trim() : '';
 
-      const phoneNorm = normalizePhone(formData.phone);
+      // Per-country basic length validation based on selected country code
+      if (fullPhone) {
+        const match = fullPhone.match(/^(\+\d{1,4})/);
+        const code = match ? match[1] : null;
+        const meta = code ? getCountryByCode(code) : null;
+        if (meta && (meta.localMin || meta.localMax)) {
+          const digitsOnly = fullPhone.replace(/[^0-9]/g, '');
+          const codeDigits = code.replace(/[^0-9]/g, '');
+          const localDigits = digitsOnly.startsWith(codeDigits)
+            ? digitsOnly.slice(codeDigits.length)
+            : digitsOnly;
+          const len = localDigits.length;
+          if ((meta.localMin && len < meta.localMin) || (meta.localMax && len > meta.localMax)) {
+            toast.error(`Phone length looks off for ${meta.name}. Expected ${meta.localMin === meta.localMax ? meta.localMin : `${meta.localMin}-${meta.localMax}`} digits after the country code.`);
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      }
+
+      const phoneNorm = normalizePhone(fullPhone);
       if (phoneNorm && typeof phoneNorm === 'object' && phoneNorm.error) {
         toast.error(phoneNorm.error);
         setIsSubmitting(false);
@@ -1026,6 +1085,7 @@ const Profile = () => {
                   rounded="full"
                   version={imageFile ? null : profile.updated_at}
                   className="border-2 border-white shadow-md"
+                  loading="eager"
                 />
                 {isEditing && (
                   <label className="absolute bottom-0 right-0 bg-ocean-500 text-white p-2 rounded-full hover:bg-ocean-600 transition-colors cursor-pointer shadow-md">
@@ -1131,15 +1191,49 @@ const Profile = () => {
               </div>
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">Phone</label>
-                <input
-                  type="tel"
-                  name="phone"
-                  value={formData.phone || ''}
-                  onChange={handleChange}
-                  onBlur={(e) => setFormData(prev => ({ ...prev, phone: (normalizePhone(e.target.value) || '') }))}
-                  className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                  placeholder="+1 (555) 123-4567"
-                />
+                <div className="grid grid-cols-[minmax(0,120px)_1fr] gap-3">
+                  <select
+                    name="phoneCountryCode"
+                    value={phoneCountryCode}
+                    onChange={(e) => {
+                      const code = e.target.value;
+                      setPhoneCountryCode(code);
+                      const digits = phoneLocal.replace(/[^0-9]/g, '');
+                      const combined = digits ? `${code} ${digits}` : code;
+                      setFormData(prev => ({ ...prev, phone: combined.trim() }));
+                    }}
+                    className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 bg-white focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                  >
+                    {COUNTRY_CODE_OPTIONS.map((opt) => (
+                      <option key={opt.code} value={opt.code}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="tel"
+                    name="phoneLocal"
+                    value={phoneLocal}
+                    onChange={(e) => {
+                      const digitsOnly = e.target.value.replace(/[^0-9]/g, '');
+                      const codeDigits = phoneCountryCode.replace(/[^0-9]/g, '');
+                      let digits = digitsOnly;
+                      if (digits.startsWith(codeDigits)) {
+                        digits = digits.slice(codeDigits.length);
+                      }
+                      setPhoneLocal(digits);
+                      const combined = digits ? `${phoneCountryCode} ${digits}` : phoneCountryCode;
+                      setFormData(prev => ({ ...prev, phone: combined.trim() }));
+                    }}
+                    onBlur={() => {
+                      const full = `${phoneCountryCode} ${phoneLocal}`.trim();
+                      const normalized = normalizePhone(full);
+                      if (typeof normalized === 'string') {
+                        setFormData(prev => ({ ...prev, phone: normalized }));
+                      }
+                    }}
+                    className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                    placeholder="9876543210"
+                  />
+                </div>
               </div>
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">Location</label>
@@ -1163,71 +1257,86 @@ const Profile = () => {
                 />
               </div>
             </div>
-            
-            {/* Unified Batch/Graduation Year field */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">
-                {getBatchYearLabel(getUserRole())}
-                {(getUserRole() === 'alumni' || getUserRole() === 'student') && <span className="text-red-500 ml-1">*</span>}
-              </label>
-              <input
-                type="number"
-                name="batchYear"
-                value={formData.batchYear || ''}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setFormData(prev => ({
-                    ...prev,
-                    batchYear: val === '' ? '' : val
-                  }));
-                }}
-                min="1970"
-                max={new Date().getFullYear() + 6}
-                className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                placeholder={getBatchYearPlaceholder(getUserRole())}
-                required={getUserRole() === 'alumni' || getUserRole() === 'student'}
-              />
-              <p className="text-xs text-gray-500">
-                {getUserRole() === 'student' 
-                  ? 'Your expected graduation year (can be in the future)'
-                  : getUserRole() === 'alumni'
-                  ? 'Your graduation year (past or current year)'
-                  : 'Your batch or graduation year (optional for employers/admins)'}
-              </p>
-            </div>
-            {!isEmployer && (
-              <>
+            {/* Academic information */}
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">Academic information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Unified Batch/Graduation Year field */}
                 <div className="space-y-2">
-                  <DegreeSelect
-                    value={formData.degree_code || ''}
-                    onChange={(v) => setFormData(prev => ({ ...prev, degree_code: v, department_id: '' }))}
-                    required
+                  <label className="block text-sm font-medium text-gray-700">
+                    {getBatchYearLabel(getUserRole())}
+                    {(getUserRole() === 'alumni' || getUserRole() === 'student') && <span className="text-red-500 ml-1">*</span>}
+                  </label>
+                  <input
+                    type="number"
+                    name="batchYear"
+                    value={formData.batchYear || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData(prev => ({
+                        ...prev,
+                        batchYear: val === '' ? '' : val
+                      }));
+                    }}
+                    min="1970"
+                    max={new Date().getFullYear() + 6}
+                    className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                    placeholder={getBatchYearPlaceholder(getUserRole())}
+                    required={getUserRole() === 'alumni' || getUserRole() === 'student'}
+                  />
+                  <p className="text-xs text-gray-500">
+                    {getUserRole() === 'student' 
+                      ? 'Your expected graduation year (can be in the future)'
+                      : getUserRole() === 'alumni'
+                      ? 'Your graduation year (past or current year)'
+                      : 'Your batch or graduation year (optional for employers/admins)'}
+                  </p>
+                </div>
+
+                {!isEmployer && (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Degree<span className="text-red-500 ml-1">*</span>
+                    </label>
+                    <DegreeSelect
+                      value={formData.degree_code || ''}
+                      onChange={(v) => setFormData(prev => ({ ...prev, degree_code: v, department_id: '' }))}
+                      required
+                    />
+                  </div>
+                )}
+
+                {!isEmployer && (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Department<span className="text-red-500 ml-1">*</span>
+                    </label>
+                    <DepartmentSelect
+                      degreeCode={formData.degree_code || ''}
+                      value={formData.department_id || ''}
+                      onChange={(v) => setFormData(prev => ({ ...prev, department_id: v }))}
+                      required
+                      disabled={!formData.degree_code}
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">Student ID <span className="text-xs text-gray-500">(optional)</span></label>
+                  <input
+                    type="text"
+                    name="student_id"
+                    value={formData.student_id || ''}
+                    onChange={handleChange}
+                    className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                    placeholder="Enter your student ID for verification (optional)"
                   />
                 </div>
-                <div className="space-y-2">
-                  <DepartmentSelect
-                    degreeCode={formData.degree_code || ''}
-                    value={formData.department_id || ''}
-                    onChange={(v) => setFormData(prev => ({ ...prev, department_id: v }))}
-                    required
-                    disabled={!formData.degree_code}
-                  />
-                </div>
-              </>
-            )}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Student ID <span className="text-xs text-gray-500">(optional)</span></label>
-              <input
-                type="text"
-                name="student_id"
-                value={formData.student_id || ''}
-                onChange={handleChange}
-                className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                placeholder="Enter your student ID for verification (optional)"
-              />
+              </div>
             </div>
-            
-            <div className="mt-4 space-y-2">
+
+            {/* About Me */}
+            <div className="mt-6 space-y-2">
               <label className="block text-sm font-medium text-gray-700">About Me</label>
               <textarea
                 name="about"
@@ -1245,22 +1354,28 @@ const Profile = () => {
             <h2 className="text-xl font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">Professional Information</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Company</label>
+                <label className="block text-sm font-medium text-gray-700">
+                  Company{!isStudent && <span className="text-red-500 ml-1">*</span>}
+                </label>
                 <input
                   type="text"
                   name="company"
                   value={formData.company || ''}
                   onChange={handleChange}
+                  required={!isStudent}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                 />
               </div>
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Position</label>
+                <label className="block text-sm font-medium text-gray-700">
+                  Position{!isStudent && <span className="text-red-500 ml-1">*</span>}
+                </label>
                 <input
                   type="text"
                   name="position"
                   value={formData.position || ''}
                   onChange={handleChange}
+                  required={!isStudent}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                 />
               </div>

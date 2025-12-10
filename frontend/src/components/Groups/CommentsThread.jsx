@@ -70,7 +70,12 @@ export default function CommentsThread({ postId, group, isMember }) {
       { event: '*', schema: 'public', table: 'group_comments', filter: `post_id=eq.${postId}` },
       (payload) => {
         setComments((prev) => {
-          if (payload.eventType === 'INSERT') return [...prev, payload.new]
+          if (payload.eventType === 'INSERT') {
+            // Avoid duplicate rows when we already optimistically inserted
+            // and then replaced with the saved row: if this id exists, skip.
+            if (prev.some((c) => c.id === payload.new.id)) return prev
+            return [...prev, payload.new]
+          }
           if (payload.eventType === 'UPDATE') return prev.map(c => c.id === payload.new.id ? payload.new : c)
           if (payload.eventType === 'DELETE') return prev.filter(c => c.id !== payload.old.id)
           return prev
@@ -142,13 +147,14 @@ export default function CommentsThread({ postId, group, isMember }) {
 
       {canComment ? (
         <form onSubmit={onSubmit} className="flex gap-2">
-          <input
+          <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Write a comment…"
             className="flex-1 rounded-xl border px-3 py-2 text-sm"
             maxLength={5000}
             aria-label="Write a comment"
+            rows={2}
           />
           <button
             type="submit"

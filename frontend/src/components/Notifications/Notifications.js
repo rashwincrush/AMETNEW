@@ -1,3 +1,13 @@
+/**
+ * Notifications Page Component
+ * 
+ * This component has been updated to use the canonical notification system:
+ * - Uses useNotifications hook (which calls get_notifications_paginated RPC)
+ * - Uses useConnectionsPanel hook for connection requests
+ * - Respects notification preferences via bell_notifications view
+ * 
+ * Note: For the bell dropdown, use Bell.tsx or Bell.jsx instead.
+ */
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';

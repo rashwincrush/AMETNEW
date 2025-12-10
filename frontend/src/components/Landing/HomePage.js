@@ -96,6 +96,10 @@ const HomePage = () => {
                 <HomeIcon className="w-5 h-5 mr-1.5" />
                 Home
               </Link>
+              <Link to="/about" className="text-gray-600 hover:text-ocean-600 font-medium flex items-center transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">
+                <InformationCircleIcon className="w-5 h-5 mr-1.5" />
+                About
+              </Link>
               <Link to="/directory" className="text-gray-600 hover:text-ocean-600 font-medium flex items-center transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">
                 <UsersIcon className="w-5 h-5 mr-1.5" />
                 Directory
@@ -111,10 +115,6 @@ const HomePage = () => {
               <Link to="/mentorship" className="text-gray-600 hover:text-ocean-600 font-medium flex items-center transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">
                 <AcademicCapIcon className="w-5 h-5 mr-1.5" />
                 Mentorship
-              </Link>
-              <Link to="/about" className="text-gray-600 hover:text-ocean-600 font-medium flex items-center transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">
-                <InformationCircleIcon className="w-5 h-5 mr-1.5" />
-                About
               </Link>
             </div>
 

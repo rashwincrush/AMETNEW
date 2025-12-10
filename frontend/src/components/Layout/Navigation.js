@@ -35,7 +35,7 @@ const Navigation = () => {
     { path: '/events', label: 'Events', icon: CalendarIcon, permission: 'access:events' },
     { path: '/jobs', label: 'Job Portal', icon: BriefcaseIcon, permission: 'view:jobs' },
     { path: '/mentorship', label: 'Mentorship', icon: AcademicCapIcon, permission: 'request:mentorship' },
-    { path: '/groups', label: 'Groups', icon: UserGroupIcon, permission: 'access:groups' },
+    { path: '/groups', label: 'Groups/Chapters', icon: UserGroupIcon, permission: 'access:groups' },
     { path: '/messages', label: 'Messages', icon: ChatBubbleLeftRightIcon, permission: 'message:users' },
     // Admin Settings is the only admin entry in the sidebar
     // All other admin pages are accessible through Admin Settings

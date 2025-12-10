@@ -89,7 +89,7 @@ export default function MyMentorsPanel({ highlightRelationshipId }) {
   if (error) {
     return (
       <div className="bg-white rounded-lg border border-slate-200 p-6">
-        <p className="text-rose-600 mb-3">Error loading mentors: {error.message}</p>
+        <p className="text-rose-600 mb-3">Error loading trainers: {error.message}</p>
         <button
           type="button"
           onClick={() => refetch()}
@@ -105,9 +105,9 @@ export default function MyMentorsPanel({ highlightRelationshipId }) {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-bold text-slate-900">My Mentors</h2>
+        <h2 className="text-xl font-bold text-slate-900">My Trainers</h2>
         <p className="text-sm text-slate-600 mt-1">
-          People who are mentoring you
+          People who are training you
         </p>
       </div>
       
@@ -116,8 +116,8 @@ export default function MyMentorsPanel({ highlightRelationshipId }) {
         <div className="flex items-center justify-center py-12" role="status" aria-live="polite">
           <div className="flex flex-col items-center gap-3">
             <div className="spinner spinner-lg" aria-hidden="true" />
-            <p className="text-sm text-slate-500 font-medium">Loading mentors...</p>
-            <span className="sr-only">Loading mentors...</span>
+            <p className="text-sm text-slate-500 font-medium">Loading trainers...</p>
+            <span className="sr-only">Loading trainers...</span>
           </div>
         </div>
       )}
@@ -137,7 +137,7 @@ export default function MyMentorsPanel({ highlightRelationshipId }) {
             onClick={() => navigate('/mentorship?tab=find')}
             className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
           >
-            Find mentors
+            Find trainers
           </button>
         </div>
       )}

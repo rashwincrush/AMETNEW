@@ -25,6 +25,7 @@ function DirectoryCardSplit({ meId, profile, avatarUrl, currentTab = 'all', onCh
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
   const rel = useMemo(() => profile?.rel || { status: null, pending_side: null }, [profile?.rel]);
+  const raw = profile?._raw || {};
 
   // Parse degree and department from profile data
   const { degreeLabel, departmentLabel } = useMemo(() => {
@@ -73,7 +74,6 @@ function DirectoryCardSplit({ meId, profile, avatarUrl, currentTab = 'all', onCh
   // Admin status badges
   let statusBadge = null;
   if (isAdmin) {
-    const raw = profile?._raw || {};
     const hasApprovalFields =
       raw.approval_status !== undefined ||
       raw.alumni_verification_status !== undefined ||
@@ -202,6 +202,14 @@ function DirectoryCardSplit({ meId, profile, avatarUrl, currentTab = 'all', onCh
                 {statusBadge}
               </div>
             ) : null}
+
+            {/* Admin-only debug pill for QA: surface underlying degree_code / department_id */}
+            {isAdmin && (raw.degree_code || raw.department_id) && (
+              <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-1.5 py-0.5 text-[10px] font-mono" title="Directory debug: degree_code / department_id">
+                <span>deg:{raw.degree_code || ''}</span>
+                <span>dept:{raw.department_id || ''}</span>
+              </div>
+            )}
           </div>
         </div>
         

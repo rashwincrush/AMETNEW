@@ -626,13 +626,13 @@ const GroupsList = () => {
       )}
       
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-800 mb-4 md:mb-0">Networking Groups</h1>
+        <h1 className="text-3xl font-bold text-gray-800 mb-4 md:mb-0">Networking Groups/Chapters</h1>
         {user && canCreateGroup(userRole) && (
           <Link
             to="/groups/new"
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
-            Create Group
+            Create Group/Chapter
           </Link>
         )}
       </div>
@@ -642,7 +642,7 @@ const GroupsList = () => {
         <section className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 mb-6" aria-labelledby="my-groups-heading">
           <h2 id="my-groups-heading" className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
             <Users className="w-5 h-5 mr-2 text-blue-600" />
-            My Groups
+            My Groups/Chapters
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {myGroups.map(g => {
@@ -693,11 +693,11 @@ const GroupsList = () => {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Search groups..."
+                placeholder="Search groups/chapters..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                aria-label="Search groups"
+                aria-label="Search groups/chapters"
               />
               <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
             </div>
@@ -738,7 +738,7 @@ const GroupsList = () => {
       {/* Active filters summary for screen readers */}
       {(searchQuery || sortDirection === 'desc') && (
         <div className="sr-only" aria-live="polite">
-          Showing {groups.length} groups
+          Showing {groups.length} groups/chapters
           {searchQuery && ` matching "${searchQuery}"`}
           {sortDirection === 'desc' && ' sorted Z to A'}
         </div>
@@ -748,7 +748,7 @@ const GroupsList = () => {
       {loading ? (
         <GroupsLoadingSpinner />
       ) : (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 page-enter" role="list" aria-label="Groups list">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 page-enter" role="list" aria-label="Groups/Chapters list">
         {displayedGroups.length > 0 ? (
           displayedGroups.map(group => {
             const mm = membershipMap[group.id] || { isMember: group.is_member === true || userMembershipSet.has(group.id), isAdmin: false, isPending: false };
@@ -770,13 +770,13 @@ const GroupsList = () => {
         ) : (
           <div className="col-span-full text-center py-16 bg-gray-50 rounded-lg">
             <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-gray-700 mb-2">No groups found</h2>
+            <h2 className="text-xl font-semibold text-gray-700 mb-2">No groups/chapters found</h2>
             <p className="text-gray-500 mb-4">
               {searchQuery
-                ? 'No groups match your search.'
+                ? 'No groups/chapters match your search.'
                 : user
-                  ? 'Be the first to create a group!'
-                  : 'Sign in to discover and join groups.'}
+                  ? 'Be the first to create a group/chapter!'
+                  : 'Sign in to discover and join groups/chapters.'}
             </p>
             {searchQuery && (
               <button

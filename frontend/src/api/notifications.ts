@@ -245,11 +245,10 @@ export async function markOneRead(id: string) {
 }
 
 /**
- * Marks a single notification as unread (direct update, no RPC yet)
- * TODO: Create mark_notification_unread RPC for consistency
+ * Marks a single notification as unread via RPC
+ * RPC enforces recipient_id = auth.uid() ownership check
  */
 export async function markOneUnread(id: string) {
-  // Uses mark_notification_unread RPC for consistency with markOneRead/markAllRead
   const { error } = await supabase.rpc('mark_notification_unread', {
     p_notification_id: id,
   });
@@ -272,6 +271,7 @@ export async function markAllRead() {
 export async function getBellUnreadCount(): Promise<number> {
   const { data, error } = await supabase.rpc('get_unread_notification_count');
   if (error) {
+    // eslint-disable-next-line no-console
     console.error('Error fetching unread count:', error);
     return 0;
   }
@@ -349,6 +349,7 @@ export async function fetchAdminNotifications(options: FetchAdminNotificationsOp
 export async function getAdminUnreadCount(): Promise<number> {
   const { data, error } = await supabase.rpc('get_admin_unread_count');
   if (error) {
+    // eslint-disable-next-line no-console
     console.error('Error fetching admin unread count:', error);
     return 0;
   }

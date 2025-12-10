@@ -124,7 +124,7 @@ const BASE_PERMISSIONS = {
   ],
 };
 
-function derivePermissions(role, approvalFlags) {
+function derivePermissions(role, approvalFlags, isReadOnlyAccount) {
   const base = BASE_PERMISSIONS[role] || [];
   const approvalStatus = approvalFlags?.approvalStatus || 'pending';
   const isFullyApproved = approvalFlags?.isFullyApproved ?? false;
@@ -166,7 +166,22 @@ function derivePermissions(role, approvalFlags) {
   }
 
   // Default: fallback to base permissions
-  return base;
+  let permissions = [...base];
+
+  if (!isFullyApproved) {
+    permissions = permissions.filter((perm) => {
+      if (perm.startsWith('access:')) return true;
+      if (perm.startsWith('view:')) return true;
+      if (perm === 'access:profile_settings') return true;
+      return false;
+    });
+  }
+
+  if (isReadOnlyAccount && role !== 'admin' && role !== 'super_admin') {
+    permissions = permissions.filter((perm) => perm.startsWith('access:') || perm.startsWith('view:'));
+  }
+
+  return permissions;
 }
 
 export const AuthProvider = ({ children }) => {
@@ -776,8 +791,9 @@ export const AuthProvider = ({ children }) => {
   const isAdminFn = useCallback(() => userRole === 'admin' || userRole === 'super_admin', [userRole]);
 
   const getEffectivePermissions = useCallback(() => {
-    return derivePermissions(userRole, approvalFlags);
-  }, [userRole, approvalFlags]);
+    const isReadOnlyAccount = profile?.is_deleted || !profile?.is_active;
+    return derivePermissions(userRole, approvalFlags, isReadOnlyAccount);
+  }, [userRole, approvalFlags, profile]);
 
   // Derived approval convenience flags for current user
   const computedFromProfile = computeApprovalFlagsFromProfile(profile);
@@ -832,6 +848,8 @@ export const AuthProvider = ({ children }) => {
     return permissions.every(p => perms.includes(p));
   }, [getEffectivePermissions]);
 
+  const isReadOnlyAccount = !!(profile?.is_deleted || !profile?.is_active);
+
   const value = {
     user,
     profile,
@@ -854,6 +872,7 @@ export const AuthProvider = ({ children }) => {
     // New helpers
     isAdminFn,
     isSuperAdmin: isSuperAdminFn,
+    isReadOnlyAccount,
     approvalStatus,
     isApproved,
     isPending,

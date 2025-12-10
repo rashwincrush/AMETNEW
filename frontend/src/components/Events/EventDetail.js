@@ -290,9 +290,9 @@ const EventDetail = () => {
       logger.error('Error during RSVP:', err);
       const msg = String(err?.message || '');
       if (msg.toLowerCase().includes('permission denied')) {
-        setError('You do not have permission to RSVP to this event.');
+        setError('You do not have permission to register for this event.');
       } else {
-        setError('Failed to process your RSVP. Please try again.');
+        setError('Failed to process your registration. Please try again.');
       }
     } finally {
       setRsvpLoading(false);
@@ -304,7 +304,7 @@ const EventDetail = () => {
     if (!user) return setShowLoginPrompt(true);
     
     if (!isApproved && status === 'going') {
-      setError('Your account is pending approval. You can browse events but cannot RSVP until approved.');
+      setError('Your account is pending approval. You can browse events but cannot register until approved.');
       return;
     }
     
@@ -348,9 +348,9 @@ const EventDetail = () => {
       const msg = String(err?.message || '');
       if (isMountedRef.current) {
         if (msg.toLowerCase().includes('permission denied')) {
-          setError('You do not have permission to change your RSVP for this event.');
+          setError('You do not have permission to change your registration for this event.');
         } else {
-          setError(`Failed to ${status === 'going' ? 'RSVP to' : 'cancel RSVP for'} this event.`);
+          setError(`Failed to ${status === 'going' ? 'register for' : 'cancel registration for'} this event.`);
         }
       }
     } finally {
@@ -648,7 +648,7 @@ const EventDetail = () => {
                 )}
 
                 <div className="bg-gray-50 p-4 rounded-lg border">
-                  <h3 className="font-bold text-lg mb-3 text-center">RSVP Here</h3>
+                  <h3 className="font-bold text-lg mb-3 text-center">Register for this event</h3>
                   {error && <div className="text-center p-2 mb-3 bg-red-100 text-red-700 rounded">{error}</div>}
                   {rsvpBanner && (
                     <div className="mb-3 rounded-md border p-3 bg-blue-50 text-blue-800 text-center">
@@ -667,7 +667,7 @@ const EventDetail = () => {
                         disabled={rsvpLoading} 
                         className="text-sm text-red-500 hover:underline"
                       >
-                        Cancel RSVP
+                        Cancel registration
                       </button>
                     </div>
                   ) : (
@@ -748,7 +748,7 @@ const EventDetail = () => {
                 <button onClick={() => setAttendeesOpen(true)} className="btn-ocean px-4 py-2 rounded-lg">View Attendees</button>
               </div>
               {attendees.length === 0 && (
-                <p className="text-gray-500">No attendees yet. Be the first to RSVP!</p>
+                <p className="text-gray-500">No attendees yet. Be the first to register!</p>
               )}
             </div>
 

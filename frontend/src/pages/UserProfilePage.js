@@ -423,6 +423,7 @@ const UserProfilePage = () => {
                   {/* Soft delete */}
                   <button
                     type="button"
+                    title="Soft delete: close the account but keep all data. User becomes read-only and cannot perform new actions. Contact your administrator for more information."
                     disabled={isMutating || profile.id === currentUser?.id}
                     onClick={async () => {
                       if (profile.id === currentUser?.id) {
@@ -444,6 +445,7 @@ const UserProfilePage = () => {
                   {canPurge && profile.is_deleted && (
                     <button
                       type="button"
+                      title="Purge data: permanently remove this user's data from the app. This cannot be undone. Contact your administrator for more information."
                       disabled={isMutating || profile.id === currentUser?.id}
                       onClick={async () => {
                         if (profile.id === currentUser?.id) {
@@ -468,6 +470,7 @@ const UserProfilePage = () => {
                   {canHardDelete && profile.is_deleted && (
                     <button
                       type="button"
+                      title="Delete Auth user: remove this user's data and login from the system. This cannot be undone. Contact your administrator for more information."
                       disabled={isMutating || profile.id === currentUser?.id}
                       onClick={async () => {
                         if (profile.id === currentUser?.id) {

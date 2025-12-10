@@ -76,8 +76,14 @@ const MentorProfile = () => {
         .eq('status', 'pending')
         .maybeSingle();
       if (!dupErr && dup) {
+        // UX: surface the error, then close and reset the modal so the
+        // mentee sees the pending state + "View your request" CTA instead
+        // of being stuck on the form after a no-op submit.
         toast.error('You already have a pending request for this mentor.');
         setExistingRequest(dup);
+        setShowRequestModal(false);
+        setRequestMessage('');
+        setRequestGoals('');
         return;
       }
 
@@ -204,6 +210,22 @@ const MentorProfile = () => {
       setShowRequestModal(true);
     }
   }, [shouldAutoOpenRequest]);
+
+  useEffect(() => {
+    if (!showRequestModal) return;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setShowRequestModal(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showRequestModal]);
 
   if (loading) {
     return <div className="text-center p-8">Loading mentor profile...</div>;

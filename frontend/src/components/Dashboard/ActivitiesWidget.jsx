@@ -16,14 +16,18 @@ function ActivitiesWidget() {
     let isMounted = true;
     
     const refetch = async () => {
-      const { data, error } = await supabase
-        .from("v_recent_activities")
-        .select("user_id, activity_type, activity_text, created_at")
-        .order("created_at", { ascending: false })
-        .limit(5);
+      const { data, error } = await supabase.rpc('get_recent_activity', { p_limit: 5 });
       if (!isMounted) return;
-      if (error) setErr(error.message);
-      else setRows(data ?? []);
+      if (error) {
+        setErr(error.message || 'Failed to load activities');
+      } else {
+        const normalized = (Array.isArray(data) ? data : []).map((row) => ({
+          activity_type: row.activity_type,
+          activity_text: row.title,
+          created_at: row.created_at,
+        }));
+        setRows(normalized);
+      }
     };
 
     refetch();

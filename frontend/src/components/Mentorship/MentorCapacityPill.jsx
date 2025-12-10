@@ -35,8 +35,8 @@ export default function MentorCapacityPill({
     bgColor = 'bg-green-100';
     textColor = 'text-green-800';
     label = hasLimit
-      ? `Accepting mentees (${current}/${max})`
-      : `Accepting mentees (${current})`;
+      ? `Accepting trainees (${current}/${max})`
+      : `Accepting trainees (${current})`;
     icon = '✓';
   } else if (atCapacity) {
     bgColor = 'bg-yellow-100';
@@ -46,7 +46,7 @@ export default function MentorCapacityPill({
   } else {
     bgColor = 'bg-gray-100';
     textColor = 'text-gray-800';
-    label = 'Not accepting new mentees';
+    label = 'Not accepting new trainees';
     icon = '—';
   }
 

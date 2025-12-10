@@ -30,8 +30,10 @@ export default function useDirectorySecure({ search = '', page = 1, pageSize = 2
     setLoading(true);
     setError(null);
 
-    const trimmed = (effectiveSearch || '').trim();
-    const p_search = trimmed.length > 0 ? trimmed : null;
+    // Backend text search is enabled: DirectoryPage passes the free-text query here.
+    // We still keep a small client-side safety net, but p_search is the primary filter.
+    const trimmedSearch = (effectiveSearch || '').trim();
+    const p_search = trimmedSearch.length ? trimmedSearch : null;
     const p_limit = effectivePageSize;
     const p_offset = (effectivePage - 1) * effectivePageSize;
 

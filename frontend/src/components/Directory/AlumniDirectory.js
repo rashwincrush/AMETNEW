@@ -70,13 +70,19 @@ const AlumniDirectory = () => {
 
     try {
       // Query from public_profiles_view (public subset of profile fields)
+      // Schema: id, full_name, avatar_url, current_location, company_name, graduation_year
       let query = supabase
         .from('public_profiles_view')
-        .select('id,full_name,avatar_url,degree_program,graduation_year,current_job_title,company_name,location,department,skills', { count: 'exact' });
+        .select('id,full_name,avatar_url,current_location,company_name,graduation_year', { count: 'exact' });
 
       if (debouncedSearch) {
         const q = debouncedSearch.replace(/%/g, '');
-        const cols = ['full_name','location','degree_program','department','current_job_title'];
+        // Allow search by name, location and company name using columns that actually exist on the view
+        const cols = [
+          'full_name',
+          'current_location',
+          'company_name',
+        ];
         const ors = cols.map((c) => `${c}.ilike.%${q}%`).join(',');
         if (ors) query = query.or(ors);
       }
@@ -290,9 +296,13 @@ const AlumniDirectory = () => {
             <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by name, degree, location, or department"
+              placeholder="Search by name, degree, company, location, or department"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                // Whenever the keyword changes, always start from page 1
+                setCurrentPage(1);
+              }}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
             />
             {isDebouncing && (

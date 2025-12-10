@@ -103,7 +103,7 @@ export default function MyMenteesPanel({ highlightRelationshipId }) {
   if (error) {
     return (
       <div className="bg-white rounded-lg border border-slate-200 p-6">
-        <p className="text-rose-600 mb-3">Error loading mentees: {error.message}</p>
+        <p className="text-rose-600 mb-3">Error loading trainees: {error.message}</p>
         <button
           type="button"
           onClick={() => refetch()}
@@ -121,9 +121,9 @@ export default function MyMenteesPanel({ highlightRelationshipId }) {
       <div>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">My Mentees</h2>
+            <h2 className="text-xl font-bold text-slate-900">My Trainees</h2>
             <p className="text-sm text-slate-600 mt-1">
-              People you are mentoring
+              People you are training
             </p>
           </div>
           {mentorInfo && (
@@ -142,8 +142,8 @@ export default function MyMenteesPanel({ highlightRelationshipId }) {
         <div className="flex items-center justify-center py-12" role="status" aria-live="polite">
           <div className="flex flex-col items-center gap-3">
             <div className="spinner spinner-lg" aria-hidden="true" />
-            <p className="text-sm text-slate-500 font-medium">Loading mentees...</p>
-            <span className="sr-only">Loading mentees...</span>
+            <p className="text-sm text-slate-500 font-medium">Loading trainees...</p>
+            <span className="sr-only">Loading trainees...</span>
           </div>
         </div>
       )}

@@ -88,7 +88,13 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
   // realtime subscription
   const subRef = useRef<any>(null);
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
+    
+    // Clean up any existing subscription first to prevent duplicate subscriptions
+    if (subRef.current) {
+      supabase.removeChannel(subRef.current);
+      subRef.current = null;
+    }
     
     subRef.current = subscribeMyNotifications(user.id, () => {
       // Invalidate queries to refetch
@@ -99,6 +105,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     return () => {
       if (subRef.current) {
         supabase.removeChannel(subRef.current);
+        subRef.current = null;
       }
     };
   }, [user?.id, qc]);
@@ -132,7 +139,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
 
     // Optimistic: update all cached notification queries immediately
     const cached = qc.getQueryCache().findAll({ queryKey: queryKeyBase });
-    const prevStates: Array<[unknown[], unknown]> = [];
+    const prevStates: Array<[readonly unknown[], unknown]> = [];
 
     cached.forEach((q) => {
       const prev = qc.getQueryData<BellNotification[]>(q.queryKey);
@@ -223,7 +230,13 @@ export function useBellUnreadCount() {
   // Subscribe to realtime updates
   const subRef = useRef<any>(null);
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
+
+    // Clean up any existing subscription first
+    if (subRef.current) {
+      supabase.removeChannel(subRef.current);
+      subRef.current = null;
+    }
 
     subRef.current = subscribeMyNotifications(user.id, () => {
       qc.invalidateQueries({ queryKey: ['bell-unread-count', user.id] });
@@ -232,6 +245,7 @@ export function useBellUnreadCount() {
     return () => {
       if (subRef.current) {
         supabase.removeChannel(subRef.current);
+        subRef.current = null;
       }
     };
   }, [user?.id, qc]);
@@ -295,7 +309,13 @@ export function useAdminNotifications(options: UseAdminNotificationsOptions = {}
   // Realtime subscription for admin notifications
   const subRef = useRef<any>(null);
   useEffect(() => {
-    if (!user || !isAdmin) return;
+    if (!user?.id || !isAdmin) return;
+
+    // Clean up any existing subscription first
+    if (subRef.current) {
+      supabase.removeChannel(subRef.current);
+      subRef.current = null;
+    }
 
     subRef.current = subscribeAdminNotifications(user.id, () => {
       qc.invalidateQueries({ queryKey: ['admin-notifications', user.id] });
@@ -305,6 +325,7 @@ export function useAdminNotifications(options: UseAdminNotificationsOptions = {}
     return () => {
       if (subRef.current) {
         supabase.removeChannel(subRef.current);
+        subRef.current = null;
       }
     };
   }, [user?.id, isAdmin, qc]);

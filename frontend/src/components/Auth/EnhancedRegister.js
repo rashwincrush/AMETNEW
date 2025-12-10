@@ -9,6 +9,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { getFriendlyErrorMessage } from '../../utils/errors';
 import { ROLES, isRole } from '../../constants/roles';
+import { COUNTRY_CODE_OPTIONS, getCountryByCode } from '../../constants/countryCodes';
 import { validatePassword } from '../../utils/passwordPolicy';
 // Removed DegreeComboBox and DepartmentInput imports - using simple <select> dropdowns backed by Supabase views
 import DegreeSelect from '../academics/DegreeSelect';
@@ -73,6 +74,8 @@ const EnhancedRegister = () => {
   const [error, setError] = useState(''); // For general form errors or success messages
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [roles, setRoles] = useState([]);
+  const [phoneCountryCode, setPhoneCountryCode] = useState('+91');
+  const [phoneLocal, setPhoneLocal] = useState('');
   const STORAGE_KEY = 'onboarding_registration_v1';
 
   const SAFE_PROFILE_FIELDS = [
@@ -299,7 +302,7 @@ const EnhancedRegister = () => {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    
+
     let processedValue = value;
     
     // Handle special validation cases
@@ -368,28 +371,6 @@ const EnhancedRegister = () => {
       return;
     } else if (name === 'department_id') {
       if (errors.department_id) setErrors(prev => ({ ...prev, department_id: '' }));
-    } else if (name === 'phone') {
-      // Enforce E.164-like format (+ followed by 7-15 digits)
-      let strippedValue = value.replace(/[^0-9+]/g, '');
-
-      if (strippedValue.includes('+')) {
-        const plusIndex = strippedValue.indexOf('+');
-        strippedValue = '+' + strippedValue.slice(plusIndex + 1).replace(/\+/g, '');
-      }
-
-      // If user did not type +, we will normalize later, but keep only digits for now
-      if (!strippedValue.startsWith('+')) {
-        strippedValue = strippedValue.replace(/[^0-9]/g, '');
-      }
-
-      processedValue = strippedValue;
-
-      if (processedValue !== value && !errors[name]) {
-        setErrors(prev => ({
-          ...prev,
-          [name]: 'Phone can only contain digits and an optional leading + and will be saved in international format.'
-        }));
-      }
     }
     
     setFormData((prev) => ({
@@ -525,6 +506,22 @@ const EnhancedRegister = () => {
         const normalized = normalizePhoneForDb(formData.phone);
         if (!normalized) {
           newErrors.phone = 'Phone must be in international format, e.g. +911234567890 (7-15 digits).';
+        } else {
+          // Per-country local length validation (best-effort, does not affect DB format)
+          const codeMatch = normalized.match(/^(\+\d{1,4})/);
+          const code = codeMatch ? codeMatch[1] : null;
+          const meta = code ? getCountryByCode(code) : null;
+          if (meta && (meta.localMin || meta.localMax)) {
+            const digitsOnly = normalized.replace(/[^0-9]/g, '');
+            const codeDigits = code.replace(/[^0-9]/g, '');
+            const localDigits = digitsOnly.startsWith(codeDigits)
+              ? digitsOnly.slice(codeDigits.length)
+              : digitsOnly;
+            const len = localDigits.length;
+            if ((meta.localMin && len < meta.localMin) || (meta.localMax && len > meta.localMax)) {
+              newErrors.phone = `Phone length looks off for ${meta.name}. Expected ${meta.localMin === meta.localMax ? meta.localMin : `${meta.localMin}-${meta.localMax}`} digits after the country code.`;
+            }
+          }
         }
       }
     }
@@ -1031,9 +1028,48 @@ const EnhancedRegister = () => {
       </div>
       <div>
         <label htmlFor="phone" className={commonLabelClass}>Phone Number *</label>
-        <input id="phone" name="phone" type="tel" autoComplete="tel" required value={formData.phone} onChange={handleChange} placeholder="+91 9876543210" className={commonInputClass(errors.phone)} />
+        <div className="grid grid-cols-[minmax(0,120px)_1fr] gap-3">
+          <select
+            id="phoneCountryCode"
+            name="phoneCountryCode"
+            value={phoneCountryCode}
+            onChange={(e) => {
+              const code = e.target.value;
+              setPhoneCountryCode(code);
+              const digits = phoneLocal.replace(/[^0-9]/g, '');
+              const combined = digits ? `${code} ${digits}` : code;
+              setFormData(prev => ({ ...prev, phone: combined.trim() }));
+            }}
+            className={`${commonInputClass(null)} bg-white`}
+          >
+            {COUNTRY_CODE_OPTIONS.map((opt) => (
+              <option key={opt.code} value={opt.code}>{opt.label}</option>
+            ))}
+          </select>
+          <input
+            id="phone"
+            name="phoneLocal"
+            type="tel"
+            autoComplete="tel"
+            required
+            value={phoneLocal}
+            onChange={(e) => {
+              const digitsOnly = e.target.value.replace(/[^0-9]/g, '');
+              const codeDigits = phoneCountryCode.replace(/[^0-9]/g, '');
+              let digits = digitsOnly;
+              if (digits.startsWith(codeDigits)) {
+                digits = digits.slice(codeDigits.length);
+              }
+              setPhoneLocal(digits);
+              const combined = digits ? `${phoneCountryCode} ${digits}` : phoneCountryCode;
+              setFormData(prev => ({ ...prev, phone: combined.trim() }));
+            }}
+            placeholder="9876543210"
+            className={commonInputClass(errors.phone)}
+          />
+        </div>
         {errors.phone && <p className={commonErrorClass}>{errors.phone}</p>}
-        <p className="text-xs text-gray-500 mt-1">Phone can only contain digits with an optional leading + symbol</p>
+        <p className="text-xs text-gray-500 mt-1">Your number will be saved in international format, e.g. +91 9876543210.</p>
       </div>
       <div>
         <label htmlFor="primaryRole" className={commonLabelClass}>I am registering as a/an *</label>

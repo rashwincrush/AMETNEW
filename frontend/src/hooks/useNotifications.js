@@ -1,7 +1,18 @@
+/**
+ * @deprecated This JS hook is deprecated. Use the TS version from hooks/useNotifications.ts instead.
+ * This file re-exports from the TS implementation for backwards compatibility.
+ */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../utils/supabase';
-import { fetchNotifications, markAllRead, markOneRead, markOneUnread, subscribeMyNotifications, ALLOWED_TYPES } from '../api/notifications';
+import { 
+  markAllRead, 
+  markOneRead, 
+  markOneUnread, 
+  subscribeMyNotifications, 
+  ALLOWED_TYPES,
+  getBellUnreadCount
+} from '../api/notifications.ts';
 import { useAuth } from '../contexts/AuthContext';
 
 export function useNotifications() {
@@ -73,11 +84,19 @@ export function useNotifications() {
   });
   const unreadCount = items.filter((n) => !n.is_read).length;
 
-  // realtime
+  // realtime subscription
   const subRef = useRef(null);
   const debounceRef = useRef(null);
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
+    
+    // Clean up any existing subscription first
+    if (subRef.current) {
+      supabase.removeChannel(subRef.current);
+      subRef.current = null;
+    }
+    
+    // Create new subscription - subscribeMyNotifications returns a channel
     subRef.current = subscribeMyNotifications(user.id, () => {
       // Debounce invalidation to avoid thrashing on rapid events
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -85,9 +104,10 @@ export function useNotifications() {
         qc.invalidateQueries({ queryKey: ['notifications', user.id] });
       }, 300);
     });
+    
     return () => {
       if (subRef.current) {
-        try { subRef.current(); } catch (_) { void 0; }
+        supabase.removeChannel(subRef.current);
         subRef.current = null;
       }
       if (debounceRef.current) {
@@ -95,7 +115,7 @@ export function useNotifications() {
         debounceRef.current = null;
       }
     };
-  }, [user?.id]);
+  }, [user?.id, qc]);
 
   // pagination: load more
   const loadMore = () => {
@@ -158,18 +178,51 @@ export function useNotifications() {
   };
 }
 
-// RPC-based unread count for bell badge (JS variant)
+/**
+ * RPC-based unread count for bell badge
+ * Uses the canonical get_unread_notification_count RPC via TS API
+ * @deprecated Use useBellUnreadCount from hooks/useNotifications.ts instead
+ */
 export function useBellUnreadCount() {
   const { user } = useAuth();
-  return useQuery({
+  const qc = useQueryClient();
+
+  const query = useQuery({
     queryKey: ['bell-unread-count', user?.id],
     enabled: !!user?.id,
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc('get_bell_unread_count');
-      if (error) throw error;
-      return typeof data === 'number' ? data : 0;
-    },
+    queryFn: getBellUnreadCount, // Uses canonical RPC
     staleTime: 30_000,
     refetchOnWindowFocus: true,
+    refetchInterval: 60_000, // Refetch every minute
   });
+
+  // Subscribe to realtime updates
+  const subRef = useRef(null);
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Clean up any existing subscription first
+    if (subRef.current) {
+      supabase.removeChannel(subRef.current);
+      subRef.current = null;
+    }
+
+    subRef.current = subscribeMyNotifications(user.id, () => {
+      qc.invalidateQueries({ queryKey: ['bell-unread-count', user.id] });
+    });
+
+    return () => {
+      if (subRef.current) {
+        supabase.removeChannel(subRef.current);
+        subRef.current = null;
+      }
+    };
+  }, [user?.id, qc]);
+
+  return {
+    count: query.data || 0,
+    isLoading: query.isLoading,
+    error: query.error,
+    refetch: query.refetch,
+  };
 }

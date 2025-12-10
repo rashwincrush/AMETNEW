@@ -32,8 +32,8 @@ export default function MentorshipTabs() {
     // Mentee-only tabs (student or alumni mentee without mentor profile)
     if (isMenteeApproved && !hasMentorProfile) {
       allTabs.push(
-        { key: 'find', label: 'Find Mentors', icon: '🔍' },
-        { key: 'mentee', label: 'My Mentors', icon: '👥' },
+        { key: 'find', label: 'Find Trainers', icon: '🔍' },
+        { key: 'mentee', label: 'My Trainers', icon: '👥' },
         { key: 'requests', label: 'My Requests', icon: '📨', sub: 'sent' },
         { key: 'settings', label: 'Settings', icon: '⚙️', mode: 'mentee' }
       );
@@ -42,7 +42,7 @@ export default function MentorshipTabs() {
     // Mentor-only tabs (has mentor profile but not mentee-approved)
     else if (hasMentorProfile && !isMenteeApproved) {
       allTabs.push(
-        { key: 'mentor', label: 'My Mentees', icon: '🎓' },
+        { key: 'mentor', label: 'My Trainees', icon: '🎓' },
         { key: 'requests', label: 'Requests', icon: '📨', sub: 'received' },
         { key: 'settings', label: 'Settings', icon: '⚙️', mode: 'mentor' }
       );
@@ -51,9 +51,9 @@ export default function MentorshipTabs() {
     // Dual-role tabs (both mentee and mentor)
     else if (isDualRole) {
       allTabs.push(
-        { key: 'find', label: 'Find Mentors', icon: '🔍' },
-        { key: 'mentee', label: 'My Mentors', icon: '👥' },
-        { key: 'mentor', label: 'My Mentees', icon: '🎓' },
+        { key: 'find', label: 'Find Trainers', icon: '🔍' },
+        { key: 'mentee', label: 'My Trainers', icon: '👥' },
+        { key: 'mentor', label: 'My Trainees', icon: '🎓' },
         { key: 'requests', label: 'Requests', icon: '📨' },
         { key: 'settings', label: 'Settings', icon: '⚙️' }
       );
@@ -62,7 +62,7 @@ export default function MentorshipTabs() {
     // Fallback: basic tabs for unapproved users
     else {
       allTabs.push(
-        { key: 'find', label: 'Find Mentors', icon: '🔍' },
+        { key: 'find', label: 'Find Trainers', icon: '🔍' },
         { key: 'settings', label: 'Settings', icon: '⚙️' }
       );
     }

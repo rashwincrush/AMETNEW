@@ -6,14 +6,14 @@ import { XMarkIcon, PaperAirplaneIcon, ChatBubbleLeftIcon, CameraIcon } from '@h
 import logger from '../../utils/logger';
 
 const FEEDBACK_TYPES = [
-  { id: 'bug', name: 'Bug Report', color: 'bg-red-500' },
-  { id: 'feature', name: 'Feature Request', color: 'bg-blue-500' },
-  { id: 'improvement', name: 'Improvement', color: 'bg-green-500' },
-  { id: 'other', name: 'Other', color: 'bg-purple-500' }
+  { id: 'bug', name: 'Something is broken', color: 'bg-red-500' },
+  { id: 'feature', name: 'New idea or feature', color: 'bg-blue-500' },
+  { id: 'improvement', name: 'Make this better', color: 'bg-green-500' },
+  { id: 'other', name: 'Something else', color: 'bg-purple-500' }
 ];
 
 const FeedbackWidget = () => {
-  const { user, isSuperAdmin } = useAuth();
+  const { user, isApproved } = useAuth();
   // All hooks must be declared before any conditional return
   const [isOpen, setIsOpen] = useState(false);
   const [feedbackType, setFeedbackType] = useState('');
@@ -22,7 +22,7 @@ const FeedbackWidget = () => {
   const [screenshot, setScreenshot] = useState(null);
   const fileInputRef = useRef(null);
   // Gate entirely by role: only super_admin can see/submit feedback (RLS will also enforce)
-  if (!isSuperAdmin || !isSuperAdmin()) return null;
+  if (!user || !isApproved) return null;
 
   const toggleWidget = () => {
     setIsOpen(!isOpen);
@@ -132,11 +132,16 @@ const FeedbackWidget = () => {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 z-50">
+    <div className="fixed bottom-4 right-4 z-50">
       {isOpen ? (
         <div className="bg-white rounded-lg shadow-lg w-80 overflow-hidden transition-all duration-300 ease-in-out">
           <div className="bg-indigo-600 px-4 py-3 text-white flex justify-between items-center">
-            <h3 className="font-semibold">Send Feedback</h3>
+            <div>
+              <h3 className="font-semibold">Help us improve AMET Alumni</h3>
+              <p className="mt-0.5 text-xs text-indigo-100">
+                Tell us what felt confusing, broken, or missing on this page.
+              </p>
+            </div>
             <button onClick={toggleWidget} className="text-white hover:text-gray-200">
               <XMarkIcon className="h-5 w-5" />
             </button>
@@ -144,7 +149,8 @@ const FeedbackWidget = () => {
           
           <form onSubmit={handleSubmit} className="p-4 space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Feedback Type</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Feedback type</label>
+              <p className="text-xs text-gray-500 mb-1">Choose what best describes your feedback.</p>
               <div className="grid grid-cols-2 gap-2">
                 {FEEDBACK_TYPES.map((type) => (
                   <button
@@ -162,20 +168,23 @@ const FeedbackWidget = () => {
             </div>
             
             <div>
-              <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">What happened or what would you like to see?</label>
               <textarea
                 id="description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={4}
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
-                placeholder="Please describe your feedback in detail..."
+                placeholder="Share what you were trying to do, what you saw, and what you expected instead."
               />
+              <p className="mt-1 text-xs text-gray-500">
+                Include steps and any messages you saw so we can reproduce it faster.
+              </p>
             </div>
             
             <div>
               <div className="flex items-center justify-between">
-                <label className="block text-sm font-medium text-gray-700">Screenshot (Optional)</label>
+                <label className="block text-sm font-medium text-gray-700">Screenshot (optional)</label>
                 <button 
                   type="button" 
                   onClick={triggerScreenshotUpload} 
@@ -185,6 +194,9 @@ const FeedbackWidget = () => {
                   {screenshot ? 'Change Image' : 'Add Image'}
                 </button>
               </div>
+              <p className="mt-1 text-xs text-gray-500">
+                A screenshot helps us see exactly what you see, but it&apos;s not required.
+              </p>
               <input
                 type="file"
                 ref={fileInputRef}
@@ -229,7 +241,7 @@ const FeedbackWidget = () => {
                 ) : (
                   <>
                     <PaperAirplaneIcon className="h-4 w-4 mr-2" />
-                    Submit Feedback
+                    Send feedback
                   </>
                 )}
               </button>
@@ -239,10 +251,11 @@ const FeedbackWidget = () => {
       ) : (
         <button
           onClick={toggleWidget}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-full p-3 shadow-lg flex items-center justify-center transition-transform hover:scale-110"
-          title="Send Feedback"
+          className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-full px-3 py-3 shadow-lg flex items-center justify-center space-x-2 transition-transform hover:scale-110"
+          title="Share feedback about this page"
         >
           <ChatBubbleLeftIcon className="h-6 w-6" />
+          <span className="hidden sm:inline text-sm font-medium">Feedback</span>
         </button>
       )}
     </div>

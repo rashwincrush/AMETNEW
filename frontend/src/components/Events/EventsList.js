@@ -41,15 +41,19 @@ const EventCalendar = lazy(() => import('./EventCalendar'));
 // Category options for calendar view; values must align with EventCalendar filtering.
 // TODO: DRY with EventCalendar category map if we move this to a shared config.
 const CALENDAR_CATEGORY_OPTIONS = [
-  { label: 'All', value: 'all' },
+  { label: 'All categories', value: 'all' },
+  { label: 'Networking', value: 'networking' },
+  { label: 'Workshop', value: 'workshop' },
+  { label: 'Seminar', value: 'seminar' },
+  { label: 'Reunion', value: 'reunion' },
+  { label: 'Sports', value: 'sports' },
+  { label: 'Cultural', value: 'cultural' },
+  { label: 'Career Development', value: 'career' },
+  { label: 'Technical', value: 'technical' },
+  { label: 'Social', value: 'social' },
+  // Fallback buckets used by older data / calendar normalization
   { label: 'Virtual', value: 'virtual' },
   { label: 'In-Person', value: 'in-person' },
-  { label: 'Workshop', value: 'workshop' },
-  { label: 'Conference', value: 'conference' },
-  { label: 'Networking', value: 'networking' },
-  { label: 'Seminar', value: 'seminar' },
-  { label: 'Webinar', value: 'webinar' },
-  { label: 'Social', value: 'social' },
   { label: 'Other', value: 'other' },
 ];
 
@@ -67,7 +71,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('upcoming');
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list' or 'calendar'
-  // Calendar view category filter, shared with EventCalendar
+  // Category filter (shared across grid, list and calendar views)
   const [activeCategory, setActiveCategory] = useState('all');
 
   const handleViewModeChange = useCallback((event, newViewMode) => {
@@ -137,10 +141,23 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
 
       const istZone = 'Asia/Kolkata';
       const toIST = (iso) => utcToZonedTime(new Date(iso), istZone);
-      const normalizeType = (et) => {
-        const v = (et || '').toLowerCase();
-        const buckets = ['workshop','conference','networking','seminar','webinar','social'];
-        return buckets.includes(v) ? v : 'other';
+      const normalizeCategory = (category, eventType) => {
+        const primary = (category || '').trim().toLowerCase();
+        const fallback = (eventType || '').trim().toLowerCase();
+        const buckets = [
+          'networking',
+          'workshop',
+          'seminar',
+          'reunion',
+          'sports',
+          'cultural',
+          'career',
+          'technical',
+          'social',
+        ];
+        if (buckets.includes(primary)) return primary;
+        if (buckets.includes(fallback)) return fallback;
+        return 'other';
       };
       const buildLocation = (ev) => {
         const isVirtual = ev.is_virtual || (ev.event_type && ev.event_type.toLowerCase() === 'virtual');
@@ -151,7 +168,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
 
       const normalizedForCalendar = base.map(ev => {
         const isVirtual = !!(ev.is_virtual || (ev.event_type && ev.event_type.toLowerCase() === 'virtual'));
-        const category = normalizeType(ev.event_type);
+        const category = normalizeCategory(ev.category, ev.event_type);
         const start = ev.start_date ? toIST(ev.start_date) : new Date();
         const end = ev.end_date ? toIST(ev.end_date) : start;
         return {
@@ -225,6 +242,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
           id,
           title,
           description,
+          category,
           start_date,
           end_date,
           featured_image_url,
@@ -329,10 +347,23 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
 
         // Calendar normalization (unchanged)
         const istZone = 'Asia/Kolkata';
-        const normalizeType = (et) => {
-          const v = (et || '').toLowerCase();
-          const buckets = ['workshop','conference','networking','seminar','webinar','social'];
-          return buckets.includes(v) ? v : 'other';
+        const normalizeCategory = (category, eventType) => {
+          const primary = (category || '').trim().toLowerCase();
+          const fallback = (eventType || '').trim().toLowerCase();
+          const buckets = [
+            'networking',
+            'workshop',
+            'seminar',
+            'reunion',
+            'sports',
+            'cultural',
+            'career',
+            'technical',
+            'social',
+          ];
+          if (buckets.includes(primary)) return primary;
+          if (buckets.includes(fallback)) return fallback;
+          return 'other';
         };
         const buildLocation = (ev) => {
           const isVirtual = ev.is_virtual || (ev.event_type && ev.event_type.toLowerCase() === 'virtual');
@@ -344,7 +375,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
 
         const normalizedForCalendar = eventsWithCounts.map(ev => {
           const isVirtual = !!(ev.is_virtual || (ev.event_type && ev.event_type.toLowerCase() === 'virtual'));
-          const category = normalizeType(ev.event_type);
+          const category = normalizeCategory(ev.category, ev.event_type);
           const start = toIST(ev.start_date);
           const end = toIST(ev.end_date || ev.start_date);
           return {
@@ -396,14 +427,26 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
     const q = searchTerm.toLowerCase();
 
     const filtered = events.filter(ev => {
-      // Text search within the server-filtered set
-      if (!q) return true;
-      return (
-        ev.title?.toLowerCase().includes(q) ||
-        ev.description?.toLowerCase().includes(q) ||
-        ev.venue?.toLowerCase().includes(q) ||
-        ev.address?.toLowerCase().includes(q)
-      );
+      const matchesSearch = !q
+        || ev.title?.toLowerCase().includes(q)
+        || ev.description?.toLowerCase().includes(q)
+        || ev.venue?.toLowerCase().includes(q)
+        || ev.address?.toLowerCase().includes(q);
+
+      if (!matchesSearch) return false;
+
+      if (activeCategory === 'all') return true;
+
+      const normalizedCategory = (ev.category || ev.event_type || '').toString().trim().toLowerCase();
+
+      if (activeCategory === 'virtual') {
+        return !!(ev.is_virtual || (ev.event_type && ev.event_type.toLowerCase() === 'virtual'));
+      }
+      if (activeCategory === 'in-person') {
+        return !ev.is_virtual && (!ev.event_type || ev.event_type.toLowerCase() !== 'virtual');
+      }
+
+      return normalizedCategory === activeCategory;
     });
 
     const sorted = filtered.sort((a, b) => {
@@ -417,7 +460,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
     });
 
     return processEventsWithCounts(sorted);
-  }, [events, searchTerm, sortBy]);
+  }, [events, searchTerm, sortBy, activeCategory]);
 
   if (loading) {
     return <LoadingSpinner message="Loading events..." />;
@@ -476,7 +519,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
       {/* Filter and Search Controls */}
       <Paper elevation={0} sx={{ p: 2, mb: 4, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={7}>
+          <Grid item xs={12} md={6}>
             <TextField
               fullWidth
               variant="outlined"
@@ -492,7 +535,24 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
               }}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={5}>
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth variant="outlined">
+              <InputLabel id="events-category-filter-label">Category</InputLabel>
+              <Select
+                labelId="events-category-filter-label"
+                value={activeCategory}
+                onChange={(e) => setActiveCategory(e.target.value)}
+                label="Category"
+              >
+                {CALENDAR_CATEGORY_OPTIONS.filter((opt) => !['virtual','in-person'].includes(opt.value)).map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
             <FormControl fullWidth variant="outlined">
               <InputLabel>Sort By</InputLabel>
               <Select
@@ -508,12 +568,12 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
           </Grid>
         </Grid>
 
-        {/* Calendar-only: category chips for event type/filter */}
+        {/* Calendar: category chips for quick filter */}
         {viewMode === 'calendar' && (
           <Box sx={{ mt: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1, flexWrap: 'wrap', gap: 1 }}>
               <Typography variant="subtitle2" color="text.secondary" sx={{ mr: 1 }}>
-                Filter by category
+                Quick category filter
               </Typography>
               <Button
                 size="small"
@@ -521,7 +581,7 @@ const EventsList = ({ isAdmin = false, eventsOverride, titleOverride, hideCreate
                 color="primary"
                 onClick={() => setActiveCategory('all')}
               >
-                Reset filters
+                Clear category
               </Button>
             </Box>
             <Box

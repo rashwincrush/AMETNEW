@@ -10,7 +10,7 @@ const AccessDenied = () => {
           <ShieldExclamationIcon className="h-16 w-16 text-red-500 mx-auto" />
           <h2 className="mt-4 text-2xl font-bold text-gray-900">Access Denied</h2>
           <p className="mt-2 text-gray-600">
-            Sorry, you don't have permission to access this page.
+            Sorry, you don't have permission to access this page. Contact your administrator for more information.
           </p>
           <div className="mt-6">
             <Link

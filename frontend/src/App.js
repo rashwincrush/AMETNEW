@@ -16,8 +16,8 @@ import Logo from './components/common/Logo';
 // Home Page
 import HomePage from './components/Landing/HomePage';
 
-// Notifications Component
-import Notifications from './components/Notifications/Notifications';
+// Notifications Component - Use NotificationsPage (canonical) instead of legacy Notifications.js
+import NotificationsPage from './components/Notifications/NotificationsPage';
 import { NotificationProvider } from './components/common/NotificationCenter';
 import FeedbackWidget from './components/common/FeedbackWidget';
 
@@ -131,7 +131,7 @@ const JobApplyRedirect = () => {
 };
 
 function AppContent() {
-  const { user, profile, loading, getUserRole, rejectionStatus } = useAuth();
+  const { user, profile, loading, getUserRole, rejectionStatus, isReadOnlyAccount } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -209,6 +209,11 @@ function AppContent() {
           aria-label="Main content"
           tabIndex={-1}
         >
+          {isReadOnlyAccount && (
+            <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Your account is currently in read-only mode. You can view your past activity but cannot perform new actions. Contact your administrator for more information.
+            </div>
+          )}
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/terms-of-service" element={<TermsOfService />} />
@@ -284,17 +289,14 @@ function AppContent() {
               path="/directory/:id"
               element={
                 <RequireCompleteProfile>
-                  <ProtectedRoute
-                    requiredPermission="view:alumni_directory"
-                    allowRoles={['employer', 'admin', 'super_admin']}
-                  >
+                  <ProtectedRoute requiredPermission="view:alumni_directory">
                     <AlumniProfile />
                   </ProtectedRoute>
                 </RequireCompleteProfile>
               }
             />
             
-            <Route path="/notifications" element={<Notifications />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
             
             {/* Mentorship Module - Canonical UUX-∞ Atomic Structure */}
             {/* Canonical route: single hub with query params */}
@@ -347,7 +349,7 @@ function AppContent() {
               }
             />
             <Route path="/messages" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="message:users"><Messages /></ProtectedRoute></RequireCompleteProfile>} />
-            <Route path="/notifications" element={<Notifications />} />
+            {/* Notifications route defined above - removed duplicate */}
             <Route path="/admin/analytics" element={<ProtectedRoute requiredPermission="access:all"><AdminGate><Analytics /></AdminGate></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute requiredPermission="access:all"><AdminUsersPage /></ProtectedRoute>} />
             <Route path="/admin/activity-logs" element={<ProtectedRoute requiredPermission="access:all"><ActivityLogs /></ProtectedRoute>} />
@@ -370,6 +372,7 @@ function AppContent() {
       <Route path="/" element={<HomePage />} />
       <Route path="/home" element={<HomePage />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/register" element={<EnhancedRegister />} />
       <Route path="/terms-of-service" element={<TermsOfService />} />
       <Route path="/privacy-policy" element={<PrivacyPolicy />} />

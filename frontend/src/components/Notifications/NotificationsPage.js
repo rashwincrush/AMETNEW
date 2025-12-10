@@ -1,15 +1,23 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { supabase, checkRealtimeConnection } from '../../lib/supabase';
-import { subscribeOnce, unsubscribeChannel } from '../../lib/realtime';
+import { supabase } from '../../utils/supabase';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import Avatar from '../common/Avatar';
 import { useAvatars } from '../../hooks/useAvatar';
 import logger from '../../utils/logger';
-import { getNotificationLink } from '../../api/notifications';
+import { useAuth } from '../../contexts/AuthContext';
+import { 
+  getNotificationLink, 
+  fetchNotifications as fetchNotificationsAPI,
+  markOneRead as markOneReadAPI,
+  markAllRead as markAllReadAPI,
+  subscribeMyNotifications
+} from '../../api/notifications.ts';
 
-const NotificationsPage = ({ currentUser }) => {
+const NotificationsPage = () => {
+  const { user: authUser, profile } = useAuth();
+  const currentUser = profile || authUser;
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all'); // 'all', 'unread', 'read'
@@ -34,22 +42,15 @@ const NotificationsPage = ({ currentUser }) => {
 
     setLoading(true);
     try {
-      // Use bell_notifications view so we respect notification preferences
-      // and RLS based on recipient_id; no need to filter by user explicitly.
-      let query = supabase
-        .from('bell_notifications')
-        .select('*')
-        .order('created_at', { ascending: false });
+      // Use the canonical paginated RPC via the TS API
+      // This respects notification_preferences and RLS
+      const data = await fetchNotificationsAPI({
+        limit: 50,
+        offset: 0,
+        unreadOnly: activeTab === 'unread',
+        readOnly: activeTab === 'read',
+      });
 
-      if (activeTab === 'unread') {
-        query = query.eq('is_read', false);
-      } else if (activeTab === 'read') {
-        query = query.eq('is_read', true);
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
       if (isMountedRef.current) {
         setNotifications(data || []);
       }
@@ -112,46 +113,48 @@ const NotificationsPage = ({ currentUser }) => {
     fetchConnectionRequests();
   }, [fetchConnectionRequests]);
 
+  // Realtime subscription ref
+  const notifSubRef = useRef(null);
+  const connSubRef = useRef(null);
+
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser?.id) return;
     
     isMountedRef.current = true;
     
     fetchNotifications();
     fetchConnectionRequests();
     
-    const setupRealtimeSubscription = async () => {
-      try {
-        await checkRealtimeConnection();
-        if (!isMountedRef.current) return;
-        
-        subscribeOnce('notifications_realtime', { event: '*', schema: 'public', table: 'notifications' }, handleNotificationsUpdate);
-        subscribeOnce('connections_realtime', { event: '*', schema: 'public', table: 'connections' }, handleConnectionsUpdate);
-        
-      } catch (error) {
-        logger.error('Error setting up realtime subscriptions:', error);
-        toast.error('Could not connect to real-time updates.');
-      }
-    };
+    // Use canonical TS realtime helper for notifications
+    notifSubRef.current = subscribeMyNotifications(currentUser.id, handleNotificationsUpdate);
     
-    setupRealtimeSubscription();
+    // Subscribe to connections changes
+    connSubRef.current = supabase
+      .channel(`connections:${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'connections' },
+        handleConnectionsUpdate
+      )
+      .subscribe();
     
     return () => {
       isMountedRef.current = false;
-      unsubscribeChannel('notifications_realtime', handleNotificationsUpdate);
-      unsubscribeChannel('connections_realtime', handleConnectionsUpdate);
+      if (notifSubRef.current) {
+        supabase.removeChannel(notifSubRef.current);
+      }
+      if (connSubRef.current) {
+        supabase.removeChannel(connSubRef.current);
+      }
     };
-  }, [currentUser, fetchNotifications, fetchConnectionRequests, handleNotificationsUpdate, handleConnectionsUpdate]);
+  }, [currentUser?.id, fetchNotifications, fetchConnectionRequests, handleNotificationsUpdate, handleConnectionsUpdate]);
 
 
 
   const markAsRead = async (notificationId) => {
     try {
-      const { error } = await supabase.rpc('mark_notification_read', {
-        p_notification_id: notificationId
-      });
-
-      if (error) throw error;
+      // Use canonical TS API which calls the secure RPC
+      await markOneReadAPI(notificationId);
       
       // Update local state
       setNotifications(prev => 
@@ -167,9 +170,8 @@ const NotificationsPage = ({ currentUser }) => {
     if (!currentUser || notifications.length === 0) return;
 
     try {
-      const { error } = await supabase.rpc('mark_all_notifications_read');
-
-      if (error) throw error;
+      // Use canonical TS API which calls the secure RPC
+      await markAllReadAPI();
       
       // Update local state
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
@@ -200,6 +202,7 @@ const NotificationsPage = ({ currentUser }) => {
   };
 
   const handleCancelRequest = async (requestId) => {
+    // eslint-disable-next-line no-restricted-globals
     if (!confirm('Are you sure you want to cancel this connection request?')) return;
 
     try {
