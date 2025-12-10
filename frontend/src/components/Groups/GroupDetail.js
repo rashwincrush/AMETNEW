@@ -733,9 +733,68 @@ const GroupDetail = () => {
     }
   };
 
-  if (loading) return <div className="flex justify-center items-center h-screen"><div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div></div>;
-  if (error) return <div className="text-red-500 text-center p-4">Error: {error}</div>;
-  if (!group) return <div className="text-center p-4">Not available or archived.</div>;
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    const message = String(error || '');
+    const lower = message.toLowerCase();
+    const isAlumniOnly = lower.includes('alumni only');
+
+    return (
+      <div className="container mx-auto p-6">
+        <Link
+          to="/groups"
+          className="flex items-center text-sm font-medium text-gray-600 hover:text-gray-900 mb-4"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to All Groups
+        </Link>
+
+        <div
+          className={`bg-white rounded-lg shadow-md p-8 text-center border ${
+            isAlumniOnly
+              ? 'border-indigo-200'
+              : 'border-red-200'
+          }`}
+          role="alert"
+          aria-live="assertive"
+        >
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            {isAlumniOnly ? 'Access denied' : 'Unable to load this group'}
+          </h1>
+          <p className="text-gray-600">
+            {isAlumniOnly
+              ? 'This group is for alumni only. Your current account type does not have access.'
+              : message}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!group) {
+    return (
+      <div className="container mx-auto p-6">
+        <Link
+          to="/groups"
+          className="flex items-center text-sm font-medium text-gray-600 hover:text-gray-900 mb-4"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to All Groups
+        </Link>
+        <div className="bg-white rounded-lg shadow-md p-8 text-center" role="status" aria-live="polite">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Group not available</h1>
+          <p className="text-gray-600">This group is not available or may have been archived.</p>
+        </div>
+      </div>
+    );
+  }
 
   // Private route guard: block non-members (except site admins) from viewing private groups
   const isSiteAdmin = profile?.is_admin === true;
