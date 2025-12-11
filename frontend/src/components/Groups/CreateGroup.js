@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { canCreateGroup } from '../../utils/acl';
-import { createGroup } from '../../api/groups';
+import { createGroup, updateGroupAvatarRpc } from '../../api/groups';
 import logger from '../../utils/logger';
 
 const CreateGroup = () => {
@@ -69,19 +69,14 @@ const CreateGroup = () => {
             logger.warn('Avatar upload failed:', uploadError);
             // Don't fail the whole operation for avatar upload failure
           } else {
-            // Persist to existing field: group_avatar_url (minimal change)
+            // Persist URL via RPC so RLS and helper enforce permissions
             const { data: pub } = supabase.storage
               .from('group_avatars')
               .getPublicUrl(filePath);
-            const { error: updErr } = await supabase
-              .from('groups')
-              .update({
-                group_avatar_url: pub?.publicUrl || null,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', id);
-            if (updErr) {
-              logger.warn('Failed to persist group avatar URL:', updErr);
+            try {
+              await updateGroupAvatarRpc(id, pub?.publicUrl || null);
+            } catch (updErr) {
+              logger.warn('Failed to persist group avatar URL via RPC:', updErr);
             }
           }
         } catch (uploadErr) {

@@ -45,7 +45,7 @@ import ShareButtons from '../common/ShareButtons';
 import ImageWithFallback from '../common/ImageWithFallback';
 import { format } from 'date-fns';
 import CommentsThread from './CommentsThread';
-import { joinGroupRpc, withdrawJoinRequest, leaveGroupRpc, deleteGroupRpc } from '../../api/groups';
+import { joinGroupRpc, withdrawJoinRequest, leaveGroupRpc, deleteGroupRpc, updateGroupAvatarRpc } from '../../api/groups';
 import { ROLE_LABELS } from '../../utils/roles';
 import { canPostToGroup, canJoinGroup, getGroupStatus, isEmployer, canViewGroupContent } from '../../utils/acl';
 import { getFriendlyErrorMessage } from '../../utils/errors';
@@ -618,15 +618,13 @@ const GroupDetail = () => {
         .upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg', cacheControl: '3600' });
       if (uploadError) throw uploadError;
 
-      // Persist URL on the group row
+      // Persist URL on the group via RPC so RLS and helper enforce permissions
       const { data: pub } = supabase.storage.from('group_avatars').getPublicUrl(path);
       const publicUrl = pub?.publicUrl || '';
-      const { error: updErr } = await supabase
-        .from('groups')
-        .update({ group_avatar_url: publicUrl, updated_at: new Date().toISOString() })
-        .eq('id', id);
-      if (updErr) {
-        logger.error('Failed to persist avatar URL to groups:', updErr);
+      try {
+        await updateGroupAvatarRpc(id, publicUrl || null);
+      } catch (updErr) {
+        logger.error('Failed to persist avatar URL via RPC:', updErr);
         if (isMountedRef.current) {
           setError('Avatar uploaded but could not be saved to the group (permissions).');
         }

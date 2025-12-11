@@ -3,6 +3,8 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { toFriendlyToast } from '../../utils/errors';
+import logger from '../../utils/logger';
+import { changeUserRole } from '../../utils/changeUserRole';
 import {
   ShieldCheckIcon,
   KeyIcon,
@@ -31,7 +33,7 @@ const ManageSuperAdmins = ({ isSuperAdmin }) => {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, first_name, last_name, email, role') 
+        .select('id, first_name, last_name, email, role')
         .or('role.eq.admin,role.eq.super_admin')
         .order('updated_at', { ascending: false });
       if (error) throw error;
@@ -47,23 +49,30 @@ const ManageSuperAdmins = ({ isSuperAdmin }) => {
   const handleSuperAdminAssignment = async (userIdToUpdate, makeSuperAdmin) => {
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          role: makeSuperAdmin ? 'super_admin' : 'admin',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', userIdToUpdate);
-      if (error) throw error;
-      toast.success(`User ${makeSuperAdmin ? 'promoted to' : 'demoted from'} Super Admin successfully`);
-      fetchAdminUsers();
+      const target =
+        adminUsers.find((u) => u.id === userIdToUpdate) || selectedUserForRoleChange;
+
+      const oldRole = target?.role || 'admin';
+      const newRole = makeSuperAdmin ? 'super_admin' : 'admin';
+
+      const { success } = await changeUserRole({
+        userId: userIdToUpdate,
+        oldRole,
+        newRole,
+      });
+
+      if (!success) {
+        return;
+      }
+
+      await fetchAdminUsers();
     } catch (err) {
       logger.error('Error updating user role:', err);
       toFriendlyToast(toast, err, 'Failed to update user role. Please try again.');
     } finally {
-      setLoading(false);
       setShowConfirmation(false);
       setSelectedUserForRoleChange(null);
+      setLoading(false);
     }
   };
 

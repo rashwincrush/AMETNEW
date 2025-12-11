@@ -203,13 +203,6 @@ function DirectoryCardSplit({ meId, profile, avatarUrl, currentTab = 'all', onCh
               </div>
             ) : null}
 
-            {/* Admin-only debug pill for QA: surface underlying degree_code / department_id */}
-            {isAdmin && (raw.degree_code || raw.department_id) && (
-              <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-1.5 py-0.5 text-[10px] font-mono" title="Directory debug: degree_code / department_id">
-                <span>deg:{raw.degree_code || ''}</span>
-                <span>dept:{raw.department_id || ''}</span>
-              </div>
-            )}
           </div>
         </div>
         

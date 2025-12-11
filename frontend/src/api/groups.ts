@@ -96,10 +96,13 @@ export async function fetchGroup(groupId: string, userId?: string) {
 // group_members / group_memberships from the frontend are intentionally
 // removed to ensure RLS and SECURITY DEFINER functions enforce permissions.
 
-/** Toggle admin-only posts (creator/group-admin/site-admin) */
+/** Toggle admin-only posts (creator/group-admin/site-admin) via RPC */
 export async function setAdminOnlyPosts(groupId: string, on: boolean) {
   await guardEmployers();
-  const { error } = await supabase.from('groups').update({ is_admin_only_posts: on }).eq('id', groupId);
+  const { error } = await supabase.rpc('set_group_admin_only_posts', {
+    p_group_id: groupId,
+    p_on: !!on,
+  });
   if (error) throw error;
 }
 
@@ -233,10 +236,19 @@ export async function deleteGroupRpc(groupId: string) {
 /** Update alumni_only flag on a group */
 export async function setAlumniOnly(groupId: string, alumniOnly: boolean) {
   await guardEmployers();
-  const { error } = await supabase
-    .from('groups')
-    .update({ alumni_only: alumniOnly })
-    .eq('id', groupId);
+  const { error } = await supabase.rpc('set_group_alumni_only', {
+    p_group_id: groupId,
+    p_on: !!alumniOnly,
+  });
+  if (error) throw error;
+}
+
+/** Update group avatar URL after uploading to storage */
+export async function updateGroupAvatarRpc(groupId: string, url: string | null) {
+  const { error } = await supabase.rpc('update_group_avatar', {
+    p_group_id: groupId,
+    p_url: url || null,
+  });
   if (error) throw error;
 }
 

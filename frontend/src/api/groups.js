@@ -88,15 +88,18 @@ export async function setMemberRole(groupId, userId, role) {
   return setMemberRoleRpc(groupId, userId, role);
 }
 
-// Toggle admin-only posts (creator/group-admin/site-admin)
+// Toggle admin-only posts (creator/group-admin/site-admin) via RPC
 export async function setAdminOnlyPosts(groupId, on) {
-  const { error } = await supabase.from('groups').update({ is_admin_only_posts: on }).eq('id', groupId);
-  if (error) throw error;
+	const { error } = await supabase.rpc('set_group_admin_only_posts', {
+		p_group_id: groupId,
+		p_on: !!on,
+	});
+	if (error) throw error;
 }
 
 // Archive/unarchive (site admin OR group admin)
 export async function setArchived(groupId, on) {
-  const { error } = await supabase.from('groups').update({ is_archived: on }).eq('id', groupId);
+  const { error } = await supabase.rpc('archive_group', { p_group_id: groupId });
   if (error) throw error;
 }
 
@@ -204,11 +207,20 @@ export async function archiveGroupRpc(groupId) {
 }
 
 export async function setAlumniOnly(groupId, alumniOnly) {
-  const { error } = await supabase
-    .from('groups')
-    .update({ alumni_only: !!alumniOnly })
-    .eq('id', groupId);
-  if (error) throw error;
+	const { error } = await supabase.rpc('set_group_alumni_only', {
+		p_group_id: groupId,
+		p_on: !!alumniOnly,
+	});
+	if (error) throw error;
+}
+
+// Update group avatar URL (used after uploading to storage)
+export async function updateGroupAvatarRpc(groupId, url) {
+	const { error } = await supabase.rpc('update_group_avatar', {
+		p_group_id: groupId,
+		p_url: url || null,
+	});
+	if (error) throw error;
 }
 
 // Allow a user to withdraw their own pending join request for a group.

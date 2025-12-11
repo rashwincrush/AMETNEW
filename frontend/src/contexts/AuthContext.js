@@ -791,7 +791,7 @@ export const AuthProvider = ({ children }) => {
   const isAdminFn = useCallback(() => userRole === 'admin' || userRole === 'super_admin', [userRole]);
 
   const getEffectivePermissions = useCallback(() => {
-    const isReadOnlyAccount = profile?.is_deleted || !profile?.is_active;
+    const isReadOnlyAccount = !!profile && (profile.is_deleted === true || profile.is_active === false);
     return derivePermissions(userRole, approvalFlags, isReadOnlyAccount);
   }, [userRole, approvalFlags, profile]);
 
@@ -848,7 +848,7 @@ export const AuthProvider = ({ children }) => {
     return permissions.every(p => perms.includes(p));
   }, [getEffectivePermissions]);
 
-  const isReadOnlyAccount = !!(profile?.is_deleted || !profile?.is_active);
+  const isReadOnlyAccount = !!profile && (profile.is_deleted === true || profile.is_active === false);
 
   const value = {
     user,

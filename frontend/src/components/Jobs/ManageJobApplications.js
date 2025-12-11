@@ -158,12 +158,17 @@ const ManageJobApplications = () => {
         const enriched = await Promise.all(baseRows.map(async (row) => {
           const out = { ...row };
           try {
-            const path = getResumePathFromValue(row.resume_url || '');
-            if (path) {
+            // Derive an authorization-checked resume path via RPC before signing
+            const { data: resumePath, error: pathErr } = await supabase.rpc(
+              'get_job_application_resume_path_for_viewer',
+              { p_application_id: row.id }
+            );
+
+            if (!pathErr && resumePath) {
               const { data: signed, error: signErr } = await supabase
                 .storage
                 .from('resumes')
-                .createSignedUrl(path, 60 * 60);
+                .createSignedUrl(resumePath, 60 * 60);
               if (!signErr && signed?.signedUrl) {
                 out._resume_signed_url = signed.signedUrl;
               }

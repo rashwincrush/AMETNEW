@@ -169,6 +169,7 @@ function AppContent() {
 
   // Check if user is rejected - if so, we'll only render the RejectionPage
   const { isRejected } = rejectionStatus;
+  const showReadOnlyBanner = !loading && !!profile && isReadOnlyAccount;
 
   // Special handling for rejection page - no navigation, header or main app
   if (user && isRejected) {
@@ -209,7 +210,7 @@ function AppContent() {
           aria-label="Main content"
           tabIndex={-1}
         >
-          {isReadOnlyAccount && (
+          {showReadOnlyBanner && (
             <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
               Your account is currently in read-only mode. You can view your past activity but cannot perform new actions. Contact your administrator for more information.
             </div>
