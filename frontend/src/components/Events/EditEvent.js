@@ -496,13 +496,33 @@ const EditEvent = () => {
               </div>
             )}
           </div>
+
+          {/* Additional Options */}
+          <div className="mt-6 space-y-4">
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                id="allowVolunteering"
+                name="allowVolunteering"
+                checked={formData.allowVolunteering}
+                onChange={handleInputChange}
+                className="h-4 w-4 text-ocean-600 focus:ring-ocean-500 border-gray-300 rounded"
+              />
+              <label htmlFor="allowVolunteering" className="ml-2 block text-sm text-gray-700">
+                Allow attendees to sign up as volunteers
+              </label>
+            </div>
+            <p className="text-xs text-gray-500 ml-6">
+              Volunteers can help with event setup, registration, or other tasks
+            </p>
+          </div>
         </div>
 
         {/* Date & Time */}
         <div className="glass-card rounded-lg p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Date & Time</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Event Date *
@@ -516,7 +536,7 @@ const EditEvent = () => {
               />
               {errors.date && <p className="text-red-500 text-sm mt-1">{errors.date}</p>}
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Start Time *
@@ -530,7 +550,7 @@ const EditEvent = () => {
               />
               {errors.startTime && <p className="text-red-500 text-sm mt-1">{errors.startTime}</p>}
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 End Time *
@@ -544,7 +564,23 @@ const EditEvent = () => {
               />
               {errors.endTime && <p className="text-red-500 text-sm mt-1">{errors.endTime}</p>}
             </div>
-            
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Registration Deadline
+              </label>
+              <input
+                type="date"
+                name="registrationDeadline"
+                value={formData.registrationDeadline}
+                onChange={handleInputChange}
+                className="form-input w-full px-3 py-2 rounded-lg"
+              />
+              <p className="text-xs text-gray-500 mt-1">Leave blank for no deadline</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
             {formData.type === 'in-person' && (
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">

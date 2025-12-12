@@ -18,6 +18,7 @@ import {
   ClipboardDocumentListIcon,
   WrenchScrewdriverIcon,
   ChatBubbleLeftRightIcon,
+  CircleStackIcon,
 } from '@heroicons/react/24/outline';
 import PermissionGate from '../PermissionGate';
 import SecurityCheck from './SecurityCheck';
@@ -50,6 +51,22 @@ const Reports = () => {
         </div>
       )}
       
+      <div className="mb-6 bg-white shadow rounded-lg p-4 border border-purple-100">
+        <h3 className="text-md font-medium mb-4 flex items-center text-purple-700">
+          <CircleStackIcon className="h-5 w-5 mr-2" />
+          Data Validation Tools
+        </h3>
+        <p className="mb-4 text-sm text-gray-600">
+          Run data validation checks to identify integrity issues, duplicates, and inconsistencies across the platform.
+        </p>
+        <Link 
+          to="/admin/data-tools" 
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
+        >
+          Open Data Tools
+        </Link>
+      </div>
+
       <div className="bg-white shadow rounded-lg p-4 border border-green-100">
         <h3 className="text-md font-medium mb-4 flex items-center text-green-700">
           <ClipboardDocumentListIcon className="h-5 w-5 mr-2" />

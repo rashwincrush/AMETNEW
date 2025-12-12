@@ -778,6 +778,7 @@ const JobListingsPage = () => {
   const [sourceFilter, setSourceFilter] = useState(['quick_link', 'in_app'].includes(canonicalSource) ? canonicalSource : 'all');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [approvalFilter, setApprovalFilter] = useState(searchParams.get('approval') || 'all');
+  const [matchMyEducation, setMatchMyEducation] = useState(searchParams.get('matchEducation') === 'true');
 
   const fetchController = useRef(null);
   const filtersRef = useRef(null);
@@ -1030,21 +1031,32 @@ const JobListingsPage = () => {
       }
       const postedSince = (filters.postedWithin && filters.postedWithin !== 'all') ? parseInt(filters.postedWithin, 10) : null;
 
-      ({ data, error } = await supabase.rpc('get_jobs_public_v5', {
-        p_search_query: searchQuery || null,
-        p_sort_by: sortCol || 'created_at',
-        p_sort_order: (sortDir || 'desc').toLowerCase(),
-        p_limit: pageSize,
-        p_offset: (currentPage - 1) * pageSize,
-        p_department: deptParam,
-        p_job_type: jobTypeParam,
-        p_experience_level: expParam,
-        p_location: locParam,
-        p_industry: industryParam,
-        p_salary_min: salaryMin,
-        p_salary_max: salaryMax,
-        p_posted_since_days: postedSince,
-      }));
+      // Use education-matching RPC if matchMyEducation is enabled
+      if (matchMyEducation && ['alumni', 'student'].includes(userRole)) {
+        ({ data, error } = await supabase.rpc('search_jobs_with_education', {
+          p_filters: { match_my_education: true }
+        }));
+        // The RPC returns a flat array, wrap it for consistency
+        if (!error && Array.isArray(data)) {
+          data = { items: data, total_count: data.length };
+        }
+      } else {
+        ({ data, error } = await supabase.rpc('get_jobs_public_v5', {
+          p_search_query: searchQuery || null,
+          p_sort_by: sortCol || 'created_at',
+          p_sort_order: (sortDir || 'desc').toLowerCase(),
+          p_limit: pageSize,
+          p_offset: (currentPage - 1) * pageSize,
+          p_department: deptParam,
+          p_job_type: jobTypeParam,
+          p_experience_level: expParam,
+          p_location: locParam,
+          p_industry: industryParam,
+          p_salary_min: salaryMin,
+          p_salary_max: salaryMax,
+          p_posted_since_days: postedSince,
+        }));
+      }
       // Fallback ONLY if RPC errors; allow empty results to reflect strict filters (e.g., Pending/Rejected)
       if (error) {
         logger.warn('RPC get_jobs_public_v5 failed, falling back to v_jobs_feed_inr view');
@@ -1193,7 +1205,7 @@ const JobListingsPage = () => {
 
     setJobs(uniqueRows);
     setLoading(false);
-  }, [searchQuery, sortBy, currentPage, user, userRole, pageSize, filters.department, filters.experience, filters.industry, filters.jobType, filters.location, filters.postedWithin, filters.salaryRange, sourceFilter, approvalFilter]);
+  }, [searchQuery, sortBy, currentPage, user, userRole, pageSize, filters.department, filters.experience, filters.industry, filters.jobType, filters.location, filters.postedWithin, filters.salaryRange, sourceFilter, approvalFilter, matchMyEducation]);
 
   useEffect(() => {
     if (!user?.id || !jobs.length || !bookmarkedJobs.length) return;
@@ -1278,6 +1290,7 @@ const JobListingsPage = () => {
     if (searchQuery) params.set('q', searchQuery); else params.delete('q');
     Object.entries(filters).forEach(([k, v]) => { if (v && v !== 'all') params.set(k, v); else params.delete(k); });
     if (sourceFilter && sourceFilter !== 'all') params.set('source', sourceFilter); else params.delete('source');
+    if (matchMyEducation) params.set('matchEducation', 'true'); else params.delete('matchEducation');
     params.set('page', String(currentPage));
     params.set('sort', sortBy);
     if (['admin', 'super_admin', 'employer'].includes(userRole)) {
@@ -1288,7 +1301,7 @@ const JobListingsPage = () => {
     if (viewMode) params.set('view', viewMode);
     setSearchParams(params, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, filters, currentPage, sortBy, approvalFilter, viewMode, sourceFilter]);
+  }, [searchQuery, filters, currentPage, sortBy, approvalFilter, viewMode, sourceFilter, matchMyEducation]);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
@@ -1493,6 +1506,7 @@ const JobListingsPage = () => {
             setSearchQuery('');
             setFilters({ jobType: 'all', experience: 'all', location: 'all', industry: 'all', department: 'all', salaryRange: 'all', postedWithin: 'all' });
             setApprovalFilter('all');
+            setMatchMyEducation(false);
             setSortBy('created_at,desc');
             setCurrentPage(1);
           }}
@@ -1501,6 +1515,18 @@ const JobListingsPage = () => {
         >
           Reset Filters
         </button>
+        {/* Match My Education toggle - only for alumni/students */}
+        {['alumni', 'student'].includes(userRole) && (
+          <label className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-lg text-sm cursor-pointer hover:bg-ocean-50 transition-colors">
+            <input
+              type="checkbox"
+              checked={matchMyEducation}
+              onChange={(e) => { setMatchMyEducation(e.target.checked); setCurrentPage(1); }}
+              className="h-4 w-4 text-ocean-600 border-gray-300 rounded focus:ring-ocean-500"
+            />
+            <span className="text-gray-700">Match my education</span>
+          </label>
+        )}
         {['admin', 'super_admin', 'employer'].includes(userRole) && (
           <div className="col-span-full mt-1 text-xs text-gray-500">
             <span className="font-semibold">Status legend:</span>{' '}

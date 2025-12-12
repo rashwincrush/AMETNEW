@@ -50,7 +50,7 @@ const EnhancedRegister = () => {
     companySize: '',
     industry: '',
     linkedinProfile: '',
-    githubProfile: '',
+    facebookId: '',
     websiteUrl: '',
     companyWebsite: '',
     interestedInMentorship: false,
@@ -104,7 +104,7 @@ const EnhancedRegister = () => {
     'interests',
     // Social links stored directly in profiles table
     'linkedin_url',
-    'github_url',
+    'facebook_id',
     'website',
   ];
 
@@ -227,8 +227,8 @@ const EnhancedRegister = () => {
   useEffect(() => {
     const isDirty = () => {
       // Consider the form dirty if any input has a value or any array has length
-      const { firstName, lastName, email, password, phone, primaryRole, graduationYear, expectedGraduationYear, degreeCode, departmentId, studentId, companyName, jobTitle, linkedinProfile, githubProfile, websiteUrl, bio } = formData;
-      return [firstName, lastName, email, password, phone, primaryRole, graduationYear, expectedGraduationYear, degreeCode, departmentId, studentId, companyName, jobTitle, linkedinProfile, githubProfile, websiteUrl, bio].some(v => (Array.isArray(v) ? v.length > 0 : (v && String(v).trim() !== '')));
+      const { firstName, lastName, email, password, phone, primaryRole, graduationYear, expectedGraduationYear, degreeCode, departmentId, studentId, companyName, jobTitle, linkedinProfile, facebookId, websiteUrl, bio } = formData;
+      return [firstName, lastName, email, password, phone, primaryRole, graduationYear, expectedGraduationYear, degreeCode, departmentId, studentId, companyName, jobTitle, linkedinProfile, facebookId, websiteUrl, bio].some(v => (Array.isArray(v) ? v.length > 0 : (v && String(v).trim() !== '')));
     };
     const beforeUnload = (e) => {
       if (!showSuccessModal && !showCompletionBanner && isDirty()) {
@@ -564,19 +564,7 @@ const EnhancedRegister = () => {
           newErrors.department_id = 'Please select your department.';
         }
       }
-      // Optional fields validation: only validate URL patterns if provided
-      if (
-        formData.linkedinProfile &&
-        !/^https:\/\/(www\.)?linkedin\.com\/(in|pub|company|school)\/.+/i.test(formData.linkedinProfile)
-      ) {
-        newErrors.linkedinProfile = 'LinkedIn URL must start with https:// and be on linkedin.com (e.g., https://linkedin.com/in/yourname)';
-      }
-      if (
-        formData.githubProfile &&
-        !/^https:\/\/(www\.)?github\.com\/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?(?:\/.*)?$/i.test(formData.githubProfile)
-      ) {
-        newErrors.githubProfile = 'GitHub URL must start with https://github.com/<username>';
-      }
+      // Optional fields: LinkedIn / Facebook / Website are now free-text except basic https check for website
       if (formData.websiteUrl) {
         const normalized = normalizeHttpsUrl(formData.websiteUrl);
         if (!isValidHttpsUrl(normalized)) {
@@ -806,7 +794,7 @@ const EnhancedRegister = () => {
         skills: Array.isArray(formData.skills) && formData.skills.length ? formData.skills : null,
         interests: Array.isArray(formData.interests) && formData.interests.length ? formData.interests : null,
         linkedin_url: formData.linkedinProfile?.trim() || null,
-        github_url: formData.githubProfile?.trim() || null,
+        facebook_id: formData.facebookId?.trim() || null,
         website: formData.websiteUrl?.trim() || null,
       };
       const profilePayload = pickSafeProfileFields(profilePayloadRaw);
@@ -880,7 +868,7 @@ const EnhancedRegister = () => {
       try {
         await saveProfileSocialLinks(hydratedUser.id, {
           linkedin: formData.linkedinProfile || null,
-          github: formData.githubProfile || null,
+          facebook: formData.facebookId || null,
           website: formData.websiteUrl || null,
         });
       } catch (e) {
@@ -1269,16 +1257,30 @@ const EnhancedRegister = () => {
       )}
       {/* Common fields for Step 2 - can be placed outside role-specific blocks if applicable to all */}
       <div>
-        <label htmlFor="linkedinProfile" className={commonLabelClass}>LinkedIn Profile URL</label>
-        <input id="linkedinProfile" name="linkedinProfile" type="url" value={formData.linkedinProfile} onChange={handleChange} placeholder="https://linkedin.com/in/yourname" className={commonInputClass(errors.linkedinProfile)} />
-        <p className="text-xs text-gray-500 mt-1">Must start with https:// and be on linkedin.com</p>
+        <label htmlFor="linkedinProfile" className={commonLabelClass}>LinkedIn</label>
+        <input
+          id="linkedinProfile"
+          name="linkedinProfile"
+          type="text"
+          value={formData.linkedinProfile}
+          onChange={handleChange}
+          placeholder="LinkedIn URL or ID (free text)"
+          className={commonInputClass(errors.linkedinProfile)}
+        />
         {errors.linkedinProfile && <p className={commonErrorClass}>{errors.linkedinProfile}</p>}
       </div>
       <div>
-        <label htmlFor="githubProfile" className={commonLabelClass}>GitHub Profile URL</label>
-        <input id="githubProfile" name="githubProfile" type="url" value={formData.githubProfile} onChange={handleChange} placeholder="https://github.com/yourusername" className={commonInputClass(errors.githubProfile)} />
-        <p className="text-xs text-gray-500 mt-1">Must start with https://github.com/</p>
-        {errors.githubProfile && <p className={commonErrorClass}>{errors.githubProfile}</p>}
+        <label htmlFor="facebookId" className={commonLabelClass}>Facebook</label>
+        <input
+          id="facebookId"
+          name="facebookId"
+          type="text"
+          value={formData.facebookId}
+          onChange={handleChange}
+          placeholder="Facebook URL or ID (free text)"
+          className={commonInputClass(errors.facebookId)}
+        />
+        {errors.facebookId && <p className={commonErrorClass}>{errors.facebookId}</p>}
       </div>
       {formData.primaryRole !== 'employer' && (
         <div>

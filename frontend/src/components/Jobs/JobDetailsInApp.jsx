@@ -323,6 +323,28 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
               {coalescedDeadline && <li><span className="text-gray-500">Deadline:</span> {formatKolkata(coalescedDeadline)}</li>}
               {(() => { const c = getApplicantsCount(job); return c !== null ? (<li><span className="text-gray-500">Applicants:</span> {c}</li>) : null; })()}
             </ul>
+
+            {/* Contact Info - Only shown for approved jobs */}
+            {job?.is_approved && (job?.contact_name || job?.contact_email || job?.contact_phone) && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <h4 className="text-sm font-semibold text-gray-900 mb-2">HR Contact</h4>
+                <ul className="text-sm text-gray-700 space-y-1">
+                  {job?.contact_name && <li><span className="text-gray-500">Name:</span> {job.contact_name}</li>}
+                  {job?.contact_email && (
+                    <li>
+                      <span className="text-gray-500">Email:</span>{' '}
+                      <a href={`mailto:${job.contact_email}`} className="text-ocean-600 hover:underline">{job.contact_email}</a>
+                    </li>
+                  )}
+                  {job?.contact_phone && (
+                    <li>
+                      <span className="text-gray-500">Phone:</span>{' '}
+                      <a href={`tel:${job.contact_phone}`} className="text-ocean-600 hover:underline">{job.contact_phone}</a>
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
           </aside>
         )}
       </div>

@@ -15,6 +15,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import MentorContactPanel from '../Mentorship/MentorContactPanel';
 import Avatar from '../common/Avatar';
 import { useAcademicsCatalog } from '../../hooks/useAcademicsCatalog';
+import { useProfileAchievements } from '../../hooks/useProfileAchievements';
 import { loadProfileSocialLinks } from '../../services/socialLinks';
 import useProfileContact from '../../hooks/useProfileContact';
 import { canViewContact } from '../../utils/contactPermissions';
@@ -53,6 +54,8 @@ const AlumniProfile = () => {
   const { degrees, groups } = useAcademicsCatalog();
   const contact = useProfileContact(alumnus?.id);
   const { avatarUrl } = useAvatar(id, { useSignedUrl: true, autoFetch: !!id });
+  // Load public achievements for this profile via RPC (works for any viewer)
+  const { achievements: achievementsList = [], isLoading: achievementsLoading } = useProfileAchievements(id);
   
   useEffect(() => {
     const getCurrentUser = async () => {
@@ -483,7 +486,15 @@ const AlumniProfile = () => {
             {/* Achievements */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Key Achievements</h2>
-              {Array.isArray(alumnus.achievements) && alumnus.achievements.length > 0 ? (
+              {achievementsLoading ? (
+                <p className="text-slate-500 text-sm">Loading achievements...</p>
+              ) : (Array.isArray(achievementsList) && achievementsList.length > 0) ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {achievementsList.map((achievement, index) => (
+                    <AchievementCard key={achievement.id || index} achievement={achievement} />
+                  ))}
+                </div>
+              ) : (Array.isArray(alumnus.achievements) && alumnus.achievements.length > 0) ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {alumnus.achievements.map((achievement, index) => (
                     <AchievementCard key={index} achievement={achievement} />

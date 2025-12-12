@@ -28,7 +28,7 @@ import { useProfileAchievements } from '../../hooks/useProfileAchievements';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { loadProfileSocialLinks, saveProfileSocialLinks } from '../../services/socialLinks.js';
-import { validateLinkedIn, validateGitHub, validateX, validateWebsite, findDuplicateProvider } from '../../services/socialLinks.validation';
+import { findDuplicateProvider } from '../../services/socialLinks.validation';
 import DegreeSelect from '../academics/DegreeSelect';
 import DepartmentSelect from '../academics/DepartmentSelect';
 import { useAcademicsCatalog } from '../../hooks/useAcademicsCatalog';
@@ -158,7 +158,7 @@ const Profile = () => {
     company_website: '',
     socialLinks: {
       linkedin: '',
-      github: '',
+      facebook: '',
       twitter: '',
       website: ''
     }
@@ -440,15 +440,16 @@ const Profile = () => {
             // Load social links from dedicated table/view
             socialLinks: (() => {
               // placeholder; will be replaced below after async load
-              return { linkedin: '', github: '', twitter: '', website: '' };
+              return { linkedin: '', facebook: '', twitter: '', website: '' };
             })()
           };
+
           // Replace social links by fetching from view/table
           try {
             const links = await loadProfileSocialLinks(user.id);
             formDataInitial.socialLinks = {
               linkedin: links.linkedin || '',
-              github: links.github || '',
+              facebook: links.facebook || '',
               // UI uses 'twitter' field; map X -> twitter
               twitter: links.x || '',
               website: links.website || '',
@@ -616,12 +617,6 @@ const Profile = () => {
     if (isSubmitting) return;
     if (!isEmployer && catalogLoading) {
       toast.error('Degree data is still loading. Please wait and try again.');
-      return;
-    }
-    // Block save if social link validation errors exist
-    const socialErrors = Object.keys(validationErrors || {}).filter(k => k.startsWith('socialLinks.'));
-    if (socialErrors.length > 0) {
-      toast.error('Please fix social link URLs before saving');
       return;
     }
 
@@ -864,7 +859,7 @@ const Profile = () => {
       try {
         await saveProfileSocialLinks(user.id, {
           linkedin: formData.socialLinks?.linkedin || null,
-          github: formData.socialLinks?.github || null,
+          facebook: formData.socialLinks?.facebook || null,
           x: formData.socialLinks?.twitter || null,
           website: formData.socialLinks?.website || null,
         });
@@ -1394,26 +1389,23 @@ const Profile = () => {
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">LinkedIn</label>
                 <input
-                  type="url"
+                  type="text"
                   name="socialLinks.linkedin"
                   value={formData.socialLinks?.linkedin || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                  placeholder="https://linkedin.com/in/yourname"
+                  placeholder="LinkedIn URL or ID (free text)"
                 />
-                {validationErrors['socialLinks.linkedin'] && (
-                  <p className="text-red-500 text-xs mt-1">{validationErrors['socialLinks.linkedin']}</p>
-                )}
               </div>
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">GitHub</label>
+                <label className="block text-sm font-medium text-gray-700">Facebook</label>
                 <input
-                  type="url"
-                  name="socialLinks.github"
-                  value={formData.socialLinks?.github || ''}
+                  type="text"
+                  name="socialLinks.facebook"
+                  value={formData.socialLinks?.facebook || ''}
                   onChange={handleChange}
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                  placeholder="https://github.com/yourname"
+                  placeholder="Facebook URL or ID (free text)"
                 />
               </div>
               <div className="space-y-2">

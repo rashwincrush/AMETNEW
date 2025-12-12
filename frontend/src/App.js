@@ -27,6 +27,7 @@ import Header from './components/Layout/Header';
 import EditEvent from './components/Events/EditEvent';
 import CreateEvent from './components/Events/CreateEvent';
 import EventFeedbackReport from './components/Admin/EventFeedbackReport';
+import EventFeedbackPage from './components/Events/EventFeedbackPage';
 import MyRegistrationsList from './components/Events/MyRegistrationsList';
 
 import AuthListener from './components/Auth/AuthListener';
@@ -102,6 +103,7 @@ import MentorshipStatus from './components/Mentorship/MentorshipStatus';
 import ApprovedGuard from './components/guards/ApprovedGuard.jsx';
 import AdminMentorApprovals from './components/Mentorship/AdminMentorApprovals.js';
 import DataVerificationDashboard from './components/Admin/DataVerificationDashboard.jsx';
+import DataTools from './components/Admin/DataTools.jsx';
 import AdminGroupsPage from './pages/AdminGroupsPage';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
@@ -240,6 +242,7 @@ function AppContent() {
             <Route path="/events/edit/:id" element={<ProtectedRoute requiredPermission="events:create"><EditEvent /></ProtectedRoute>} />
             <Route path="/events/create" element={<ProtectedRoute requiredPermission="events:create"><CreateEvent /></ProtectedRoute>} />
             <Route path="/events/new" element={<ProtectedRoute requiredPermission="events:create"><CreateEvent /></ProtectedRoute>} />
+            <Route path="/events/:id/feedback" element={<ProtectedRoute requiredPermission="access:events"><EventFeedbackPage /></ProtectedRoute>} />
             <Route path="/admin/events/:id/feedback" element={<ProtectedRoute requiredPermission="access:all"><EventFeedbackReport /></ProtectedRoute>} />
             <Route path="/admin/events/moderation" element={<ProtectedRoute requiredPermission="access:all"><EventModerationPanel /></ProtectedRoute>} />
             <Route path="/jobs" element={<RequireCompleteProfile><ProtectedRoute requiredPermission="view:jobs"><JobListingsPage /></ProtectedRoute></RequireCompleteProfile>} />
@@ -356,6 +359,7 @@ function AppContent() {
             <Route path="/admin/activity-logs" element={<ProtectedRoute requiredPermission="access:all"><ActivityLogs /></ProtectedRoute>} />
             <Route path="/admin/settings" element={<ProtectedRoute requiredPermission="access:all"><AdminSettings /></ProtectedRoute>} />
             <Route path="/admin/csv" element={<ProtectedRoute requiredPermission="access:all"><CSVImportExport /></ProtectedRoute>} />
+            <Route path="/admin/data-tools" element={<ProtectedRoute requiredPermission="access:all"><DataTools /></ProtectedRoute>} />
             <Route path="/admin/events/:id/feedback" element={<ProtectedRoute requiredPermission="access:all"><EventFeedbackReport /></ProtectedRoute>} />
             <Route path="/admin/mentor-approvals" element={<ProtectedRoute requiredPermission="access:all"><AdminMentorApprovals /></ProtectedRoute>} />
             <Route path="/admin/verify" element={<ProtectedRoute requiredPermission="access:all"><DataVerificationDashboard /></ProtectedRoute>} />

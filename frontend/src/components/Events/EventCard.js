@@ -313,21 +313,44 @@ const EventCard = ({
               {attendeesCount || 0} attending
             </Typography>
           </Box>
-          <Button 
-            size="medium"
-            variant="contained"
-            color="primary"
-            aria-label={`View details for ${event.title}`}
-            sx={{ 
-              textTransform: 'none',
-              fontWeight: 500,
-              px: 2.5,
-              minHeight: 36
-            }}
-            onClick={handleViewDetailsClick}
-          >
-            View details
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            {/* Show "Give Feedback" button for past events the user attended */}
+            {statusLabel.toLowerCase() === 'past' && event.user_rsvp_status && (
+              <Button 
+                size="medium"
+                variant="outlined"
+                color="secondary"
+                aria-label={`Give feedback for ${event.title}`}
+                sx={{ 
+                  textTransform: 'none',
+                  fontWeight: 500,
+                  px: 2,
+                  minHeight: 36
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.location.href = `/events/${event.id}/feedback`;
+                }}
+              >
+                Feedback
+              </Button>
+            )}
+            <Button 
+              size="medium"
+              variant="contained"
+              color="primary"
+              aria-label={`View details for ${event.title}`}
+              sx={{ 
+                textTransform: 'none',
+                fontWeight: 500,
+                px: 2.5,
+                minHeight: 36
+              }}
+              onClick={handleViewDetailsClick}
+            >
+              View details
+            </Button>
+          </Box>
         </Box>
       </CardContent>
     </Card>

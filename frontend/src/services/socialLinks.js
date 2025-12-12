@@ -1,8 +1,8 @@
 import { supabase } from '../utils/supabase';
 import logger from '../utils/logger';
 
-// Supported providers must mirror the DB enum/check in public.social_links
-const PROVIDERS = ['linkedin', 'github', 'x', 'website', 'instagram', 'facebook'];
+// Supported providers; DB is now free-text on URL so we only normalize type names
+const PROVIDERS = ['linkedin', 'facebook', 'x', 'website', 'instagram'];
 
 export async function loadProfileSocialLinks(profileId) {
   try {
@@ -17,7 +17,7 @@ export async function loadProfileSocialLinks(profileId) {
       const obj = data.social_links;
       return {
         linkedin: obj.linkedin || null,
-        github: obj.github || null,
+        facebook: obj.facebook || null,
         x: obj.x || obj.twitter || null,
         website: obj.website || null,
       };
@@ -52,7 +52,7 @@ export async function loadProfileSocialLinks(profileId) {
 }
 
 export async function saveProfileSocialLinks(profileId, links) {
-  // Build rows for upsert; normalize types and URLs lightly
+  // Build rows for upsert; normalize types and lightly normalize URLs
   const rows = [];
   const entries = Object.entries(links || {});
 
@@ -67,6 +67,7 @@ export async function saveProfileSocialLinks(profileId, links) {
     if (typeof url !== 'string') return null;
     let u = url.trim();
     if (!u) return null;
+    // If the user did not specify a scheme, assume https but otherwise leave as-is
     if (!/^[a-z]+:\/\//i.test(u)) u = 'https://' + u;
     return u;
   };

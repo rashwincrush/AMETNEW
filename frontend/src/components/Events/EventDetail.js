@@ -680,35 +680,28 @@ const EventDetail = () => {
                     </button>
                   )}
                   {canShowFeedback && !feedbackSubmitted && (
-                    <form onSubmit={handleFeedbackSubmit} className="mt-4 pt-4 border-t">
+                    <div className="mt-4 pt-4 border-t">
                       <h4 className="font-bold text-md mb-2 text-center">How was your experience?</h4>
-                      <div className="flex justify-center items-center mb-3">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <button
-                            key={star}
-                            type="button"
-                            onClick={() => setFeedbackRating(star)}
-                            className={`text-2xl ${feedbackRating >= star ? 'text-yellow-400' : 'text-gray-300'}`}
-                          >
-                            ★
-                          </button>
-                        ))}
-                      </div>
-                      <textarea
-                        value={feedbackComment}
-                        onChange={(e) => setFeedbackComment(e.target.value)}
-                        placeholder="Any additional comments?"
-                        className="w-full p-2 border rounded mb-3"
-                        rows="3"
-                      ></textarea>
-                      <button type="submit" disabled={rsvpLoading} className="w-full bg-green-600 text-white font-bold py-2 px-4 rounded hover:bg-green-700 disabled:bg-gray-400 transition duration-200">
-                        {rsvpLoading ? 'Submitting...' : 'Submit Feedback'}
-                      </button>
-                    </form>
+                      <Link
+                        to={`/events/${id}/feedback`}
+                        className="flex items-center justify-center w-full min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white font-bold hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                      >
+                        <Star className="w-4 h-4 mr-2" /> Give Detailed Feedback
+                      </Link>
+                      <p className="text-xs text-gray-500 text-center mt-2">Share your experience to help us improve future events</p>
+                    </div>
                   )}
-                  {feedbackSubmitted && (
-                    <div className="text-center mt-4 pt-4 border-t text-green-600 font-semibold">
-                      Thank you for your feedback!
+                  {(feedbackSubmitted || myFeedback) && (
+                    <div className="mt-4 pt-4 border-t">
+                      <div className="text-center text-green-600 font-semibold mb-2">
+                        Thank you for your feedback!
+                      </div>
+                      <Link
+                        to={`/events/${id}/feedback`}
+                        className="text-sm text-ocean-600 hover:underline block text-center"
+                      >
+                        View or update your feedback
+                      </Link>
                     </div>
                   )}
                 </div>
