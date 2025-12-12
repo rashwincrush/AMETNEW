@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Link, useLocation, useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import useJobsRealtime from '../../hooks/useJobsRealtime';
 import {
   MagnifyingGlassIcon,
@@ -58,37 +58,14 @@ const filterOptions = {
     { value: 'part-time', label: 'Part-Time' },
     { value: 'contract', label: 'Contract' },
     { value: 'internship', label: 'Internship' },
-  ],
-  department: [
-    { value: 'all', label: 'All Departments' },
-    { value: 'marine', label: 'Marine' },
-    { value: 'naval', label: 'Naval' },
-    { value: 'port', label: 'Port' },
-    { value: 'logistics', label: 'Logistics' },
+    { value: 'temporary', label: 'Temporary' },
   ],
   experience: [
     { value: 'all', label: 'All Experience Levels' },
     { value: 'entry', label: 'Entry Level' },
     { value: 'mid', label: 'Mid Level' },
     { value: 'senior', label: 'Senior Level' },
-    { value: 'executive', label: 'Executive' },
-  ],
-  location: [
-    { value: 'all', label: 'All Locations' },
-    { value: 'remote', label: 'Remote' },
-    { value: 'mumbai', label: 'Mumbai' },
-    { value: 'chennai', label: 'Chennai' },
-    { value: 'delhi', label: 'Delhi' },
-    { value: 'hyderabad', label: 'Hyderabad' },
-    { value: 'bengaluru', label: 'Bengaluru' },
-  ],
-  industry: [
-    { value: 'all', label: 'All Industries' },
-    { value: 'shipping', label: 'Shipping' },
-    { value: 'maritime', label: 'Maritime' },
-    { value: 'logistics', label: 'Logistics' },
-    { value: 'cruises', label: 'Cruises' },
-    { value: 'naval', label: 'Naval' },
+    { value: 'director+', label: 'Director+' },
   ],
   salaryRange: [
     { value: 'all', label: 'All Salary Ranges' },
@@ -189,7 +166,10 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id || job?.created_by || job?.employer_id;
-  const isOwner = !!(user?.id && [job?.created_by, job?.posted_by, job?.user_id, job?.employer_id].some(v => v === user.id));
+  const isOwner = !!(user?.id && (
+    [job?.created_by, job?.posted_by, job?.user_id, job?.employer_id, job?.__auth_user_id].some(v => v === user.id)
+    || job?.is_owner === true
+  ));
   const isApplicantRole = ['alumni', 'student'].includes(userRole);
   const applyState = computeJobApplyState(job);
   const quick = applyState.isQuickLink;
@@ -512,7 +492,10 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick, hasAppli
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id || job?.created_by || job?.employer_id;
-  const isOwner = !!(user?.id && [job?.created_by, job?.posted_by, job?.user_id, job?.employer_id].some(v => v === user.id));
+  const isOwner = !!(user?.id && (
+    [job?.created_by, job?.posted_by, job?.user_id, job?.employer_id, job?.__auth_user_id].some(v => v === user.id)
+    || job?.is_owner === true
+  ));
   const applyState = computeJobApplyState(job);
   const quick = applyState.isQuickLink;
   const { canApplyInApp, canApplyExternally, isClosed } = applyState;
@@ -748,7 +731,6 @@ const JobListingsPage = () => {
     navigateJob('/jobs/post');
   };
 
-  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const notification = useNotification();
   const [viewMode, setViewMode] = useState(searchParams.get('view') || 'grid');
@@ -760,12 +742,8 @@ const JobListingsPage = () => {
   const [filters, setFilters] = useState({
     jobType: searchParams.get('jobType') || 'all',
     experience: searchParams.get('experience') || 'all',
-    location: searchParams.get('location') || 'all',
-    industry: searchParams.get('industry') || 'all',
-    department: searchParams.get('department') || 'all',
     salaryRange: searchParams.get('salaryRange') || 'all',
     postedWithin: searchParams.get('postedWithin') || 'all',
-    status: searchParams.get('status') || 'all',
   });
   const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page') || '1', 10));
   const [pageSize, setPageSize] = useState(12);
@@ -837,7 +815,7 @@ const JobListingsPage = () => {
     const isEmployer = userRole === 'employer';
     const isAdmin = ['admin', 'super_admin'].includes(userRole);
 
-    let data = null; let error = null; let serverFilteredByDepartment = false;
+    let data = null; let error = null;
 
     if (isEmployer) {
       if (approvalFilter && approvalFilter !== 'all') {
@@ -869,11 +847,8 @@ const JobListingsPage = () => {
           q = q.eq('is_rejected', true);
         }
 
-        if (filters.department && filters.department !== 'all') q = q.eq('department', filters.department);
         if (filters.jobType && filters.jobType !== 'all') q = q.eq('job_type', filters.jobType);
         if (filters.experience && filters.experience !== 'all') q = q.eq('experience_level', filters.experience);
-        if (filters.industry && filters.industry !== 'all') q = q.eq('industry', filters.industry);
-        if (filters.location && filters.location !== 'all' && String(filters.location).trim()) q = q.ilike('location', `%${String(filters.location).trim()}%`);
 
         if (filters.salaryRange && filters.salaryRange !== 'all') {
           const [minStr, maxStr] = String(filters.salaryRange).split('-');
@@ -918,11 +893,16 @@ const JobListingsPage = () => {
             if (ids.length > 0) {
               const { data: descRows, error: descErr } = await supabase
                 .from('jobs')
-                .select('id, description')
+                .select('id, description, skills')
                 .in('id', ids);
               if (!descErr && Array.isArray(descRows)) {
-                const map = new Map(descRows.map(r => [r.id, (r.description ?? null)]));
-                data = data.map(r => ({ ...r, description: r.description ?? map.get(r.id) ?? null }));
+                const descMap = new Map(descRows.map(r => [r.id, (r.description ?? null)]));
+                const skillsMap = new Map(descRows.map(r => [r.id, (r.skills ?? null)]));
+                data = data.map(r => ({
+                  ...r,
+                  description: r.description ?? descMap.get(r.id) ?? null,
+                  skills: r.skills ?? skillsMap.get(r.id) ?? null,
+                }));
               }
             }
           } catch (_) { /* noop */ }
@@ -932,11 +912,9 @@ const JobListingsPage = () => {
       // Admin view with explicit approval / moderation filter
       if (approvalFilter === 'approved') {
         // Use public RPC for approved+active jobs to avoid RLS blocking and ensure consistent results
-        const deptParam = (filters.department && filters.department !== 'all') ? filters.department : null;
         const jobTypeParam = (filters.jobType && filters.jobType !== 'all') ? filters.jobType : null;
         const expParam = (filters.experience && filters.experience !== 'all') ? filters.experience : null;
-        const locParam = (filters.location && filters.location !== 'all' && String(filters.location).trim()) ? String(filters.location).trim() : null;
-        const industryParam = (filters.industry && filters.industry !== 'all') ? filters.industry : null;
+        const industryParam = null;
         let salaryMin = null, salaryMax = null;
         if (filters.salaryRange && filters.salaryRange !== 'all') {
           const [minStr, maxStr] = String(filters.salaryRange).split('-');
@@ -951,10 +929,9 @@ const JobListingsPage = () => {
           p_sort_order: (sortDir || 'desc').toLowerCase(),
           p_limit: pageSize,
           p_offset: (currentPage - 1) * pageSize,
-          p_department: deptParam,
+          p_department: null,
           p_job_type: jobTypeParam,
           p_experience_level: expParam,
-          p_location: locParam,
           p_industry: industryParam,
           p_salary_min: salaryMin,
           p_salary_max: salaryMax,
@@ -981,12 +958,8 @@ const JobListingsPage = () => {
           q = q.eq('is_rejected', true);
         }
 
-        if (filters.department && filters.department !== 'all') q = q.eq('department', filters.department);
         if (filters.jobType && filters.jobType !== 'all') q = q.eq('job_type', filters.jobType);
         if (filters.experience && filters.experience !== 'all') q = q.eq('experience_level', filters.experience);
-        if (filters.industry && filters.industry !== 'all') q = q.eq('industry', filters.industry);
-        if (filters.location && filters.location !== 'all' && String(filters.location).trim()) q = q.ilike('location', `%${String(filters.location).trim()}%`);
-
         if (filters.salaryRange && filters.salaryRange !== 'all') {
           const [minStr, maxStr] = String(filters.salaryRange).split('-');
           const sMin = minStr ? parseInt(minStr, 10) : null;
@@ -1018,11 +991,9 @@ const JobListingsPage = () => {
       }
     } else {
       // Public/non-employer: prefer server-side v5 for accurate counts and paging
-      const deptParam = (filters.department && filters.department !== 'all') ? filters.department : null;
       const jobTypeParam = (filters.jobType && filters.jobType !== 'all') ? filters.jobType : null;
       const expParam = (filters.experience && filters.experience !== 'all') ? filters.experience : null;
-      const locParam = (filters.location && filters.location !== 'all' && String(filters.location).trim()) ? String(filters.location).trim() : null;
-      const industryParam = (filters.industry && filters.industry !== 'all') ? filters.industry : null;
+      const industryParam = null;
       let salaryMin = null, salaryMax = null;
       if (filters.salaryRange && filters.salaryRange !== 'all') {
         const [minStr, maxStr] = String(filters.salaryRange).split('-');
@@ -1047,10 +1018,8 @@ const JobListingsPage = () => {
           p_sort_order: (sortDir || 'desc').toLowerCase(),
           p_limit: pageSize,
           p_offset: (currentPage - 1) * pageSize,
-          p_department: deptParam,
           p_job_type: jobTypeParam,
           p_experience_level: expParam,
-          p_location: locParam,
           p_industry: industryParam,
           p_salary_min: salaryMin,
           p_salary_max: salaryMax,
@@ -1071,9 +1040,6 @@ const JobListingsPage = () => {
           data = { items: viewData, total_count: viewData.length };
           error = null;
         }
-      } else {
-        // Department is applied server-side when provided
-        serverFilteredByDepartment = !!deptParam;
       }
     }
 
@@ -1133,8 +1099,17 @@ const JobListingsPage = () => {
       totalCount = rows.length > 0 && typeof rows[0].total_count !== 'undefined' ? rows[0].total_count : rows.length;
     }
 
+    // Annotate ownership for toggle controls
+    const authId = user?.id || null;
+    rows = rows.map((job) => ({
+      ...job,
+      __auth_user_id: job.__auth_user_id ?? authId ?? null,
+      is_owner: !!(authId && [job.created_by, job.posted_by, job.user_id, job.employer_id, job.__auth_user_id].some((v) => v === authId)),
+    }));
+
     // Unique/safety
     let uniqueRows = Array.from(new Map(rows.map(job => [job.id, job])).values());
+    const serverFilteredByDepartment = false;
 
     // Client filters (until server supports all)
     const matchesFilters = (j) => {
@@ -1174,11 +1149,6 @@ const JobListingsPage = () => {
       }
       if (filters.jobType !== 'all' && (j.job_type || '').toLowerCase() !== filters.jobType) return false;
       if (filters.experience !== 'all' && (j.experience_level || '').toLowerCase() !== filters.experience) return false;
-      if (filters.location !== 'all' && !(j.location || '').toLowerCase().includes(filters.location.toLowerCase())) return false;
-      if (filters.industry !== 'all' && (j.industry || '').toLowerCase() !== filters.industry) return false;
-      if (!serverFilteredByDepartment) {
-        if (filters.department !== 'all' && (j.department || '').toLowerCase() !== filters.department) return false;
-      }
       if (filters.salaryRange !== 'all') {
         const [minStr, maxStr] = filters.salaryRange.split('-');
         const min = minStr ? parseInt(minStr, 10) : 0;
@@ -1205,7 +1175,7 @@ const JobListingsPage = () => {
 
     setJobs(uniqueRows);
     setLoading(false);
-  }, [searchQuery, sortBy, currentPage, user, userRole, pageSize, filters.department, filters.experience, filters.industry, filters.jobType, filters.location, filters.postedWithin, filters.salaryRange, sourceFilter, approvalFilter, matchMyEducation]);
+  }, [searchQuery, sortBy, currentPage, user, userRole, pageSize, filters.experience, filters.jobType, filters.postedWithin, filters.salaryRange, sourceFilter, approvalFilter, matchMyEducation]);
 
   useEffect(() => {
     if (!user?.id || !jobs.length || !bookmarkedJobs.length) return;
@@ -1309,17 +1279,6 @@ const JobListingsPage = () => {
   useEffect(() => {
     const t = setTimeout(() => { setSearchQuery(searchTerm); setCurrentPage(1); }, 300);
     return () => clearTimeout(t);
-  }, [searchTerm]);
-
-  // Clearing the search box should also clear industry and status filters (omit in URL and query builder)
-  useEffect(() => {
-    if (String(searchTerm).trim() === '') {
-      setFilters((prev) => {
-        if (prev.status === 'all' && prev.industry === 'all') return prev;
-        return { ...prev, status: 'all', industry: 'all' };
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm]);
 
   /* ---------- FIXED: Optimistic toggle that doesn’t rely on feed flags ---------- */
@@ -1451,7 +1410,7 @@ const JobListingsPage = () => {
             <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by title, skill, or company..."
+              placeholder="Search by title, location, or company..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-10 py-2 border border-gray-300 rounded-lg w-full focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
@@ -1486,25 +1445,11 @@ const JobListingsPage = () => {
             {options.map(option => (<option key={option.value} value={option.value}>{option.label}</option>))}
           </select>
         ))}
-        {['admin', 'super_admin', 'employer'].includes(userRole) && (
-          <select
-            value={approvalFilter}
-            onChange={(e) => { setApprovalFilter(e.target.value); setCurrentPage(1); }}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
-            aria-label="Approval filter"
-          >
-            <option value="all">Status</option>
-            <option value="approved">Live</option>
-            <option value="pending">Pending approval</option>
-            <option value="disabled">Paused</option>
-            <option value="rejected">Rejected</option>
-          </select>
-        )}
         <button
           onClick={() => {
             setSearchTerm('');
             setSearchQuery('');
-            setFilters({ jobType: 'all', experience: 'all', location: 'all', industry: 'all', department: 'all', salaryRange: 'all', postedWithin: 'all' });
+            setFilters({ jobType: 'all', experience: 'all', salaryRange: 'all', postedWithin: 'all' });
             setApprovalFilter('all');
             setMatchMyEducation(false);
             setSortBy('created_at,desc');
@@ -1630,7 +1575,7 @@ const JobListingsPage = () => {
               onClick={() => {
                 setSearchTerm('');
                 setSearchQuery('');
-                setFilters({ jobType: 'all', experience: 'all', location: 'all', industry: 'all', department: 'all', salaryRange: 'all', postedWithin: 'all' });
+                setFilters({ jobType: 'all', experience: 'all', salaryRange: 'all', postedWithin: 'all' });
                 setCurrentPage(1);
                 notification.showInfo('All filters cleared');
               }}

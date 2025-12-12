@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../utils/supabase';
+import { logActivity } from '../../utils/activityLogger';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { getFriendlyErrorMessage } from '../../utils/errors';
@@ -177,6 +178,7 @@ export default function ApplyDialog({ open, onClose, jobId, deadline, onSuccess 
       }
 
       if (onSuccess) onSuccess({ path: storagePath });
+      logActivity({ action: 'job_application', meta: { job_id: jobId } }).catch(() => {});
       toast.success('Your application has been submitted successfully.', { id: toastId });
       onClose();
     } catch (err) {

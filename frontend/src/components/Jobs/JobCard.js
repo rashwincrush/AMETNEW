@@ -107,16 +107,21 @@ function JobCard({ job }) {
 
       {/* Skills preview, if available */}
       {(() => {
-        const raw = job.skills;
-        const arr = Array.isArray(raw)
-          ? raw
-          : typeof raw === 'string'
-            ? raw.split(',').map(s => s.trim()).filter(Boolean)
+        const fromSkills = Array.isArray(job.skills)
+          ? job.skills
+          : typeof job.skills === 'string'
+            ? job.skills.split(',').map(s => s.trim()).filter(Boolean)
             : [];
+        const fromNice = Array.isArray(job.nice_to_have_skills)
+          ? job.nice_to_have_skills
+          : typeof job.nice_to_have_skills === 'string'
+            ? job.nice_to_have_skills.split(',').map(s => s.trim()).filter(Boolean)
+            : [];
+        const arr = (fromSkills.length ? fromSkills : fromNice).slice(0, 5);
         if (!arr.length) return null;
         return (
           <div className="flex flex-wrap gap-1 mb-3">
-            {arr.slice(0, 5).map((skill, idx) => (
+            {arr.map((skill, idx) => (
               <span
                 key={idx}
                 className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-ocean-50 text-ocean-700 border border-ocean-100"

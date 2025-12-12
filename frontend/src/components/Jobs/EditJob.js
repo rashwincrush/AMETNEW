@@ -75,7 +75,8 @@ const EditJob = () => {
           .select(`
             id, title, company_name, location, job_type,
             description, requirements, skills, salary_range, application_url,
-            contact_email, external_url, apply_url, company_id, logo_url,
+            contact_name, contact_email, contact_phone,
+            external_url, apply_url, company_id, logo_url,
             posted_by, user_id, created_by, deadline, application_deadline,
             is_active, is_approved,
             company:companies(name, logo_url)
@@ -175,8 +176,8 @@ const EditJob = () => {
 
     const {
       title, company_name, location, job_type, description, requirements, skills,
-      salary_range, application_url, contact_email, external_url, apply_url,
-      company_id, deadline, application_deadline, is_active
+      salary_range, application_url, contact_name, contact_email, contact_phone,
+      external_url, apply_url, company_id, deadline, application_deadline, is_active
     } = formData || {};
 
     // Normalize and enforce the DB constraint jobs_external_target_at_most_one
@@ -261,23 +262,34 @@ const EditJob = () => {
         title,
         company_name: (company_name || '').trim() || null,
         application_url: norm_application_url,
-        application_deadline: isoDate,
-        description: (description || '').trim() || null,
+        external_url: norm_external_url,
+        apply_url: norm_apply_url,
+        salary_range: clean(salary_range),
+        deadline: isoDate,
+        contact_name: clean(contact_name),
+        contact_email: clean(contact_email),
+        contact_phone: clean(contact_phone),
       };
     } else {
       // Legacy in-app update (logo is handled via companies.logo_url only)
       updateData = {
-        title, company_name, location, job_type, description, requirements, skills,
-        salary_range, application_url: norm_application_url, contact_email,
-        external_url: norm_external_url, apply_url: norm_apply_url,
-        company_id, deadline, is_active,
+        title,
+        company_name: (company_name || '').trim() || null,
+        location,
+        job_type,
+        description,
+        requirements,
+        skills,
+        salary_range,
+        application_url: norm_application_url,
+        contact_name: clean(contact_name),
+        contact_email: clean(contact_email),
+        contact_phone: clean(contact_phone),
+        external_url: norm_external_url,
+        apply_url: norm_apply_url,
+        deadline: clean(deadline),
+        is_active,
       };
-    }
-
-    if (isAdmin) updateData.is_approved = formData?.is_approved ?? false;
-    if (!isAdmin) {
-      delete updateData.is_approved;
-      delete updateData.is_featured; // just in case
     }
 
     try {
@@ -502,9 +514,24 @@ const EditJob = () => {
                             <TextField fullWidth label="Direct Apply URL" name="apply_url"
                               value={formData.apply_url || ''} onChange={handleChange} disabled={isSubmitting} />
                           </Grid>
+
                           <Grid item xs={12}>
-                            <TextField fullWidth label="Contact Email" name="contact_email"
+                            <Typography variant="h6" sx={{ mb: 1, mt: 2 }}>HR Information</Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                              Provide the recruiter/HR contact for applicants and admins.
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <TextField fullWidth label="HR Contact Name" name="contact_name"
+                              value={formData.contact_name || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <TextField fullWidth label="HR Contact Email" name="contact_email"
                               value={formData.contact_email || ''} onChange={handleChange} disabled={isSubmitting} />
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <TextField fullWidth label="HR Contact Phone" name="contact_phone"
+                              value={formData.contact_phone || ''} onChange={handleChange} disabled={isSubmitting} />
                           </Grid>
                           <Grid item xs={12}>
                             <Typography variant="h6" sx={{ mb: 1, mt: 1 }}>Company Logo</Typography>

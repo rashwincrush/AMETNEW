@@ -145,6 +145,7 @@ const AlumniProfile = () => {
             education = degreesRow.education.map((deg) => ({
               degree: deg.degree,
               institution: deg.institution,
+              department: deg.department ?? deg.institution ?? null,
               year: deg.year,
               grade: deg.grade ?? null,
               is_primary: deg.is_primary ?? false,
@@ -154,13 +155,33 @@ const AlumniProfile = () => {
           logger.error('Error loading directory education from v_profile_degrees_education:', degreesErr);
         }
 
+        // Helper: parse legacy combined degree_department text into degree/department parts
+        const parseDegreeDepartment = (labelRaw) => {
+          if (!labelRaw) return { degree: null, department: null };
+          const label = String(labelRaw);
+          const byComma = label.split(',').map(s => s.trim());
+          if (byComma.length >= 2) {
+            return { degree: byComma[0] || null, department: byComma.slice(1).join(', ') || null };
+          }
+          const byDash = label.split(' - ').map(s => s.trim());
+          if (byDash.length >= 2) {
+            return { degree: byDash[0] || null, department: byDash.slice(1).join(' - ') || null };
+          }
+          const upper = label.toUpperCase();
+          const KNOWN = ['BBA','BCA','BE','BSC','BTECH','MBA','MCA','ME','MSC','MTECH','PHD'];
+          if (KNOWN.includes(upper)) return { degree: label, department: null };
+          return { degree: null, department: label };
+        };
+
         const transformed = {
           id: data.id,
           name,
           // Use COALESCE logic matching backend view
           graduationYear: data.graduation_year ?? data.expected_graduation_year ?? data.batch_year ?? null,
-          degreeLabel: data.degree_program ?? null,
-          departmentLabel: data.department ?? null,
+          // Degree/department: prefer structured fields, then legacy degree_department split
+          degreeLabel: data.degree_program ?? data.degree ?? null,
+          departmentLabel: data.department ?? data.degree_department ?? null,
+          degree_department: data.degree_department || null,
           currentPosition: data.current_job_title ?? data.current_position ?? 'Not specified',
           company: data.company_name ?? 'Not specified',
           location,
@@ -192,6 +213,29 @@ const AlumniProfile = () => {
           degree_code: data.degree_code || null,
           department_id: data.department_id || null,
         };
+
+        // If degree/department still missing, parse combined degree_department string
+        if ((!transformed.degreeLabel || !transformed.departmentLabel) && data.degree_department) {
+          const parsed = parseDegreeDepartment(data.degree_department);
+          transformed.degreeLabel = transformed.degreeLabel || parsed.degree;
+          transformed.departmentLabel = transformed.departmentLabel || parsed.department;
+        }
+
+        // If primary degree isn't populated on the profile, derive it from the education list
+        const primaryDegree = Array.isArray(education)
+          ? education.find((e) => e.is_primary) || education[0]
+          : null;
+        if (primaryDegree) {
+          if (!transformed.degreeLabel && primaryDegree.degree) {
+            transformed.degreeLabel = primaryDegree.degree;
+          }
+          if (!transformed.departmentLabel && primaryDegree.institution) {
+            transformed.departmentLabel = primaryDegree.institution;
+          }
+          if (!transformed.graduationYear && primaryDegree.year) {
+            transformed.graduationYear = primaryDegree.year;
+          }
+        }
 
         // If the directory view doesn't yet project any work_experience but the
         // core profile has a simple experience string, load it as a fallback so
@@ -234,21 +278,59 @@ const AlumniProfile = () => {
     fetchAlumnusData();
   }, [id]);
 
-  // Compute degree/department labels in private view when catalog is ready
+  // Compute degree/department labels from catalog (or fallback to existing) whenever data changes
   useEffect(() => {
-    if (!alumnus || role === 'student') return;
+    if (!alumnus) return;
+    // derive primary education fallback
+    const primaryEdu = Array.isArray(alumnus.education) && alumnus.education.length > 0
+      ? (alumnus.education.find(e => e.is_primary) || alumnus.education[0])
+      : null;
+
+    // parse combined degree_department if present
+    const parseDegreeDepartment = (labelRaw) => {
+      if (!labelRaw) return { degree: null, department: null };
+      const label = String(labelRaw);
+      const byComma = label.split(',').map(s => s.trim());
+      if (byComma.length >= 2) {
+        return { degree: byComma[0] || null, department: byComma.slice(1).join(', ') || null };
+      }
+      const byDash = label.split(' - ').map(s => s.trim());
+      if (byDash.length >= 2) {
+        return { degree: byDash[0] || null, department: byDash.slice(1).join(' - ') || null };
+      }
+      const upper = label.toUpperCase();
+      const KNOWN = ['BBA','BCA','BE','BSC','BTECH','MBA','MCA','ME','MSC','MTECH','PHD'];
+      if (KNOWN.includes(upper)) return { degree: label, department: null };
+      return { degree: null, department: label };
+    };
+
     const code = alumnus.degree_code;
     const depId = alumnus.department_id;
     const foundDegree = code ? degrees.find(d => d.degree_code === code) : null;
-    const degreeLabel = foundDegree?.degree_label || (code ? String(code).toUpperCase() : 'Not specified');
-    let departmentLabel = 'Not specified';
+    const parsed = parseDegreeDepartment(alumnus.degree_department);
+
+    const degreeLabel =
+      foundDegree?.degree_label
+      || alumnus.degreeLabel
+      || parsed.degree
+      || (primaryEdu?.degree || null)
+      || (code ? String(code).toUpperCase() : null);
+
+    let departmentLabel =
+      alumnus.departmentLabel
+      || parsed.department
+      || primaryEdu?.institution
+      || primaryEdu?.department
+      || null;
+
     const group = code ? (groups.find(g => g.degree_code === code) || null) : null;
     if (group && depId) {
       const dep = (group.departments || []).find(d => d.id === depId);
       if (dep) departmentLabel = dep.name;
     }
-    setAlumnus(prev => prev ? { ...prev, degreeLabel, departmentLabel } : prev);
-  }, [alumnus?.id, alumnus?.degree_code, alumnus?.department_id, degrees, groups, role]);
+
+    setAlumnus(prev => prev ? { ...prev, degreeLabel: degreeLabel || prev.degreeLabel, departmentLabel: departmentLabel || prev.departmentLabel } : prev);
+  }, [alumnus?.id, alumnus?.degree_code, alumnus?.department_id, alumnus?.education, alumnus?.degreeLabel, alumnus?.departmentLabel, alumnus?.degree_department, degrees, groups]);
 
   const handleMessage = () => {
     if (!currentUser || !alumnus) return;
@@ -321,6 +403,21 @@ const AlumniProfile = () => {
     alumnus.graduationYear ? formatBatchLabel(alumnus.graduationYear) : null,
     alumnus.location && alumnus.location !== 'Not specified' ? alumnus.location : null,
   ].filter(Boolean);
+  // Build education list with primary-first ordering
+  const educationList = (() => {
+    const list = Array.isArray(alumnus.education) ? [...alumnus.education] : [];
+    const hasPrimary = list.some(e => e.is_primary);
+    if (!hasPrimary && (alumnus.degreeLabel || alumnus.degree_code)) {
+      list.unshift({
+        degree: alumnus.degreeLabel || (alumnus.degree_code ? String(alumnus.degree_code).toUpperCase() : 'Degree'),
+        institution: alumnus.departmentLabel || null,
+        year: alumnus.graduationYear || null,
+        grade: null,
+        is_primary: true,
+      });
+    }
+    return list.sort((a, b) => (b.is_primary === true) - (a.is_primary === true));
+  })();
   // Avatar precedence: prefer signed URL from useAvatar, fall back to view/avatar field
   const avatarSrc = avatarUrl || alumnus?.avatar || null;
   return (
@@ -427,58 +524,60 @@ const AlumniProfile = () => {
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Education</h2>
               <div className="space-y-4">
-                {Array.isArray(alumnus.education) && alumnus.education.length > 0 ? (
-                  alumnus.education.map((edu, index) => {
-                    const hasYear = !!edu.year;
-                    const hasGrade = !!edu.grade;
-                    let metaLine = '';
-                    if (hasYear && hasGrade) {
-                      // Example: "2023 · First Class"
-                      metaLine = `${edu.year} · ${edu.grade}`;
-                    } else if (hasYear) {
-                      // Example: "Class of 2023"
-                      metaLine = `Class of ${edu.year}`;
-                    } else if (hasGrade) {
-                      metaLine = String(edu.grade);
-                    }
-
-                    return (
-                      <div key={index} className="flex items-start space-x-3">
-                        <div className="w-10 h-10 bg-slate-100 ring-1 ring-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
-                          <AcademicCapIcon className="w-5 h-5 text-slate-600" aria-hidden="true" />
-                        </div>
-                        <div className="flex-1">
-                          {edu.degree && (
-                            <h3 className="font-semibold text-slate-900">{edu.degree}</h3>
-                          )}
-                          {edu.institution && (
-                            <p className="text-ocean-600 font-medium">{edu.institution}</p>
-                          )}
-                          {edu.is_primary && alumnus.departmentLabel && (
-                            <p className="text-sm text-slate-700">{alumnus.departmentLabel}</p>
-                          )}
-                          {metaLine && (
-                            <p className="text-sm text-slate-600">{metaLine}</p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  (alumnus.degreeLabel || alumnus.degree_code || alumnus.departmentLabel || alumnus.graduationYear) ? (
-                    <div className="flex items-start space-x-3">
-                      <div className="w-10 h-10 bg-slate-100 ring-1 ring-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
-                        <AcademicCapIcon className="w-5 h-5 text-slate-600" aria-hidden="true" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-slate-900">{alumnus.degreeLabel || (alumnus.degree_code ? String(alumnus.degree_code).toUpperCase() : 'Not specified')}</h3>
-                        <p className="text-ocean-600 font-medium">{alumnus.departmentLabel || ''}</p>
-                        <p className="text-sm text-slate-600">{alumnus.graduationYear ? `Batch ${alumnus.graduationYear}` : ''}</p>
-                      </div>
+                {educationList.length > 0 ? (
+                  <ol className="space-y-3 list-none p-0 m-0" aria-label="Education history">
+                    {educationList.map((edu, index) => {
+                      const hasYear = !!edu.year;
+                      const hasGrade = !!edu.grade;
+                      let metaLine = '';
+                      if (hasYear && hasGrade) {
+                        metaLine = `${edu.year} · ${edu.grade}`;
+                      } else if (hasYear) {
+                        metaLine = `Class of ${edu.year}`;
+                      } else if (hasGrade) {
+                        metaLine = String(edu.grade);
+                      }
+                      const deptLine =
+                        edu.institution ||
+                        edu.department ||
+                        alumnus.departmentLabel ||
+                        null;
+                      return (
+                        <li
+                          key={index}
+                          className="flex items-start gap-3 rounded-lg border border-slate-200 p-4"
+                        >
+                          <div className="w-10 h-10 bg-slate-100 ring-1 ring-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <AcademicCapIcon className="w-5 h-5 text-slate-600" aria-hidden="true" />
+                          </div>
+                          <div className="flex-1">
+                            {edu.degree && (
+                              <h3 className="font-semibold text-slate-900">{edu.degree}</h3>
+                            )}
+                            {deptLine && (
+                              <p className="text-ocean-600 font-medium">{deptLine}</p>
+                            )}
+                            {metaLine && (
+                              <p className="text-sm text-slate-600 mt-1">{metaLine}</p>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                ) : (alumnus.degreeLabel || alumnus.degree_code || alumnus.departmentLabel || alumnus.graduationYear) ? (
+                  <div className="flex items-start space-x-3">
+                    <div className="w-10 h-10 bg-slate-100 ring-1 ring-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <AcademicCapIcon className="w-5 h-5 text-slate-600" aria-hidden="true" />
                     </div>
-                  ) : (
-                    <p className="text-slate-500">No education information available.</p>
-                  )
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-slate-900">{alumnus.degreeLabel || (alumnus.degree_code ? String(alumnus.degree_code).toUpperCase() : 'Not specified')}</h3>
+                      <p className="text-ocean-600 font-medium">{alumnus.departmentLabel || ''}</p>
+                      <p className="text-sm text-slate-600">{alumnus.graduationYear ? `Batch ${alumnus.graduationYear}` : ''}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-slate-500">No education information available.</p>
                 )}
               </div>
             </div>

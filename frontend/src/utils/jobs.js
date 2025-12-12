@@ -65,7 +65,10 @@ export const hasOverviewData = (j) => {
     j?.department ||
     j?.salary_display_inr ||
     (j?.salary_min != null) ||
-    (j?.salary_max != null)
+    (j?.salary_max != null) ||
+    j?.contact_name ||
+    j?.contact_email ||
+    j?.contact_phone
   );
 };
 

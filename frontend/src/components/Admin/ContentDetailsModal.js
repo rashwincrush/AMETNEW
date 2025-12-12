@@ -58,6 +58,57 @@ const ContentDetailsModal = ({ item, isOpen, onClose }) => {
             </div>
           </dl>
         );
+      case 'group':
+        return (
+          <dl className="space-y-4">
+            <div className="flex items-start">
+              <DocumentTextIcon className="h-5 w-5 text-gray-400 mr-3 mt-1" />
+              <div>
+                <dt className="text-sm font-medium text-gray-500">Description</dt>
+                <dd className="text-sm text-gray-900 whitespace-pre-wrap">
+                  {item.description || 'No description provided'}
+                </dd>
+              </div>
+            </div>
+            <div className="flex items-start">
+              <BriefcaseIcon className="h-5 w-5 text-gray-400 mr-3 mt-1" />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-gray-900">
+                  <dt className="text-gray-500">Privacy:</dt>
+                  <dd className="font-medium">{item.is_private ? 'Private' : 'Public'}</dd>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-900">
+                  <dt className="text-gray-500">Audience:</dt>
+                  <dd className="font-medium">{item.alumni_only ? 'Alumni only' : 'Open to all roles'}</dd>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-900">
+                  <dt className="text-gray-500">Status:</dt>
+                  <dd className="font-medium">
+                    {item.is_archived ? 'Archived' :
+                      item.is_rejected ? 'Rejected' :
+                      item.is_approved || item.approval_status === 'approved' ? 'Approved' :
+                      'Pending'}
+                  </dd>
+                </div>
+                {item.rejection_reason && (
+                  <div className="text-sm text-red-700">
+                    <dt className="text-gray-500">Rejection reason:</dt>
+                    <dd className="whitespace-pre-wrap">{item.rejection_reason}</dd>
+                  </div>
+                )}
+                {Array.isArray(item.tags) && item.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {item.tags.map((tag) => (
+                      <span key={tag} className="px-2 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-200">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </dl>
+        );
       default:
         return <p className="text-sm text-gray-700 whitespace-pre-wrap">{JSON.stringify(item.content_data, null, 2)}</p>;
     }

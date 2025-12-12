@@ -10,6 +10,7 @@ import { Users, Search, Calendar, AlertCircle, RefreshCw, Lock, CheckCircle, Gra
 import ImageWithFallback from '../common/ImageWithFallback';
 import { getFriendlyErrorMessage } from '../../utils/errors';
 import logger from '../../utils/logger';
+import { logActivity } from '../../utils/activityLogger';
 
 // Minimal loading spinner for smooth transitions
 const GroupsLoadingSpinner = () => (
@@ -433,6 +434,7 @@ const GroupsList = () => {
           setTimeout(() => setFeedbackMessage(null), 3000);
         }
         logger.log(`User left group ${groupId}`);
+        logActivity({ action: 'group_left', meta: { group_id: groupId } });
       } else {
         // Join via hardened join_group_v2 RPC; returns 'active' | 'pending'
         const status = await joinGroupRpc(groupId);
@@ -451,6 +453,7 @@ const GroupsList = () => {
             setTimeout(() => setFeedbackMessage(null), 3000);
           }
           logger.log(`User joined group ${groupId}`);
+          logActivity({ action: 'group_joined', meta: { group_id: groupId, status: 'active' } });
         } else {
           // Private groups or cases where membership is pending approval
           // P0: Use feedbackMessage instead of error for non-blocking feedback
@@ -467,6 +470,7 @@ const GroupsList = () => {
             });
             setTimeout(() => setFeedbackMessage(null), 4000);
           }
+          logActivity({ action: 'group_join_request', meta: { group_id: groupId, status: 'pending' } });
         }
       }
     } catch (err) {
@@ -778,6 +782,14 @@ const GroupsList = () => {
                   ? 'Be the first to create a group/chapter!'
                   : 'Sign in to discover and join groups/chapters.'}
             </p>
+            {filter !== 'all' && !searchQuery && (
+              <button
+                onClick={() => setFilter('all')}
+                className="inline-flex items-center gap-2 px-4 py-2 mr-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              >
+                Show all groups
+              </button>
+            )}
             {searchQuery && (
               <button
                 onClick={() => {

@@ -1,4 +1,5 @@
 import { supabase } from '../utils/supabase';
+import { logActivity } from '../utils/activityLogger';
 
 function toLower(str) {
   return String(str || '').toLowerCase();
@@ -129,6 +130,7 @@ export async function createMentorshipRequest(mentorId, payload) {
     p_goals: payload?.goals ?? null,
   });
   if (error) throw error;
+  logActivity({ action: 'mentorship_request', meta: { mentor_id: mentorId } }).catch(() => {});
   return data;
 }
 
@@ -140,6 +142,7 @@ export async function acceptMentorshipRequest(requestId) {
     p_new_status: 'accepted',
   });
   if (error) throw error;
+  logActivity({ action: 'mentorship_accepted', meta: { request_id: requestId, relationship_id: data?.relationshipId || null } }).catch(() => {});
   return data;
 }
 
@@ -150,6 +153,7 @@ export async function rejectMentorshipRequest(requestId) {
     p_new_status: 'rejected',
   });
   if (error) throw error;
+  logActivity({ action: 'mentorship_rejected', meta: { request_id: requestId } }).catch(() => {});
   return data;
 }
 
@@ -158,6 +162,7 @@ export async function cancelMentorshipRequest(requestId) {
     p_request_id: requestId,
   });
   if (error) throw error;
+  logActivity({ action: 'mentorship_cancelled', meta: { request_id: requestId } }).catch(() => {});
   return data;
 }
 
@@ -173,6 +178,7 @@ export async function endMentorshipRelationship(relationshipId, reason = null) {
   });
 
   if (error) throw error;
+  logActivity({ action: 'mentorship_ended', meta: { relationship_id: relationshipId, reason: reason || null } }).catch(() => {});
   return data;
 }
 

@@ -213,6 +213,7 @@ const Events = () => {
         });
         
         toast.success('RSVP cancelled successfully');
+        logActivity({ action: 'event_rsvp_cancel', meta: { event_id: eventId, status: 'cancelled' } });
       } else {
         // Create RSVP
         const { error } = await supabase
@@ -233,6 +234,7 @@ const Events = () => {
         }));
         
         toast.success('Successfully RSVP\'d to the event!');
+        logActivity({ action: 'event_rsvp', meta: { event_id: eventId, status: 'registered' } });
       }
     } catch (error) {
       logger.error('Error updating RSVP:', error);

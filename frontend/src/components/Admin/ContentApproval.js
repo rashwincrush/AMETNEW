@@ -605,7 +605,7 @@ const ContentApproval = () => {
           </span>
           <span className="text-xs text-gray-500">{new Date(item.created_at).toLocaleDateString()}</span>
         </div>
-        <h4 className="text-md font-bold text-gray-800 truncate mb-1">{item.title || item.job_title || `${item.type} Submission`}</h4>
+        <h4 className="text-md font-bold text-gray-800 truncate mb-1">{item.title || item.name || item.job_title || `${item.type} Submission`}</h4>
         <p className="text-sm text-gray-600 mb-2">
           by {item.creator?.first_name || 'Unknown User'}
         </p>
@@ -664,7 +664,7 @@ const ContentApproval = () => {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-md font-semibold text-gray-900 truncate">
-              {item.title || item.job_title || `${item.type} Submission`}
+              {item.title || item.name || item.job_title || `${item.type} Submission`}
             </p>
             <p className="text-sm text-gray-500 truncate flex items-center">
               <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getContentTypeBadge(item.content_type)}`}>
@@ -726,11 +726,7 @@ const ContentApproval = () => {
     { value: 'all', label: 'All Content' },
     { value: 'job', label: 'Jobs' },
     { value: 'event', label: 'Events' },
-    { value: 'group', label: 'Groups' },
-    { value: 'post', label: 'Posts' },
-    { value: 'comment', label: 'Comments' },
-    { value: 'profile', label: 'Profiles' },
-    { value: 'image', label: 'Images' }
+    { value: 'group', label: 'Groups' }
   ];
 
   return (
@@ -924,7 +920,7 @@ const ContentApproval = () => {
         onClose={() => !deleteLoading && setDeleteOpen(false)}
         onConfirm={handleDeleteConfirm}
         itemType={deleteItem?.type || 'Item'}
-        itemName={deleteItem?.title || deleteItem?.job_title || `${deleteItem?.type || 'Item'} Submission`}
+        itemName={deleteItem?.title || deleteItem?.name || deleteItem?.job_title || `${deleteItem?.type || 'Item'} Submission`}
         loading={deleteLoading}
       />
     </div>

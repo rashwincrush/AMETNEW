@@ -79,11 +79,22 @@ const JobDetails = () => {
         if (error) throw error;
 
         const row = Array.isArray(data) ? data[0] : data;
+        // Fallback: fetch contact info directly from jobs in case RPC omits it
+        let contact = {};
+        try {
+          const { data: contactRow } = await supabase
+            .from('jobs')
+            .select('contact_name, contact_email, contact_phone')
+            .eq('id', id)
+            .maybeSingle();
+          if (contactRow) contact = contactRow;
+        } catch (_) { /* ignore */ }
 
         if (row) {
           // Process data to ensure arrays and new RPC fields are handled properly
           const processedData = {
             ...row,
+            ...contact,
             // New/normalized fields from get_job_details
             location: row.location ?? null,
             job_type: row.job_type ?? row.jobType ?? null,

@@ -64,6 +64,18 @@ export function buildJobPayload(form, companyId, mode) {
   // Map the free-text skills input to a string array.
   const skills = splitCsvToArray(form.nice_to_have_skills || form.skillsText);
 
+  // Normalize education requirements to enum[] expected by DB
+  const educationReq = (() => {
+    const v = form.education_requirements;
+    if (!v) return null;
+    if (Array.isArray(v)) {
+      const arr = v.map(x => String(x).trim()).filter(Boolean);
+      return arr.length ? arr : null;
+    }
+    const s = String(v).trim();
+    return s ? [s] : null;
+  })();
+
   return {
     company_id: companyId,
     title: form.title?.trim(),
@@ -106,8 +118,8 @@ export function buildJobPayload(form, companyId, mode) {
     contact_phone: form.contact_phone?.trim() || null,
     deadline: toISO(form.deadline),
 
-    // Education requirements
-    education_requirements: form.education_requirements?.trim() || null,
+    // Education requirements (enum[])
+    education_requirements: educationReq,
 
     status: 'active', // Default status
 

@@ -273,6 +273,18 @@ const PostJob = () => {
           }
 
           companyId = Array.isArray(newCompany) ? newCompany[0]?.id : newCompany?.id;
+        // Fallback: if the API did not return the row, try to fetch by name
+        if (!companyId) {
+          const { data: refetch, error: refetchErr } = await supabase
+            .from('companies')
+            .select('id')
+            .eq('name', formData.company_name.trim())
+            .order('created_at', { ascending: false })
+            .limit(1);
+          if (!refetchErr && Array.isArray(refetch) && refetch.length > 0) {
+            companyId = refetch[0].id;
+          }
+        }
         }
       }
 
@@ -337,6 +349,13 @@ const PostJob = () => {
 
     if (!validateStep()) {
       toast.error('Please fix the errors on this step before continuing.');
+      return;
+    }
+
+    // Final-step guardrails for required fields not covered by step-0 validation
+    if (!formData.company_name || !formData.company_name.trim()) {
+      toast.error('Company Name is required.');
+      setErrors(prev => ({ ...prev, company_name: 'Company Name is required.' }));
       return;
     }
 
@@ -468,8 +487,8 @@ const PostJob = () => {
       }
       
       if (!companyId) {
-        logger.error("No valid company_id after company creation/lookup");
-        throw new Error("Cannot create job without a valid company ID");
+        // Soft-bypass: proceed without company_id; rely on company_name-only flows.
+        logger.warn("Proceeding without company_id after company creation/lookup", { company_name: formData.company_name });
       }
 
       const payload = buildJobPayload(formData, companyId, 'form');

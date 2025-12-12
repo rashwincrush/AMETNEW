@@ -106,7 +106,9 @@ function ActivitiesWidget() {
       case "mentorship_accepted":
         return `${a.activity_text} accepted your mentorship request`;
       default:
-        return null;
+        // Fallback: show a sensible default line using the RPC-provided title
+        // so we don't hide valid activities with unrecognized types.
+        return a.activity_text || a.activity_type || "Activity";
     }
   };
 

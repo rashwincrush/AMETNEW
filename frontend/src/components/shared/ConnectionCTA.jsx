@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { TextPill } from './Chips';
 import { idempotentConnect, cancelPending, acceptPending, declinePending, removeConnection } from '../../utils/connections';
+import { logActivity } from '../../utils/activityLogger';
 import { MessageButton, RemoveButton, primaryButtonClasses } from './Buttons';
 import { Loader2 } from 'lucide-react';
 import logger from '../../utils/logger';
@@ -41,6 +42,7 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
       onChanged?.();
       // Optimistically reflect as pending(sent)
       setOverrideRel({ status: 'pending', pending_side: 'sent' });
+      logActivity({ action: 'connection_request', meta: { peer_id: peerId } }).catch(() => {});
     } catch (e) {
       // Treat conflict/duplicate as already pending (outgoing)
       const statusCode = e?.status || e?.code;
@@ -59,14 +61,22 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
     await cancelPending(meId, peerId);
     // Reset optimistic state
     setOverrideRel({ status: null, pending_side: null });
+    logActivity({ action: 'connection_cancelled', meta: { peer_id: peerId } }).catch(() => {});
   });
   
-  const doAccept = safe(() => acceptPending(meId, peerId));
-  const doDecline = safe(() => declinePending(meId, peerId));
+  const doAccept = safe(async () => {
+    await acceptPending(meId, peerId);
+    logActivity({ action: 'connection_accepted', meta: { peer_id: peerId } }).catch(() => {});
+  });
+  const doDecline = safe(async () => {
+    await declinePending(meId, peerId);
+    logActivity({ action: 'connection_declined', meta: { peer_id: peerId } }).catch(() => {});
+  });
   const doRemove = safe(async () => {
     await removeConnection(meId, peerId);
     // Immediately reflect as disconnected in UI
     setOverrideRel({ status: null, pending_side: null });
+    logActivity({ action: 'connection_removed', meta: { peer_id: peerId } }).catch(() => {});
   });
 
   const effStatus = (overrideRel?.status ?? rel?.status) ?? null;

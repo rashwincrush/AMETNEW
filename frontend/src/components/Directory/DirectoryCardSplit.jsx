@@ -1,4 +1,4 @@
-import React, { useMemo, memo } from 'react';
+import React, { useMemo, memo, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckBadgeIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 import ConnectionCTA from '../shared/ConnectionCTA';
@@ -8,6 +8,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getAccountStatus } from '../../utils/accountStatus';
 import Avatar from '../common/Avatar';
 import { formatBatchLabel } from '../../utils/batchYear';
+import { useAcademicsCatalog } from '../../hooks/useAcademicsCatalog';
+import { supabase } from '../../utils/supabase';
 
 /**
  * Converts a name to Title Case (non-admin users never see ALL CAPS)
@@ -24,8 +26,45 @@ function toTitleCase(str) {
 function DirectoryCardSplit({ meId, profile, avatarUrl, currentTab = 'all', onChanged }) {
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
+  const { groups } = useAcademicsCatalog();
+  const [eduFromView, setEduFromView] = useState(null);
   const rel = useMemo(() => profile?.rel || { status: null, pending_side: null }, [profile?.rel]);
   const raw = profile?._raw || {};
+
+  // Load education from v_profile_degrees_education if not provided on the profile row
+  useEffect(() => {
+    let cancelled = false;
+    if (Array.isArray(profile.education) && profile.education.length > 0) {
+      setEduFromView(null);
+      return;
+    }
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('v_profile_degrees_education')
+          .select('education')
+          .eq('profile_id', profile.id)
+          .maybeSingle();
+        if (!cancelled && !error && Array.isArray(data?.education)) {
+          setEduFromView(
+            data.education.map((deg) => ({
+              degree: deg.degree,
+              degree_code: deg.degree, // fallback
+              department: deg.department ?? deg.institution ?? null,
+              institution: deg.institution ?? null,
+              year: deg.year,
+              is_primary: deg.is_primary ?? false,
+            }))
+          );
+        }
+      } catch (_) {
+        if (!cancelled) setEduFromView(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile.id, profile.education]);
 
   // Parse degree and department from profile data
   const { degreeLabel, departmentLabel } = useMemo(() => {
@@ -119,8 +158,37 @@ function DirectoryCardSplit({ meId, profile, avatarUrl, currentTab = 'all', onCh
 
   const normalize = (s) => (s || '').trim().toLowerCase();
 
-  let degreeChip = degreeLabel || null;
-  let departmentChip = departmentLabel || null;
+  // Prefer normalized education (primary) before legacy profile fields
+  const primaryEducation = useMemo(() => {
+    const list = Array.isArray(eduFromView) ? eduFromView : Array.isArray(profile.education) ? profile.education : [];
+    return list.find((e) => e.is_primary) || list[0] || null;
+  }, [eduFromView, profile.education]);
+
+  let degreeChip = null;
+  let departmentChip = null;
+
+  if (primaryEducation) {
+    degreeChip = primaryEducation.degree || primaryEducation.degree_code || null;
+    departmentChip = primaryEducation.department || primaryEducation.institution || null;
+  }
+
+  if (!degreeChip || !departmentChip) {
+    // Fallback to legacy parsed labels
+    degreeChip = degreeChip || degreeLabel || null;
+    departmentChip = departmentChip || departmentLabel || null;
+  }
+
+  // If still missing department, try catalog lookup by degree_code + department_id (normalized backend fields)
+  if (!departmentChip && profile.degree_code && profile.department_id && Array.isArray(groups)) {
+    const group = groups.find((g) => g.degree_code === profile.degree_code);
+    const dep = group?.departments?.find((d) => d.id === profile.department_id);
+    if (dep?.name) {
+      departmentChip = dep.name;
+    }
+    if (!degreeChip && group?.degree_label) {
+      degreeChip = group.degree_label;
+    }
+  }
   let positionChip = position || null;
   let companyChip = company || null;
 
