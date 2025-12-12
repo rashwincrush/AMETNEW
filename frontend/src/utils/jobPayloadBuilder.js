@@ -102,7 +102,12 @@ export function buildJobPayload(form, companyId, mode) {
 
     // Use the correct column names for contact and deadline
     contact_email: form.contact_email?.trim() || null,
+    contact_name: form.contact_name?.trim() || null,
+    contact_phone: form.contact_phone?.trim() || null,
     deadline: toISO(form.deadline),
+
+    // Education requirements
+    education_requirements: form.education_requirements?.trim() || null,
 
     status: 'active', // Default status
 

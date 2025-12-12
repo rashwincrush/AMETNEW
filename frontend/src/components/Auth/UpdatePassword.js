@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { validatePassword } from '../../utils/passwordPolicy';
+import SecurityQuestionForm from '../Profile/SecurityQuestionForm';
 import { getFriendlyErrorMessage } from '../../utils/errors';
 
 const UpdatePassword = () => {
@@ -165,6 +166,14 @@ const UpdatePassword = () => {
               </button>
             </div>
           </form>
+
+          {/* Security Question configuration stays with password updates */}
+          <div className="pt-2 border-t border-gray-200 space-y-3">
+            <p className="text-sm text-gray-700">
+              Add a security question here to improve account recovery.
+            </p>
+            <SecurityQuestionForm />
+          </div>
         </div>
       </div>
     </div>

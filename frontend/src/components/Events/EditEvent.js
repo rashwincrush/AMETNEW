@@ -37,6 +37,7 @@ const EditEvent = () => {
     date: '',
     startTime: '',
     endTime: '',
+    registrationDeadline: '',
     venue: '',
     address: '',
     virtualLink: '',
@@ -47,6 +48,8 @@ const EditEvent = () => {
     organizerName: '',
     organizerEmail: '',
     organizerPhone: '',
+    allowVolunteering: false,
+    sponsorInfo: '',
     image: null,
     agenda: [{ time: '', activity: '' }]
   });
@@ -134,6 +137,7 @@ const EditEvent = () => {
         date: data.start_date ? new Date(data.start_date).toISOString().split('T')[0] : '',
         startTime: data.start_date ? formatInIST(new Date(data.start_date), 'HH:mm') : '',
         endTime: data.end_date ? formatInIST(new Date(data.end_date), 'HH:mm') : '',
+        registrationDeadline: data.registration_deadline ? new Date(data.registration_deadline).toISOString().split('T')[0] : '',
         venue: data.venue || '',
         address: data.address || '',
         virtualLink: data.virtual_link || '',
@@ -145,6 +149,8 @@ const EditEvent = () => {
         organizerName: fallbackOrganizerName,
         organizerEmail: fallbackOrganizerEmail,
         organizerPhone: fallbackOrganizerPhone,
+        allowVolunteering: data.allow_volunteering ?? false,
+        sponsorInfo: data.sponsor_info || '',
         agenda: data.agenda && data.agenda.length > 0 ? data.agenda : [{ time: '', activity: '' }]
       };
       
@@ -257,7 +263,8 @@ const EditEvent = () => {
       'title', 'description', 'long_description', 'start_date', 'end_date', 'venue', 'address',
       'virtual_link', 'max_attendees', 'price',
       'tags', 'category', 'event_type', 'organizer_name', 'organizer_email', 'organizer_phone',
-      'agenda', 'featured_image_url', 'updated_at', 'updated_by'
+      'agenda', 'featured_image_url', 'updated_at', 'updated_by',
+      'registration_deadline', 'has_cost', 'sponsor_info', 'allow_volunteering'
     ];
     return Object.fromEntries(Object.entries(data).filter(([k]) => allowed.includes(k)));
   };
@@ -284,11 +291,17 @@ const EditEvent = () => {
         // Use the corrected mergeAndConvertToUTC to properly handle timezone conversion
         start_date: mergeAndConvertToUTC(new Date(formData.date), new Date(`2000-01-01T${formData.startTime}`)),
         end_date: formData.endTime ? mergeAndConvertToUTC(new Date(formData.date), new Date(`2000-01-01T${formData.endTime}`)) : null,
+        registration_deadline: formData.registrationDeadline
+          ? new Date(formData.registrationDeadline).toISOString()
+          : null,
         venue: formData.venue,
         address: formData.address,
         virtual_link: formData.virtualLink,
         max_attendees: formData.maxAttendees ? parseInt(formData.maxAttendees) : null,
         price: formData.priceType === 'paid' && formData.price ? parseFloat(formData.price) : 0,
+        has_cost: formData.priceType === 'paid',
+        sponsor_info: formData.sponsorInfo || null,
+        allow_volunteering: !!formData.allowVolunteering,
         tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
         organizer_name: formData.organizerName,
         organizer_email: formData.organizerEmail,
@@ -451,66 +464,48 @@ const EditEvent = () => {
                 Note: This will be shown in the event details page.
               </p>
             </div>
-            
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Category
+                Pricing
               </label>
               <select
-                name="category"
-                value={formData.category}
+                name="priceType"
+                value={formData.priceType}
                 onChange={handleInputChange}
                 className="form-select w-full px-3 py-2 rounded-lg"
               >
-                {categories.map(cat => (
-                  <option key={cat.value} value={cat.value}>{cat.label}</option>
-                ))}
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Event Type
-              </label>
-              <select
-                name="type"
-                value={formData.type}
-                onChange={handleInputChange}
-                className="form-select w-full px-3 py-2 rounded-lg"
-              >
-                <option value="in-person">In-Person</option>
-                <option value="virtual">Virtual</option>
-                <option value="hybrid">Hybrid</option>
+                <option value="free">Free</option>
+                <option value="paid">Paid</option>
               </select>
             </div>
 
-            <div className="md:col-span-3">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tags
-              </label>
-              <input
-                type="text"
-                name="tags"
-                value={formData.tags}
-                onChange={handleInputChange}
-                className="form-input w-full px-3 py-2 rounded-lg"
-                placeholder="e.g., tech, networking, workshop"
-              />
-              <p className="text-sm text-gray-500 mt-1">
-                Use commas to separate tags.
-              </p>
-            </div>
+            {formData.priceType === 'paid' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Price (₹) *
+                </label>
+                <input
+                  type="number"
+                  name="price"
+                  value={formData.price}
+                  onChange={handleInputChange}
+                  className={`form-input w-full px-3 py-2 rounded-lg ${errors.price ? 'border-red-500' : ''}`}
+                  placeholder="Enter price"
+                />
+                {errors.price && <p className="text-red-500 text-sm mt-1">{errors.price}</p>}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Date & Location */}
+        {/* Date & Time */}
         <div className="glass-card rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Date & Location</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Date & Time</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Date *
+                Event Date *
               </label>
               <input
                 type="date"
@@ -551,7 +546,7 @@ const EditEvent = () => {
             </div>
             
             {formData.type === 'in-person' && (
-              <div className="md:col-span-3">
+              <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Venue Name *
                 </label>
@@ -568,7 +563,7 @@ const EditEvent = () => {
             )}
 
             {(formData.type === 'in-person' || formData.type === 'hybrid') && (
-              <div className="md:col-span-3">
+              <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Address
                 </label>
@@ -585,7 +580,7 @@ const EditEvent = () => {
             )}
 
             {(formData.type === 'virtual' || formData.type === 'hybrid') && (
-              <div className="md:col-span-3">
+              <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Virtual Meeting Link
                 </label>
@@ -660,11 +655,30 @@ const EditEvent = () => {
           </div>
         </div>
 
+        {/* Sponsor Information */}
+        <div className="glass-card rounded-lg p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Sponsor Information</h2>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Sponsor Information
+            </label>
+            <textarea
+              name="sponsorInfo"
+              value={formData.sponsorInfo}
+              onChange={handleInputChange}
+              rows="2"
+              className="form-textarea w-full px-3 py-2 rounded-lg"
+              placeholder="List event sponsors or partners (optional)"
+            ></textarea>
+          </div>
+        </div>
+
         {/* Organizer Information */}
         <div className="glass-card rounded-lg p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Organizer Information</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Organizer Name *

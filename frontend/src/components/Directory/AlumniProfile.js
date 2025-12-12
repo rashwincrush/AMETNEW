@@ -127,6 +127,30 @@ const AlumniProfile = () => {
         const nameFromParts = `${(data.first_name || '').trim()} ${(data.last_name || '').trim()}`.trim();
         const name = (data.full_name || '').trim() || nameFromParts || 'Unknown';
 
+        // Education: prefer structured list from v_profile_degrees_education when available,
+        // fall back to any education array projected by the directory view.
+        let education = Array.isArray(data.education) ? data.education : [];
+        try {
+          const { data: degreesRow, error: degreesError } = await supabase
+            .from('v_profile_degrees_education')
+            .select('education')
+            .eq('profile_id', id)
+            .maybeSingle();
+
+          if (!degreesError && Array.isArray(degreesRow?.education)) {
+            // Normalize keys to match AlumniProfile expectations
+            education = degreesRow.education.map((deg) => ({
+              degree: deg.degree,
+              institution: deg.institution,
+              year: deg.year,
+              grade: deg.grade ?? null,
+              is_primary: deg.is_primary ?? false,
+            }));
+          }
+        } catch (degreesErr) {
+          logger.error('Error loading directory education from v_profile_degrees_education:', degreesErr);
+        }
+
         const transformed = {
           id: data.id,
           name,
@@ -151,7 +175,7 @@ const AlumniProfile = () => {
             !Array.isArray(rawExperience) && typeof rawExperience === 'string'
               ? rawExperience
               : '',
-          education: Array.isArray(data.education) ? data.education : [],
+          education,
           skills: Array.isArray(data.skills) ? data.skills : [],
           achievements: Array.isArray(data.achievements)
             ? data.achievements
@@ -401,18 +425,42 @@ const AlumniProfile = () => {
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Education</h2>
               <div className="space-y-4">
                 {Array.isArray(alumnus.education) && alumnus.education.length > 0 ? (
-                  alumnus.education.map((edu, index) => (
-                    <div key={index} className="flex items-start space-x-3">
-                      <div className="w-10 h-10 bg-slate-100 ring-1 ring-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
-                        <AcademicCapIcon className="w-5 h-5 text-slate-600" aria-hidden="true" />
+                  alumnus.education.map((edu, index) => {
+                    const hasYear = !!edu.year;
+                    const hasGrade = !!edu.grade;
+                    let metaLine = '';
+                    if (hasYear && hasGrade) {
+                      // Example: "2023 · First Class"
+                      metaLine = `${edu.year} · ${edu.grade}`;
+                    } else if (hasYear) {
+                      // Example: "Class of 2023"
+                      metaLine = `Class of ${edu.year}`;
+                    } else if (hasGrade) {
+                      metaLine = String(edu.grade);
+                    }
+
+                    return (
+                      <div key={index} className="flex items-start space-x-3">
+                        <div className="w-10 h-10 bg-slate-100 ring-1 ring-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <AcademicCapIcon className="w-5 h-5 text-slate-600" aria-hidden="true" />
+                        </div>
+                        <div className="flex-1">
+                          {edu.degree && (
+                            <h3 className="font-semibold text-slate-900">{edu.degree}</h3>
+                          )}
+                          {edu.institution && (
+                            <p className="text-ocean-600 font-medium">{edu.institution}</p>
+                          )}
+                          {edu.is_primary && alumnus.departmentLabel && (
+                            <p className="text-sm text-slate-700">{alumnus.departmentLabel}</p>
+                          )}
+                          {metaLine && (
+                            <p className="text-sm text-slate-600">{metaLine}</p>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-slate-900">{edu.degree}</h3>
-                        <p className="text-ocean-600 font-medium">{edu.institution}</p>
-                        <p className="text-sm text-slate-600">{edu.year} 􏿾f {edu.grade}</p>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   (alumnus.degreeLabel || alumnus.degree_code || alumnus.departmentLabel || alumnus.graduationYear) ? (
                     <div className="flex items-start space-x-3">

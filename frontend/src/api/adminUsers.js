@@ -1,5 +1,6 @@
 import { supabase } from '../utils/supabase';
 import logger from '../utils/logger';
+import { adminCountProfilesForApproval } from './admin';
 
 // Admin Users API client built on top of existing admin RPCs.
 // Currently uses admin_list_profiles_for_approval as the grid source,
@@ -70,12 +71,20 @@ export async function fetchAdminUserGrid({ search, role, status, page, pageSize 
     };
   });
 
-  // Future-friendly: if/when the grid RPC returns total_count per row,
-  // we can surface it here without changing callers.
-  const totalCount =
-    rows.length && typeof rows[0]?.total_count === 'number'
-      ? rows[0].total_count
-      : undefined;
+  let totalCount;
+  try {
+    // Use the dedicated counting RPC so pagination metadata stays correct
+    // and consistent with the filters applied to the main grid.
+    totalCount = await adminCountProfilesForApproval({
+      status,
+      role,
+      search,
+    });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    logger.error('admin_count_profiles_for_approval failed:', error);
+    totalCount = undefined;
+  }
 
   return { rows, totalCount };
 }

@@ -8,7 +8,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import useDirectorySecure from '../../hooks/useDirectorySecure';
 import useRoleCounts from '../../hooks/useRoleCounts';
 import { ErrorState, PartialResultsBanner } from '../shared/ListStates';
-import { useAcademicsCatalog } from '../../hooks/useAcademicsCatalog';
 
 export default function DirectoryPage() {
   const [me, setMe] = useState(null);
@@ -27,14 +26,16 @@ export default function DirectoryPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({
     graduation_year: '',
-    degree_code: '',
-    department_id: '',
+    department: '',
+    degree_program: '',
     current_job_title: '',
     company: '',
     location: ''
   });
   // Guard to avoid effect loop when rels arrive
   const [relsLoaded, setRelsLoaded] = useState(false);
+  // Aggregated education text for search (from v_profile_degrees_education)
+  const [educationSearchById, setEducationSearchById] = useState(new Map());
 
   // Ensure page starts at the top when navigating from dashboard/other routes
   useEffect(() => {
@@ -87,22 +88,6 @@ export default function DirectoryPage() {
   // Role-based counts for Alumni / Students / Employers
   const { displayCounts: roleCounts } = useRoleCounts();
 
-  // DB-driven academics catalog for degree/department filters
-  const { degrees, groups, getDepartments } = useAcademicsCatalog();
-
-  const getDegreeLabel = useCallback((code) => {
-    if (!code) return '';
-    const found = degrees.find(d => d.degree_code === code);
-    return found?.degree_label || code;
-  }, [degrees]);
-
-  const getDepartmentLabel = useCallback((degreeCode, depId) => {
-    if (!degreeCode || !depId) return '';
-    const group = groups.find(g => g.degree_code === degreeCode);
-    const dep = group?.departments?.find(d => String(d.id) === String(depId));
-    return dep?.name || '';
-  }, [groups]);
-
   // Directory data via secure RPC (get_directory_profiles_secure)
   const {
     data: secureRows,
@@ -139,6 +124,56 @@ export default function DirectoryPage() {
     () => (secureRows || []).map((row) => ({ ...row, _raw: row })),
     [secureRows]
   );
+
+  // Load aggregated education for current page of profiles so search can
+  // match additional degrees as well.
+  useEffect(() => {
+    const ids = (secureRows || []).map((r) => r.id).filter(Boolean);
+    if (!ids.length) {
+      setEducationSearchById(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('v_profile_degrees_education')
+          .select('profile_id, education')
+          .in('profile_id', ids);
+
+        if (error) throw error;
+
+        const map = new Map();
+        (data || []).forEach((row) => {
+          const parts = [];
+          if (Array.isArray(row.education)) {
+            row.education.forEach((deg) => {
+              if (!deg) return;
+              if (deg.degree) parts.push(String(deg.degree));
+              if (deg.institution) parts.push(String(deg.institution));
+              if (deg.year) parts.push(String(deg.year));
+            });
+          }
+          map.set(row.profile_id, parts.join(' ').toLowerCase());
+        });
+
+        if (!cancelled) {
+          setEducationSearchById(map);
+        }
+      } catch (e) {
+        // Best-effort only; directory should continue to work even if this view
+        // is unavailable or partially populated.
+        if (!cancelled) {
+          setEducationSearchById(new Map());
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [secureRows]);
 
   // Counts passed to ChipBar; hide certain counts for non-admin roles per requirements.
   // Alumni / Students / Employers counts now come from role-aware backend RPCs via useRoleCounts.
@@ -219,7 +254,7 @@ export default function DirectoryPage() {
     if (!me) return;
     if (!['alumni', 'students'].includes(activeFilter) && !relsLoaded) return;
     // No-op: hook handles data loading. We keep this effect to honor dependencies without warnings.
-  }, [me, debouncedSearch, currentPage, itemsPerPage, activeFilter, filters.graduation_year, filters.degree_code, filters.department_id, sortBy, tabIds, relsLoaded]);
+  }, [me, debouncedSearch, currentPage, itemsPerPage, activeFilter, filters.graduation_year, filters.department, sortBy, tabIds, relsLoaded]);
 
   // Realtime: refetch rels + counts on any connections change for me
   useConnectionsRealtime(me?.id, reloadRelsAndCounts);
@@ -280,6 +315,7 @@ export default function DirectoryPage() {
     if (qSearch) {
       list = list.filter((p) => {
         const raw = p._raw || p;
+        const educationSearch = educationSearchById.get(raw.id) || '';
         const haystack = [
           raw.name,
           raw.full_name,
@@ -293,6 +329,7 @@ export default function DirectoryPage() {
           raw.location,
           raw.location_city,
           raw.location_country,
+          educationSearch,
         ]
           .filter(Boolean)
           .join(' ')
@@ -303,24 +340,24 @@ export default function DirectoryPage() {
 
     // Apply UI filters (batch year, department, degree, designation, location)
     const qYear = filters.graduation_year ? Number(filters.graduation_year) : null;
-    const qDegreeCode = (filters.degree_code || '').trim();
-    const qDeptId = (filters.department_id || '').trim();
+    const qDept = (filters.department || '').trim().toLowerCase();
+    const qDegree = (filters.degree_program || '').trim().toLowerCase();
     const qTitle = (filters.current_job_title || '').trim().toLowerCase();
     const qCompany = (filters.company || '').trim().toLowerCase();
     const qLoc = (filters.location || '').trim().toLowerCase();
 
-    if (qYear || qDegreeCode || qDeptId || qTitle || qCompany || qLoc) {
+    if (qYear || qDept || qDegree || qTitle || qCompany || qLoc) {
       list = list.filter((p) => {
         const raw = p._raw || p;
 
         const yearVal = raw.graduation_year ?? raw.batch_year ?? null;
         if (qYear !== null && Number(yearVal || 0) !== qYear) return false;
 
-        const degreeCodeVal = raw.degree_code ? String(raw.degree_code).trim() : '';
-        if (qDegreeCode && degreeCodeVal !== qDegreeCode) return false;
+        const deptVal = String(raw.department || '').toLowerCase();
+        if (qDept && !deptVal.includes(qDept)) return false;
 
-        const deptIdVal = raw.department_id ? String(raw.department_id).trim() : '';
-        if (qDeptId && deptIdVal !== qDeptId) return false;
+        const degreeVal = String(raw.degree_program || raw.degree || '').toLowerCase();
+        if (qDegree && !degreeVal.includes(qDegree)) return false;
 
         const titleVal = String(raw.current_job_title || raw.current_title || raw.job_title || '').toLowerCase();
         if (qTitle && !titleVal.includes(qTitle)) return false;
@@ -337,8 +374,9 @@ export default function DirectoryPage() {
         return true;
       });
     }
+
     return list;
-  }, [withRel, rest, activeFilter, applyFilter, debouncedSearch, filters.graduation_year, filters.degree_code, filters.department_id, filters.current_job_title, filters.company, filters.location]);
+  }, [withRel, rest, activeFilter, applyFilter, debouncedSearch, filters.graduation_year, filters.department, filters.degree_program, filters.current_job_title, filters.company, filters.location, educationSearchById]);
 
   // The secure RPC already applies pagination and sorting via page/pageSize/sortBy;
   // we only apply client-side filters (batch/department/degree/title/location).
@@ -452,7 +490,7 @@ export default function DirectoryPage() {
       )}
 
       {/* Active filter chips (batch/department) below the header */}
-      {(filters.graduation_year || filters.degree_code || filters.department_id) && (
+      {(filters.graduation_year || filters.department) && (
         <div className="flex flex-wrap items-center gap-2 px-2">
           {filters.graduation_year && (
             <span className="flex items-center gap-1.5 rounded-xl border border-ocean-300 bg-ocean-100 pl-3 pr-1.5 py-1.5 text-xs font-semibold text-ocean-800 shadow-sm">
@@ -467,25 +505,12 @@ export default function DirectoryPage() {
               </button>
             </span>
           )}
-          {filters.degree_code && (
+          {filters.department && (
             <span className="flex items-center gap-1.5 rounded-xl border border-ocean-300 bg-ocean-100 pl-3 pr-1.5 py-1.5 text-xs font-semibold text-ocean-800 shadow-sm">
-              Degree: <span className="font-bold">{getDegreeLabel(filters.degree_code)}</span>
+              Department: <span className="font-bold">{filters.department}</span>
               <button
                 type="button"
-                onClick={() => { setFilters(f => ({ ...f, degree_code: '', department_id: '' })); setCurrentPage(1); }}
-                className="ml-1 rounded-full bg-ocean-200 hover:bg-ocean-300 p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1"
-                aria-label="Remove degree filter"
-              >
-                <XMarkIcon className="h-3.5 w-3.5 text-ocean-700" aria-hidden="true" />
-              </button>
-            </span>
-          )}
-          {filters.department_id && (
-            <span className="flex items-center gap-1.5 rounded-xl border border-ocean-300 bg-ocean-100 pl-3 pr-1.5 py-1.5 text-xs font-semibold text-ocean-800 shadow-sm">
-              Department: <span className="font-bold">{getDepartmentLabel(filters.degree_code, filters.department_id) || filters.department_id}</span>
-              <button
-                type="button"
-                onClick={() => { setFilters(f => ({ ...f, department_id: '' })); setCurrentPage(1); }}
+                onClick={() => { setFilters(f => ({ ...f, department: '' })); setCurrentPage(1); }}
                 className="ml-1 rounded-full bg-ocean-200 hover:bg-ocean-300 p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-1"
                 aria-label="Remove department filter"
               >
@@ -495,7 +520,7 @@ export default function DirectoryPage() {
           )}
           <button
             type="button"
-            onClick={() => { setFilters({ graduation_year: '', degree_code: '', department_id: '', current_job_title: '', company: '', location: '' }); setCurrentPage(1); }}
+            onClick={() => { setFilters({ graduation_year: '', department: '' }); setCurrentPage(1); }}
             className="inline-flex items-center justify-center min-h-[36px] px-3 text-xs font-semibold text-ocean-700 underline-offset-2 hover:underline rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
             aria-label="Clear all filters"
           >
@@ -551,20 +576,19 @@ export default function DirectoryPage() {
         )}
 
         {/* Partial results banner - shows when filters are active */}
-        {!loading && !dirError && pageItems.length > 0 && (debouncedSearch || filters.graduation_year || filters.degree_code || filters.department_id) && (
+        {!loading && !dirError && pageItems.length > 0 && (debouncedSearch || filters.graduation_year || filters.department) && (
           <PartialResultsBanner
             count={pageItems.length}
             totalCount={totalCount}
             filterDescription={[
               debouncedSearch && `search: "${debouncedSearch}"`,
               filters.graduation_year && `batch: ${filters.graduation_year}`,
-              filters.degree_code && `degree: ${getDegreeLabel(filters.degree_code)}`,
-              filters.department_id && `department: ${getDepartmentLabel(filters.degree_code, filters.department_id) || filters.department_id}`,
+              filters.department && `department: ${filters.department}`,
               filters.company && `company: ${filters.company}`,
             ].filter(Boolean).join(', ')}
             onClearFilters={() => {
               setSearchTerm('');
-              setFilters({ graduation_year: '', degree_code: '', department_id: '', current_job_title: '', company: '', location: '' });
+              setFilters({ graduation_year: '', department: '', degree_program: '', current_job_title: '', company: '', location: '' });
               setCurrentPage(1);
             }}
             className="mb-4"
@@ -587,12 +611,12 @@ export default function DirectoryPage() {
                   ? 'No matching profiles found. As a current student, your profile will appear here after you become an alumnus and your details are approved.'
                   : 'No approved profiles found. Profiles appear here after admin approval.'}
             </p>
-            {(debouncedSearch || filters.graduation_year || filters.degree_code || filters.department_id) && (
+            {(debouncedSearch || filters.graduation_year || filters.department) && (
               <button
                 type="button"
                 onClick={() => {
                   setSearchTerm('');
-                  setFilters({ graduation_year: '', degree_code: '', department_id: '', current_job_title: '', company: '', location: '' });
+                  setFilters({ graduation_year: '', department: '', degree_program: '', current_job_title: '', company: '', location: '' });
                   setCurrentPage(1);
                 }}
                 className="btn-primary mt-4"
@@ -671,45 +695,27 @@ export default function DirectoryPage() {
                   </div>
                   
                   <div className="space-y-2">
-                    <label className="block text-sm font-medium text-slate-700">Degree</label>
-                    <select
-                      value={filters.degree_code}
-                      onChange={(e) => {
-                        const nextDegree = e.target.value;
-                        setFilters(f => ({
-                          ...f,
-                          degree_code: nextDegree,
-                          department_id: '',
-                        }));
-                      }}
-                      aria-label="Filter by degree"
+                    <label className="block text-sm font-medium text-slate-700">Department</label>
+                    <input
+                      type="text"
+                      value={filters.department}
+                      onChange={(e) => setFilters(f => ({ ...f, department: e.target.value }))}
+                      placeholder="e.g., Marine Engineering"
+                      aria-label="Filter by department"
                       className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white py-2.5 px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
-                    >
-                      <option value="">All degrees</option>
-                      {degrees.map((deg) => (
-                        <option key={deg.degree_code} value={deg.degree_code}>
-                          {deg.degree_label}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </div>
 
                   <div className="space-y-2">
-                    <label className="block text-sm font-medium text-slate-700">Department</label>
-                    <select
-                      value={filters.department_id}
-                      onChange={(e) => setFilters(f => ({ ...f, department_id: e.target.value }))}
-                      aria-label="Filter by department"
-                      disabled={!filters.degree_code}
-                      className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white py-2.5 px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed"
-                    >
-                      <option value="">{filters.degree_code ? 'All departments' : 'Select a degree first'}</option>
-                      {getDepartments(filters.degree_code).map((dep) => (
-                        <option key={dep.id} value={dep.id}>
-                          {dep.name}
-                        </option>
-                      ))}
-                    </select>
+                    <label className="block text-sm font-medium text-slate-700">Degree</label>
+                    <input
+                      type="text"
+                      value={filters.degree_program}
+                      onChange={(e) => setFilters(f => ({ ...f, degree_program: e.target.value }))}
+                      placeholder="e.g., B.E. Marine"
+                      aria-label="Filter by degree"
+                      className="w-full min-h-[44px] rounded-lg border border-slate-300 bg-white py-2.5 px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:border-ocean-500"
+                    />
                   </div>
 
                   <div className="space-y-2">
@@ -755,7 +761,7 @@ export default function DirectoryPage() {
                 <div className="flex items-center justify-between gap-4">
                   <button
                     type="button"
-                    onClick={() => { setFilters({ graduation_year: '', degree_code: '', department_id: '', current_job_title: '', company: '', location: '' }); }}
+                    onClick={() => { setFilters({ graduation_year: '', department: '', degree_program: '', current_job_title: '', company: '', location: '' }); }}
                     className="inline-flex items-center justify-center min-h-[44px] px-6 rounded-lg bg-slate-100 text-slate-800 font-medium hover:bg-slate-200 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                   >
                     Clear All

@@ -4,7 +4,7 @@ import { supabase } from '../../utils/supabase';
 import logger from '../../utils/logger';
 import Avatar from '../common/Avatar';
 import { useAvatars } from '../../hooks/useAvatar';
-import { adminUpdateProfileApproval, adminListProfilesForApproval } from '../../api/admin';
+import { adminUpdateProfileApproval, adminListProfilesForApproval, adminCountProfilesForApproval } from '../../api/admin';
 import { isRole } from '../../utils/roles';
 import { changeUserRole } from '../../utils/changeUserRole';
 import { getAccountStatus, ACCOUNT_STATUS_META } from '../../utils/accountStatus';
@@ -48,6 +48,7 @@ const UserManagement = () => {
   const searchInputRef = useRef(null);
   const PAGE_SIZE = 20;
   const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(null);
 
   const [filters, setFilters] = useState({
     role: 'all',
@@ -211,20 +212,29 @@ const UserManagement = () => {
       const limit = PAGE_SIZE;
       const offset = (page - 1) * PAGE_SIZE;
 
-      const rows = await adminListProfilesForApproval({
-        status: activeStatusFilter || null,
-        role: activeRoleFilter || null,
-        search: q || null,
-        limit,
-        offset,
-      });
+      const [rows, count] = await Promise.all([
+        adminListProfilesForApproval({
+          status: activeStatusFilter || null,
+          role: activeRoleFilter || null,
+          search: q || null,
+          limit,
+          offset,
+        }),
+        adminCountProfilesForApproval({
+          status: activeStatusFilter || null,
+          role: activeRoleFilter || null,
+          search: q || null,
+        }),
+      ]);
 
       const data = Array.isArray(rows) ? rows : [];
       setUsers(data);
+      setTotalCount(typeof count === 'number' ? count : Number(count) || data.length);
     } catch (error) {
       logger.error('Error fetching users:', error);
       toast.error('Could not fetch users.');
       setUsers([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
       if (initialLoading) setInitialLoading(false);
@@ -274,6 +284,21 @@ const UserManagement = () => {
       return searchMatch && roleMatch && statusMatch && tabMatch;
     });
   }, [users, searchQuery, filters, selectedTab]);
+
+  const totalPages = useMemo(() => {
+    if (totalCount == null || totalCount <= 0) return 1;
+    return Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  }, [totalCount]);
+
+  const pageStartIndex = useMemo(() => {
+    if (!filteredUsers.length) return 0;
+    return (page - 1) * PAGE_SIZE + 1;
+  }, [page, filteredUsers.length]);
+
+  const pageEndIndex = useMemo(() => {
+    if (!filteredUsers.length || pageStartIndex === 0) return 0;
+    return pageStartIndex + filteredUsers.length - 1;
+  }, [pageStartIndex, filteredUsers.length]);
 
   const avatarUserIds = Array.from(new Set(
     (filteredUsers || []).map((u) => u.id).filter(Boolean)
@@ -953,7 +978,30 @@ const UserManagement = () => {
           {selectedTab !== 'mentors' && (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-6">
               <p className="text-sm text-gray-600">
-                Page <span className="font-medium">{page}</span> • Showing <span className="font-medium">{filteredUsers.length}</span>
+                {totalCount != null && totalCount > 0 ? (
+                  <>
+                    Showing{' '}
+                    <span className="font-medium">{pageStartIndex}</span>
+                    {'–'}
+                    <span className="font-medium">{pageEndIndex}</span>
+                    {' '}of <span className="font-medium">{totalCount}</span> users
+                    {' '}• Page <span className="font-medium">{page}</span>
+                    {totalPages > 1 && (
+                      <>
+                        {' '}/ <span className="font-medium">{totalPages}</span>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    Page <span className="font-medium">{page}</span>
+                    {totalPages > 1 && (
+                      <>
+                        {' '}of <span className="font-medium">{totalPages}</span>
+                      </>
+                    )}
+                  </>
+                )}
               </p>
               <div className="flex space-x-2">
                 <button 
@@ -965,7 +1013,7 @@ const UserManagement = () => {
                 </button>
                 <button 
                   onClick={() => setPage(p => p + 1)}
-                  disabled={users.length < PAGE_SIZE}
+                  disabled={page >= totalPages}
                   className="inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-ocean-600 text-ocean-600 hover:bg-ocean-600 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed text-sm transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
                 >
                   Next

@@ -18,11 +18,9 @@ import {
   ClipboardDocumentListIcon,
   WrenchScrewdriverIcon,
   ChatBubbleLeftRightIcon,
-  ChevronDownIcon,
 } from '@heroicons/react/24/outline';
 import PermissionGate from '../PermissionGate';
 import SecurityCheck from './SecurityCheck';
-import ActivityLogs from './ActivityLogs';
 
 // Reports component that includes CSV Export functionality and Feedback Report
 const Reports = () => {
@@ -71,7 +69,6 @@ const SystemAdministration = () => {
   const [targetEmail, setTargetEmail] = useState('');
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [selectedUserForRoleChange, setSelectedUserForRoleChange] = useState(null);
-  const [showActivityLogs, setShowActivityLogs] = useState(false);
 
   // Fetch admin users when component mounts
   React.useEffect(() => {
@@ -254,30 +251,6 @@ const SystemAdministration = () => {
               </div>
             </div>
           ))}
-        </div>
-        <div className="mt-8">
-          <button
-            type="button"
-            onClick={() => setShowActivityLogs(prev => !prev)}
-            className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-left transition-colors focus:outline-none focus:ring-2 focus:ring-ocean-500 focus:ring-offset-2"
-            aria-expanded={showActivityLogs}
-          >
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">User Activity Logs</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                View what users are doing across modules. Time, who did it, what they did, and where.
-              </p>
-            </div>
-            <ChevronDownIcon
-              className={`h-5 w-5 text-slate-500 transition-transform ${showActivityLogs ? 'rotate-0' : '-rotate-90'}`}
-              aria-hidden="true"
-            />
-          </button>
-          {showActivityLogs && (
-            <div className="mt-4">
-              <ActivityLogs />
-            </div>
-          )}
         </div>
       </div>
     </div>

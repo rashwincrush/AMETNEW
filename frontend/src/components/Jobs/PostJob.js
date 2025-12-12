@@ -78,6 +78,10 @@ const PostJob = () => {
     qualifications: '', // Will be mapped to requirements
     nice_to_have_skills: '', // Will be mapped to skills array
     contact_email: '', // Renamed from hiring_contact_email
+    // New fields for education requirements and contact info
+    education_requirements: '', // Minimum education required
+    contact_name: '', // Hiring manager name
+    contact_phone: '', // Hiring contact phone
     // Internal fields
     company_id: null,
     logo_url: '',
@@ -577,6 +581,24 @@ const PostJob = () => {
             <Grid item xs={12} sm={6}>
               <TextField fullWidth type="date" name="deadline" label="Application Deadline" value={formData.deadline} onChange={handleChange} InputLabelProps={{ shrink: true }} />
             </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField 
+                select 
+                fullWidth 
+                name="education_requirements" 
+                label="Minimum Education Required" 
+                value={formData.education_requirements} 
+                onChange={handleChange}
+              >
+                <MenuItem value="">Not specified</MenuItem>
+                <MenuItem value="high_school">High School</MenuItem>
+                <MenuItem value="diploma">Diploma</MenuItem>
+                <MenuItem value="bachelors">Bachelor's Degree</MenuItem>
+                <MenuItem value="masters">Master's Degree</MenuItem>
+                <MenuItem value="phd">Ph.D.</MenuItem>
+                <MenuItem value="professional">Professional Certification</MenuItem>
+              </TextField>
+            </Grid>
             <Grid item xs={12}>
               <Divider sx={{ my: 2 }}><Typography variant="overline">Company Details</Typography></Divider>
             </Grid>
@@ -611,12 +633,26 @@ const PostJob = () => {
               </Box>
               <Typography variant="caption" color="text.secondary">
                 Upload your official <strong>company logo</strong>. This logo will be shown for this company across all of
-                its jobs in the portal. If you don’t upload one, your profile picture will be used temporarily until a
+                its jobs in the portal. If you don't upload one, your profile picture will be used temporarily until a
                 proper company logo is set.
               </Typography>
             </Grid>
+            <Grid item xs={12}>
+              <Divider sx={{ my: 2 }}><Typography variant="overline">Contact Information</Typography></Divider>
+            </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="contact_email" type="email" label="Hiring Contact Email (Internal Only)" value={formData.contact_email} onChange={handleChange} error={!!errors.contact_email} helperText={errors.contact_email} />
+              <TextField fullWidth name="contact_name" label="Hiring Manager Name" value={formData.contact_name} onChange={handleChange} placeholder="e.g., John Smith" />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth name="contact_email" type="email" label="Hiring Contact Email" value={formData.contact_email} onChange={handleChange} error={!!errors.contact_email} helperText={errors.contact_email} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth name="contact_phone" type="tel" label="Hiring Contact Phone" value={formData.contact_phone} onChange={handleChange} placeholder="e.g., +91 9876543210" />
+            </Grid>
+            <Grid item xs={12}>
+              <Typography variant="caption" color="text.secondary">
+                Contact information is for internal use and will only be shared with applicants when appropriate.
+              </Typography>
             </Grid>
           </Grid>
         );

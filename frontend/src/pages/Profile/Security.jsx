@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Typography, Paper, Divider } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 import SecurityPasswordForm from '../../components/Profile/SecurityPasswordForm';
+import SecurityQuestionForm from '../../components/Profile/SecurityQuestionForm';
 
 export default function Security() {
   const { user } = useAuth();
@@ -29,6 +30,11 @@ export default function Security() {
           providers={user?.app_metadata?.providers || []}
         />
       </Paper>
+
+      {/* Security Question for account recovery */}
+      <Box sx={{ mt: 3 }}>
+        <SecurityQuestionForm />
+      </Box>
 
       {/* Future: Add 2FA toggle here */}
     </Box>

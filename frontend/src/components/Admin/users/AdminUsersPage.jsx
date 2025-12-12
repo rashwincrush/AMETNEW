@@ -27,6 +27,7 @@ import {
   adminUpdateMenteeStatus,
   adminUpdateMentorStatus,
 } from '../../../services/adminMentorship';
+import { ConfirmationDialog } from '../../../components/shared';
 
 const PAGE_SIZE = 20;
 
@@ -45,6 +46,7 @@ export default function AdminUsersPage() {
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
 
   const [isMutating, setIsMutating] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(null); // { type, user, ids, count }
 
   // Debounce search to reduce RPC chatter
   useEffect(() => {
@@ -271,39 +273,16 @@ export default function AdminUsersPage() {
     }
   };
 
-  const handleSoftDelete = async (user) => {
+  const handleSoftDelete = (user) => {
     if (user.id === currentUser?.id) {
       toast.error('You cannot delete your own account.');
       return;
     }
 
-    if (
-      !window.confirm(
-        `Are you sure you want to soft delete user ${user.email || user.id}? They can be restored later.`
-      )
-    ) {
-      return;
-    }
-
-    setIsMutating(true);
-    try {
-      await adminUsersSoftDelete({
-        userId: user.id,
-        reason: 'Soft delete from Admin Users page',
-      });
-      await refetch();
-      toast.success('User soft-deleted');
-    } catch (err) {
-      logger.error('Error soft-deleting user:', err);
-      toast.error(
-        `Failed to delete user: ${getFriendlyErrorMessage(
-          err,
-          'Unable to delete user.'
-        )}`
-      );
-    } finally {
-      setIsMutating(false);
-    }
+    setConfirmDialog({
+      type: 'soft-delete',
+      user,
+    });
   };
 
   const handlePurge = async (user) => {
@@ -312,66 +291,22 @@ export default function AdminUsersPage() {
       return;
     }
 
-    if (
-      !window.confirm(
-        `Are you sure you want to PERMANENTLY PURGE all data for user ${
-          user.email || user.id
-        }? This cannot be undone!`
-      )
-    ) {
-      return;
-    }
-
-    setIsMutating(true);
-    try {
-      await adminUsersPurgeData({ userId: user.id });
-      await refetch();
-      toast.success('User data purged');
-    } catch (err) {
-      logger.error('Error purging user data:', err);
-      toast.error(
-        `Failed to purge user data: ${getFriendlyErrorMessage(
-          err,
-          'Unable to purge user data.'
-        )}`
-      );
-    } finally {
-      setIsMutating(false);
-    }
+    setConfirmDialog({
+      type: 'purge',
+      user,
+    });
   };
 
-  const handleDeleteAuth = async (user) => {
+  const handleDeleteAuth = (user) => {
     if (user.id === currentUser?.id) {
       toast.error('You cannot delete your own account.');
       return;
     }
 
-    if (
-      !window.confirm(
-        `This will permanently delete the user from Supabase Auth. Continue for ${
-          user.email || user.id
-        }?`
-      )
-    ) {
-      return;
-    }
-
-    setIsMutating(true);
-    try {
-      await adminUsersDeleteAuthUser({ userId: user.id });
-      await refetch();
-      toast.success('Auth user deleted successfully');
-    } catch (err) {
-      logger.error('Error deleting auth user:', err);
-      toast.error(
-        `Failed to delete auth user: ${getFriendlyErrorMessage(
-          err,
-          'Unable to delete auth user.'
-        )}`
-      );
-    } finally {
-      setIsMutating(false);
-    }
+    setConfirmDialog({
+      type: 'delete-auth',
+      user,
+    });
   };
 
   const handleMenteeAction = async (userId, status) => {
@@ -440,34 +375,112 @@ export default function AdminUsersPage() {
     }
 
     if (action === 'delete') {
-      if (
-        !window.confirm(
-          `Soft delete ${selectedIds.length} user(s)? They can be restored later.`
-        )
-      )
-        return;
-      if (selectedIds.includes(currentUser?.id)) {
-        toast.error('You cannot delete your own account.');
-        return;
-      }
-      setIsMutating(true);
-      const results = await Promise.allSettled(
-        selectedIds.map((id) =>
-          adminUsersSoftDelete({
-            userId: id,
-            reason: 'Bulk soft delete from Admin Users page',
-          })
-        )
-      );
-      const ok = results.filter((r) => r.status === 'fulfilled').length;
-      const failed = results.length - ok;
-      setSelectedIds([]);
-      setIsMutating(false);
-      if (ok) toast.success(`Soft-deleted ${ok} user(s).`);
-      if (failed) toast.error(`Failed to delete ${failed} user(s).`);
-      await refetch();
+      setConfirmDialog({
+        type: 'bulk-soft-delete',
+        ids: selectedIds,
+        count: selectedIds.length,
+      });
       return;
     }
+  };
+
+  const runSoftDelete = async () => {
+    const user = confirmDialog?.user;
+    if (!user) return;
+
+    setIsMutating(true);
+    try {
+      await adminUsersSoftDelete({
+        userId: user.id,
+        reason: 'Soft delete from Admin Users page',
+      });
+      await refetch();
+      toast.success('User soft-deleted');
+    } catch (err) {
+      logger.error('Error soft-deleting user:', err);
+      toast.error(
+        `Failed to delete user: ${getFriendlyErrorMessage(
+          err,
+          'Unable to delete user.'
+        )}`
+      );
+    } finally {
+      setIsMutating(false);
+      setConfirmDialog(null);
+    }
+  };
+
+  const runPurge = async () => {
+    const user = confirmDialog?.user;
+    if (!user) return;
+
+    setIsMutating(true);
+    try {
+      await adminUsersPurgeData({ userId: user.id });
+      await refetch();
+      toast.success('User data purged');
+    } catch (err) {
+      logger.error('Error purging user data:', err);
+      toast.error(
+        `Failed to purge user data: ${getFriendlyErrorMessage(
+          err,
+          'Unable to purge user data.'
+        )}`
+      );
+    } finally {
+      setIsMutating(false);
+      setConfirmDialog(null);
+    }
+  };
+
+  const runDeleteAuth = async () => {
+    const user = confirmDialog?.user;
+    if (!user) return;
+
+    setIsMutating(true);
+    try {
+      await adminUsersDeleteAuthUser({ userId: user.id });
+      await refetch();
+      toast.success('Auth user deleted successfully');
+    } catch (err) {
+      logger.error('Error deleting auth user:', err);
+      toast.error(
+        `Failed to delete auth user: ${getFriendlyErrorMessage(
+          err,
+          'Unable to delete auth user.'
+        )}`
+      );
+    } finally {
+      setIsMutating(false);
+      setConfirmDialog(null);
+    }
+  };
+
+  const runBulkSoftDelete = async () => {
+    const ids = confirmDialog?.ids || [];
+    if (!ids.length) return;
+    if (ids.includes(currentUser?.id)) {
+      toast.error('You cannot delete your own account.');
+      return;
+    }
+
+    setIsMutating(true);
+    const results = await Promise.allSettled(
+      ids.map((id) =>
+        adminUsersSoftDelete({
+          userId: id,
+          reason: 'Bulk soft delete from Admin Users page',
+        })
+      )
+    );
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.length - ok;
+    setSelectedIds([]);
+    setIsMutating(false);
+    if (ok) toast.success(`Soft-deleted ${ok} user(s).`);
+    if (failed) toast.error(`Failed to delete ${failed} user(s).`);
+    await refetch();
+    setConfirmDialog(null);
   };
 
   return (
@@ -552,6 +565,71 @@ export default function AdminUsersPage() {
           />
         </div>
       </div>
+
+      {/* Confirmation dialogs for destructive actions */}
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'soft-delete'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={runSoftDelete}
+        title="Soft delete user"
+        description={`You are about to soft delete ${
+          confirmDialog?.user?.email || confirmDialog?.user?.full_name || 'this user'
+        }.`}
+        variant="danger"
+      >
+        <ul className="mt-3 text-sm text-gray-600 list-disc list-inside space-y-1">
+          <li>The user will no longer be able to sign in or use the platform.</li>
+          <li>Their account will be marked as deleted but retained for audit/history.</li>
+        </ul>
+      </ConfirmationDialog>
+
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'purge'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={runPurge}
+        title="Purge user data"
+        description={`DANGER: permanently purge most in-app data for ${
+          confirmDialog?.user?.email || confirmDialog?.user?.full_name || 'this user'
+        }.`}
+        variant="danger"
+      >
+        <ul className="mt-3 text-sm text-gray-600 list-disc list-inside space-y-1">
+          <li>This will remove most profile- and activity-related records from the application database.</li>
+          <li>Intended for GDPR/right-to-erasure or serious abuse cases.</li>
+          <li>This operation cannot be undone.</li>
+        </ul>
+      </ConfirmationDialog>
+
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'delete-auth'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={runDeleteAuth}
+        title="Delete Auth user"
+        description={`DANGER: delete the Supabase Auth account for ${
+          confirmDialog?.user?.email || confirmDialog?.user?.full_name || 'this user'
+        }.`}
+        variant="danger"
+      >
+        <ul className="mt-3 text-sm text-gray-600 list-disc list-inside space-y-1">
+          <li>The user will no longer be able to log in with this account.</li>
+          <li>Some data may become orphaned until it is cleaned up.</li>
+          <li>This operation cannot be undone.</li>
+        </ul>
+      </ConfirmationDialog>
+
+      <ConfirmationDialog
+        isOpen={confirmDialog?.type === 'bulk-soft-delete'}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={runBulkSoftDelete}
+        title="Soft delete multiple users"
+        description={`You are about to soft delete ${confirmDialog?.count || 0} user(s).`}
+        variant="danger"
+      >
+        <ul className="mt-3 text-sm text-gray-600 list-disc list-inside space-y-1">
+          <li>All selected users will lose access to the platform.</li>
+          <li>Their accounts will be marked as deleted but retained for audit/history.</li>
+        </ul>
+      </ConfirmationDialog>
 
       <UserDetailDrawer
         user={selectedUser}

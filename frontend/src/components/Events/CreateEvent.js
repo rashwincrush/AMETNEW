@@ -45,18 +45,22 @@ const CreateEvent = () => {
     date: '',
     startTime: '',
     endTime: '',
+    registrationDeadline: '', // New: Registration deadline
     venue: '',
     address: '',
     virtualLink: '',
     maxAttendees: '',
     price: '',
     priceType: 'free',
+    hasCost: false, // New: Event has associated costs
     requiresApproval: false,
     allowWaitingList: true,
+    allowVolunteering: false, // New: Allow volunteering signups
     tags: '',
     organizerName: '',
     organizerEmail: '',
     organizerPhone: '',
+    sponsorInfo: '', // New: Sponsor information
     image: null,
     agenda: [{ time: '', activity: '' }],
     requirements: [''],
@@ -291,11 +295,17 @@ const CreateEvent = () => {
         // Convert to ISO strings (in UTC)
         start_date: startDate.toISOString(),
         end_date: endDate.toISOString(),
+        // Registration deadline (new field)
+        registration_deadline: formData.registrationDeadline ? new Date(formData.registrationDeadline).toISOString() : null,
         venue: formData.venue,
         address: formData.address,
         virtual_link: formData.virtualLink,
         max_attendees: !isNaN(parseInt(formData.maxAttendees, 10)) ? parseInt(formData.maxAttendees, 10) : null,
         cost: formData.priceType === 'free' ? '0' : (!isNaN(parseFloat(formData.price)) ? formData.price.toString() : '0'),
+        // New cost flag
+        has_cost: formData.hasCost || formData.priceType === 'paid',
+        // Sponsor information (new field)
+        sponsor_info: formData.sponsorInfo || null,
         tags: formData.tags.split(',').map(tag => tag.trim()).filter(t => t),
         featured_image_url: null,
         agenda: JSON.stringify(formData.agenda.filter(item => item.time && item.activity)),
@@ -519,6 +529,20 @@ const CreateEvent = () => {
               />
               {errors.endTime && <p className="text-red-500 text-sm mt-1">{errors.endTime}</p>}
             </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Registration Deadline
+              </label>
+              <input
+                type="date"
+                name="registrationDeadline"
+                value={formData.registrationDeadline}
+                onChange={handleInputChange}
+                className="form-input w-full px-3 py-2 rounded-lg"
+              />
+              <p className="text-xs text-gray-500 mt-1">Leave blank for no deadline</p>
+            </div>
           </div>
         </div>
 
@@ -628,11 +652,47 @@ const CreateEvent = () => {
                   placeholder="500"
                 />
                 {errors.price && <p className="text-red-500 text-sm mt-1">{errors.price}</p>}
+                <p className="text-xs text-gray-600 mt-1">
+                  Contact organizer for payment terms.
+                </p>
               </div>
             )}
           </div>
 
-          
+          {/* Additional Options */}
+          <div className="mt-6 space-y-4">
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                id="allowVolunteering"
+                name="allowVolunteering"
+                checked={formData.allowVolunteering}
+                onChange={handleInputChange}
+                className="h-4 w-4 text-ocean-600 focus:ring-ocean-500 border-gray-300 rounded"
+              />
+              <label htmlFor="allowVolunteering" className="ml-2 block text-sm text-gray-700">
+                Allow attendees to sign up as volunteers
+              </label>
+            </div>
+            <p className="text-xs text-gray-500 ml-6">
+              Volunteers can help with event setup, registration, or other tasks
+            </p>
+          </div>
+
+          {/* Sponsor Information */}
+          <div className="mt-6">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Sponsor Information
+            </label>
+            <textarea
+              name="sponsorInfo"
+              value={formData.sponsorInfo}
+              onChange={handleInputChange}
+              rows={2}
+              className="form-input w-full px-3 py-2 rounded-lg"
+              placeholder="List event sponsors or partners (optional)"
+            />
+          </div>
         </div>
 
         {/* Event Image */}

@@ -53,6 +53,20 @@ const SUPPORTED_TABLES = [
 
 const MAX_FILE_SIZE_MB = 5;
 
+// Validation mode options
+const VALIDATION_MODES = [
+  { value: 'strict', label: 'Strict - Reject all invalid rows' },
+  { value: 'lenient', label: 'Lenient - Skip invalid rows, import valid ones' },
+  { value: 'preview', label: 'Preview Only - Validate without importing' },
+];
+
+// Duplicate handling strategies
+const DUPLICATE_STRATEGIES = [
+  { value: 'skip', label: 'Skip - Ignore duplicate records' },
+  { value: 'update', label: 'Update - Overwrite existing records' },
+  { value: 'error', label: 'Error - Fail on duplicates' },
+];
+
 const CSVImportExport = () => {
   const { user, isAdmin } = useAuth();
   const [activeStep, setActiveStep] = useState(0);
@@ -67,6 +81,9 @@ const CSVImportExport = () => {
   const [importHistory, setImportHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
+  // New: Validation and duplicate handling options
+  const [validationMode, setValidationMode] = useState('strict');
+  const [duplicateStrategy, setDuplicateStrategy] = useState('skip');
 
   useEffect(() => {
     if (isAdmin) {
@@ -231,16 +248,18 @@ const CSVImportExport = () => {
         
       if (uploadError) throw uploadError;
       
-      // Create import record
+      // Create import record with validation options
       const { error: recordError } = await supabase
         .from('csv_import_history')
         .insert([{
           user_id: user.id,
           filename: selectedFile.name,
           record_count: previewData.dataRows.length, // This is just the preview count
-          status: 'pending',
+          status: validationMode === 'preview' ? 'preview' : 'pending',
           target_table: selectedTable,
-          mapping_config: columnMapping
+          mapping_config: columnMapping,
+          validation_mode: validationMode,
+          duplicate_strategy: duplicateStrategy,
         }]);
         
       if (recordError) throw recordError;
@@ -263,6 +282,8 @@ const CSVImportExport = () => {
     setTableColumns([]);
     setColumnMapping({});
     setActiveStep(0);
+    setValidationMode('strict');
+    setDuplicateStrategy('skip');
   };
 
   const handleExport = async (tableName) => {
@@ -600,6 +621,51 @@ const CSVImportExport = () => {
                 <Typography variant="subtitle1" gutterBottom><strong>Target Table:</strong> {selectedTable}</Typography>
                 <Typography variant="subtitle1" gutterBottom><strong>Mapped Columns:</strong> {Object.values(columnMapping).filter(Boolean).length} of {Object.keys(columnMapping).length}</Typography>
               </Box>
+
+              {/* Import Options */}
+              <Typography variant="subtitle1" gutterBottom sx={{ mt: 3 }}><strong>Import Options:</strong></Typography>
+              <Grid container spacing={3} sx={{ mb: 3 }}>
+                <Grid item xs={12} md={6}>
+                  <FormControl fullWidth>
+                    <InputLabel id="validation-mode-label">Validation Mode</InputLabel>
+                    <Select
+                      labelId="validation-mode-label"
+                      value={validationMode}
+                      label="Validation Mode"
+                      onChange={(e) => setValidationMode(e.target.value)}
+                    >
+                      {VALIDATION_MODES.map(mode => (
+                        <MenuItem key={mode.value} value={mode.value}>
+                          {mode.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
+                    How to handle rows that fail validation
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <FormControl fullWidth>
+                    <InputLabel id="duplicate-strategy-label">Duplicate Handling</InputLabel>
+                    <Select
+                      labelId="duplicate-strategy-label"
+                      value={duplicateStrategy}
+                      label="Duplicate Handling"
+                      onChange={(e) => setDuplicateStrategy(e.target.value)}
+                    >
+                      {DUPLICATE_STRATEGIES.map(strategy => (
+                        <MenuItem key={strategy.value} value={strategy.value}>
+                          {strategy.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
+                    What to do when a record already exists
+                  </Typography>
+                </Grid>
+              </Grid>
               
               <Typography variant="subtitle1" gutterBottom><strong>Column Mapping:</strong></Typography>
               <TableContainer sx={{ mb: 3 }}>

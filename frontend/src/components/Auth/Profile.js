@@ -22,6 +22,9 @@ import {
   KeyIcon
 } from '@heroicons/react/24/outline';
 import ProfileResume from './ProfileResume';
+import AdditionalDegreesForm from '../Profile/AdditionalDegreesForm';
+import ProfessionalAchievementsForm from '../Profile/ProfessionalAchievementsForm';
+import { useProfileAchievements } from '../../hooks/useProfileAchievements';
 import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { loadProfileSocialLinks, saveProfileSocialLinks } from '../../services/socialLinks.js';
@@ -29,6 +32,7 @@ import { validateLinkedIn, validateGitHub, validateX, validateWebsite, findDupli
 import DegreeSelect from '../academics/DegreeSelect';
 import DepartmentSelect from '../academics/DepartmentSelect';
 import { useAcademicsCatalog } from '../../hooks/useAcademicsCatalog';
+import { useProfileDegrees } from '../../hooks/useProfileDegrees';
 import Avatar from '../common/Avatar';
 import AvatarService from '../../services/avatar';
 import { useAvatar } from '../../hooks/useAvatar';
@@ -123,7 +127,11 @@ const Profile = () => {
   const initialFormRef = useRef(null);
   // DB-driven academics catalog
   const { isValidDegree, isValidDepartmentFor, loading: catalogLoading, degrees, getDepartments } = useAcademicsCatalog();
+  const { additionalDegrees } = useProfileDegrees();
   const [skillInput, setSkillInput] = useState('');
+
+  // Achievements for this profile (used in read-only Skills & Achievements card)
+  const { achievements: achievementsList = [] } = useProfileAchievements();
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
@@ -1010,48 +1018,7 @@ const Profile = () => {
     }));
   };
 
-    const handleAddAchievement = () => {
-    setFormData(prev => {
-      // Ensure achievements array exists
-      const currentAchievements = Array.isArray(prev.achievements) ? prev.achievements : [];
-      return {
-        ...prev,
-        achievements: [...currentAchievements, { title: '', description: '' }]
-      };
-    });
-  };
-
-    const handleAchievementChange = (index, field, value) => {
-    setFormData(prev => {
-      // Ensure achievements array exists
-      const currentAchievements = Array.isArray(prev.achievements) ? [...prev.achievements] : [];
-      
-      // Ensure the achievement at this index exists
-      if (!currentAchievements[index]) {
-        currentAchievements[index] = { title: '', description: '' };
-      }
-      
-      // Update the field
-      currentAchievements[index] = { 
-        ...currentAchievements[index], 
-        [field]: value 
-      };
-      
-      return { ...prev, achievements: currentAchievements };
-    });
-  };
-
-  const handleRemoveAchievement = (index) => {
-    setFormData(prev => {
-      // Ensure achievements array exists
-      const currentAchievements = Array.isArray(prev.achievements) ? [...prev.achievements] : [];
-      
-      return {
-        ...prev,
-        achievements: currentAchievements.filter((_, i) => i !== index)
-      };
-    });
-  };
+  // Legacy inline achievements handlers removed - achievements now managed via ProfessionalAchievementsForm
 
   // Avatar uploads are now handled centrally by AvatarService.uploadAvatar
 
@@ -1133,10 +1100,10 @@ const Profile = () => {
               type="button"
               onClick={() => navigate('/update-password')}
               className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-all flex items-center"
-              aria-label="Reset Password"
+              aria-label="Password Configuration"
             >
               <KeyIcon className="w-4 h-4 mr-2" />
-              Reset Password
+              Password Configuration
             </button>
 
             <button 
@@ -1151,7 +1118,8 @@ const Profile = () => {
       </div>
 
       {isEditing ? (
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
           {/* Personal Information Section */}
           <div className="glass-card rounded-lg p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">Personal Information</h2>
@@ -1257,9 +1225,23 @@ const Profile = () => {
                 />
               </div>
             </div>
-            {/* Academic information */}
+
+            {/* About Me */}
+            <div className="mt-6 space-y-2">
+              <label className="block text-sm font-medium text-gray-700">About Me</label>
+              <textarea
+                name="about"
+                value={formData.about || ''}
+                onChange={handleChange}
+                rows={4}
+                className="form-textarea w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
+                placeholder="Tell us about yourself, your experience, and interests..."
+              />
+            </div>
+
+            {/* Primary Degree (additional degrees managed below via AdditionalDegreesForm) */}
             <div className="mt-6">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Academic information</h3>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">Primary Degree</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Unified Batch/Graduation Year field */}
                 <div className="space-y-2">
@@ -1284,69 +1266,42 @@ const Profile = () => {
                     placeholder={getBatchYearPlaceholder(getUserRole())}
                     required={getUserRole() === 'alumni' || getUserRole() === 'student'}
                   />
-                  <p className="text-xs text-gray-500">
-                    {getUserRole() === 'student' 
-                      ? 'Your expected graduation year (can be in the future)'
-                      : getUserRole() === 'alumni'
-                      ? 'Your graduation year (past or current year)'
-                      : 'Your batch or graduation year (optional for employers/admins)'}
-                  </p>
                 </div>
 
                 {!isEmployer && (
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
-                      Degree<span className="text-red-500 ml-1">*</span>
-                    </label>
-                    <DegreeSelect
-                      value={formData.degree_code || ''}
-                      onChange={(v) => setFormData(prev => ({ ...prev, degree_code: v, department_id: '' }))}
-                      required
-                    />
-                  </div>
+                  <DegreeSelect
+                    value={formData.degree_code || ''}
+                    onChange={(v) => setFormData(prev => ({ ...prev, degree_code: v, department_id: '' }))}
+                    required
+                  />
                 )}
 
                 {!isEmployer && (
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
-                      Department<span className="text-red-500 ml-1">*</span>
-                    </label>
-                    <DepartmentSelect
-                      degreeCode={formData.degree_code || ''}
-                      value={formData.department_id || ''}
-                      onChange={(v) => setFormData(prev => ({ ...prev, department_id: v }))}
-                      required
-                      disabled={!formData.degree_code}
-                    />
-                  </div>
+                  <DepartmentSelect
+                    degreeCode={formData.degree_code || ''}
+                    value={formData.department_id || ''}
+                    onChange={(v) => setFormData(prev => ({ ...prev, department_id: v }))}
+                    required
+                    disabled={!formData.degree_code}
+                  />
                 )}
 
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">Student ID <span className="text-xs text-gray-500">(optional)</span></label>
+                  <label className="block text-sm font-medium text-gray-700">Student ID</label>
                   <input
                     type="text"
                     name="student_id"
                     value={formData.student_id || ''}
                     onChange={handleChange}
                     className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                    placeholder="Enter your student ID for verification (optional)"
+                    placeholder="For verification, if applicable"
                   />
                 </div>
               </div>
             </div>
 
-            {/* About Me */}
-            <div className="mt-6 space-y-2">
-              <label className="block text-sm font-medium text-gray-700">About Me</label>
-              <textarea
-                name="about"
-                value={formData.about || ''}
-                onChange={handleChange}
-                rows={4}
-                className="form-textarea w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                placeholder="Tell us about yourself, your experience, and interests..."
-              />
-            </div>
+            {/* Additional Degrees (optional) - inline below Primary Degree */}
+            <AdditionalDegreesForm />
           </div>
 
           {/* Professional Information Section */}
@@ -1427,44 +1382,10 @@ const Profile = () => {
               </div>
             </div>
             
-            <div className="mt-4 space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Achievements</label>
-              <div className="space-y-3">
-                {Array.isArray(formData.achievements) && formData.achievements.map((achievement, index) => (
-                  <div key={index} className="p-3 border rounded-md bg-gray-50 relative space-y-2">
-                    <input
-                      type="text"
-                      placeholder="Achievement Title (e.g., Employee of the Month)"
-                      className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                      value={achievement.title || ''}
-                      onChange={(e) => handleAchievementChange(index, 'title', e.target.value)}
-                    />
-                    <textarea
-                      placeholder="Description (optional)"
-                      rows={2}
-                      className="form-textarea w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
-                      value={achievement.description || ''}
-                      onChange={(e) => handleAchievementChange(index, 'description', e.target.value)}
-                    />
-                    <button 
-                      type="button"
-                      onClick={() => handleRemoveAchievement(index)}
-                      className="absolute top-2 right-2 text-gray-400 hover:text-red-500 p-1 rounded-full bg-white"
-                    >
-                      <XMarkIcon className="w-5 h-5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button 
-                type="button" 
-                onClick={handleAddAchievement}
-                className="mt-2 text-sm font-medium text-ocean-600 hover:text-ocean-800"
-              >
-                + Add Achievement
-              </button>
-            </div>
           </div>
+
+          {/* Professional Achievements (placed directly below Professional Information) */}
+          <ProfessionalAchievementsForm />
 
           {/* Social Links Section */}
           <div className="glass-card rounded-lg p-6">
@@ -1480,10 +1401,8 @@ const Profile = () => {
                   className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
                   placeholder="https://linkedin.com/in/yourname"
                 />
-                {validationErrors['socialLinks.linkedin'] ? (
+                {validationErrors['socialLinks.linkedin'] && (
                   <p className="text-red-500 text-xs mt-1">{validationErrors['socialLinks.linkedin']}</p>
-                ) : (
-                  <p className="text-gray-500 text-xs mt-1">Use https://linkedin.com/in/... (no www).</p>
                 )}
               </div>
               <div className="space-y-2">
@@ -1553,10 +1472,11 @@ const Profile = () => {
               ) : 'Save Changes'}
             </button>
           </div>
-        </form>
+          </form>
+        </div>
       ) : (
         <div className="space-y-6">
-          {/* About Section */}
+          {/* Read-only Profile View */}
           {hasValue(formData.about) && (
             <div className="glass-card rounded-lg p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">About</h2>
@@ -1598,6 +1518,18 @@ const Profile = () => {
                         )}
                         {hasValue(formData.student_id) && (
                           <p className="text-sm text-gray-600">Student ID: {formData.student_id}</p>
+                        )}
+
+                        {Array.isArray(additionalDegrees) && additionalDegrees.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {additionalDegrees.map((deg) => (
+                              <p key={deg.id} className="text-sm text-gray-600">
+                                {deg.degree_code}
+                                {deg.institution_name && ` • ${deg.institution_name}`}
+                                {deg.graduation_year && ` • Class of ${deg.graduation_year}`}
+                              </p>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1649,7 +1581,7 @@ const Profile = () => {
           )}
 
           {/* Skills & Achievements */}
-          {(hasValue(formData.skills) || hasValue(formData.achievements)) && (
+          {(hasValue(formData.skills) || achievementsList.length > 0 || hasValue(formData.achievements)) && (
             <div className="glass-card rounded-lg p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Skills & Achievements</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1665,21 +1597,60 @@ const Profile = () => {
                     </div>
                   </div>
                 )}
-                {Array.isArray(formData.achievements) && formData.achievements.length > 0 && (
+                {/* Prefer achievementsList from useProfileAchievements; fall back to formData.achievements */}
+                {(Array.isArray(achievementsList) && achievementsList.length > 0) ||
+                 (Array.isArray(formData.achievements) && formData.achievements.length > 0) ? (
                   <div>
                     <h3 className="font-medium text-gray-900 mb-2">Achievements</h3>
                     <div className="space-y-3">
-                      {Array.isArray(formData.achievements) && formData.achievements.map((achievement, index) => (
-                        <div key={index} className="border-l-4 border-ocean-500 pl-3">
-                          <h4 className="font-medium">{typeof achievement === 'object' ? achievement.title || '' : achievement}</h4>
-                          {typeof achievement === 'object' && achievement.description && 
-                            <p className="text-sm text-gray-700">{achievement.description}</p>
-                          }
-                        </div>
-                      ))}
+                      {(achievementsList.length > 0 ? achievementsList : formData.achievements).map((achievement, index) => {
+                        const isObject = achievement && typeof achievement === 'object';
+                        const title = isObject ? (achievement.title || '') : achievement;
+                        const issuer = isObject ? (achievement.issuer || achievement.organization || '') : '';
+                        const dateValue = isObject
+                          ? (achievement.date_awarded || (achievement.year ? `${achievement.year}-01-01` : null))
+                          : null;
+                        const url = isObject ? achievement.url : null;
+
+                        const formattedDate = dateValue
+                          ? new Date(dateValue).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: '2-digit',
+                            })
+                          : '';
+
+                        return (
+                          <div key={achievement.id || index} className="border-l-4 border-ocean-500 pl-3">
+                            <h4 className="font-medium">{title}</h4>
+                            {(issuer || formattedDate) && (
+                              <p className="text-xs text-gray-600">
+                                {issuer}
+                                {issuer && formattedDate ? ' • ' : ''}
+                                {formattedDate}
+                              </p>
+                            )}
+                            {isObject && achievement.description && (
+                              <p className="text-sm text-gray-700 mt-0.5">{achievement.description}</p>
+                            )}
+                            {url && (
+                              <p className="text-xs mt-0.5">
+                                <a
+                                  href={url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-ocean-600 hover:text-ocean-700 hover:underline"
+                                >
+                                  View
+                                </a>
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           )}
@@ -1707,8 +1678,8 @@ const Profile = () => {
               </div>
             </div>
           )}
-          
-          {/* Resume Management */}
+
+          {/* Resume Management (read-only surface, edit via dedicated controls inside) */}
           <ProfileResume />
         </div>
       )}

@@ -39,6 +39,40 @@ export async function adminListProfilesForApproval({ status, role, search, limit
 }
 
 /**
+ * Count profiles for admin queues with optional filters.
+ * Mirrors admin_list_profiles_for_approval filters to support pagination.
+ * @param {{ status?: string | null, role?: string | null, search?: string | null }} params
+ */
+export async function adminCountProfilesForApproval({ status, role, search }) {
+	const { data, error } = await supabase.rpc('admin_count_profiles_for_approval', {
+		p_status: status ?? null,
+		p_role: role ?? null,
+		p_search: search ?? null,
+	});
+
+	if (error) throw error;
+	// Normalize various possible shapes into a plain number.
+	if (typeof data === 'number') return data;
+	if (typeof data === 'string') return Number(data) || 0;
+	if (Array.isArray(data) && data.length) {
+		const first = data[0];
+		if (typeof first === 'number') return first;
+		if (typeof first === 'string') return Number(first) || 0;
+		if (first && typeof first === 'object') {
+			const v = Object.values(first)[0];
+			if (typeof v === 'number') return v;
+			if (typeof v === 'string') return Number(v) || 0;
+		}
+	}
+	if (data && typeof data === 'object') {
+		const v = Object.values(data)[0];
+		if (typeof v === 'number') return v;
+		if (typeof v === 'string') return Number(v) || 0;
+	}
+	return 0;
+}
+
+/**
  * Fetch approval/audit history for a given profile.
  * @param {{ profileId: string, limit?: number, offset?: number }} params
  */
