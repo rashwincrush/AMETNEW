@@ -281,7 +281,8 @@ const GroupDetail = () => {
   useEffect(() => {
     const loadMembers = async () => {
       if (activeTab !== 'members') return;
-      if (!isAdmin) return; // Only admins
+      // Allow any member (or admin) to see the members list
+      if (!isMember && !isAdmin) return;
       try {
         const { data, error } = await fetchGroupMembers(id, 200, 0);
         if (!error && isMountedRef.current) setMembers(data || []);
@@ -290,7 +291,7 @@ const GroupDetail = () => {
       }
     };
     loadMembers();
-  }, [activeTab, id, isAdmin]);
+  }, [activeTab, id, isAdmin, isMember]);
 
   const handleMembership = async () => {
     try {

@@ -90,9 +90,9 @@ const ProfileResume = () => {
       return;
     }
 
-    // Check file size (5MB limit)
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('File size exceeds 5MB limit');
+    // Check file size (3MB limit)
+    if (file.size > 3 * 1024 * 1024) {
+      toast.error('File size exceeds 3MB limit');
       e.target.value = ''; // Clear the file input
       return;
     }
@@ -119,7 +119,9 @@ const ProfileResume = () => {
       const resumeData = {
         user_id: user.id,
         file_url: storagePath,
+        file_path: storagePath, // ensure NOT NULL file_path is populated
         filename: file.name,
+        file_size: file.size,
         uploaded_at: new Date().toISOString(),
         is_primary: resumes.length === 0 // Make this primary if it's the first resume
       };
@@ -240,22 +242,29 @@ const ProfileResume = () => {
       <div className="mb-6">
         <label 
           htmlFor="resume-upload" 
-          className={`flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 ${uploadingResume ? 'opacity-70 pointer-events-none' : ''}`}
+          className={`flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg ${uploadingResume ? 'opacity-70 pointer-events-none' : ''} ${resumes.length > 0 ? 'bg-gray-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'}`}
         >
           <div className="text-center">
             <ArrowUpTrayIcon className="mx-auto h-8 w-8 text-gray-400" />
             <p className="mt-2 text-sm text-gray-600">
-              {uploadingResume ? 'Uploading...' : 'Click to upload a new resume'}
+              {uploadingResume ? 'Uploading...' : (resumes.length > 0 ? 'Only one resume allowed. Delete existing to upload a new one' : 'Click to upload a new resume')}
             </p>
-            <p className="mt-1 text-xs text-gray-500">PDF or Word documents, max 5MB</p>
+            <p className="mt-1 text-xs text-gray-500">PDF or Word documents, max 3MB</p>
           </div>
           <input
             id="resume-upload"
             type="file"
             className="hidden"
             accept=".pdf,.doc,.docx"
-            onChange={handleFileChange}
-            disabled={uploadingResume}
+            onChange={(e) => {
+              if (resumes.length > 0) {
+                toast.error('Only one resume allowed. Please delete the existing resume first.');
+                e.target.value = '';
+                return;
+              }
+              handleFileChange(e);
+            }}
+            disabled={uploadingResume || resumes.length > 0}
           />
         </label>
       </div>

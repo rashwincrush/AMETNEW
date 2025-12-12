@@ -902,13 +902,24 @@ export const getMyGroupMembership = async (groupId) => {
 // Fetch members for a group (role + profile), load on-demand for Members tab
 // PERFORMANCE: Reduced default limit, added lightweight count-only option
 export const fetchGroupMembers = async (groupId, limit = 50, offset = 0) => {
-  const { data, error } = await supabase
-    .from('group_members')
-    .select('role, created_at, user:profiles(id, full_name, avatar_url, email, headline, role)')
-    .eq('group_id', groupId)
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
-  return { data, error };
+  // Use RPC to bypass RLS join restrictions on profiles while keeping row-level auth
+  const { data, error } = await supabase.rpc('list_group_members', { p_group_id: groupId });
+  if (error) return { data: null, error };
+  const rows = Array.isArray(data) ? data : [];
+  // Map RPC rows to legacy shape expected by callers
+  const mapped = rows
+    .slice(offset, offset + limit)
+    .map(r => ({
+      role: r.role,
+      created_at: r.joined_at,
+      user: {
+        id: r.user_id,
+        full_name: r.full_name,
+        avatar_url: r.avatar_url,
+        headline: r.headline,
+      }
+    }));
+  return { data: mapped, error: null };
 };
 
 // PERFORMANCE: Lightweight member count without fetching full profiles
