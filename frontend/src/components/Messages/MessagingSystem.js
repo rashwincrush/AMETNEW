@@ -123,7 +123,8 @@ const MessagingSystem = () => {
     }
     fetchingConvsRef.current = true;
     try {
-      setLoading(true);
+      const hasThreads = Array.isArray(threads) && threads.length > 0;
+      if (!hasThreads) setLoading(true);
       const data = await fetchMyThreads();
       setThreads(Array.isArray(data) ? data : []);
       logActivity({ action: 'dm_threads_list_load', meta: { count: (data || []).length }, route: '/messages' });
@@ -140,7 +141,7 @@ const MessagingSystem = () => {
       fetchingConvsRef.current = false;
       lastFetchAtRef.current = Date.now();
     }
-  }, [currentUser, showError]);
+  }, [currentUser, showError, threads]);
 
   useEffect(() => {
     if (currentUser) {

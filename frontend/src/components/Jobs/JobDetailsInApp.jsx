@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApproval } from '../../hooks/useApproval';
-import { hasOverviewData, coalesceAppUrl, computeJobApplyState } from '../../utils/jobs';
+import { hasOverviewData, coalesceAppUrl, computeJobApplyState, getJobLogoUrl, getJobCompanyName } from '../../utils/jobs';
 import logger from '../../utils/logger';
 import { getApplicantsCount } from '../../utils/applicants';
 import { requestConnectionForJob } from '../../utils/connections';
@@ -39,6 +39,14 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
     return () => { mounted = false; };
   }, [user?.id, job?.id]);
 
+  // Unified display helpers for logo/name (enforce 23-char max for display)
+  const resolvedCompanyName = useMemo(() => {
+    const baseName = companyName || getJobCompanyName(job);
+    const name = baseName || '';
+    return name.length > 23 ? name.slice(0, 23) : name;
+  }, [companyName, job]);
+  const resolvedLogo = useMemo(() => (companyLogo || getJobLogoUrl(job) || ''), [companyLogo, job]);
+
   if (!job) return null;
 
   // Helper functions to handle string or array fields
@@ -73,8 +81,8 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
         <div className="flex items-start gap-4">
           <div className="w-12 h-12 rounded-full bg-white border border-gray-200 flex items-center justify-center overflow-hidden">
             <ImageWithFallback
-              src={companyLogo}
-              alt={companyName || 'Company'}
+              src={resolvedLogo}
+              alt={resolvedCompanyName || 'Company'}
               className="w-12 h-12"
               imgClassName="w-full h-full object-contain"
               placeholderSrc="/default-avatar.svg"
@@ -89,8 +97,8 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
                 In-app
               </span>
             </div>
-            {!!companyName && (
-              <div className="mt-1 text-ocean-600 font-medium">{companyName}</div>
+            {!!resolvedCompanyName && (
+              <div className="mt-1 text-ocean-600 font-medium">{resolvedCompanyName}</div>
             )}
           </div>
 

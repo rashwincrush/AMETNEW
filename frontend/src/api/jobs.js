@@ -1,41 +1,32 @@
 import { supabase } from '../utils/supabase';
 import { normalizeJob } from '../utils/jobs';
 
-export async function fetchJobsFeed() {
-  const { data, error } = await supabase
-    .from('v_jobs_feed_inr')
-    .select([
-      'id',
-      'title',
-      'location',
-      'job_type',
-      'experience_level',
-      'salary_min',
-      'salary_max',
-      'salary_display_inr',
-      'application_url',
-      'source_type',
-      'company_id',
-      'company_name',
-      'company_logo_url',
-      'applicant_count',
-      'created_at',
-    ].join(','))
-    .order('created_at', { ascending: false });
-
+export async function fetchJobsFeed({ limit = 50, offset = 0, sortBy = 'created_at', sortOrder = 'desc' } = {}) {
+  const { data, error } = await supabase.rpc('get_jobs_public_v5', {
+    p_search_query: null,
+    p_sort_by: sortBy,
+    p_sort_order: sortOrder,
+    p_limit: limit,
+    p_offset: offset,
+    p_department: null,
+    p_job_type: null,
+    p_experience_level: null,
+    p_location: null,
+    p_industry: null,
+    p_salary_min: null,
+    p_salary_max: null,
+    p_posted_since_days: null,
+  });
   if (error) throw error;
   return (data || []).map(normalizeJob);
 }
 
 export async function fetchJobById(jobId) {
-  const { data, error } = await supabase
-    .from('v_jobs_feed_inr')
-    .select('*')
-    .eq('id', jobId)
-    .single();
-
+  // Prefer canonical details RPC for single job
+  const { data, error } = await supabase.rpc('get_job_details', { p_id: jobId });
   if (error) throw error;
-  return data ? normalizeJob(data) : null;
+  const row = Array.isArray(data) ? data[0] : data;
+  return row ? normalizeJob(row) : null;
 }
 
 // Expired jobs feeds (admin/employer)

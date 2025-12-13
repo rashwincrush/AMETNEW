@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
-import { coalesceAppUrl, isQuickLink, computeJobApplyState } from '../../utils/jobs';
+import { coalesceAppUrl, isQuickLink, computeJobApplyState, getJobLogoUrl, getJobCompanyName } from '../../utils/jobs';
 import logger from '../../utils/logger';
 import { requestConnectionForJob } from '../../utils/connections';
 import ImageWithFallback from '../common/ImageWithFallback';
@@ -26,6 +26,14 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
   const applyState = computeJobApplyState(job);
   const { canApplyExternally, isClosed, disabledReason } = applyState;
 
+  // Unified display helpers (must be declared before any early return)
+  const resolvedCompanyName = useMemo(() => {
+    const baseName = companyName || getJobCompanyName(job);
+    const name = baseName || '';
+    return name.length > 23 ? name.slice(0, 23) : name;
+  }, [companyName, job]);
+  const resolvedLogo = useMemo(() => (companyLogo || getJobLogoUrl(job) || ''), [companyLogo, job]);
+
   // Guards
   if (!job || !isQuickLink(job)) return null;
 
@@ -33,12 +41,18 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
     <div className="max-w-6xl mx-auto px-4 pb-12">
       {/* Header */}
       <div className="bg-white rounded-2xl shadow-sm border p-6 mb-6">
+        {/* Always show Back button */}
+        <div className="mb-4">
+          <button onClick={() => navigate(-1)} className="text-sm text-gray-600 hover:text-gray-800">
+            ← Back
+          </button>
+        </div>
         <div className="flex items-start gap-4">
           {/* Logo */}
           <div className="w-12 h-12 rounded-full bg-white border border-gray-200 flex items-center justify-center overflow-hidden">
             <ImageWithFallback
-              src={companyLogo}
-              alt={companyName || 'Company'}
+              src={resolvedLogo}
+              alt={resolvedCompanyName || 'Company'}
               className="w-12 h-12"
               imgClassName="w-full h-full object-contain"
               placeholderSrc="/default-avatar.svg"
@@ -54,8 +68,8 @@ export default function JobDetailsQuickLink({ job, companyName, companyLogo, isO
                 Quick link
               </span>
             </div>
-            {!!companyName && (
-              <div className="mt-1 text-ocean-600 font-medium">{companyName}</div>
+            {!!resolvedCompanyName && (
+              <div className="mt-1 text-ocean-600 font-medium">{resolvedCompanyName}</div>
             )}
           </div>
 

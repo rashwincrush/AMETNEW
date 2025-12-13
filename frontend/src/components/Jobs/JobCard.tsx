@@ -46,20 +46,20 @@ export default function JobCard({ job, viewerRole, isOwner = false, onChanged }:
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           {quick ? (
-            showApplicantApply ? (
-              open ? (
-                <a href={appUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-3 py-2 text-sm rounded bg-black text-white">
-                  Apply Externally
-                </a>
-              ) : (
-                <button className="px-3 py-2 text-sm rounded border" disabled>
-                  Applications Closed
-                </button>
-              )
+            open ? (
+              <a
+                href={appUrl || '#'}
+                target={appUrl ? '_blank' : undefined}
+                rel={appUrl ? 'noopener noreferrer' : undefined}
+                className={`inline-flex items-center px-3 py-2 text-sm rounded bg-black text-white ${!appUrl ? 'opacity-50 cursor-not-allowed' : ''}`}
+                aria-disabled={!appUrl}
+              >
+                Click here to apply
+              </a>
             ) : (
-              <span className={`text-xs px-2 py-1 rounded border ${open ? 'opacity-100' : 'opacity-70'}`}>
-                {open ? 'Accepting Applications' : 'Applications Closed'}
-              </span>
+              <button className="px-3 py-2 text-sm rounded border" disabled>
+                Applications Closed
+              </button>
             )
           ) : (
             showApplicantApply ? (

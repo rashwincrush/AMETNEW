@@ -171,18 +171,26 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
     || job?.is_owner === true
   ));
   const isApplicantRole = ['alumni', 'student'].includes(userRole);
-  const applyState = computeJobApplyState(job);
+  const [localIsActive, setLocalIsActive] = useState(job?.is_active ?? true);
+  useEffect(() => {
+    setLocalIsActive(job?.is_active ?? true);
+  }, [job?.id, job?.is_active]);
+
+  const jobView = useMemo(() => ({ ...job, is_active: localIsActive }), [job, localIsActive]);
+  const applyState = computeJobApplyState(jobView);
   const quick = applyState.isQuickLink;
   const { canApplyInApp, canApplyExternally, isClosed } = applyState;
   const ownerOrAdmin = isOwner || ['admin', 'super_admin'].includes(userRole);
   const pauseJob = async () => {
-    if (job?.is_active === false) return;
+    if (localIsActive === false) return;
     try {
       const { error } = await supabase
         .from('jobs')
         .update({ is_active: false })
         .eq('id', job.id);
       if (error) throw error;
+      setLocalIsActive(false);
+      if (job) job.is_active = false;
       toast.success('Listing paused.');
     } catch (e) {
       logger.error('Pause listing failed', e);
@@ -191,13 +199,15 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
   };
 
   const resumeJob = async () => {
-    if (job?.is_active === true || job?.is_active == null) return;
+    if (localIsActive === true || job?.is_active == null) return;
     try {
       const { error } = await supabase
         .from('jobs')
         .update({ is_active: true })
         .eq('id', job.id);
       if (error) throw error;
+      setLocalIsActive(true);
+      if (job) job.is_active = true;
       toast.success('Listing resumed.');
     } catch (e) {
       logger.error('Resume listing failed', e);
@@ -214,10 +224,10 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
   const showCompanyName = !!companyNameRaw && companyNameRaw !== titleTrim;
   const descTrim = (job.description || '').trim();
   const showDescription = !!descTrim;
-  const coalescedDeadline = job?.deadline || job?.application_deadline || null;
+  const coalescedDeadline = jobView?.deadline || jobView?.application_deadline || null;
 
   const rejected = job?.is_rejected === true;
-  const isPaused = job?.is_active === false && !rejected;
+  const isPaused = localIsActive === false && !rejected;
   const canToggleVisibility = ownerOrAdmin && !rejected;
 
   if (!job) return null;
@@ -385,7 +395,19 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
             </button>
           )}
           <Link to={`/jobs/${job.id}`} className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg btn-ocean-outline text-sm">View details</Link>
-          {(userRole === 'employer' && isOwner) || (['admin', 'super_admin'].includes(userRole)) ? (
+          {quick ? (
+            canApplyExternally ? (
+              <button
+                onClick={() => { const url = href; if (!url) return; const ok = window.confirm("External listing. You will be redirected to the employer's site to apply. Continue?"); if (ok) window.open(url, '_blank', 'noopener'); }}
+                aria-label="Apply on employer site"
+                className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
+              >
+                Click here to apply
+              </button>
+            ) : (
+              <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications closed</button>
+            )
+          ) : (userRole === 'employer' && isOwner) || (['admin', 'super_admin'].includes(userRole)) ? (
             <Link to={`/jobs/${job.id}/applications`} className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80">Manage applications</Link>
           ) : (userRole === 'employer' && !isOwner) ? (
             !isClosed ? (
@@ -406,18 +428,6 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
               >
                 Applications closed
               </button>
-            )
-          ) : quick ? (
-            canApplyExternally ? (
-              <button
-                onClick={() => { const url = href; if (!url) return; const ok = window.confirm("External listing. You will be redirected to the employer's site to apply. Continue?"); if (ok) window.open(url, '_blank', 'noopener'); }}
-                aria-label="Apply on employer site"
-                className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-sm hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white/80"
-              >
-                Apply on employer site
-              </button>
-            ) : (
-              <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Applications closed</button>
             )
           ) : hasApplied ? (
             <button disabled className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg border-2 border-gray-200 text-gray-400 text-sm cursor-not-allowed">Application submitted</button>
@@ -755,6 +765,7 @@ const JobListingsPage = () => {
   const canonicalSource = rawSourceQS === 'quick' ? 'quick_link' : rawSourceQS === 'internal' ? 'in_app' : rawSourceQS;
   const [sourceFilter, setSourceFilter] = useState(['quick_link', 'in_app'].includes(canonicalSource) ? canonicalSource : 'all');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all'); // all | live | paused
   const [approvalFilter, setApprovalFilter] = useState(searchParams.get('approval') || 'all');
   const [matchMyEducation, setMatchMyEducation] = useState(searchParams.get('matchEducation') === 'true');
 
@@ -1058,15 +1069,15 @@ const JobListingsPage = () => {
     if (!isEmployer) {
       const rawItems = Array.isArray(data) ? data : (data?.items ?? []);
       rows = rawItems.map(j => {
-        const company = {
-          name: getJobCompanyName(j),
-          logo_url: getJobLogoUrl(j),
-        };
+        const companyName = j?.company_name || j?.companies?.name || j?.company?.name || getJobCompanyName(j);
+        const companyLogo = j?.companies?.logo_url || j?.company?.logo_url || getJobLogoUrl(j);
+        const company = { name: companyName, logo_url: companyLogo };
         const appUrl = coalesceAppUrl(j);
         const computedSource = getSourceType({ ...j, application_url: appUrl });
         const normalized = {
           ...j,
-          companies: { name: company.name, logo_url: company.logo_url },
+          company_name: companyName || null,
+          companies: { name: company.name || null, logo_url: company.logo_url || null },
           application_url: appUrl,
           source_type: j?.source_type ?? computedSource,
           description: (
@@ -1082,21 +1093,22 @@ const JobListingsPage = () => {
       totalCount = (Array.isArray(data) ? (data?.[0]?.total_count ?? rawItems.length) : (data?.total_count ?? 0));
     } else {
       rows = (data || []).map(j => {
-        const company = {
-          name: getJobCompanyName(j),
-          logo_url: getJobLogoUrl(j),
-        };
+        const companyName = j?.company_name || j?.companies?.name || j?.company?.name || getJobCompanyName(j);
+        const companyLogo = j?.companies?.logo_url || j?.company?.logo_url || getJobLogoUrl(j);
+        const company = { name: companyName, logo_url: companyLogo };
         const appUrl = coalesceAppUrl(j);
         const computedSource = getSourceType({ ...j, application_url: appUrl });
         return {
           ...j,
-          companies: { name: company.name, logo_url: company.logo_url },
+          company_name: companyName || null,
+          companies: { name: company.name || null, logo_url: company.logo_url || null },
           application_url: appUrl,
           source_type: j?.source_type ?? computedSource,
           description: j?.description ?? j?.job_description ?? j?.summary ?? j?.content_summary ?? null,
         };
       });
-      totalCount = rows.length > 0 && typeof rows[0].total_count !== 'undefined' ? rows[0].total_count : rows.length;
+      const showingCount = jobs.length;
+      totalCount = rows.length;
     }
 
     // Annotate ownership for toggle controls
@@ -1235,23 +1247,16 @@ const JobListingsPage = () => {
 
     // On first page, re-run the main fetch so results stay aligned with filters/sort.
     fetchJobs();
-  }, [currentPage, fetchJobs]);
-
-  const handleRealtimeBookmarkChange = useCallback(async () => {
-    // Light refresh of bookmark IDs
-    if (!user?.id) return;
-    const { data: ids } = await supabase
-      .from('job_bookmarks')
-      .select('job_id')
-      .eq('user_id', user.id);
-    const idsList = (ids || []).map(r => r.job_id);
-    setBookmarkedJobs(idsList);
+    try { sessionStorage.removeItem('jobsNeedsRefresh'); } catch (_) { /* noop */ }
   }, [user?.id]);
 
   useJobsRealtime({
     userId: user?.id,
     onJobs: handleRealtimeJobChange,
-    onBookmarks: handleRealtimeBookmarkChange,
+    onBookmarks: (data) => {
+      // No-op placeholder to satisfy signature; bookmark realtime not used here
+      return data;
+    },
   });
 
   // Sync URL
@@ -1280,6 +1285,29 @@ const JobListingsPage = () => {
     const t = setTimeout(() => { setSearchQuery(searchTerm); setCurrentPage(1); }, 300);
     return () => clearTimeout(t);
   }, [searchTerm]);
+
+  // If an edit set the refresh flag, refetch once on mount and clear it
+  useEffect(() => {
+    const needs = (() => {
+      try { return sessionStorage.getItem('jobsNeedsRefresh'); } catch (_) { return null; }
+    })();
+    if (needs) {
+      fetchJobs();
+      try { sessionStorage.removeItem('jobsNeedsRefresh'); } catch (_) { /* noop */ }
+    }
+  }, [fetchJobs]);
+
+  // Refresh when window/tab regains focus or visibility (helps after editing a job)
+  useEffect(() => {
+    const handleFocus = () => fetchJobs();
+    const handleVisibility = () => { if (document.visibilityState === 'visible') fetchJobs(); };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [fetchJobs]);
 
   /* ---------- FIXED: Optimistic toggle that doesn’t rely on feed flags ---------- */
   const handleBookmark = async (jobId) => {
@@ -1342,7 +1370,21 @@ const JobListingsPage = () => {
     setSearchTerm(s);
     setSearchQuery(s);
     setCurrentPage(1);
+    fetchJobs(true);
   };
+
+  const statusFilteredJobs = useMemo(() => {
+    const statusFilterAllowed = ['employer', 'admin', 'super_admin'].includes(userRole);
+    const effectiveStatus = statusFilterAllowed ? statusFilter : 'all';
+    return jobs.filter((j) => {
+      if (effectiveStatus === 'all') return true;
+      const active = j?.is_active !== false;
+      if (effectiveStatus === 'live') return active;
+      if (effectiveStatus === 'paused') return !active;
+      return true;
+    });
+  }, [jobs, statusFilter, userRole]);
+  const displayedJobs = statusFilteredJobs;
 
   const canPostJob = ['employer', 'admin', 'super_admin'].includes(userRole);
 
@@ -1445,12 +1487,25 @@ const JobListingsPage = () => {
             {options.map(option => (<option key={option.value} value={option.value}>{option.label}</option>))}
           </select>
         ))}
+        {['admin', 'super_admin', 'employer'].includes(userRole) && (
+          <select
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
+            aria-label="Status filter"
+          >
+            <option value="all">All statuses</option>
+            <option value="live">Live</option>
+            <option value="paused">Paused</option>
+          </select>
+        )}
         <button
           onClick={() => {
             setSearchTerm('');
             setSearchQuery('');
             setFilters({ jobType: 'all', experience: 'all', salaryRange: 'all', postedWithin: 'all' });
             setApprovalFilter('all');
+            setStatusFilter('all');
             setMatchMyEducation(false);
             setSortBy('created_at,desc');
             setCurrentPage(1);
@@ -1537,9 +1592,9 @@ const JobListingsPage = () => {
             </div>
           ))}
         </div>
-      ) : jobs.length > 0 ? (
+      ) : displayedJobs.length > 0 ? (
         <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6' : 'space-y-4'}>
-          {jobs.map((job) => (
+          {displayedJobs.map((job) => (
             viewMode === 'grid' ? (
               <JobCard
                 key={job.id}

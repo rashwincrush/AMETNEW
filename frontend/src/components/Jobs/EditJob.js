@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -34,6 +34,8 @@ const EditJob = () => {
   const [error, setError] = useState(null);
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState('');
+  // Persist the job type (Quick vs In-App) from initial load to prevent mid-edit flips
+  const [initialIsQuick, setInitialIsQuick] = useState(null);
 
   // just for coordinating when to start the fetch
   const [guardReady, setGuardReady] = useState(false);
@@ -122,6 +124,10 @@ const EditJob = () => {
           : (data.skills || ''),
       });
 
+      // Freeze the initial mode for the edit session
+      const quick = Boolean((data?.application_url && String(data.application_url).trim()) || (data?.external_url && String(data.external_url).trim()));
+      setInitialIsQuick(quick);
+
       const existingLogo = data?.company?.logo_url || '';
       setLogoPreview(existingLogo);
       setLogoFile(null);
@@ -166,6 +172,21 @@ const EditJob = () => {
     setLogoPreview(URL.createObjectURL(file));
   };
 
+  const cleanField = useCallback((v) => {
+    if (v === undefined || v === null) return null;
+    if (typeof v !== 'string') return v;
+    const t = v.trim();
+    return t === '' ? null : t;
+  }, []);
+
+  const isQuick = useMemo(() => {
+    // UI render mode is frozen from initial load to avoid data-loss from conditional sections disappearing mid-edit.
+    if (initialIsQuick !== null) return initialIsQuick;
+    const normApplicationUrl = cleanField(formData?.application_url);
+    const normExternalUrl = cleanField(formData?.external_url);
+    return !!(normApplicationUrl || normExternalUrl);
+  }, [cleanField, formData?.application_url, formData?.external_url, initialIsQuick]);
+
   const handleSave = async (e) => {
     e.preventDefault();
     if (!id) {
@@ -182,16 +203,9 @@ const EditJob = () => {
 
     // Normalize and enforce the DB constraint jobs_external_target_at_most_one
     // Only one of apply_url, application_url, external_url can be non-null
-    const clean = (v) => {
-      if (v === undefined || v === null) return null;
-      if (typeof v !== 'string') return v;
-      const t = v.trim();
-      return t === '' ? null : t;
-    };
-
-    const norm_apply_url = clean(apply_url);
-    const norm_application_url = clean(application_url);
-    const norm_external_url = clean(external_url);
+    const norm_apply_url = cleanField(apply_url);
+    const norm_application_url = cleanField(application_url);
+    const norm_external_url = cleanField(external_url);
 
     const chosen = [norm_apply_url, norm_application_url, norm_external_url].filter(Boolean).length;
     if (chosen > 1) {
@@ -207,7 +221,8 @@ const EditJob = () => {
       return;
     }
 
-    const isQuick = !!(norm_application_url || norm_external_url);
+    // Track uploaded logo for jobs.logo_url update
+    let uploadedLogoUrl = null;
 
     // If a new logo is selected and we have a company_id, upload and update companies.logo_url
     if (logoFile && company_id) {
@@ -231,6 +246,7 @@ const EditJob = () => {
             .getPublicUrl(fileName);
           const nextLogoUrl = urlData?.publicUrl || null;
           if (nextLogoUrl) {
+            uploadedLogoUrl = nextLogoUrl;
             const { error: logoUpdateError } = await supabase
               .from('companies')
               .update({ logo_url: nextLogoUrl })
@@ -249,6 +265,49 @@ const EditJob = () => {
       }
     }
 
+    // Enforce DB constraint: company_name max 23 chars
+    const trimmedCompanyName = (company_name || '').trim() || null;
+    if (trimmedCompanyName && trimmedCompanyName.length > 23) {
+      toast.error('Company name can not be longer than 23 characters');
+      setIsSubmitting(false);
+      return;
+    }
+    const safeCompanyName = trimmedCompanyName ? trimmedCompanyName.slice(0, 23) : null;
+
+    if (company_id && safeCompanyName) {
+      try {
+        const { error: companyUpdateError } = await supabase
+          .from('companies')
+          .update({ name: safeCompanyName })
+          .eq('id', company_id);
+        if (companyUpdateError) {
+          logger.error('Error updating company name in EditJob:', companyUpdateError);
+          toast.error('Job updated, but company name could not be synced.');
+        }
+      } catch (err) {
+        logger.error('Unexpected error updating company name in EditJob:', err);
+        toast.error('Job updated, but company name could not be synced.');
+      }
+    }
+
+    // Parse salary range into numeric min/max for proper display fields
+    const parseSalaryRange = (val) => {
+      const raw = typeof val === 'string' ? val : '';
+      const nums = (raw.match(/\d+/g) || []).map(n => parseInt(n, 10)).filter(n => !Number.isNaN(n));
+      if (nums.length >= 2) {
+        const [a, b] = nums;
+        const min = Math.min(a, b);
+        const max = Math.max(a, b);
+        return { min, max };
+      }
+      if (nums.length === 1) {
+        // To satisfy min <= max constraints, set both to the single value
+        return { min: nums[0], max: nums[0] };
+      }
+      return { min: null, max: null };
+    };
+    const { min: parsedSalaryMin, max: parsedSalaryMax } = parseSalaryRange(salary_range);
+
     let updateData;
     if (isQuick) {
       // Minimal Quick Link update
@@ -260,36 +319,45 @@ const EditJob = () => {
       }
       updateData = {
         title,
-        company_name: (company_name || '').trim() || null,
+        company_name: safeCompanyName,
         application_url: norm_application_url,
         external_url: norm_external_url,
         apply_url: norm_apply_url,
-        salary_range: clean(salary_range),
+        salary_range: cleanField(salary_range),
+        salary_min: parsedSalaryMin,
+        salary_max: parsedSalaryMax,
         deadline: isoDate,
-        contact_name: clean(contact_name),
-        contact_email: clean(contact_email),
-        contact_phone: clean(contact_phone),
+        application_deadline: isoDate,
+        contact_name: cleanField(contact_name),
+        contact_email: cleanField(contact_email),
+        contact_phone: cleanField(contact_phone),
+        description,
       };
     } else {
-      // Legacy in-app update (logo is handled via companies.logo_url only)
       updateData = {
         title,
-        company_name: (company_name || '').trim() || null,
+        company_name: safeCompanyName,
         location,
         job_type,
         description,
         requirements,
         skills,
         salary_range,
+        salary_min: parsedSalaryMin,
+        salary_max: parsedSalaryMax,
         application_url: norm_application_url,
-        contact_name: clean(contact_name),
-        contact_email: clean(contact_email),
-        contact_phone: clean(contact_phone),
-        external_url: norm_external_url,
-        apply_url: norm_apply_url,
-        deadline: clean(deadline),
-        is_active,
+        contact_name: cleanField(contact_name),
+        contact_email: cleanField(contact_email),
+        contact_phone: cleanField(contact_phone),
+        external_url: null,
+        apply_url: null,
+        deadline: cleanField(deadline),
+        application_deadline: null,
       };
+      // Prevent overposting: only admins can toggle is_active here
+      if (isAdmin) {
+        updateData.is_active = is_active;
+      }
     }
 
     try {
@@ -297,7 +365,10 @@ const EditJob = () => {
       const t0 = performance.now();
       const { data: upd, error: upErr, status } = await supabase
         .from('jobs')
-        .update(updateData)
+        .update({
+          ...updateData,
+          ...(uploadedLogoUrl ? { logo_url: uploadedLogoUrl } : {}),
+        })
         .eq('id', id)
         .select('id')
         .single();
@@ -312,6 +383,9 @@ const EditJob = () => {
       if (upErr) throw upErr;
 
       toast.success('Job updated successfully.');
+      try {
+        sessionStorage.setItem('jobsNeedsRefresh', '1');
+      } catch (_) { /* non-blocking */ }
       navigate(`/jobs/${id}`);
     } catch (err) {
       logger.error('Error updating job:', err);
@@ -360,9 +434,10 @@ const EditJob = () => {
 
                 <form onSubmit={handleSave}>
                   <Grid container spacing={3}>
-                    {/* Quick Link minimal form */}
+                    {/* Quick Link minimal form */
+                    /* Mode is frozen from initial load to avoid transient flips when editing URL fields */}
                     {(() => {
-                      const quick = !!(formData?.application_url || formData?.external_url);
+                      const quick = isQuick;
                       if (!quick) return null;
                       return (
                         <>
@@ -429,7 +504,7 @@ const EditJob = () => {
 
                     {/* In-App form (legacy) */}
                     {(() => {
-                      const quick = !!(formData?.application_url || formData?.external_url);
+                      const quick = isQuick;
                       if (quick) return null;
                       return (
                         <>
@@ -502,24 +577,16 @@ const EditJob = () => {
                               value={formData.deadline ? new Date(formData.deadline).toISOString().split('T')[0] : ''}
                               onChange={handleChange} InputLabelProps={{ shrink: true }} disabled={isSubmitting} />
                           </Grid>
+                          {/* HR / Company */}
                           <Grid item xs={12}>
-                            <TextField fullWidth label="Application URL / Email" name="application_url"
-                              value={formData.application_url || ''} onChange={handleChange} disabled={isSubmitting} />
-                          </Grid>
-                          <Grid item xs={12}>
-                            <TextField fullWidth label="External Apply URL" name="external_url"
-                              value={formData.external_url || ''} onChange={handleChange} disabled={isSubmitting} />
-                          </Grid>
-                          <Grid item xs={12}>
-                            <TextField fullWidth label="Direct Apply URL" name="apply_url"
-                              value={formData.apply_url || ''} onChange={handleChange} disabled={isSubmitting} />
-                          </Grid>
-
-                          <Grid item xs={12}>
-                            <Typography variant="h6" sx={{ mb: 1, mt: 2 }}>HR Information</Typography>
+                            <Typography variant="h6" sx={{ mb: 1, mt: 1 }}>HR Information</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                              Provide the recruiter/HR contact for applicants and admins.
+                              Provide the recruiter/HR contact and company details.
                             </Typography>
+                          </Grid>
+                          <Grid item xs={12}>
+                            <TextField fullWidth label="Company Name (Optional)" name="company_name"
+                              value={formData.company_name || ''} onChange={handleChange} disabled={isSubmitting} />
                           </Grid>
                           <Grid item xs={12} sm={4}>
                             <TextField fullWidth label="HR Contact Name" name="contact_name"
@@ -571,22 +638,6 @@ const EditJob = () => {
                         </>
                       );
                     })()}
-
-                    {isAdmin && (
-                      <Grid item xs={12}>
-                        <Typography variant="h6" sx={{ mb: 1, mt: 2 }}>Admin Controls</Typography>
-                        <FormControlLabel
-                          control={<Switch checked={formData.is_approved || false}
-                            onChange={(e) => setFormData(p => ({ ...p, is_approved: e.target.checked }))} />}
-                          label="Is Approved" disabled={isSubmitting}
-                        />
-                        <FormControlLabel
-                          control={<Switch checked={formData.is_active !== false}
-                            onChange={(e) => setFormData(p => ({ ...p, is_active: e.target.checked }))} />}
-                          label="Is Active" disabled={isSubmitting}
-                        />
-                      </Grid>
-                    )}
 
                     <Grid item xs={12} sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 3 }}>
                       <Button variant="outlined" color="secondary"

@@ -79,15 +79,26 @@ const JobDetails = () => {
         if (error) throw error;
 
         const row = Array.isArray(data) ? data[0] : data;
-        // Fallback: fetch contact info directly from jobs in case RPC omits it
+        // Fallback: fetch contact + logo directly from jobs if RPC omits
         let contact = {};
+        let logoExtras = {};
         try {
           const { data: contactRow } = await supabase
             .from('jobs')
-            .select('contact_name, contact_email, contact_phone')
+            .select('contact_name, contact_email, contact_phone, logo_url, company:companies(logo_url)')
             .eq('id', id)
             .maybeSingle();
-          if (contactRow) contact = contactRow;
+          if (contactRow) {
+            contact = {
+              contact_name: contactRow.contact_name,
+              contact_email: contactRow.contact_email,
+              contact_phone: contactRow.contact_phone,
+            };
+            logoExtras = {
+              logo_url: contactRow.logo_url || null,
+              company_logo_url: contactRow?.company?.logo_url || null,
+            };
+          }
         } catch (_) { /* ignore */ }
 
         if (row) {
@@ -95,6 +106,7 @@ const JobDetails = () => {
           const processedData = {
             ...row,
             ...contact,
+            ...logoExtras,
             // New/normalized fields from get_job_details
             location: row.location ?? null,
             job_type: row.job_type ?? row.jobType ?? null,
@@ -115,7 +127,7 @@ const JobDetails = () => {
               values: row.companyInfo?.values ? convertToArray(row.companyInfo.values) : []
             } : null,
             similarJobs: Array.isArray(row.similarJobs) ? row.similarJobs : [],
-            logoUrl: row.company_logo_url ?? row.logo_url ?? null,
+            logoUrl: row.company_logo_url ?? row.logo_url ?? logoExtras.company_logo_url ?? logoExtras.logo_url ?? null,
           };
 
           if (isMountedRef.current) {
