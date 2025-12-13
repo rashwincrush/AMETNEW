@@ -118,7 +118,8 @@ const CreateEvent = () => {
     { value: 'cultural', label: 'Cultural' },
     { value: 'career', label: 'Career Development' },
     { value: 'technical', label: 'Technical' },
-    { value: 'social', label: 'Social' }
+    { value: 'social', label: 'Social' },
+    { value: 'jobs', label: 'Jobs' }
   ];
 
   const handleInputChange = (e) => {

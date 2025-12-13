@@ -119,6 +119,15 @@ export default function DirectoryPage() {
     return !!(raw.is_employer || raw.role === 'employer');
   }, []);
 
+  // Normalization helper: lowercase, strip dots & ampersands, collapse whitespace
+  const normalizeValue = useCallback((val) => {
+    return String(val || '')
+      .toLowerCase()
+      .replace(/[.&]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }, []);
+
   // Base directory rows from secure RPC; attach _raw for admin-only diagnostics
   const base = useMemo(
     () => (secureRows || []).map((row) => ({ ...row, _raw: row })),
@@ -151,11 +160,12 @@ export default function DirectoryPage() {
             row.education.forEach((deg) => {
               if (!deg) return;
               if (deg.degree) parts.push(String(deg.degree));
+              if (deg.department) parts.push(String(deg.department));
               if (deg.institution) parts.push(String(deg.institution));
               if (deg.year) parts.push(String(deg.year));
             });
           }
-          map.set(row.profile_id, parts.join(' ').toLowerCase());
+          map.set(row.profile_id, parts.join(' '));
         });
 
         if (!cancelled) {
@@ -311,7 +321,7 @@ export default function DirectoryPage() {
     let list = applyFilter(baseList, activeFilter);
 
     // Apply free-text search client-side as a safety net across name, company, and location
-    const qSearch = (debouncedSearch || '').trim().toLowerCase();
+    const qSearch = normalizeValue(debouncedSearch || '');
     if (qSearch) {
       list = list.filter((p) => {
         const raw = p._raw || p;
@@ -332,43 +342,43 @@ export default function DirectoryPage() {
           educationSearch,
         ]
           .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(qSearch);
+          .join(' ');
+        return normalizeValue(haystack).includes(qSearch);
       });
     }
 
     // Apply UI filters (batch year, department, degree, designation, location)
     const qYear = filters.graduation_year ? Number(filters.graduation_year) : null;
-    const qDept = (filters.department || '').trim().toLowerCase();
-    const qDegree = (filters.degree_program || '').trim().toLowerCase();
-    const qTitle = (filters.current_job_title || '').trim().toLowerCase();
-    const qCompany = (filters.company || '').trim().toLowerCase();
-    const qLoc = (filters.location || '').trim().toLowerCase();
+    const qDept = normalizeValue(filters.department || '');
+    const qDegree = normalizeValue(filters.degree_program || '');
+    const qTitle = normalizeValue(filters.current_job_title || '');
+    const qCompany = normalizeValue(filters.company || '');
+    const qLoc = normalizeValue(filters.location || '');
 
     if (qYear || qDept || qDegree || qTitle || qCompany || qLoc) {
       list = list.filter((p) => {
         const raw = p._raw || p;
-
         const yearVal = raw.graduation_year ?? raw.batch_year ?? null;
         if (qYear !== null && Number(yearVal || 0) !== qYear) return false;
 
-        const deptVal = String(raw.department || '').toLowerCase();
-        if (qDept && !deptVal.includes(qDept)) return false;
+        // Include all degrees/departments from additional education as well
+        const eduAggNorm = normalizeValue(educationSearchById.get(raw.id) || '');
 
-        const degreeVal = String(raw.degree_program || raw.degree || '').toLowerCase();
-        if (qDegree && !degreeVal.includes(qDegree)) return false;
+        const deptVal = normalizeValue(raw.department || '');
+        if (qDept && !(deptVal.includes(qDept) || eduAggNorm.includes(qDept))) return false;
 
-        const titleVal = String(raw.current_job_title || raw.current_title || raw.job_title || '').toLowerCase();
+        const degreeVal = normalizeValue(raw.degree_program || raw.degree || '');
+        if (qDegree && !(degreeVal.includes(qDegree) || eduAggNorm.includes(qDegree))) return false;
+
+        const titleVal = normalizeValue(raw.current_job_title || raw.current_title || raw.job_title || '');
         if (qTitle && !titleVal.includes(qTitle)) return false;
 
-        const companyVal = String(raw.company_name || raw.current_company || raw.company || '').toLowerCase();
+        const companyVal = normalizeValue(raw.company_name || raw.current_company || raw.company || '');
         if (qCompany && !companyVal.includes(qCompany)) return false;
 
-        const locVal = [raw.location, raw.location_city, raw.location_country]
+        const locVal = normalizeValue([raw.location, raw.location_city, raw.location_country]
           .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
+          .join(' '));
         if (qLoc && !locVal.includes(qLoc)) return false;
 
         return true;
@@ -418,7 +428,13 @@ export default function DirectoryPage() {
           </div>
           {/* ChipBar with modern styling */}
         <div className="mb-6">
-          <ChipBar counts={countsForChips} active={activeFilter} onChange={handleFilterChange} showEmployers={isAdmin} showConnections={isAdmin} />
+          <ChipBar
+            counts={countsForChips}
+            active={activeFilter}
+            onChange={handleFilterChange}
+            showEmployers={isAdmin}
+            showConnections={false}
+          />
         </div>
         </div>
 

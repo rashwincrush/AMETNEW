@@ -89,26 +89,66 @@ function ActivitiesWidget() {
         iconColor: 'text-indigo-600',
         label: 'Mentorship'
       },
+      message_sent: {
+        icon: ClockIcon,
+        color: 'bg-pink-100',
+        iconColor: 'text-pink-600',
+        label: 'Messages'
+      },
+      message_view: {
+        icon: ClockIcon,
+        color: 'bg-pink-100',
+        iconColor: 'text-pink-600',
+        label: 'Messages'
+      },
+      message_thread_open: {
+        icon: ClockIcon,
+        color: 'bg-pink-100',
+        iconColor: 'text-pink-600',
+        label: 'Messages'
+      },
     };
     return configs[type] || { icon: ClockIcon, color: 'bg-gray-100', iconColor: 'text-gray-600', label: 'Activity' };
   };
 
+  const truncate = (text, max = 60) => {
+    if (!text) return "";
+    return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  };
+
+  const cleanPath = (text = "") => text.replace(/\/messages/gi, "").replace(/^\s*\/+|\s*\/+$/g, "").trim();
+
+  const normalizeMessageTitle = (text = "") => {
+    const t = text.toLowerCase();
+    if (t.includes("threads list load")) return "Checked your inbox";
+    if (t.includes("open thread")) return "Opened a conversation";
+    if (t.includes("messages page view") || t.includes("page view")) return "Viewed messages";
+    return text;
+  };
+
+  // Remove trailing dots/bullets/whitespace
+  const stripTrailingDots = (text = "") => text.replace(/[.\u2022\u00b7]+\s*$/u, "").trim();
+
   const renderLine = (a) => {
+    const cleaned = stripTrailingDots(truncate(cleanPath(a.activity_text)));
+    const normalizedMsg = stripTrailingDots(truncate(normalizeMessageTitle(cleanPath(a.activity_text))));
     switch (a.activity_type) {
       case "event_rsvp":
-        return `You RSVP'd to event: ${a.activity_text}`;
+        return cleaned || "You RSVP’d";
       case "job_application":
-        return `You applied for job: ${a.activity_text}`;
+        return cleaned || "You applied";
       case "connection_request":
-        return `You sent a connection request to ${a.activity_text}`;
+        return cleaned || "Connection request";
       case "group_joined":
-        return `You joined group: ${a.activity_text}`;
+        return cleaned || "Joined group";
       case "mentorship_accepted":
-        return `${a.activity_text} accepted your mentorship request`;
+        return cleaned || "Mentorship request accepted";
+      case "message_sent":
+      case "message_view":
+      case "message_thread_open":
+        return normalizedMsg || "Messages";
       default:
-        // Fallback: show a sensible default line using the RPC-provided title
-        // so we don't hide valid activities with unrecognized types.
-        return a.activity_text || a.activity_type || "Activity";
+        return cleaned || normalizedMsg || a.activity_type || "Activity";
     }
   };
 
@@ -160,30 +200,20 @@ function ActivitiesWidget() {
 
       {/* List */}
       {rows && rows.length > 0 && (
-        <ul className="space-y-3 page-enter">
+        <ul className="space-y-4 page-enter list-none p-0">
           {rows.slice(0, 5).map((a, idx) => {
             const text = renderLine(a);
-            if (!text) return null;
-            const config = getActivityConfig(a.activity_type);
-            const Icon = config.icon;
-            
+            const { icon: Icon, color, iconColor } = getActivityConfig(a.activity_type);
             return (
-              <li 
-                key={`${a.activity_type}-${a.created_at}-${idx}`} 
-                className="flex items-start space-x-3 p-3 rounded-lg hover:bg-ocean-50 transition-colors duration-200 border border-transparent hover:border-ocean-200"
-              >
-                <div className={`flex-shrink-0 w-10 h-10 ${config.color} rounded-full flex items-center justify-center`}>
-                  <Icon className={`w-5 h-5 ${config.iconColor}`} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900 leading-snug">{text}</p>
-                  <div className="flex items-center mt-1 space-x-2">
-                    <span className="text-xs text-gray-500">
-                      {formatTimeAgo(a.created_at)}
-                    </span>
-                    <span className="text-gray-300">•</span>
-                    <span className="text-xs text-gray-400">{config.label}</span>
+              <li key={`${a.activity_type}-${a.created_at}-${idx}`} className="flex space-x-3">
+                <div className="flex items-center">
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center border border-gray-200 bg-white ${color}`}>
+                    <Icon className={`w-4 h-4 ${iconColor}`} />
                   </div>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-gray-900 leading-snug">{text}</p>
+                  <p className="text-xs text-gray-500 mt-1">{formatTimeAgo(a.created_at)}</p>
                 </div>
               </li>
             );

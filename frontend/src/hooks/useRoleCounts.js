@@ -17,11 +17,29 @@ export default function useRoleCounts() {
       setError(null);
 
       try {
-        let rpcName = isAdmin ? 'get_all_profiles_count_by_role_admin' : 'get_directory_role_counts';
-        const { data, error: rpcError } = await supabase.rpc(rpcName);
-        if (rpcError) throw rpcError;
+        // Prefer unified RPC. If unavailable or returns empty, try fallbacks in order.
+        const tryUnified = async () => supabase.rpc('get_role_counts_for_user');
+        const tryAdmin    = async () => supabase.rpc('get_all_profiles_count_by_role_admin');
+        const tryPublic   = async () => supabase.rpc('get_directory_role_counts');
+
+        const attempts = [tryUnified, tryAdmin, tryPublic];
+        let payload = null;
+        let lastErr = null;
+        for (const fn of attempts) {
+          try {
+            const res = await fn();
+            if (res?.error) throw res.error;
+            if (res?.data) { payload = res.data; break; }
+          } catch (e) {
+            lastErr = e;
+          }
+        }
+
         if (!mounted) return;
-        setCounts(data || null);
+        if (payload == null) {
+          throw lastErr || new Error('role counts unavailable');
+        }
+        setCounts(payload);
       } catch (err) {
         logger.error('Failed to fetch role counts:', err);
         if (mounted) {
@@ -54,7 +72,8 @@ export default function useRoleCounts() {
       };
     }
 
-    if (isAdmin && counts.alumni && typeof counts.alumni === 'object') {
+    // If RPC returned breakdown objects (admin path), use their totals; otherwise use plain numbers.
+    if (counts.alumni && typeof counts.alumni === 'object') {
       return {
         alumni: counts.alumni.total || 0,
         students: counts.student?.total || 0,

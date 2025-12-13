@@ -308,12 +308,6 @@ const EventDetail = () => {
       return;
     }
     
-    // Check employer eligibility for non-recruitment events
-    if (userRole === 'employer' && event?.category !== 'recruitment' && status === 'going') {
-      setError('Employers can only join recruitment events.');
-      return;
-    }
-    
     setRsvpLoading(true);
     try {
       if (status === 'going') {
@@ -700,7 +694,7 @@ const EventDetail = () => {
                         to={`/events/${id}/feedback`}
                         className="text-sm text-ocean-600 hover:underline block text-center"
                       >
-                        View or update your feedback
+                        View your feedback
                       </Link>
                     </div>
                   )}

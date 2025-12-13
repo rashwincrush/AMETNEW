@@ -24,6 +24,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useApproval } from '../../hooks/useApproval';
 import { toast } from 'react-hot-toast';
 import { toFriendlyToast } from '../../utils/errors';
+import { computeEventTimelineFlags } from '../../utils/eventsStatus';
 
 const Events = () => {
   const { user, isAdmin, userRole } = useAuth();
@@ -35,6 +36,12 @@ const Events = () => {
   const [selectedStatus, setSelectedStatus] = useState(searchParams.get('status') || 'upcoming'); // all | upcoming | past
   const [selectedEventType, setSelectedEventType] = useState(searchParams.get('type') || 'all');
   const [customEventType, setCustomEventType] = useState(searchParams.get('type') === 'other' ? (searchParams.get('other') || '') : '');
+  const [selectedTags, setSelectedTags] = useState(
+    (searchParams.get('tags') || '')
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean)
+  );
 
   // List/pagination/sort
   const [events, setEvents] = useState([]);
@@ -71,8 +78,9 @@ const Events = () => {
     if (selectedEventType) params.set('type', selectedEventType);
     if (selectedEventType === 'other' && customEventType) params.set('other', customEventType); else params.delete('other');
     if (sortBy) params.set('sort', sortBy);
+    if (selectedTags && selectedTags.length) params.set('tags', selectedTags.join(',')); else params.delete('tags');
     setSearchParams(params, { replace: true });
-  }, [selectedStatus, searchQuery, selectedEventType, customEventType, sortBy]);
+  }, [selectedStatus, searchQuery, selectedEventType, customEventType, sortBy, selectedTags]);
 
   // Log filter/view changes
   useEffect(() => {
@@ -136,8 +144,18 @@ const Events = () => {
         const { data, error, count } = await query.range(from, to);
         if (error) throw error;
 
-        setEvents(data || []);
-        setTotalEvents(count || 0);
+        // Apply client-side tag filter (AND semantics) after fetch
+        const raw = data || [];
+        let filtered = raw;
+        if (selectedTags.length) {
+          filtered = raw.filter((e) => {
+            const tags = Array.isArray(e.tags) ? e.tags.map((t) => String(t).toLowerCase()) : [];
+            return selectedTags.every((t) => tags.includes(String(t).toLowerCase()));
+          });
+        }
+
+        setEvents(filtered);
+        setTotalEvents(selectedTags.length ? filtered.length : (count || 0));
 
         // User RSVPs for visible items
         if (user && data && data.length) {
@@ -162,7 +180,7 @@ const Events = () => {
     };
 
     fetchEvents();
-  }, [user, isAdmin, currentPage, itemsPerPage, searchQuery, selectedStatus, selectedEventType, customEventType, sortBy]);
+  }, [user, isAdmin, currentPage, itemsPerPage, searchQuery, selectedStatus, selectedEventType, customEventType, sortBy, selectedTags]);
 
   const statusOptions = [
     { value: 'all', label: 'All' },
@@ -290,8 +308,8 @@ const Events = () => {
 
   const EventCard = ({ event }) => {
     const approval = getApprovalMeta(event.approval_status, event.is_published);
-    const isUpcoming = new Date(event.start_date) > new Date();
-    const statusLabel = isUpcoming ? 'Upcoming' : 'Past';
+    const { eventStarted, eventEnded, statusLabel } = computeEventTimelineFlags(event);
+    const isUpcoming = !eventStarted && !eventEnded;
     const locationShort = formatLocationShort(event.location, event.event_type);
     
     // Format chip label
@@ -387,7 +405,8 @@ const Events = () => {
   };
 
   const EventListItem = ({ event }) => {
-    const isUpcoming = new Date(event.start_date) > new Date();
+    const { eventStarted, eventEnded } = computeEventTimelineFlags(event);
+    const isUpcoming = !eventStarted && !eventEnded;
     const approval = getApprovalMeta(event.approval_status, event.is_published);
     
     return (
@@ -456,6 +475,49 @@ const Events = () => {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+
+        {/* Tag Filter */}
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold text-gray-600 mb-2">Tags</h3>
+          <div className="flex flex-wrap gap-2">
+            {Array.from(
+              new Set(
+                (events || []).flatMap((e) => (Array.isArray(e.tags) ? e.tags : []))
+              )
+            )
+              .sort((a, b) => String(a).localeCompare(String(b)))
+              .map((tag) => {
+                const active = selectedTags.includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    onClick={() => {
+                      setCurrentPage(1);
+                      setSelectedTags((prev) => {
+                        const has = prev.includes(tag);
+                        if (has) return prev.filter((t) => t !== tag);
+                        return [...prev, tag];
+                      });
+                    }}
+                    className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                      active ? 'bg-ocean-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                    aria-pressed={active}
+                  >
+                    {tag}
+                  </button>
+                );
+              })}
+            {selectedTags.length > 0 && (
+              <button
+                onClick={() => { setSelectedTags([]); setCurrentPage(1); }}
+                className="ml-2 px-3 py-1 rounded-full text-sm font-medium bg-gray-200 text-gray-700"
+              >
+                Clear
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -51,6 +51,7 @@ const CALENDAR_CATEGORY_OPTIONS = [
   { label: 'Career Development', value: 'career' },
   { label: 'Technical', value: 'technical' },
   { label: 'Social', value: 'social' },
+  { label: 'Jobs', value: 'jobs' },
   // Fallback buckets used by older data / calendar normalization
   { label: 'Virtual', value: 'virtual' },
   { label: 'In-Person', value: 'in-person' },
