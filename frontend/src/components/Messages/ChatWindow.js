@@ -32,7 +32,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
   const navigate = useNavigate();
   const location = useLocation();
   const { profile: otherUserProfile } = useProfileById(activeThread?.other_user_id);
-  const { isFullyApproved, approvalStatus } = useAuth();
+  const { isFullyApproved, approvalStatus, isBlocked } = useAuth();
 
   const { avatarUrl: peerAvatarUrl } = useAvatar(activeThread?.other_user_id, {
     useSignedUrl: true,
@@ -105,7 +105,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
   const edgeAccepted = edge && edge.status === 'accepted';        // latest connection row
   const fromRPC = !!isConnected;                                  // result of RPC-based status check
   const canSendDerived = fromThread || fromLocalAccept || !!edgeAccepted || fromRPC;
-  const canSendByApproval = !!isFullyApproved;
+  const canSendByApproval = !!isFullyApproved && !isBlocked;
   const canSend = canSendByApproval && canSendDerived;
 
   // Keep local activeThread in sync and ensure dm_threads exists
@@ -299,6 +299,10 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
     if (isSending || sendingMessageRef.current) return;
     if (!newMessage.trim() || !currentUser || !activeThread?.thread_id) return;
+    if (isBlocked) {
+      toast.error('Your account is restricted and cannot send messages');
+      return;
+    }
     if (!isFullyApproved) {
       toast.error(
         approvalStatus === 'pending'

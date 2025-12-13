@@ -849,6 +849,10 @@ export const AuthProvider = ({ children }) => {
   }, [getEffectivePermissions]);
 
   const isReadOnlyAccount = !!profile && (profile.is_deleted === true || profile.is_active === false);
+  
+  // Blocked user state (is_active=false with blocked_at set)
+  const isBlocked = !!profile && profile.is_active === false && !!profile.blocked_at;
+  const blockedReason = isBlocked ? profile.blocked_reason : null;
 
   const value = {
     user,
@@ -880,6 +884,9 @@ export const AuthProvider = ({ children }) => {
     isAdminLike,
     // Canonical full-approval flag (mirrors backend fc_is_fully_approved via get_current_user_flags)
     isFullyApproved,
+    // Blocked user state
+    isBlocked,
+    blockedReason,
   };
 
   return (

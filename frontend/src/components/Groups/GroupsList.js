@@ -24,7 +24,7 @@ const GroupsLoadingSpinner = () => (
 );
 
 // Group card component
-const GroupCard = ({ group, isMember, isGroupAdmin, hasPendingRequest, onJoinLeave, currentUserId, canManageAllGroups, userRole, isUserApproved }) => {
+const GroupCard = ({ group, isMember, isGroupAdmin, hasPendingRequest, onJoinLeave, currentUserId, canManageAllGroups, userRole, isUserApproved, isBlocked }) => {
   const [imgSrc, setImgSrc] = useState('');
   const isCreator = group.created_by === currentUserId;
   const formattedDate = new Date(group.created_at).toLocaleDateString();
@@ -62,6 +62,11 @@ const GroupCard = ({ group, isMember, isGroupAdmin, hasPendingRequest, onJoinLea
       ctaLabel = 'Joined';
       ctaClass = 'text-sm px-3 py-1.5 rounded-md bg-green-50 text-green-700 border border-green-200';
     }
+  } else if (isBlocked) {
+    membershipState = 'blocked';
+    ctaLabel = 'Account restricted';
+    ctaDisabled = true;
+    ctaClass = 'text-sm px-3 py-1.5 rounded-md bg-gray-200 text-gray-600 cursor-not-allowed';
   } else if (!isUserApproved) {
     membershipState = 'unapproved';
     ctaLabel = 'Approval required';
@@ -206,6 +211,7 @@ const GroupCard = ({ group, isMember, isGroupAdmin, hasPendingRequest, onJoinLea
               onClick={() => onJoinLeave(group.id, false, isPrivate)}
               className={ctaClass}
               aria-label={`${ctaLabel} ${group.name}`}
+              disabled={isBlocked}
             >
               {ctaLabel}
             </button>
@@ -226,7 +232,7 @@ const GroupCard = ({ group, isMember, isGroupAdmin, hasPendingRequest, onJoinLea
 };
 
 const GroupsList = () => {
-  const { user, isAdmin, hasPermission, profile, userRole } = useAuth();
+  const { user, isAdmin, hasPermission, profile, userRole, isBlocked } = useAuth();
   const { isApproved: isUserApproved } = useApproval();
   // P2: Store raw fetched groups separately so errors don't clear existing data
   const [allFetchedGroups, setAllFetchedGroups] = useState([]);
@@ -410,6 +416,12 @@ const GroupsList = () => {
     if (!user) {
       // Redirect to login if not authenticated
       window.location.href = '/login?redirect=/groups';
+      return;
+    }
+
+    if (isBlocked) {
+      // UX-only guard; backend RLS already enforces
+      try { (await import('react-hot-toast')).default.error('Your account is restricted and cannot perform this action'); } catch (e) { void e; }
       return;
     }
 
@@ -631,7 +643,7 @@ const GroupsList = () => {
       
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800 mb-4 md:mb-0">Networking Groups/Chapters</h1>
-        {user && canCreateGroup(userRole) && (
+        {user && canCreateGroup(userRole) && !isBlocked && (
           <Link
             to="/groups/new"
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"

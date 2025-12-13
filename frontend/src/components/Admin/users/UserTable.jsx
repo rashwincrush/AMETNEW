@@ -82,7 +82,6 @@ function RowActionsMenu({
   status,
   onApprove,
   onReject,
-  onToggleActive,
   onSoftDelete,
   onMenteeAction,
   onMentorAction,
@@ -117,7 +116,7 @@ function RowActionsMenu({
     setMenuPosition({ top, right: Math.max(right, 8) });
   }, [isOpen]);
 
-  if (!onApprove || !onReject || !onToggleActive || !onSoftDelete) return null;
+  if (!onApprove || !onReject || !onSoftDelete) return null;
 
   return (
     <div className="relative">
@@ -168,18 +167,6 @@ function RowActionsMenu({
                 <XCircleIcon className="w-4 h-4 text-red-600" />
                 Reject user
               </button>
-              {!user.is_deleted && (
-                <button
-                  onClick={() => {
-                    onToggleActive(user);
-                    setIsOpen(false);
-                  }}
-                  className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 hover:bg-gray-50 text-gray-700"
-                >
-                  <ExclamationTriangleIcon className="w-4 h-4 text-orange-500" />
-                  {user.is_active === false ? 'Unblock user' : 'Block user'}
-                </button>
-              )}
               {!user.is_deleted && user.id !== currentUserId && (
                 <button
                   title="Soft delete: close the account but keep all data. User becomes read-only and cannot perform new actions. Contact your administrator for more information."

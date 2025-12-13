@@ -8,11 +8,12 @@ import { getApplicantsCount } from '../../utils/applicants';
 import { requestConnectionForJob } from '../../utils/connections';
 import toast from 'react-hot-toast'; // Assuming you have react-hot-toast installed
 import ApplyDialog from './ApplyDialog';
+import { handleBlockedUserError } from '../../utils/blockedUserError';
 import { hasApplied as hasAppliedHelper } from '../../utils/jobApplications';
 import ImageWithFallback from '../common/ImageWithFallback';
 
 export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner, isAdmin }) {
-  const { user, userRole } = useAuth();
+  const { user, userRole, isBlocked } = useAuth();
   const { isApproved } = useApproval();
   const navigate = useNavigate();
   const canEdit = isOwner || isAdmin;
@@ -108,13 +109,22 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
                 {user?.id && employerId && user.id !== employerId && (
                   <button
                     onClick={async () => {
-                      try { await requestConnectionForJob(job.id, employerId, user?.id); } catch (error) {
-                        logger.error('Failed to request connection:', error);
-                        toast.error('Connection request failed. Please try again.');
+                      if (isBlocked) {
+                        toast.error('Your account is restricted and cannot perform this action');
+                        return;
                       }
-                      navigate(`/messages?peer=${employerId}&job=${job.id}`);
+                      try {
+                        await requestConnectionForJob(job.id, employerId, user?.id);
+                        navigate(`/messages?peer=${employerId}&job=${job.id}`);
+                      } catch (error) {
+                        if (!handleBlockedUserError(error)) {
+                          logger.error('Failed to request connection:', error);
+                          toast.error('Connection request failed. Please try again.');
+                        }
+                      }
                     }}
-                    className="px-3 py-2 rounded-lg border text-sm hover:bg-gray-50"
+                    disabled={isBlocked}
+                    className={`px-3 py-2 rounded-lg border text-sm ${isBlocked ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-50'}`}
                   >
                     Connect with employer
                   </button>
@@ -139,7 +149,19 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
                     {isClosed ? 'Applications closed' : 'Accepting applications'}
                   </button>
                 ) : canApplyInApp ? (
-                  <button onClick={() => setApplyOpen(true)} className="px-3 py-2 rounded-lg bg-ocean-600 text-white text-sm hover:bg-ocean-700">Apply now</button>
+                  <button
+                    onClick={() => {
+                      if (isBlocked) {
+                        toast.error('Your account is restricted and cannot perform this action');
+                        return;
+                      }
+                      setApplyOpen(true);
+                    }}
+                    disabled={isBlocked}
+                    className={`px-3 py-2 rounded-lg text-sm ${isBlocked ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-ocean-600 text-white hover:bg-ocean-700'}`}
+                  >
+                    Apply now
+                  </button>
                 ) : (
                   <button disabled className="px-3 py-2 rounded-lg border text-sm text-gray-400 cursor-not-allowed">Applications closed</button>
                 )}

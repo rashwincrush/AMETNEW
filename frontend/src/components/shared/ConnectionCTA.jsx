@@ -6,6 +6,7 @@ import { MessageButton, RemoveButton, primaryButtonClasses } from './Buttons';
 import { Loader2 } from 'lucide-react';
 import logger from '../../utils/logger';
 import { useAuth } from '../../contexts/AuthContext';
+import toast from 'react-hot-toast';
 
 // scope: 'directory' | 'profile'
 // currentTab: 'all' | 'received' | 'sent' | 'connected' (optional outside Directory)
@@ -16,7 +17,15 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
 
   // Frontend gating to mirror backend fc_is_fully_approved():
   // pending / not-fully-approved users can browse but must not initiate new connection requests.
-  const { isFullyApproved, approvalStatus } = useAuth();
+  const { isFullyApproved, approvalStatus, isBlocked } = useAuth();
+
+  const blockedGuard = () => {
+    if (isBlocked) {
+      toast.error('Your account is restricted and cannot perform this action');
+      return true;
+    }
+    return false;
+  };
 
   const safe = (fn) => async () => {
     if (!meId || !peerId || busy) return;
@@ -34,6 +43,7 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
   };
 
   const doConnect = async () => {
+    if (blockedGuard()) return;
     if (!meId || !peerId || busy) return;
     setBusy(true);
     setError(null);
@@ -58,6 +68,7 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
   };
   
   const doCancel = safe(async () => {
+    if (blockedGuard()) return;
     await cancelPending(meId, peerId);
     // Reset optimistic state
     setOverrideRel({ status: null, pending_side: null });
@@ -65,14 +76,17 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
   });
   
   const doAccept = safe(async () => {
+    if (blockedGuard()) return;
     await acceptPending(meId, peerId);
     logActivity({ action: 'connection_accepted', meta: { peer_id: peerId } }).catch(() => {});
   });
   const doDecline = safe(async () => {
+    if (blockedGuard()) return;
     await declinePending(meId, peerId);
     logActivity({ action: 'connection_declined', meta: { peer_id: peerId } }).catch(() => {});
   });
   const doRemove = safe(async () => {
+    if (blockedGuard()) return;
     await removeConnection(meId, peerId);
     // Immediately reflect as disconnected in UI
     setOverrideRel({ status: null, pending_side: null });
@@ -93,8 +107,8 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
         <div className="w-full">
           <button
             type="button"
-            onClick={isFullyApproved ? doConnect : undefined}
-            disabled={!meId || busy || !isFullyApproved}
+            onClick={isFullyApproved && !isBlocked ? doConnect : blockedGuard}
+            disabled={!meId || busy || !isFullyApproved || isBlocked}
             className={`${primaryButtonClasses} w-full min-h-[44px]`}
             aria-label={profileName ? `Connect with ${profileName}` : 'Connect'}
           >
@@ -111,9 +125,11 @@ export default function ConnectionCTA({ meId, peerId, rel, currentTab = 'all', s
               'Connect'
             )}
           </button>
-          {!isFullyApproved && (
+          {(!isFullyApproved || isBlocked) && (
             <p className="mt-1 text-xs text-amber-700" role="note">
-              {approvalStatus === 'pending'
+              {isBlocked
+                ? 'Your account is currently restricted. You cannot send connection requests.'
+                : approvalStatus === 'pending'
                 ? 'Your account is pending approval. You can browse but cannot send new connection requests yet.'
                 : 'You are not allowed to send new connection requests.'}
             </p>

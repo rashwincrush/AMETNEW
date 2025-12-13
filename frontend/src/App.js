@@ -112,6 +112,7 @@ import Security from './pages/Profile/Security';
 import RequireCompleteProfile from './components/Auth/RequireCompleteProfile.jsx';
 import MyMentorship from './components/Mentorship/MyMentorship.js';
 import HelpCenter from './pages/HelpCenter';
+import BlockedUserBanner from './components/common/BlockedUserBanner';
 import ContactUs from './pages/ContactUs';
 import NotificationSettings from './pages/Settings/NotificationSettings';
 
@@ -133,7 +134,7 @@ const JobApplyRedirect = () => {
 };
 
 function AppContent() {
-  const { user, profile, loading, getUserRole, rejectionStatus, isReadOnlyAccount } = useAuth();
+  const { user, profile, loading, getUserRole, rejectionStatus, isReadOnlyAccount, isBlocked } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -202,8 +203,10 @@ function AppContent() {
       <a href="#main-content" className="skip-link">
         Skip to main content
       </a>
+      {/* Blocked user banner - fixed at top */}
+      <BlockedUserBanner />
       <Navigation user={profile || user} />
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+      <div className={`flex-1 flex flex-col overflow-hidden min-w-0 ${isBlocked ? 'pt-16' : ''}`}>
         <Header user={profile || user} />
         <main 
           id="main-content" 
@@ -212,7 +215,7 @@ function AppContent() {
           aria-label="Main content"
           tabIndex={-1}
         >
-          {showReadOnlyBanner && (
+          {showReadOnlyBanner && !isBlocked && (
             <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
               Your account is currently in read-only mode. You can view your past activity but cannot perform new actions. Contact your administrator for more information.
             </div>
