@@ -813,7 +813,10 @@ const JobListingsPage = () => {
   const canonicalSource = rawSourceQS === 'quick' ? 'quick_link' : rawSourceQS === 'internal' ? 'in_app' : rawSourceQS;
   const [sourceFilter, setSourceFilter] = useState(['quick_link', 'in_app'].includes(canonicalSource) ? canonicalSource : 'all');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('all'); // all | live | paused
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const statusParam = (searchParams.get('status') || '').toLowerCase();
+    return ['admin', 'super_admin', 'employer'].includes(userRole) && statusParam ? statusParam : 'all';
+  }); // all | live | paused
   const [approvalFilter, setApprovalFilter] = useState(searchParams.get('approval') || 'all');
   const [matchMyEducation, setMatchMyEducation] = useState(searchParams.get('matchEducation') === 'true');
 
@@ -861,6 +864,44 @@ const JobListingsPage = () => {
     });
   }, []);
 
+  const statusFilterAllowed = useMemo(() => ['employer', 'admin', 'super_admin'].includes(userRole), [userRole]);
+  const statusFilterOptions = useMemo(() => {
+    if (!statusFilterAllowed) {
+      return [
+        { value: 'all', label: 'All statuses' },
+        { value: 'live', label: 'Live' },
+        { value: 'paused', label: 'Paused' },
+      ];
+    }
+    if (['admin', 'super_admin'].includes(userRole)) {
+      return [
+        { value: 'all', label: 'All statuses' },
+        { value: 'live', label: 'Live' },
+        { value: 'paused', label: 'Paused' },
+        { value: 'pending', label: 'Pending approval' },
+        { value: 'disabled', label: 'Disabled' },
+        { value: 'rejected', label: 'Rejected' },
+      ];
+    }
+    return [
+      { value: 'all', label: 'All statuses' },
+      { value: 'live', label: 'Live' },
+      { value: 'paused', label: 'Paused' },
+    ];
+  }, [statusFilterAllowed, userRole]);
+
+  useEffect(() => {
+    if (!statusFilterAllowed) {
+      if (statusFilter !== 'all') setStatusFilter('all');
+      return;
+    }
+    const qsStatus = (searchParams.get('status') || 'all').toLowerCase();
+    if (qsStatus !== statusFilter) {
+      setStatusFilter(qsStatus);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilterAllowed, searchParams]);
+
   const fetchJobs = useCallback(async () => {
     if (fetchController.current) fetchController.current.abort();
     fetchController.current = new AbortController();
@@ -873,10 +914,32 @@ const JobListingsPage = () => {
     const [sortCol, sortDir] = (sortBy || 'created_at,desc').split(',');
     const isEmployer = userRole === 'employer';
     const isAdmin = ['admin', 'super_admin'].includes(userRole);
+    const effectiveStatus = statusFilterAllowed ? statusFilter : 'all';
 
     let data = null; let error = null;
 
-    if (isEmployer) {
+    if (isAdmin) {
+      // Admins query the jobs table directly; RLS already grants them full visibility.
+      let q = supabase
+        .from('jobs')
+        .select('*, companies(name, logo_url)', { count: 'exact' });
+
+      if (searchQuery && String(searchQuery).trim()) {
+        const s = String(searchQuery).trim();
+        q = q.or(`title.ilike.%${s}%,location.ilike.%${s}%,company_name.ilike.%${s}%`);
+      }
+
+      const ascending = (sortDir || 'desc').toLowerCase() === 'asc';
+      q = q.order(sortCol || 'created_at', { ascending });
+      q = q.range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
+
+      const resp = await q;
+      if (resp.error) {
+        error = resp.error;
+      } else {
+        data = { items: resp.data || [], total_count: resp.count || 0 };
+      }
+    } else if (isEmployer) {
       if (approvalFilter && approvalFilter !== 'all') {
         // Employer wants specific status: fetch from base table with ownership + approval predicates
         let q = supabase
@@ -965,87 +1028,6 @@ const JobListingsPage = () => {
               }
             }
           } catch (_) { /* noop */ }
-        }
-      }
-    } else if (isAdmin && approvalFilter && approvalFilter !== 'all') {
-      // Admin view with explicit approval / moderation filter
-      if (approvalFilter === 'approved') {
-        // Use public RPC for approved+active jobs to avoid RLS blocking and ensure consistent results
-        const jobTypeParam = (filters.jobType && filters.jobType !== 'all') ? filters.jobType : null;
-        const expParam = (filters.experience && filters.experience !== 'all') ? filters.experience : null;
-        const industryParam = null;
-        let salaryMin = null, salaryMax = null;
-        if (filters.salaryRange && filters.salaryRange !== 'all') {
-          const [minStr, maxStr] = String(filters.salaryRange).split('-');
-          salaryMin = minStr ? parseInt(minStr, 10) : null;
-          salaryMax = maxStr ? (maxStr === '' ? null : parseInt(maxStr, 10)) : null;
-        }
-        const postedSince = (filters.postedWithin && filters.postedWithin !== 'all') ? parseInt(filters.postedWithin, 10) : null;
-
-        ({ data, error } = await supabase.rpc('get_jobs_public_v5', {
-          p_search_query: searchQuery || null,
-          p_sort_by: sortCol || 'created_at',
-          p_sort_order: (sortDir || 'desc').toLowerCase(),
-          p_limit: pageSize,
-          p_offset: (currentPage - 1) * pageSize,
-          p_department: null,
-          p_job_type: jobTypeParam,
-          p_experience_level: expParam,
-          p_industry: industryParam,
-          p_salary_min: salaryMin,
-          p_salary_max: salaryMax,
-          p_posted_since_days: postedSince,
-        }));
-      } else {
-        // Pending/Disabled/Rejected require base table access
-        let q = supabase
-          .from('jobs')
-          .select('*, companies(name, logo_url)', { count: 'exact' });
-
-        if (approvalFilter === 'pending') {
-          q = q
-            .neq('is_approved', true)
-            .or('is_rejected.is.null,is_rejected.eq.false')
-            .eq('is_active', true);
-        }
-        if (approvalFilter === 'disabled') {
-          q = q
-            .eq('is_active', false)
-            .or('is_rejected.is.null,is_rejected.eq.false');
-        }
-        if (approvalFilter === 'rejected') {
-          q = q.eq('is_rejected', true);
-        }
-
-        if (filters.jobType && filters.jobType !== 'all') q = q.eq('job_type', filters.jobType);
-        if (filters.experience && filters.experience !== 'all') q = q.eq('experience_level', filters.experience);
-        if (filters.salaryRange && filters.salaryRange !== 'all') {
-          const [minStr, maxStr] = String(filters.salaryRange).split('-');
-          const sMin = minStr ? parseInt(minStr, 10) : null;
-          const sMax = maxStr ? (maxStr === '' ? null : parseInt(maxStr, 10)) : null;
-          if (sMin !== null) q = q.gte('salary_max', sMin);
-          if (sMax !== null) q = q.lte('salary_min', sMax);
-        }
-
-        if (filters.postedWithin && filters.postedWithin !== 'all') {
-          const days = parseInt(filters.postedWithin, 10);
-          if (!Number.isNaN(days)) q = q.gte('created_at', new Date(Date.now() - days * 86400000).toISOString());
-        }
-
-        if (searchQuery && String(searchQuery).trim()) {
-          const s = String(searchQuery).trim();
-          q = q.or(`title.ilike.%${s}%,location.ilike.%${s}%`);
-        }
-
-        const ascending = (sortDir || 'desc').toLowerCase() === 'asc';
-        q = q.order(sortCol || 'created_at', { ascending });
-        q = q.range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
-
-        const resp = await q;
-        if (resp.error) {
-          error = resp.error;
-        } else {
-          data = { items: resp.data || [], total_count: resp.count || 0 };
         }
       }
     } else {
@@ -1206,7 +1188,7 @@ const JobListingsPage = () => {
       }
       
       // For non-employers, only show jobs whose status is 'active' and approved/active flags
-      if (!isEmployer && approvalFilter === 'all') {
+      if (!isEmployer && !isAdmin && approvalFilter === 'all') {
         if (!(approved && activeFlag && statusActive)) return false;
       }
       // Hide expired jobs (deadline passed) for alumni/students (non-employer, non-admin)
@@ -1248,7 +1230,7 @@ const JobListingsPage = () => {
 
     setJobs(uniqueRows);
     setLoading(false);
-  }, [searchQuery, sortBy, currentPage, user, userRole, pageSize, filters.experience, filters.jobType, filters.postedWithin, filters.salaryRange, sourceFilter, approvalFilter, matchMyEducation]);
+  }, [searchQuery, sortBy, currentPage, user, userRole, pageSize, filters.experience, filters.jobType, filters.postedWithin, filters.salaryRange, sourceFilter, approvalFilter, matchMyEducation, statusFilter, statusFilterAllowed]);
 
   useEffect(() => {
     if (!user?.id || !jobs.length || !bookmarkedJobs.length) return;
@@ -1334,10 +1316,15 @@ const JobListingsPage = () => {
     } else {
       params.delete('approval');
     }
+    if (statusFilterAllowed) {
+      if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter); else params.delete('status');
+    } else {
+      params.delete('status');
+    }
     if (viewMode) params.set('view', viewMode);
     setSearchParams(params, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, filters, currentPage, sortBy, approvalFilter, viewMode, sourceFilter, matchMyEducation]);
+  }, [searchQuery, filters, currentPage, sortBy, approvalFilter, viewMode, sourceFilter, matchMyEducation, statusFilter, statusFilterAllowed]);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
@@ -1435,16 +1422,21 @@ const JobListingsPage = () => {
   };
 
   const statusFilteredJobs = useMemo(() => {
-    const statusFilterAllowed = ['employer', 'admin', 'super_admin'].includes(userRole);
     const effectiveStatus = statusFilterAllowed ? statusFilter : 'all';
     return jobs.filter((j) => {
       if (effectiveStatus === 'all') return true;
       const active = j?.is_active !== false;
-      if (effectiveStatus === 'live') return active;
-      if (effectiveStatus === 'paused') return !active;
+      const approved = j?.is_approved === true;
+      const rejected = j?.is_rejected === true;
+      const pending = !approved && !rejected;
+      if (effectiveStatus === 'live') return active && approved && !rejected;
+      if (effectiveStatus === 'paused') return !active && !rejected;
+      if (effectiveStatus === 'pending') return pending;
+      if (effectiveStatus === 'disabled') return !active && !rejected;
+      if (effectiveStatus === 'rejected') return rejected;
       return true;
     });
-  }, [jobs, statusFilter, userRole]);
+  }, [jobs, statusFilter, statusFilterAllowed, userRole]);
   const displayedJobs = statusFilteredJobs;
 
   const canPostJob = ['employer', 'admin', 'super_admin'].includes(userRole);
@@ -1553,16 +1545,16 @@ const JobListingsPage = () => {
             {options.map(option => (<option key={option.value} value={option.value}>{option.label}</option>))}
           </select>
         ))}
-        {['admin', 'super_admin', 'employer'].includes(userRole) && (
+        {statusFilterAllowed && (
           <select
             value={statusFilter}
             onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
             aria-label="Status filter"
           >
-            <option value="all">All statuses</option>
-            <option value="live">Live</option>
-            <option value="paused">Paused</option>
+            {statusFilterOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
           </select>
         )}
         <button
