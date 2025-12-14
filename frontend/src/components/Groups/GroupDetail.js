@@ -15,7 +15,9 @@ import {
   updateGroupPost,
   reportGroupPost,
   setMemberRole,
-  fetchGroupMembers
+  fetchGroupMembers,
+  acceptGroupInvitation,
+  rejectGroupInvitation,
 } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApproval } from '../../hooks/useApproval';
@@ -117,6 +119,7 @@ const GroupDetail = () => {
   const [editGroupTags, setEditGroupTags] = useState('');
   const [editGroupPrivate, setEditGroupPrivate] = useState(false);
   const [editGroupAdminOnly, setEditGroupAdminOnly] = useState(false);
+  const [inviteActionLoading, setInviteActionLoading] = useState(false);
   
   // Refs
   const fileInputRef = useRef(null);
@@ -244,6 +247,11 @@ const GroupDetail = () => {
         if (isMountedRef.current) {
           setError('This group is currently not available. It may be pending review or archived.');
         }
+      } else if (err?._restricted || err?.code === 'restricted') {
+        if (isMountedRef.current) {
+          setGroup(err.group || { _restricted: true, id });
+          setError('This is a private group. You need an invitation to view it.');
+        }
       } else {
         if (isMountedRef.current) {
           setError('Failed to load this group. Please try again.');
@@ -256,6 +264,56 @@ const GroupDetail = () => {
       }
     }
   }, [id, user?.id, profile?.is_admin]);
+
+  const handleAcceptInvitation = useCallback(async () => {
+    try {
+      if (!user) {
+        window.location.href = `/login?redirect=/groups/${id}`;
+        return;
+      }
+      if (!group?._invitePending) return;
+      if (!isMountedRef.current) return;
+      setInviteActionLoading(true);
+      const { error } = await acceptGroupInvitation(id);
+      if (error) throw error;
+      toast.success('You have joined this group.');
+      await loadGroupData();
+    } catch (err) {
+      logger.error('Error accepting group invitation:', err);
+      if (isMountedRef.current) {
+        setError(getFriendlyErrorMessage(err, 'Failed to accept invitation. Please try again.'));
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setInviteActionLoading(false);
+      }
+    }
+  }, [user, group?._invitePending, id, loadGroupData]);
+
+  const handleRejectInvitation = useCallback(async () => {
+    try {
+      if (!user) {
+        window.location.href = `/login?redirect=/groups/${id}`;
+        return;
+      }
+      if (!group?._invitePending) return;
+      if (!isMountedRef.current) return;
+      setInviteActionLoading(true);
+      const { error } = await rejectGroupInvitation(id);
+      if (error) throw error;
+      toast.success('Invitation declined.');
+      window.location.href = '/groups';
+    } catch (err) {
+      logger.error('Error rejecting group invitation:', err);
+      if (isMountedRef.current) {
+        setError(getFriendlyErrorMessage(err, 'Failed to decline invitation. Please try again.'));
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setInviteActionLoading(false);
+      }
+    }
+  }, [user, group?._invitePending, id]);
 
   useEffect(() => {
     loadGroupData();
@@ -800,18 +858,92 @@ const GroupDetail = () => {
     );
   }
 
-  // Private route guard: block non-members (except site admins) from viewing private groups
+  // Private route guard: invited users get an accept/reject CTA; others see generic private message.
   const isSiteAdmin = profile?.is_admin === true;
   if (group.is_private && !isMember && !isSiteAdmin) {
+    if (group._invitePending) {
+      const invitedAt = group._invitationMeta?.created_at
+        ? format(new Date(group._invitationMeta.created_at), 'dd MMM yyyy')
+        : null;
+      return (
+        <div className="min-h-screen bg-gray-50">
+          <div className="max-w-3xl mx-auto px-4 py-12">
+            <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+              <div className="flex justify-center mb-6">
+                <div className="p-4 rounded-full bg-amber-100 text-amber-600">
+                  <Shield className="w-8 h-8" />
+                </div>
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900 mb-3">
+                Youve been invited to this private group
+              </h1>
+              <p className="text-gray-600 mb-3">
+                {group.name
+                  ? `${group.name} is invite-only. Accept the invitation below to join and view posts and members.`
+                  : 'This group is invite-only. Accept the invitation below to join.'}
+              </p>
+              {invitedAt && (
+                <p className="text-sm text-gray-500 mb-4">Invited on {invitedAt}</p>
+              )}
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-4">
+                <button
+                  type="button"
+                  onClick={handleAcceptInvitation}
+                  disabled={inviteActionLoading}
+                  className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-ocean-600 rounded-lg hover:bg-ocean-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {inviteActionLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    'Accept invite and join group'
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRejectInvitation}
+                  disabled={inviteActionLoading}
+                  className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  Decline invite
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className="container mx-auto p-6">
-        <Link to="/groups" className="flex items-center text-sm font-medium text-gray-600 hover:text-gray-900 mb-4">
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to All Groups
-        </Link>
-        <div className="bg-white rounded-lg shadow-md p-8 text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Access denied</h1>
-          <p className="text-gray-600 mb-6">This is a private group. You must be a member to view its content.</p>
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-3xl mx-auto px-4 py-12">
+          <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+            <div className="flex justify-center mb-6">
+              <div className="p-4 rounded-full bg-amber-100 text-amber-600">
+                <Shield className="w-8 h-8" />
+              </div>
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-3">
+              This is a private group
+            </h1>
+            <p className="text-gray-600 mb-5">
+              {group.name
+                ? `${group.name} is invite-only. Ask a current admin or member to send you an invitation so you can view the posts and members.`
+                : 'Ask a current group admin or member to invite you before you can view this group.'}
+            </p>
+            <div className="text-sm text-gray-500 mb-6 space-y-1">
+              <p>Already received an invite? Check your Notifications panel for the invitation badge.</p>
+              <p>If you believe you should have access, message a group admin or email support so they can resend the invite.</p>
+            </div>
+            <Link
+              to="/groups"
+              className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-ocean-600 rounded-lg hover:bg-ocean-700"
+            >
+              Back to Groups
+            </Link>
+          </div>
         </div>
       </div>
     );

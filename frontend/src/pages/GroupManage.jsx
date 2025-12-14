@@ -25,7 +25,7 @@ import {
 import { supabase } from '../utils/supabase';
 import { ArrowLeft, Shield, AlertTriangle, Users, CheckCircle, XCircle, Search, Filter, X, ArrowUp, ArrowDown, Trash2, Loader2, ChevronDown, GraduationCap, Mail, RefreshCw, Eye, EyeOff, Info, Settings, UserPlus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { canManageGroup } from '../utils/acl';
+import { canManageGroup, getGroupStatus } from '../utils/acl';
 import { getFriendlyErrorMessage } from '../utils/errors';
 import { ROLE_LABELS } from '../utils/roles';
 import { useAvatars } from '../hooks/useAvatar';
@@ -100,7 +100,7 @@ const CollapsibleSection = ({
       <button
         type="button"
         onClick={onToggle}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
         aria-expanded={isOpen}
         aria-controls={contentId}
       >
@@ -159,7 +159,6 @@ export default function GroupManage() {
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
-  const [alumniOnly, setAlumniOnlyState] = useState(false);
   // Admin-only Posts toggle removed per spec
   // isApproved is derived from approvalStatus
   const [approvalStatus, setApprovalStatus] = useState('pending'); // 'pending' | 'approved' | 'rejected'
@@ -219,15 +218,23 @@ export default function GroupManage() {
       const { data, error } = groupResult;
       if (error) throw error;
 
+      if (data?._restricted) {
+        setGroup(data);
+        showError('This is a private group. You cannot access the management console.');
+        navigate(`/groups/${id}`);
+        setLoading(false);
+        return;
+      }
+
       setGroup(data);
       setName(data?.name || '');
       setDescription(data?.description || '');
       setTags(Array.isArray(data?.tags) ? data.tags.join(', ') : '');
       setIsPrivate(!!data?.is_private);
-      setAlumniOnlyState(!!data?.alumni_only);
       // is_admin_only_posts removed from UI
       // isApproved is derived from approvalStatus
-      setApprovalStatus(data?.approval_status || (data?.is_approved ? 'approved' : 'pending'));
+      const status = getGroupStatus(data);
+      setApprovalStatus(status.isRejected ? 'rejected' : status.isApproved ? 'approved' : 'pending');
 
       // Process auth check from parallel fetch (instead of separate useEffect)
       const siteAdmin = siteAdminFlag;
@@ -415,23 +422,6 @@ export default function GroupManage() {
     } catch (e) {
       logger.error('Failed to update privacy:', e);
       showError(getFriendlyErrorMessage(e, 'Failed to update privacy settings'));
-      await load();
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleAlumniOnlyToggle = async () => {
-    const next = !alumniOnly;
-    setAlumniOnlyState(next);
-    setSaving(true);
-    try {
-      await setAlumniOnly(id, next);
-      setGroup(prev => ({ ...(prev || {}), alumni_only: next }));
-      showSuccess(next ? 'Group set to alumni only' : 'Group now open to alumni and students');
-    } catch (e) {
-      logger.error('Failed to toggle alumni-only:', e);
-      showError(getFriendlyErrorMessage(e, 'Failed to update membership restrictions'));
       await load();
     } finally {
       setSaving(false);
@@ -643,7 +633,7 @@ export default function GroupManage() {
                   <button
                     onClick={handleApprove}
                     disabled={saving}
-                    className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 min-h-[32px]"
+                    className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 min-h-[32px]"
                   >
                     {saving ? 'Approving…' : 'Approve'}
                   </button>
@@ -652,7 +642,7 @@ export default function GroupManage() {
                   <button
                     onClick={handleReject}
                     disabled={saving}
-                    className="px-3 py-1.5 border border-red-300 text-red-700 text-xs font-medium rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[32px]"
+                    className="px-3 py-1.5 border border-red-300 text-red-700 text-xs font-medium rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 min-h-[32px]"
                   >
                     {saving ? 'Rejecting…' : 'Reject'}
                   </button>
@@ -700,7 +690,7 @@ export default function GroupManage() {
 
       {/* ═══════════════════════════════════════════════════════════════════════════
           BLOCK 1: SETTINGS
-          Contains: Overview, Basic Information, Privacy, Alumni Only, Approval
+          Contains: Overview, Basic Information, Privacy, Approval
           ═══════════════════════════════════════════════════════════════════════════ */}
       <div className={`space-y-4 ${activeTab !== 'settings' ? 'hidden lg:block' : ''}`}>
         {/* Block Header */}
@@ -907,40 +897,6 @@ export default function GroupManage() {
             </label>
           </div>
 
-          {/* Membership restrictions row */}
-          <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
-            <label className="flex items-center justify-between cursor-pointer">
-              <div className="flex-1">
-                <div className="font-medium text-gray-900 mb-1 flex items-center gap-2">
-                  <GraduationCap className="w-4 h-4 text-indigo-600" />
-                  Alumni Only
-                </div>
-                <p className="text-sm text-gray-600">
-                  {alumniOnly 
-                    ? 'Only alumni can join this group.'
-                    : 'Alumni and students can join this group.'}
-                </p>
-              </div>
-              <div className="ml-4">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={alumniOnly}
-                  onClick={handleAlumniOnlyToggle}
-                  disabled={saving}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
-                    alumniOnly ? 'bg-indigo-600' : 'bg-gray-200'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      alumniOnly ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-            </label>
-          </div>
         </div>
 
         {/* No footer button: toggles now auto-save */}

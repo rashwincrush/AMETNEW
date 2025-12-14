@@ -7,7 +7,15 @@ const NOTIFICATION_GROUPS = [
   {
     id: 'connections',
     label: 'Connections & Networking',
-    types: ['connection', 'group'], // Removed connection_request (normalized), added group
+    types: [
+      'connection',
+      'group',
+      'group_invite_received',
+      'group_invite_accepted',
+      'group_join_request',
+      'group_membership_approved',
+      'group_membership_rejected',
+    ],
   },
   {
     id: 'messages',
@@ -32,7 +40,7 @@ const NOTIFICATION_GROUPS = [
   {
     id: 'system_alerts',
     label: 'System Alerts',
-    types: ['alert', 'system'], // Added system for user-facing system messages
+    types: ['alert', 'system', 'group_admin_risk', 'group_approved', 'group_rejected', 'group_deleted'], // include governance alerts
   },
 ];
 

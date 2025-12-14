@@ -37,13 +37,12 @@ export default function NotificationsPanel({ onClose }) {
     isFetching,
     error,
     unreadCount,
-    filterTab,
-    setFilterTab,
     typeFilter,
     toggleType,
     loadMore,
     markOne,
     markAll,
+    notificationTypes = [],
   } = useNotifications();
 
   const hasUnread = unreadCount > 0;
@@ -79,25 +78,56 @@ export default function NotificationsPanel({ onClose }) {
 
       {/* Tabs removed: we always show all notifications now */}
 
+      {notificationTypes.length > 0 && (
+        <div className="px-3 py-2 border-b border-gray-100 bg-gray-50/80 flex flex-wrap gap-2">
+          {notificationTypes.map((type) => {
+            const active = typeFilter?.has(type);
+            return (
+              <button
+                key={type}
+                type="button"
+                onClick={() => toggleType(type)}
+                className={`text-xs px-2.5 py-1 rounded-full border transition ${
+                  active
+                    ? 'bg-ocean-50 border-ocean-300 text-ocean-700 font-medium'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-100'
+                }`}
+                aria-pressed={active}
+              >
+                {type.replace(/_/g, ' ')}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className="max-h-[70vh] overflow-auto mt-2" role="list">
-        {isLoading && (
+        {isLoading && !error && (
           <div className="p-3">
             <NotificationsLoading />
           </div>
         )}
-        {error && <div className="p-4 text-sm text-red-600">Failed to load</div>}
-        {!isLoading && !hasItems && (
+        {error && (
+          <div className="p-4 text-sm text-red-600">
+            Failed to load notifications.{' '}
+            <button
+              type="button"
+              onClick={loadMore}
+              className="underline font-medium"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {!isLoading && !error && !hasItems && (
           <div className="p-8 text-center text-sm text-gray-500">
-            {(() => {
-              const hasTypeFilters = typeFilter && typeFilter.size > 0;
-              if (filterTab === 'unread') return hasTypeFilters ? 'No unread notifications for these types.' : 'You are all caught up.';
-              if (filterTab === 'read') return hasTypeFilters ? 'No read notifications for these types yet.' : 'No read notifications yet.';
-              return hasTypeFilters ? 'No notifications for the selected types.' : 'No notifications yet.';
-            })()}
+            {typeFilter && typeFilter.size > 0
+              ? 'No notifications match the selected filters.'
+              : 'No notifications yet.'}
           </div>
         )}
 
-        {!isLoading && hasItems && (
+        {!isLoading && !error && hasItems && (
           <>
             {['today','yesterday','earlier'].map((key) => {
               const groupItems = groups[key];

@@ -842,20 +842,43 @@ export const fetchPublicGroups = async () => {
 // PERFORMANCE: Parallelized queries to reduce waterfall latency
 export const fetchGroupDetails = async (groupId, options = {}) => {
   const { includeMembers = false, memberLimit = 50 } = options;
-  
-  // Fetch group first (required for creator_by)
-  const { data: base, error } = await supabase
-    .from('groups')
-    .select(`*`)
-    .eq('id', groupId)
-    .single();
 
-  if (error) return { data: null, error };
+  const { data: rpcData, error: rpcError } = await supabase.rpc('get_group_details_secure', {
+    p_group_id: groupId,
+  });
 
-  // PERFORMANCE: Parallel fetch creator identity and members (if requested)
+  if (rpcError) return { data: null, error: rpcError };
+
+  const status = rpcData?.status;
+  const base = rpcData?.group || null;
+
+  if (status === 'not_found') {
+    return { data: null, error: { message: 'Group not found', code: 'not_found' } };
+  }
+
+  if (status === 'restricted') {
+    return { data: { ...base, _restricted: true }, error: null };
+  }
+
+  if (status === 'invite_pending') {
+    // Surface a richer private view for invited users, including minimal group info
+    // and readonly invitation metadata so the UI can show accept/reject actions.
+    const invitation = base?.invitation || null;
+    const cloned = { ...base };
+    delete cloned.invitation;
+    return {
+      data: {
+        ...cloned,
+        _invitePending: true,
+        _invitationMeta: invitation,
+      },
+      error: null,
+    };
+  }
+
+  // status === 'ok'
   const promises = [];
-  
-  // Creator identity lookup
+
   const creatorPromise = base?.created_by
     ? supabase
         .from('alumni_directory_public')
@@ -864,25 +887,38 @@ export const fetchGroupDetails = async (groupId, options = {}) => {
         .maybeSingle()
     : Promise.resolve({ data: null });
   promises.push(creatorPromise);
-  
-  // Members lookup (only if requested - saves time on list views)
+
   const membersPromise = includeMembers
     ? fetchGroupMembers(groupId, memberLimit, 0)
     : Promise.resolve({ data: null, error: null });
   promises.push(membersPromise);
-  
+
   const [creatorResult, membersResult] = await Promise.all(promises);
-  
+
   let data = {
     ...base,
     creator: creatorResult.data || null,
   };
-  
+
   if (includeMembers && !membersResult.error) {
     data.members = membersResult.data;
   }
-  
+
   return { data, error: null };
+};
+
+export const acceptGroupInvitation = async (groupId) => {
+  const { data, error } = await supabase.rpc('accept_group_invitation', {
+    p_group_id: groupId,
+  });
+  return { data, error };
+};
+
+export const rejectGroupInvitation = async (groupId) => {
+  const { data, error } = await supabase.rpc('reject_group_invitation', {
+    p_group_id: groupId,
+  });
+  return { data, error };
 };
 
 // Fetch current user's membership (role) for a group

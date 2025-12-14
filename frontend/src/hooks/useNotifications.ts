@@ -8,6 +8,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { supabase } from '../utils/supabase';
+import { subscribeToNotifications } from '../utils/notificationRealtime.ts';
+import logger from '../utils/logger';
 import {
   fetchNotifications,
   fetchAdminNotifications,
@@ -16,12 +18,11 @@ import {
   markOneUnread,
   getBellUnreadCount,
   getAdminUnreadCount,
-  subscribeMyNotifications,
   subscribeAdminNotifications,
   type BellNotification,
   type AdminNotification,
   type NotificationType,
-} from '../api/notifications';
+} from '../api/notifications.ts';
 import { useAuth } from '../contexts/AuthContext';
 
 dayjs.extend(relativeTime);
@@ -82,32 +83,24 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     return all.filter((n) => typeFilter.has(n.type));
   }, [all, typeFilter]);
 
+  const notificationTypes = useMemo(() => {
+    const uniques = new Set<string>();
+    all.forEach((n) => {
+      if (n?.type) uniques.add(n.type);
+    });
+    return Array.from(uniques).sort();
+  }, [all]);
+
   // unread count derived from all loaded
   const unreadCount = useMemo(() => all.filter((n) => !n.is_read).length, [all]);
 
   // realtime subscription
-  const subRef = useRef<any>(null);
   useEffect(() => {
     if (!user?.id) return;
-    
-    // Clean up any existing subscription first to prevent duplicate subscriptions
-    if (subRef.current) {
-      supabase.removeChannel(subRef.current);
-      subRef.current = null;
-    }
-    
-    subRef.current = subscribeMyNotifications(user.id, () => {
-      // Invalidate queries to refetch
+    return subscribeToNotifications(user.id, () => {
       qc.invalidateQueries({ queryKey: ['notifications', user.id] });
       qc.invalidateQueries({ queryKey: ['bell-unread-count', user.id] });
     });
-    
-    return () => {
-      if (subRef.current) {
-        supabase.removeChannel(subRef.current);
-        subRef.current = null;
-      }
-    };
   }, [user?.id, qc]);
 
   // pagination: load more (12 items per page, max 50 total)
@@ -118,7 +111,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     // Enforce 50-item cap per spec
     const newOffset = offset + 12;
     if (newOffset >= 50) {
-      console.log('Reached 50-item notification cap');
+      logger.info('Reached 50-item notification cap');
       return;
     }
     
@@ -169,7 +162,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     } catch (error) {
       // Roll back optimistic changes on failure
       prevStates.forEach(([k, v]) => qc.setQueryData(k as any, v));
-      console.error('Error marking notification:', error);
+      logger.error('Error marking notification:', error);
       throw error;
     } finally {
       // Ensure refetch to align with server state
@@ -184,7 +177,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
       await qc.invalidateQueries({ queryKey: ['notifications', user?.id] });
       await qc.invalidateQueries({ queryKey: ['bell-unread-count', user?.id] });
     } catch (error) {
-      console.error('Error marking all notifications:', error);
+      logger.error('Error marking all notifications:', error);
       throw error;
     }
   };
@@ -202,6 +195,7 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
     loadMore,
     markOne,
     markAll,
+    notificationTypes,
     refetch: query.refetch,
   };
 }
@@ -228,26 +222,11 @@ export function useBellUnreadCount() {
   });
 
   // Subscribe to realtime updates
-  const subRef = useRef<any>(null);
   useEffect(() => {
     if (!user?.id) return;
-
-    // Clean up any existing subscription first
-    if (subRef.current) {
-      supabase.removeChannel(subRef.current);
-      subRef.current = null;
-    }
-
-    subRef.current = subscribeMyNotifications(user.id, () => {
+    return subscribeToNotifications(user.id, () => {
       qc.invalidateQueries({ queryKey: ['bell-unread-count', user.id] });
     });
-
-    return () => {
-      if (subRef.current) {
-        supabase.removeChannel(subRef.current);
-        subRef.current = null;
-      }
-    };
   }, [user?.id, qc]);
 
   return {
@@ -336,7 +315,7 @@ export function useAdminNotifications(options: UseAdminNotificationsOptions = {}
     // Enforce 50-item cap per spec
     const newOffset = offset + 12;
     if (newOffset >= 50) {
-      console.log('Reached 50-item admin notification cap');
+      logger.info('Reached 50-item admin notification cap');
       return;
     }
     
@@ -353,7 +332,7 @@ export function useAdminNotifications(options: UseAdminNotificationsOptions = {}
       await qc.invalidateQueries({ queryKey: ['admin-notifications', user?.id] });
       await qc.invalidateQueries({ queryKey: ['admin-unread-count', user?.id] });
     } catch (error) {
-      console.error('Error marking admin notification:', error);
+      logger.error('Error marking admin notification:', error);
       throw error;
     }
   };
@@ -364,7 +343,7 @@ export function useAdminNotifications(options: UseAdminNotificationsOptions = {}
       await qc.invalidateQueries({ queryKey: ['admin-notifications', user?.id] });
       await qc.invalidateQueries({ queryKey: ['admin-unread-count', user?.id] });
     } catch (error) {
-      console.error('Error marking all admin notifications:', error);
+      logger.error('Error marking all admin notifications:', error);
       throw error;
     }
   };
