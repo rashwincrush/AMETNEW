@@ -18,7 +18,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { mergeAndConvertToUTC, formatInIST } from '../../utils/timezone';
+import { mergeAndConvertToUTC, formatInIST, convertToUTCFromIST } from '../../utils/timezone';
 import AccessDenied from '../Auth/AccessDenied';
 
 const EditEvent = () => {
@@ -135,10 +135,10 @@ const EditEvent = () => {
         category: data.category || 'networking',
         type: data.event_type || 'in-person',
         // Convert UTC database times to IST for form display
-        date: data.start_date ? new Date(data.start_date).toISOString().split('T')[0] : '',
-        startTime: data.start_date ? formatInIST(new Date(data.start_date), 'HH:mm') : '',
-        endTime: data.end_date ? formatInIST(new Date(data.end_date), 'HH:mm') : '',
-        registrationDeadline: data.registration_deadline ? new Date(data.registration_deadline).toISOString().split('T')[0] : '',
+        date: data.start_date ? formatInIST(data.start_date, 'yyyy-MM-dd') : '',
+        startTime: data.start_date ? formatInIST(data.start_date, 'HH:mm') : '',
+        endTime: data.end_date ? formatInIST(data.end_date, 'HH:mm') : '',
+        registrationDeadline: data.registration_deadline ? formatInIST(data.registration_deadline, 'yyyy-MM-dd') : '',
         venue: data.venue || '',
         address: data.address || '',
         virtualLink: data.virtual_link || '',
@@ -251,6 +251,30 @@ const EditEvent = () => {
     // Validate email format
     if (formData.organizerEmail && !/^\S+@\S+\.\S+$/.test(formData.organizerEmail)) {
       newErrors.organizerEmail = 'Please enter a valid email address';
+    }
+
+    if (!newErrors.endTime && formData.date && formData.startTime && formData.endTime) {
+      try {
+        const startUtc = convertToUTCFromIST(formData.date, formData.startTime);
+        const endUtc = convertToUTCFromIST(formData.date, formData.endTime);
+        if (endUtc <= startUtc) {
+          newErrors.endTime = 'End time must be after start time';
+        }
+      } catch (err) {
+        logger.warn('Failed to validate event times', err);
+      }
+    }
+
+    if (formData.registrationDeadline && formData.date) {
+      try {
+        const deadlineUtc = convertToUTCFromIST(formData.registrationDeadline, '00:00');
+        const eventDateUtc = convertToUTCFromIST(formData.date, '00:00');
+        if (deadlineUtc > eventDateUtc) {
+          newErrors.registrationDeadline = 'Registration deadline cannot be after the event date';
+        }
+      } catch (err) {
+        logger.warn('Failed to validate registration deadline', err);
+      }
     }
     
     setErrors(newErrors);

@@ -25,7 +25,7 @@ export function useMyRsvp(eventId) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('v_my_event_rsvp')
-        .select('attendance_status, is_waitlisted')
+        .select('attendance_status, is_waitlisted, wants_to_volunteer')
         .eq('event_id', eventId)
         .maybeSingle();
       if (error) throw error;

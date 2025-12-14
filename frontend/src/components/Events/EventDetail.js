@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../utils/supabase';
@@ -11,6 +11,8 @@ import ImageWithFallback from '../common/ImageWithFallback';
 import { useEvent, useMyRsvp, useMyFeedback, useOrganizer, useEventComputedFlags } from '../../hooks/useEventData';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApproval } from '../../hooks/useApproval';
+import { downloadCSV } from '../../utils/csv';
+import { toast } from 'react-hot-toast';
 
 const EventDetail = () => {
   const { id } = useParams();
@@ -20,6 +22,7 @@ const EventDetail = () => {
   const userRole = typeof getUserRole === 'function' ? getUserRole() : null;
   const { isApproved } = useApproval();
   const isMountedRef = useRef(true);
+  const istZone = 'Asia/Kolkata';
   
   useEffect(() => {
     isMountedRef.current = true;
@@ -47,6 +50,9 @@ const EventDetail = () => {
   const [rsvpBanner, setRsvpBanner] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
+  const [exportingVolunteers, setExportingVolunteers] = useState(false);
+  const [volunteerInterest, setVolunteerInterest] = useState(false);
+  const [volunteerSaving, setVolunteerSaving] = useState(false);
   
   useEffect(() => {
     if (!showImageModal) return;
@@ -83,14 +89,11 @@ const EventDetail = () => {
     if (!event?.start_date) {
       return 'Date not available';
     }
-    const istZone = 'Asia/Kolkata';
     const startDateIST = utcToZonedTime(parseISO(event.start_date), istZone);
     return format(startDateIST, 'EEEE, MMMM d, yyyy');
-  }, [event?.start_date]);
+  }, [event?.start_date, istZone]);
 
   const eventTimeLabel = useMemo(() => {
-    const istZone = 'Asia/Kolkata';
-
     if (!event?.start_date) {
       // Preserve previous behavior: "Time not available" followed by end time if present
       let label = 'Time not available';
@@ -110,7 +113,59 @@ const EventDetail = () => {
     }
 
     return label;
-  }, [event?.start_date, event?.end_date]);
+  }, [event?.start_date, event?.end_date, istZone]);
+
+  useEffect(() => {
+    setVolunteerInterest(!!myRsvp?.wants_to_volunteer);
+  }, [myRsvp?.wants_to_volunteer]);
+
+  const upsertVolunteerRecord = useCallback(
+    async (status, wantsVolunteer) => {
+      if (!user?.id || !event?.id) return;
+      const { error } = await supabase
+        .from('event_rsvps')
+        .upsert(
+          {
+            event_id: event.id,
+            user_id: user.id,
+            attendance_status: status,
+            wants_to_volunteer: wantsVolunteer,
+          },
+          { onConflict: 'event_id,user_id' }
+        );
+      if (error) throw error;
+    },
+    [event?.id, user?.id]
+  );
+
+  const handleExportVolunteers = useCallback(async () => {
+    if (!event?.id) return;
+    setExportingVolunteers(true);
+    try {
+      const { data, error } = await supabase.rpc('admin_get_event_volunteers', { p_event_id: event.id });
+      if (error) throw error;
+      const rows = Array.isArray(data) ? data : (data ? [data].flat() : []);
+      if (!rows || rows.length === 0) {
+        toast.success('No volunteers have signed up yet.');
+        return;
+      }
+      const normalized = rows.map((row, index) => ({
+        '#': index + 1,
+        name: row.full_name || 'Unknown',
+        email: row.email || '',
+        phone: row.phone || '',
+        rsvp_status: row.rsvp_status || '',
+        volunteered_at: row.rsvp_created_at || '',
+      }));
+      downloadCSV(`event-${event.id}-volunteers.csv`, normalized);
+      toast.success('Volunteer list downloaded.');
+    } catch (err) {
+      logger.error('Failed to export volunteers', err);
+      toast.error('Failed to export volunteers');
+    } finally {
+      setExportingVolunteers(false);
+    }
+  }, [event?.id]);
 
   const isVirtualEvent = useMemo(() => {
     if (!event) return false;
@@ -283,6 +338,7 @@ const EventDetail = () => {
         .upsert(row, { onConflict: 'event_id,user_id' });
         
       if (error) throw error;
+      await upsertVolunteerRecord('going', volunteerInterest);
       
       setShowRsvpSuccess(true);
       await refetchRsvp();
@@ -322,6 +378,7 @@ const EventDetail = () => {
             { onConflict: 'event_id,user_id' }
           );
         if (error) throw error;
+        await upsertVolunteerRecord('going', volunteerInterest);
         if (!isMountedRef.current) return;
         setShowRsvpSuccess(true);
         setRsvpBanner(true);
@@ -332,6 +389,8 @@ const EventDetail = () => {
           .eq('event_id', id)
           .eq('user_id', user.id);
         if (error) throw error;
+        await upsertVolunteerRecord('not_going', false);
+        setVolunteerInterest(false);
         if (!isMountedRef.current) return;
         setShowRsvpSuccess(false);
         setRsvpBanner(false);
@@ -357,6 +416,29 @@ const EventDetail = () => {
   // Handle RSVP action
   const handleRsvp = (status) => {
     return () => updateRsvpStatus(status);
+  };
+
+  const handleVolunteerChange = async (checked) => {
+    if (!user) {
+      setShowLoginPrompt(true);
+      return;
+    }
+    if (!iAmAttendee) {
+      toast.error('Please RSVP before volunteering.');
+      return;
+    }
+    setVolunteerSaving(true);
+    try {
+      await upsertVolunteerRecord('going', checked);
+      await refetchRsvp();
+      setVolunteerInterest(checked);
+      toast.success(checked ? 'Volunteer preference saved' : 'Volunteer preference removed');
+    } catch (err) {
+      logger.error('Failed to update volunteer status', err);
+      toast.error('Unable to update volunteer preference');
+    } finally {
+      setVolunteerSaving(false);
+    }
   };
 
   const handleFeedbackSubmit = async (e) => {
@@ -610,6 +692,15 @@ const EventDetail = () => {
                     ))}
                   </div>
                 )}
+
+                {event.sponsor_info && (
+                  <div className="bg-gray-50 border rounded-lg p-4 text-gray-700">
+                    <h3 className="text-base font-semibold text-gray-900 mb-2">Sponsors &amp; Partners</h3>
+                    <p className="text-sm whitespace-pre-line break-words">
+                      {event.sponsor_info}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* RSVP & Admin */}
@@ -673,6 +764,28 @@ const EventDetail = () => {
                       {rsvpLoading ? 'Processing...' : 'Attend Event'}
                     </button>
                   )}
+                  <div className="mt-4 pt-4 border-t text-left">
+                    <label className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 text-ocean-600 border-gray-300 rounded focus:ring-ocean-500"
+                        checked={volunteerInterest}
+                        onChange={(e) => handleVolunteerChange(e.target.checked)}
+                        disabled={volunteerSaving || rsvpLoading || showLoginPrompt || !isApproved}
+                      />
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">Volunteer to help at this event</p>
+                        <p className="text-xs text-gray-500">
+                          We’ll share your name, email, and phone with the organizer so they can coordinate tasks.
+                        </p>
+                      </div>
+                    </label>
+                    {volunteerInterest && (
+                      <p className="mt-2 text-sm text-green-600">
+                        You have volunteered for this event.
+                      </p>
+                    )}
+                  </div>
                   {canShowFeedback && !feedbackSubmitted && (
                     <div className="mt-4 pt-4 border-t">
                       <h4 className="font-bold text-md mb-2 text-center">How was your experience?</h4>
@@ -709,6 +822,14 @@ const EventDetail = () => {
                       </Link>
                       <button onClick={handleDelete} disabled={loading} className="flex items-center justify-center w-full bg-red-600 text-white font-bold py-2 px-4 rounded hover:bg-red-700 disabled:bg-gray-400 transition duration-200">
                         <Trash2 className="w-4 h-4 mr-2"/> Delete
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleExportVolunteers}
+                        disabled={exportingVolunteers}
+                        className="flex items-center justify-center w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded hover:bg-indigo-700 disabled:bg-gray-400 transition duration-200"
+                      >
+                        {exportingVolunteers ? 'Exporting Volunteers…' : 'Download volunteers (CSV)'}
                       </button>
                       {canViewFeedback ? (
                         <Link to={`/admin/events/${id}/feedback`} className="flex items-center justify-center w-full min-h-[44px] px-4 rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 text-white font-bold hover:from-ocean-600 hover:to-ocean-700 transition-[colors,opacity,transform,shadow] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2">

@@ -32,7 +32,7 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
   const navigate = useNavigate();
   const location = useLocation();
   const { profile: otherUserProfile } = useProfileById(activeThread?.other_user_id);
-  const { isFullyApproved, approvalStatus, isBlocked } = useAuth();
+  const { isFullyApproved, approvalStatus, isBlocked, userRole } = useAuth();
 
   const { avatarUrl: peerAvatarUrl } = useAvatar(activeThread?.other_user_id, {
     useSignedUrl: true,
@@ -493,20 +493,28 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
             <AvatarComponent src={headerAvatarUrl} alt={displayName || 'Contact'} size={40} />
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-lg font-medium text-gray-900">
-                  {displayName || 'Conversation'}
-                  <button
-                    className="ml-3 text-sm text-ocean-600 hover:underline"
-                    onClick={() => {
-                      if (activeThread.other_user_role === 'employer') {
-                        navigate(`/companies/${activeThread.other_user_id}`);
-                      } else {
-                        navigate(`/profile/${activeThread.other_user_id}`);
-                      }
-                    }}
-                  >
-                    {activeThread.other_user_role === 'employer' ? 'View Company' : 'View Profile'}
-                  </button>
+                <h3 className="text-lg font-medium text-gray-900 flex flex-col sm:flex-row sm:items-center sm:gap-3">
+                  <span className="truncate">
+                    {activeThread.other_user_full_name || otherProfile?.full_name || displayName || 'User'}
+                  </span>
+                  {(
+                    activeThread.other_user_role !== 'employer' ||
+                    !['alumni', 'student', 'admin', 'super_admin'].includes(userRole)
+                  ) && (
+                    <button
+                      type="button"
+                      className="text-sm text-ocean-600 hover:text-ocean-700 font-medium"
+                      onClick={() => {
+                        if (activeThread.other_user_role === 'employer') {
+                          navigate(`/companies/${activeThread.other_user_id}`);
+                        } else {
+                          navigate(`/profile/${activeThread.other_user_id}`);
+                        }
+                      }}
+                    >
+                      {activeThread.other_user_role === 'employer' ? 'View Company' : 'View Profile'}
+                    </button>
+                  )}
                 </h3>
                 {isMentorshipContext && mentorshipRelationship && (
                   <span className="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-semibold text-purple-800">

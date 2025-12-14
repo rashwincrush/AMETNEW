@@ -615,22 +615,28 @@ export type Database = {
       }
       event_rsvps: {
         Row: {
+          attendance_status: string | null
           created_at: string
           event_id: string
           id: string
           user_id: string
+          wants_to_volunteer: boolean
         }
         Insert: {
+          attendance_status?: string | null
           created_at?: string
           event_id: string
           id?: string
           user_id: string
+          wants_to_volunteer?: boolean
         }
         Update: {
+          attendance_status?: string | null
           created_at?: string
           event_id?: string
           id?: string
           user_id?: string
+          wants_to_volunteer?: boolean
         }
         Relationships: [
           {
