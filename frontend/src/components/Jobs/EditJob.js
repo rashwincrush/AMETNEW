@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { log } from '../../utils/log';
+import { validateJobUrls } from '../../utils/validators';
 import { toISODate } from '../../utils/dateClean';
 
 const GuardReady = ({ onReady }) => {
@@ -79,6 +80,7 @@ const EditJob = () => {
             description, requirements, skills, salary_range, application_url,
             contact_name, contact_email, contact_phone,
             external_url, apply_url, company_id, logo_url,
+            education_requirements,
             posted_by, user_id, created_by, deadline, application_deadline,
             is_active, is_approved,
             company:companies(name, logo_url)
@@ -119,16 +121,21 @@ const EditJob = () => {
 
       setFormData({
         ...data,
+        description: data.description || '',
+        requirements: data.requirements || '',
         skillsText: Array.isArray(data.skills)
           ? data.skills.join(', ')
           : (data.skills || ''),
+        education_requirements: Array.isArray(data.education_requirements) && data.education_requirements.length
+          ? data.education_requirements[0]
+          : '',
       });
 
       // Freeze the initial mode for the edit session
       const quick = Boolean((data?.application_url && String(data.application_url).trim()) || (data?.external_url && String(data.external_url).trim()));
       setInitialIsQuick(quick);
 
-      const existingLogo = data?.company?.logo_url || '';
+      const existingLogo = data?.logo_url || '';
       setLogoPreview(existingLogo);
       setLogoFile(null);
     } catch (e) {
@@ -152,6 +159,7 @@ const EditJob = () => {
     setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
+  // Optional job-specific logo upload (1MB limit, job-level only)
   const handleLogoChange = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
@@ -162,9 +170,9 @@ const EditJob = () => {
       return;
     }
 
-    const maxSize = 2 * 1024 * 1024; // 2MB
+    const maxSize = 1 * 1024 * 1024; // 1MB
     if (file.size > maxSize) {
-      toast.error('Your file is too large (max 2 MB). Please upload a smaller image.');
+      toast.error('Your file is too large (max 1 MB). Please upload a smaller image.');
       return;
     }
 
@@ -195,40 +203,12 @@ const EditJob = () => {
     }
     setIsSubmitting(true);
 
-    const {
-      title, company_name, location, job_type, description, requirements, skills,
-      salary_range, application_url, contact_name, contact_email, contact_phone,
-      external_url, apply_url, company_id, deadline, application_deadline, is_active
-    } = formData || {};
-
-    // Normalize and enforce the DB constraint jobs_external_target_at_most_one
-    // Only one of apply_url, application_url, external_url can be non-null
-    const norm_apply_url = cleanField(apply_url);
-    const norm_application_url = cleanField(application_url);
-    const norm_external_url = cleanField(external_url);
-
-    const chosen = [norm_apply_url, norm_application_url, norm_external_url].filter(Boolean).length;
-    if (chosen > 1) {
-      toast.error('Please provide only one external URL field.');
-      setIsSubmitting(false);
-      return;
-    }
-
-    // Additional validation to match jobs_application_url_valid
-    if (norm_application_url && !(norm_application_url.startsWith('https://') || norm_application_url.startsWith('mailto:'))) {
-      toast.error('Application URL must start with https:// or mailto:.');
-      setIsSubmitting(false);
-      return;
-    }
-
-    // Track uploaded logo for jobs.logo_url update
-    let uploadedLogoUrl = null;
-
-    // If a new logo is selected and we have a company_id, upload and update companies.logo_url
-    if (logoFile && company_id) {
+    // Optional job-specific logo upload
+    let uploadedLogoUrl = formData?.logo_url || null;
+    if (logoFile) {
       try {
         const cleanFileName = logoFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
-        const fileName = `${company_id}/${Date.now()}_${cleanFileName}`;
+        const fileName = `${user.id}/${Date.now()}_${cleanFileName}`;
 
         const { error: uploadError } = await supabase.storage
           .from('company-logos')
@@ -238,57 +218,48 @@ const EditJob = () => {
           });
 
         if (uploadError) {
-          logger.error('Logo upload failed in EditJob:', uploadError);
-          toast.error(`We could not upload the logo: ${uploadError.message || 'Unknown error'}`);
-        } else {
-          const { data: urlData } = supabase.storage
-            .from('company-logos')
-            .getPublicUrl(fileName);
-          const nextLogoUrl = urlData?.publicUrl || null;
-          if (nextLogoUrl) {
-            uploadedLogoUrl = nextLogoUrl;
-            const { error: logoUpdateError } = await supabase
-              .from('companies')
-              .update({ logo_url: nextLogoUrl })
-              .eq('id', company_id);
-            if (logoUpdateError) {
-              logger.error('Error updating company logo in EditJob:', logoUpdateError);
-              toast.error('Job updated, but we could not update the company logo.');
-            } else {
-              setLogoPreview(nextLogoUrl);
-            }
-          }
+          throw new Error(`Failed to upload logo: ${uploadError.message}`);
         }
+
+        const { data: urlData } = supabase.storage
+          .from('company-logos')
+          .getPublicUrl(fileName);
+        uploadedLogoUrl = urlData.publicUrl;
       } catch (err) {
-        logger.error('Unexpected error during logo upload in EditJob:', err);
-        toast.error('Job updated, but we could not update the company logo.');
+        logger.error('Logo upload failed (edit job):', err);
+        toast.error(`We could not upload the logo: ${err.message || 'Unknown error'}`);
+        setIsSubmitting(false);
+        return;
       }
     }
 
-    // Enforce DB constraint: company_name max 23 chars
-    const trimmedCompanyName = (company_name || '').trim() || null;
-    if (trimmedCompanyName && trimmedCompanyName.length > 23) {
-      toast.error('Company name can not be longer than 23 characters');
+    const {
+      title, company_name, location, job_type, description, requirements, skills,
+      salary_range, application_url, contact_name, contact_email, contact_phone,
+      external_url, apply_url, company_id, deadline, application_deadline, is_active,
+      education_requirements,
+    } = formData || {};
+
+    // Normalize and enforce the DB constraint jobs_external_target_at_most_one
+    // Only one of apply_url, application_url, external_url can be non-null
+    const norm_apply_url = cleanField(apply_url);
+    const norm_application_url = cleanField(application_url);
+    const norm_external_url = cleanField(external_url);
+
+    const urlError = validateJobUrls({
+      application_url: norm_application_url,
+      external_url: norm_external_url,
+      apply_url: norm_apply_url,
+    });
+    if (urlError) {
+      toast.error(urlError);
       setIsSubmitting(false);
       return;
     }
-    const safeCompanyName = trimmedCompanyName ? trimmedCompanyName.slice(0, 23) : null;
 
-    if (company_id && safeCompanyName) {
-      try {
-        const { error: companyUpdateError } = await supabase
-          .from('companies')
-          .update({ name: safeCompanyName })
-          .eq('id', company_id);
-        if (companyUpdateError) {
-          logger.error('Error updating company name in EditJob:', companyUpdateError);
-          toast.error('Job updated, but company name could not be synced.');
-        }
-      } catch (err) {
-        logger.error('Unexpected error updating company name in EditJob:', err);
-        toast.error('Job updated, but company name could not be synced.');
-      }
-    }
+    // Company/logo sync disabled per request; keep job fields only
+    const trimmedCompanyName = (company_name || '').trim() || null;
+    const safeCompanyName = trimmedCompanyName ? trimmedCompanyName.slice(0, 23) : null;
 
     // Parse salary range into numeric min/max for proper display fields
     const parseSalaryRange = (val) => {
@@ -309,6 +280,8 @@ const EditJob = () => {
     const { min: parsedSalaryMin, max: parsedSalaryMax } = parseSalaryRange(salary_range);
 
     let updateData;
+    const edu = cleanField(education_requirements);
+
     if (isQuick) {
       // Minimal Quick Link update
       const isoDate = toISODate(String((application_deadline || deadline || '').toString()).trim());
@@ -321,8 +294,8 @@ const EditJob = () => {
         title,
         company_name: safeCompanyName,
         application_url: norm_application_url,
-        external_url: norm_external_url,
-        apply_url: norm_apply_url,
+        external_url: null,
+        apply_url: null,
         salary_range: cleanField(salary_range),
         salary_min: parsedSalaryMin,
         salary_max: parsedSalaryMax,
@@ -331,7 +304,9 @@ const EditJob = () => {
         contact_name: cleanField(contact_name),
         contact_email: cleanField(contact_email),
         contact_phone: cleanField(contact_phone),
-        description,
+        description: cleanField(description),
+        logo_url: uploadedLogoUrl,
+        education_requirements: edu ? [edu] : null,
       };
     } else {
       updateData = {
@@ -339,8 +314,8 @@ const EditJob = () => {
         company_name: safeCompanyName,
         location,
         job_type,
-        description,
-        requirements,
+        description: cleanField(description),
+        requirements: cleanField(requirements),
         skills,
         salary_range,
         salary_min: parsedSalaryMin,
@@ -353,6 +328,8 @@ const EditJob = () => {
         apply_url: null,
         deadline: cleanField(deadline),
         application_deadline: null,
+        logo_url: uploadedLogoUrl,
+        education_requirements: edu ? [edu] : null,
       };
       // Prevent overposting: only admins can toggle is_active here
       if (isAdmin) {
@@ -367,7 +344,6 @@ const EditJob = () => {
         .from('jobs')
         .update({
           ...updateData,
-          ...(uploadedLogoUrl ? { logo_url: uploadedLogoUrl } : {}),
         })
         .eq('id', id)
         .select('id')
@@ -464,15 +440,15 @@ const EditJob = () => {
                               value={formData.description || ''} onChange={handleChange} disabled={isSubmitting} />
                           </Grid>
                           <Grid item xs={12}>
-                            <Typography variant="subtitle1" gutterBottom>Company Logo</Typography>
+                            <Typography variant="subtitle1" gutterBottom>Job Logo (optional)</Typography>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                               <Avatar
-                                src={logoPreview || formData?.company?.logo_url || ''}
-                                alt="Company Logo Preview"
+                                src={logoPreview || formData.logo_url || ''}
+                                alt="Job Logo Preview"
                                 sx={{ width: 60, height: 60, border: '1px solid #ddd' }}
                               />
                               <Button variant="outlined" component="label" disabled={isSubmitting}>
-                                Upload Company Logo
+                                Upload Job Logo
                                 <input
                                   type="file"
                                   hidden
@@ -480,12 +456,12 @@ const EditJob = () => {
                                   onChange={handleLogoChange}
                                 />
                               </Button>
-                              {logoFile && (
+                              {logoPreview && (
                                 <Button
                                   size="small"
                                   onClick={() => {
                                     setLogoFile(null);
-                                    setLogoPreview(formData?.company?.logo_url || '');
+                                    setLogoPreview('');
                                   }}
                                   disabled={isSubmitting}
                                 >
@@ -494,8 +470,7 @@ const EditJob = () => {
                               )}
                             </Box>
                             <Typography variant="caption" color="text.secondary">
-                              Upload your official <strong>company logo</strong>. This will update the logo shown for this
-                              company across its jobs in the portal.
+                              This logo is stored only on this job and is not linked to any company profile.
                             </Typography>
                           </Grid>
                         </>
@@ -560,13 +535,21 @@ const EditJob = () => {
                             />
                           </Grid>
                           <Grid item xs={12}>
-                            <TextField fullWidth multiline rows={3} label="Requirements" name="requirements"
-                              value={formData.requirements || ''} onChange={handleChange}
-                              disabled={isSubmitting} helperText="Use bullet points (•) or newlines to separate requirements"
+                            <TextField
+                              fullWidth
+                              multiline
+                              rows={3}
+                              label="Responsibilities"
+                              name="requirements"
+                              value={formData.requirements || ''}
+                              onChange={handleChange}
+                              disabled={isSubmitting}
+                              helperText="Use bullet points (•) or newlines to separate qualifications"
                               sx={{
                                 '& .MuiInputBase-input': { lineHeight: 1.5, fontSize: '1rem' },
-                                '& textarea': { whiteSpace: 'pre-wrap', wordWrap: 'break-word' }
-                              }} />
+                                '& textarea': { whiteSpace: 'pre-wrap', wordWrap: 'break-word' },
+                              }}
+                            />
                           </Grid>
                           <Grid item xs={12} sm={6}>
                             <TextField fullWidth label="Salary Range" name="salary_range"
@@ -601,15 +584,15 @@ const EditJob = () => {
                               value={formData.contact_phone || ''} onChange={handleChange} disabled={isSubmitting} />
                           </Grid>
                           <Grid item xs={12}>
-                            <Typography variant="h6" sx={{ mb: 1, mt: 1 }}>Company Logo</Typography>
+                            <Typography variant="subtitle1" gutterBottom>Job Logo (optional)</Typography>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                               <Avatar
-                                src={logoPreview || formData?.company?.logo_url || ''}
-                                alt="Company Logo Preview"
+                                src={logoPreview || formData.logo_url || ''}
+                                alt="Job Logo Preview"
                                 sx={{ width: 60, height: 60, border: '1px solid #ddd' }}
                               />
                               <Button variant="outlined" component="label" disabled={isSubmitting}>
-                                Upload Company Logo
+                                Upload Job Logo
                                 <input
                                   type="file"
                                   hidden
@@ -617,12 +600,12 @@ const EditJob = () => {
                                   onChange={handleLogoChange}
                                 />
                               </Button>
-                              {logoFile && (
+                              {logoPreview && (
                                 <Button
                                   size="small"
                                   onClick={() => {
                                     setLogoFile(null);
-                                    setLogoPreview(formData?.company?.logo_url || '');
+                                    setLogoPreview('');
                                   }}
                                   disabled={isSubmitting}
                                 >
@@ -631,8 +614,7 @@ const EditJob = () => {
                               )}
                             </Box>
                             <Typography variant="caption" color="text.secondary">
-                              Upload your official <strong>company logo</strong>. This will update the logo shown for this
-                              company across its jobs in the portal.
+                              This logo is stored only on this job and is not linked to any company profile.
                             </Typography>
                           </Grid>
                         </>

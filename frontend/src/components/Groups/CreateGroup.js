@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { canCreateGroup } from '../../utils/acl';
-import { createGroup, updateGroupAvatarRpc } from '../../api/groups';
+import { createGroup, updateGroupAvatarRpc, setAdminOnlyPosts } from '../../api/groups';
 import logger from '../../utils/logger';
 
 const CreateGroup = () => {
@@ -14,6 +14,7 @@ const CreateGroup = () => {
   const [isPrivate, setIsPrivate] = useState(false);
   const [tagsInput, setTagsInput] = useState('');
   const [avatarFile, setAvatarFile] = useState(null);
+  const [adminOnlyPosts, setAdminOnlyPosts] = useState(false);
   const [loading, setLoading] = useState(false);
   const { user, userRole } = useAuth();
   const navigate = useNavigate();
@@ -38,7 +39,21 @@ const CreateGroup = () => {
     try {
       const nameToCheck = name.trim();
       const tags = tagsInput.split(',').map(t => t.trim()).filter(Boolean);
-      const id = await createGroup({ name: nameToCheck, description: description.trim(), isPrivate, tags });
+      const id = await createGroup({
+        name: nameToCheck,
+        description: description.trim(),
+        isPrivate,
+        tags,
+      });
+
+      // Set admin-only posts if requested
+      if (adminOnlyPosts && id) {
+        try {
+          await setAdminOnlyPosts(id, true);
+        } catch (flagErr) {
+          logger.warn('Failed to set admin-only posts flag:', flagErr);
+        }
+      }
 
       // Optional avatar upload after group creation
       if (avatarFile && id) {
@@ -129,6 +144,28 @@ const CreateGroup = () => {
                   placeholder="e.g., Marine Engineering Alumni"
                   required
                 />
+              </div>
+
+              <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg border">
+                <div>
+                  <h3 className="font-medium text-gray-800">Admin-only Posts</h3>
+                  <p className="text-sm text-gray-500">
+                    When enabled, only group admins can create posts. Members can still view and comment if allowed by group settings.
+                  </p>
+                </div>
+                <label htmlFor="adminOnlyPosts" className="inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    id="adminOnlyPosts"
+                    checked={adminOnlyPosts}
+                    onChange={(e) => setAdminOnlyPosts(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="relative shrink-0 w-11 h-6 bg-gray-200 rounded-full peer-focus:ring-4 peer-focus:ring-blue-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  <span className="ml-3 text-sm font-medium text-gray-900 select-none">
+                    {adminOnlyPosts ? 'Admins only' : 'Admins + members'}
+                  </span>
+                </label>
               </div>
 
               <div>

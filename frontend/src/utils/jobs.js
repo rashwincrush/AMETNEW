@@ -18,34 +18,23 @@ export const getSourceType = (j) => {
 export const isQuickLink = (j) => !!(j?.application_url || j?.external_url);
 export const isInternal = (j) => getSourceType(j) === 'in_app';
 
-// Resolve the effective logo URL for a job, prioritizing company logo (most current)
-// before falling back to any job-level override or legacy fields.
+// Resolve the effective logo URL for a job.
+// Only job-level logo fields are allowed (no profile/company fallbacks).
+// Accept common aliases emitted by RPCs/views (job_logo_url) when they
+// represent the job's own logo column.
 const resolveJobLogoUrl = (job) => {
   if (!job) return '';
-
-  return (
-    // Effective logo from views/RPCs (COALESCE(jobs.logo_url, companies.logo_url))
-    job.company_logo_url ||
-    // Joined company shapes
-    job.companies?.logo_url ||
-    job.company?.logo_url ||
-    // Normalized/camelCase job-level field (frontend model)
-    job.logoUrl ||
-    // Raw DB column on jobs table, if present
-    job.logo_url ||
-    // Joined company shapes
-    ''
-  );
+  // Accept common job-level aliases that might come from RPC/view formatting.
+  return job.logo_url
+    || job.logoUrl
+    || job.job_logo_url
+    || '';
 };
 
 export const normalizeJobCompany = (job) => {
   if (!job) return { name: '', logo_url: '' };
 
-  const name =
-    job.company_name ||
-    job.companies?.name ||
-    job.company?.name ||
-    '';
+  const name = job.company_name || '';
 
   const logo_url = resolveJobLogoUrl(job);
 
@@ -53,7 +42,20 @@ export const normalizeJobCompany = (job) => {
 };
 
 export const getJobLogoUrl = (job) => resolveJobLogoUrl(job);
-export const getJobCompanyName = (job) => normalizeJobCompany(job).name;
+const LEGACY_COMPANY_IDS = new Set([
+  '4fab9806-ead1-4869-b7c4-5e9bb1a9cc19',
+]);
+const LEGACY_COMPANY_NAMES = ['oceanic tech solutions', 'oceanic tech solutions1'];
+
+export const getJobCompanyName = (job) => {
+  const { name } = normalizeJobCompany(job);
+  const legacyId = job?.company_id && LEGACY_COMPANY_IDS.has(job.company_id);
+  const legacyName =
+    name &&
+    LEGACY_COMPANY_NAMES.some((legacy) => name.trim().toLowerCase() === legacy);
+  if (legacyId || legacyName) return '';
+  return name;
+};
 
 export const companyDisplay = (j) => normalizeJobCompany(j);
 
@@ -239,9 +241,9 @@ export const normalizeJob = (raw, now = new Date()) => {
     // Keep both normalized and legacy fields for compatibility
     company_name: company.name || raw.company_name || '',
     companyName: company.name || raw.company_name || '',
-    company_logo_url: logoUrl || raw.company_logo_url || '',
-    logoUrl: logoUrl || raw.logoUrl || null,
-    companyLogoUrl: logoUrl || raw.companyLogoUrl || null,
+    company_logo_url: logoUrl || '',
+    logoUrl: logoUrl || null,
+    companyLogoUrl: logoUrl || null,
     location,
     computed_status: computedStatus,
   };

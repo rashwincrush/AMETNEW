@@ -136,5 +136,13 @@ export async function adminUsersDeleteAuthUser({ userId }) {
   });
 
   if (error) throw error;
+
+  // Treat success only when RPC explicitly returns ok with 2xx status
+  if (!data?.ok || !(data.status >= 200 && data.status < 300)) {
+    const status = data?.status ?? 'unknown';
+    const body = data?.body ?? '';
+    throw new Error(`Auth delete failed (status ${status}) ${body}`);
+  }
+
   return data;
 }

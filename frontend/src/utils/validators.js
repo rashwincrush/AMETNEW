@@ -49,3 +49,30 @@ export function validateGenericUrl(value) {
     return 'Invalid URL format.';
   }
 }
+
+/**
+ * Enforce single external URL and allowed schemes (https, mailto).
+ * @param {{ application_url?: string, external_url?: string, apply_url?: string }} urls
+ * @returns {string | null} error message or null
+ */
+export function validateJobUrls(urls = {}) {
+  const { application_url, external_url, apply_url } = urls;
+  const entries = [
+    ['application_url', application_url],
+    ['external_url', external_url],
+    ['apply_url', apply_url],
+  ].filter(([, v]) => v && String(v).trim() !== '');
+
+  if (entries.length > 1) {
+    return 'Provide only one application link.';
+  }
+
+  if (entries.length === 1) {
+    const [field, val] = entries[0];
+    if (!isValidUrl(val, ['https', 'mailto'])) {
+      return `${field} must start with https:// or mailto:`;
+    }
+  }
+
+  return null;
+}

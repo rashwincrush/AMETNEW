@@ -100,20 +100,6 @@ function JobCard({ job }) {
       <div className="p-5">
         {/* Header Section */}
         <div className="flex gap-4 mb-4">
-          {/* Company Logo */}
-          <div className="relative" aria-hidden="true">
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center shrink-0 shadow-sm">
-              <ImageWithFallback
-                src={companyLogo}
-                alt={companyName || 'Company'}
-                className="w-14 h-14"
-                imgClassName="w-full h-full object-contain p-1"
-                placeholderSrc="/default-avatar.svg"
-                emptyMessage="Logo"
-              />
-            </div>
-          </div>
-
           {/* Title & Company */}
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2 mb-2">

@@ -46,11 +46,10 @@ const toISO = (dateStr) => {
 /**
  * Builds a job payload that matches the `public.jobs` schema.
  * @param {object} form - The current formData from the PostJob component.
- * @param {string} companyId - The UUID of the company.
  * @param {'quick' | 'form'} mode - The type of submission.
  * @returns {object} A plain object ready for supabase.insert().
  */
-export function buildJobPayload(form, companyId, mode) {
+export function buildJobPayload(form, mode) {
   // Sanitize numeric salary inputs (strings with commas/symbols to integers)
   const sanitizedMin = parseINR(form.salary_min);
   const sanitizedMax = parseINR(form.salary_max);
@@ -58,7 +57,7 @@ export function buildJobPayload(form, companyId, mode) {
   // For In-App forms, leave link fields null and rely on contact_email.
   const linkFields =
     mode === 'quick'
-      ? { application_url: form.external_application_url?.trim() || null, external_url: null, apply_url: null }
+      ? { application_url: form.application_url?.trim() || null, external_url: null, apply_url: null }
       : { application_url: null, external_url: null, apply_url: null };
 
   // Map the free-text skills input to a string array.
@@ -77,7 +76,6 @@ export function buildJobPayload(form, companyId, mode) {
   })();
 
   return {
-    company_id: companyId,
     title: form.title?.trim(),
     company_name: form.company_name?.trim(), // Optional, but good to have
     location: form.location?.trim() || null,
@@ -102,11 +100,16 @@ export function buildJobPayload(form, companyId, mode) {
       return null;
     })(),
 
-    // Map long-text fields to the correct columns
-    description: form.summary?.trim() || null,
-    requirements: form.responsibilities?.trim() || form.qualifications?.trim() || null,
+    // Map long-text fields to the correct columns (prefer normalized keys, fallback to legacy)
+    description: form.description?.trim()
+      || form.summary?.trim()
+      || null,
+    requirements: form.requirements?.trim()
+      || form.responsibilities?.trim()
+      || form.qualifications?.trim()
+      || null,
 
-    // Optional job-level logo URL (backend will coalesce with company logo)
+    // Optional job-level logo URL (not tied to companies)
     logo_url: (form.logo_url && String(form.logo_url).trim()) || null,
 
     // Map skills to the `skills` array column

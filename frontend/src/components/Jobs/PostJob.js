@@ -8,7 +8,7 @@ import { useApproval } from '../../hooks/useApproval';
 import { mapSupabaseErrorToToast } from '../../utils/mapSupabaseErrorToToast';
 import { buildJobPayload } from '../../utils/jobPayloadBuilder';
 import { toISODate } from '../../utils/dateClean';
-import { isValidUrl, isValidEmail } from '../../utils/validators';
+import { isValidUrl, isValidEmail, validateJobUrls } from '../../utils/validators';
 import {
   Box,
   Stepper,
@@ -46,20 +46,14 @@ const PostJob = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
   const [publishIntent, setPublishIntent] = useState(false);
+  // Optional job-specific logo (stored only on jobs.logo_url, not tied to companies)
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState('');
   const [showSelectionScreen, setShowSelectionScreen] = useState(true);
   const [postingType, setPostingType] = useState(null); // 'link' or 'form'
 
   useEffect(() => {
-    if (profile && profile.primary_role === 'employer') {
-      setFormData(prev => ({
-        ...prev,
-        company_name: profile.company_name || '',
-        // Default logo for employers: prefer company logo, else use employer's profile avatar (DP)
-        logo_url: profile.logo_url || profile.avatar_url || ''
-      }));
-    }
+    // No employer-derived defaults; all company fields are user-entered.
   }, [profile]);
 
   const [formData, setFormData] = useState({
@@ -72,10 +66,9 @@ const PostJob = () => {
     industry: '',
     salary_min: '',
     salary_max: '',
-    deadline: '', // Renamed from application_deadline
-    summary: '', // Will be mapped to description
-    responsibilities: '', // Will be mapped to requirements
-    qualifications: '', // Will be mapped to requirements
+    deadline: '',
+    description: '',
+    requirements: '',
     nice_to_have_skills: '', // Will be mapped to skills array
     contact_email: '', // Renamed from hiring_contact_email
     // New fields for education requirements and contact info
@@ -85,8 +78,8 @@ const PostJob = () => {
     // Internal fields
     company_id: null,
     logo_url: '',
-    // Quick Link specific
-    external_application_url: ''
+    // Quick Link specific (unified)
+    application_url: ''
   });
 
   const handleChange = (e) => {
@@ -98,23 +91,21 @@ const PostJob = () => {
   };
 
   const handleLogoChange = (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files && e.target.files[0];
     if (!file) return;
-    
-    // Validate file type
-    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/svg+xml'];
+
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/svg+xml', 'image/webp'];
     if (!validTypes.includes(file.type)) {
-      toast.error('Invalid file type. Only PNG, JPG, JPEG, or SVG files are allowed.');
+      toast.error('Invalid file type. Only PNG, JPG, GIF, SVG, or WebP files are allowed.');
       return;
     }
-    
-    // Validate file size (max 1MB)
+
     const maxSize = 1 * 1024 * 1024; // 1MB
     if (file.size > maxSize) {
       toast.error('Your file is too large (max 1 MB). Please upload a smaller image.');
       return;
     }
-    
+
     setLogoFile(file);
     setLogoPreview(URL.createObjectURL(file));
   };
@@ -128,8 +119,8 @@ const PostJob = () => {
       // Work Mode, Job Type, and Experience Level have defaults, but you could add validation if needed.
     }
     if (activeStep === steps.length - 1) { // Final step: Details & Contact
-      if (!formData.summary || !formData.summary.trim()) {
-        newErrors.summary = 'A short job summary is required.';
+      if (!formData.description || !formData.description.trim()) {
+        newErrors.description = 'A short job summary is required.';
       }
       if (!formData.contact_email || !formData.contact_email.trim()) {
         newErrors.contact_email = 'Contact email is required.';
@@ -150,21 +141,43 @@ const PostJob = () => {
     setActiveStep((prevActiveStep) => prevActiveStep - 1);
   };
 
+  const validateFullForm = () => {
+    const newErrors = {};
+    if (!formData.title.trim()) newErrors.title = 'Job Title is required.';
+    if (!formData.company_name.trim()) newErrors.company_name = 'Company Name is required.';
+    if (!formData.location.trim()) newErrors.location = 'Location is required.';
+    if (!formData.job_type) newErrors.job_type = 'Job Type is required.';
+    if (!formData.description || !formData.description.trim()) newErrors.description = 'Job description is required.';
+    if (!formData.contact_email || !formData.contact_email.trim()) {
+      newErrors.contact_email = 'Contact email is required.';
+    } else if (!isValidEmail(formData.contact_email)) {
+      newErrors.contact_email = 'Enter a valid email.';
+    }
+    if (!formData.deadline || !String(formData.deadline).trim()) {
+      newErrors.deadline = 'Application deadline is required.';
+    }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleQuickLinkSubmit = async (e) => {
     e.preventDefault();
     if (!isApprovedEmployer && !isAdmin) { toast.error('Your employer profile is not yet approved. Please contact the administrator.'); return; }
 
     const newErrors = {};
     if (!formData.title.trim()) newErrors.title = 'Job Title is required.';
-    if (!formData.external_application_url.trim()) {
-      newErrors.external_application_url = 'External Application URL is required.';
-    } else {
-      if (!isValidUrl(formData.external_application_url, ['https', 'mailto'])) {
-        newErrors.external_application_url = 'Please enter a valid URL (https:// or mailto:).';
-      }
+    if (!formData.application_url.trim()) {
+      newErrors.application_url = 'Application URL is required.';
+    } else if (!isValidUrl(formData.application_url, ['https', 'mailto'])) {
+      newErrors.application_url = 'Please enter a valid URL (https:// or mailto:).';
     }
     if (!formData.deadline || !String(formData.deadline).trim()) {
       newErrors.deadline = 'Deadline is required.';
+    }
+
+    const urlError = validateJobUrls({ application_url: formData.application_url });
+    if (urlError) {
+      newErrors.application_url = urlError;
     }
 
     setErrors(newErrors);
@@ -181,11 +194,10 @@ const PostJob = () => {
         return;
       }
 
-      let companyId = null;
-      let logoUrl = formData.logo_url || null;
+      let logoUrl = null;
       const companyNameTrim = String(formData.company_name || '').trim();
 
-      // If a logo file was chosen, upload it to the shared company-logos bucket
+      // Optional job logo upload (job-specific, not tied to any company)
       if (logoFile) {
         try {
           const cleanFileName = logoFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
@@ -214,90 +226,19 @@ const PostJob = () => {
         }
       }
 
-      if (companyNameTrim) {
-        const { data: existingCompanies, error: findError } = await supabase
-          .from('companies')
-          .select('id, logo_url')
-          .eq('name', companyNameTrim);
-
-        if (findError) {
-          logger.error('Error finding company (quick link):', findError);
-          throw new Error(`Failed to find company: ${findError.message}`);
-        }
-
-        if (existingCompanies && existingCompanies.length > 0) {
-          const existing = existingCompanies[0];
-          companyId = existing.id;
-
-          // Start from the current company logo as canonical
-          let finalLogoUrl = existing.logo_url || null;
-
-          if (logoFile && logoUrl) {
-            // Explicit new upload: always override existing logo
-            finalLogoUrl = logoUrl;
-          } else if (!existing.logo_url) {
-            // Company has no logo yet; initialise from fallback (form/logo or employer DP)
-            const fallbackLogo = logoUrl || (userRole === 'employer' ? (profile?.logo_url || profile?.avatar_url || '') : null);
-            finalLogoUrl = fallbackLogo || null;
-          }
-
-          if (finalLogoUrl && finalLogoUrl !== existing.logo_url) {
-            const { error: updateError } = await supabase
-              .from('companies')
-              .update({ logo_url: finalLogoUrl })
-              .eq('id', companyId);
-
-            if (updateError) {
-              logger.error('Error updating company logo (quick link):', updateError);
-              throw new Error(`Failed to update company logo: ${updateError.message}`);
-            }
-          }
-        } else {
-          // New company: derive logo from explicit upload, form, or employer DP
-          let newCompanyLogoUrl = logoUrl;
-          if (!newCompanyLogoUrl && userRole === 'employer') {
-            newCompanyLogoUrl = profile?.logo_url || profile?.avatar_url || null;
-          }
-
-          const { data: newCompany, error: createError } = await supabase
-            .from('companies')
-            .insert({
-              name: companyNameTrim,
-              logo_url: newCompanyLogoUrl || null,
-              created_by: session.user.id
-            }, { returning: 'representation' });
-
-          if (createError) {
-            logger.error('Error creating company (quick link):', createError);
-            throw new Error(`Failed to create company: ${createError.message}`);
-          }
-
-          companyId = Array.isArray(newCompany) ? newCompany[0]?.id : newCompany?.id;
-        // Fallback: if the API did not return the row, try to fetch by name
-        if (!companyId) {
-          const { data: refetch, error: refetchErr } = await supabase
-            .from('companies')
-            .select('id')
-            .eq('name', formData.company_name.trim())
-            .order('created_at', { ascending: false })
-            .limit(1);
-          if (!refetchErr && Array.isArray(refetch) && refetch.length > 0) {
-            companyId = refetch[0].id;
-          }
-        }
-        }
-      }
-
       // Normalize date picker to YYYY-MM-DD
       const isoDate = toISODate(String(formData.deadline || '').trim());
       const insertPayload = {
-        ...(companyId ? { company_id: companyId } : {}),
         title: formData.title.trim(),
         company_name: companyNameTrim || null,
-        application_url: formData.external_application_url.trim(),
+        application_url: formData.application_url.trim(),
+        // Constraint requires application_deadline when using external URL
+        deadline: isoDate,
         application_deadline: isoDate,
+        // Optional job-specific logo URL
+        logo_url: logoUrl || null,
         // Optional description if provided, but not required in this path
-        description: formData.summary?.trim() || null,
+        description: formData.description?.trim() || null,
         status: 'active',
         is_active: true,
         is_approved: false,
@@ -342,20 +283,10 @@ const PostJob = () => {
       return;
     }
     // Only proceed on explicit Publish button click
-    if (!isExplicitPublish) {
-      return;
-    }
     if (!isApprovedEmployer && !isAdmin) { toast.error('Your employer profile is not yet approved. Please contact the administrator.'); return; }
 
-    if (!validateStep()) {
-      toast.error('Please fix the errors on this step before continuing.');
-      return;
-    }
-
-    // Final-step guardrails for required fields not covered by step-0 validation
-    if (!formData.company_name || !formData.company_name.trim()) {
-      toast.error('Company Name is required.');
-      setErrors(prev => ({ ...prev, company_name: 'Company Name is required.' }));
+    if (!validateFullForm()) {
+      toast.error('Please fix the highlighted errors.');
       return;
     }
 
@@ -385,18 +316,14 @@ const PostJob = () => {
 
     setIsSubmitting(true);
     try {
-      let companyId = formData.company_id;
-      // Proposed logo URL for the company; will be refined based on existing company state
-      let logoUrl = formData.logo_url || null;
-      // Track the effective logo we want to reflect back onto the employer profile (DP)
-      let effectiveLogoUrlForEmployer = null;
-
+      // Optional job-specific logo upload (job-level only)
+      let jobLogoUrl = formData.logo_url || null;
       if (logoFile) {
         try {
           const cleanFileName = logoFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
           const fileName = `${session.user.id}/${Date.now()}_${cleanFileName}`;
-          
-          const { data: uploadData, error: uploadError } = await supabase.storage
+
+          const { error: uploadError } = await supabase.storage
             .from('company-logos')
             .upload(fileName, logoFile, {
               cacheControl: '3600',
@@ -410,88 +337,16 @@ const PostJob = () => {
           const { data: urlData } = supabase.storage
             .from('company-logos')
             .getPublicUrl(fileName);
-          logoUrl = urlData.publicUrl;
+          jobLogoUrl = urlData.publicUrl;
         } catch (err) {
-          logger.error('Logo upload failed:', err);
-          toast.error(`We could not upload the logo: ${err.message || 'Unknown error'}`); 
+          logger.error('Logo upload failed (full form):', err);
+          toast.error(`We could not upload the logo: ${err.message || 'Unknown error'}`);
           setIsSubmitting(false);
           return;
         }
       }
 
-      const { data: existingCompanies, error: findError } = await supabase
-        .from('companies')
-        .select('id, logo_url')
-        .eq('name', formData.company_name.trim());
-
-      if (findError) {
-        logger.error("Error finding company:", findError);
-        throw new Error(`Failed to find company: ${findError.message}`);
-      }
-
-      if (existingCompanies && existingCompanies.length > 0) {
-        const existing = existingCompanies[0];
-        companyId = existing.id;
-
-        // Start from the current company logo as canonical
-        let finalLogoUrl = existing.logo_url || null;
-
-        if (logoFile && logoUrl) {
-          // Explicit new upload: always override existing logo
-          finalLogoUrl = logoUrl;
-        } else if (!existing.logo_url) {
-          // Company has no logo yet; initialise from fallback (form/logo or employer DP)
-          const fallbackLogo = logoUrl || (userRole === 'employer' ? (profile?.logo_url || profile?.avatar_url || '') : null);
-          finalLogoUrl = fallbackLogo || null;
-        }
-
-        if (finalLogoUrl && finalLogoUrl !== existing.logo_url) {
-          const { error: updateError } = await supabase
-            .from('companies')
-            .update({ logo_url: finalLogoUrl })
-            .eq('id', companyId);
-
-          if (updateError) {
-            logger.error("Error updating company logo:", updateError);
-            throw new Error(`Failed to update company logo: ${updateError.message}`);
-          }
-        }
-
-        if (finalLogoUrl) {
-          effectiveLogoUrlForEmployer = finalLogoUrl;
-        }
-      } else {
-        // New company: derive logo from explicit upload, form, or employer DP
-        let newCompanyLogoUrl = logoUrl;
-        if (!newCompanyLogoUrl && userRole === 'employer') {
-          newCompanyLogoUrl = profile?.logo_url || profile?.avatar_url || null;
-        }
-
-        const { data: newCompany, error: createError } = await supabase
-          .from('companies')
-          .insert({
-            name: formData.company_name.trim(),
-            logo_url: newCompanyLogoUrl || null,
-            created_by: session.user.id 
-          }, { returning: 'representation' });
-          
-        if (createError) {
-          logger.error("Error creating company:", createError);
-          throw new Error(`Failed to create company: ${createError.message}`);
-        }
-        
-        companyId = Array.isArray(newCompany) ? newCompany[0]?.id : newCompany?.id;
-        if (newCompanyLogoUrl) {
-          effectiveLogoUrlForEmployer = newCompanyLogoUrl;
-        }
-      }
-      
-      if (!companyId) {
-        // Soft-bypass: proceed without company_id; rely on company_name-only flows.
-        logger.warn("Proceeding without company_id after company creation/lookup", { company_name: formData.company_name });
-      }
-
-      const payload = buildJobPayload(formData, companyId, 'form');
+      const payload = buildJobPayload({ ...formData, logo_url: jobLogoUrl }, 'form');
       // Enforce publish-ready status to trigger DB constraints (status='active')
       const insertPayload = {
         ...payload,
@@ -572,10 +427,20 @@ const PostJob = () => {
         return (
           <Grid container spacing={3}>
             <Grid item xs={12}>
-              <TextField fullWidth multiline rows={3} name="summary" label="Summary (Short, 1-2 sentences)" value={formData.summary} onChange={handleChange} error={!!errors.summary} helperText={errors.summary} />
+              <TextField
+                fullWidth
+                multiline
+                rows={3}
+                name="description"
+                label="Job Description"
+                value={formData.description}
+                onChange={handleChange}
+                error={!!errors.description}
+                helperText={errors.description || 'Add your required qualification inside the description.'}
+              />
             </Grid>
             <Grid item xs={12}>
-              <TextField fullWidth multiline rows={5} name="responsibilities" label="Qualifications" value={formData.responsibilities} onChange={handleChange} placeholder="- Qualification 1\n- Qualification 2" />
+              <TextField fullWidth multiline rows={5} name="requirements" label="Responsibilities" value={formData.requirements} onChange={handleChange} placeholder="" />
             </Grid>
             <Grid item xs={12}>
               <TextField fullWidth name="nice_to_have_skills" label="Nice-to-have Skills (comma-separated)" value={formData.nice_to_have_skills} onChange={handleChange} placeholder="e.g., AutoCAD, Project Management" />
@@ -610,31 +475,31 @@ const PostJob = () => {
                 onChange={handleChange}
               >
                 <MenuItem value="">Not specified</MenuItem>
-                <MenuItem value="high_school">High School</MenuItem>
+                <MenuItem value="other">High School</MenuItem>
                 <MenuItem value="diploma">Diploma</MenuItem>
                 <MenuItem value="bachelors">Bachelor's Degree</MenuItem>
                 <MenuItem value="masters">Master's Degree</MenuItem>
                 <MenuItem value="phd">Ph.D.</MenuItem>
-                <MenuItem value="professional">Professional Certification</MenuItem>
+                <MenuItem value="other">Professional Certification</MenuItem>
               </TextField>
             </Grid>
             <Grid item xs={12}>
-              <Divider sx={{ my: 2 }}><Typography variant="overline">Company Details</Typography></Divider>
+              <Divider sx={{ my: 2 }}><Typography variant="overline">Job Logo</Typography></Divider>
             </Grid>
             <Grid item xs={12}>
-              <Typography variant="subtitle1" gutterBottom>Company Logo</Typography>
+              <Typography variant="subtitle1" gutterBottom>Job Logo (optional)</Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                 <Avatar
-                  src={logoPreview || formData.logo_url || profile.logo_url || profile.avatar_url || ''}
-                  alt="Company Logo Preview"
+                  src={logoPreview || formData.logo_url || ''}
+                  alt="Job Logo Preview"
                   sx={{ width: 60, height: 60, border: '1px solid #ddd' }}
                 />
                 <Button variant="outlined" component="label">
-                  Upload Company Logo
+                  Upload Job Logo
                   <input
                     type="file"
                     hidden
-                    accept="image/png, image/jpeg, image/jpg, image/svg+xml"
+                    accept="image/png, image/jpeg, image/jpg, image/gif, image/svg+xml, image/webp"
                     onChange={handleLogoChange}
                   />
                 </Button>
@@ -651,9 +516,7 @@ const PostJob = () => {
                 )}
               </Box>
               <Typography variant="caption" color="text.secondary">
-                Upload your official <strong>company logo</strong>. This logo will be shown for this company across all of
-                its jobs in the portal. If you don't upload one, your profile picture will be used temporarily until a
-                proper company logo is set.
+                This logo is stored only on this job post and is not linked to any company profile.
               </Typography>
             </Grid>
             <Grid item xs={12}>
@@ -951,7 +814,7 @@ const PostJob = () => {
                       <TextField fullWidth name="company_name" label="Company Name (Optional)" value={formData.company_name} onChange={handleChange} error={!!errors.company_name} helperText={errors.company_name} />
                     </Grid>
                     <Grid item xs={12}>
-                      <TextField required fullWidth type="url" name="external_application_url" label="External Application URL (https:// or mailto:)" value={formData.external_application_url} onChange={handleChange} error={!!errors.external_application_url} helperText={errors.external_application_url} />
+                      <TextField required fullWidth type="url" name="application_url" label="Application URL" value={formData.application_url} onChange={handleChange} error={!!errors.application_url} helperText={errors.application_url} />
                     </Grid>
                     <Grid item xs={12}>
                       <Typography variant="subtitle1" gutterBottom>Company Logo (Optional)</Typography>
@@ -1002,7 +865,7 @@ const PostJob = () => {
                       />
                     </Grid>
                     <Grid item xs={12}>
-                      <TextField fullWidth multiline rows={3} name="summary" label="Summary (Optional)" value={formData.summary} onChange={handleChange} />
+                      <TextField fullWidth multiline rows={3} name="description" label="Summary (Optional)" value={formData.description} onChange={handleChange} />
                     </Grid>
                   </Grid>
                   
@@ -1100,7 +963,7 @@ const PostJob = () => {
                         name="publish"
                         disabled={(() => {
                           const hasCore = formData.title.trim() && formData.company_name.trim() && formData.location.trim() && formData.job_type?.trim();
-                          const hasFinal = (formData.summary && formData.summary.trim()) && (formData.contact_email && formData.contact_email.trim());
+                          const hasFinal = (formData.description && formData.description.trim()) && (formData.contact_email && formData.contact_email.trim());
                           return isSubmitting || !(hasCore && hasFinal);
                         })()}
                         size="large"

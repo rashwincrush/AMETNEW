@@ -28,7 +28,7 @@ export function useProfileDegrees() {
 
   // Add or update a degree
   const upsertDegreeMutation = useMutation({
-    mutationFn: async ({ id, degree_code, institution_name, graduation_year, is_primary }) => {
+    mutationFn: async ({ id, degree_code, institution_name, program_name, graduation_year, is_primary }) => {
       if (!degree_code) {
         throw new Error('Degree is required');
       }
@@ -36,6 +36,7 @@ export function useProfileDegrees() {
         p_id: id || null,
         p_degree_code: degree_code,
         p_institution_name: institution_name || null,
+        p_program_name: program_name || null,
         p_graduation_year: graduation_year ? parseInt(graduation_year, 10) : null,
         p_is_primary: is_primary || false,
       });

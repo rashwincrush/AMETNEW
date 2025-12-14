@@ -87,7 +87,7 @@ const AdminActions = () => {
               
               <div className="flex flex-wrap gap-2">
                 <PermissionGate permissions="create_jobs">
-                  <Link to="/jobs/create" className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md bg-white text-green-700 shadow-sm hover:shadow-md border border-green-200 transition-all">
+                  <Link to="/jobs/post" className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md bg-white text-green-700 shadow-sm hover:shadow-md border border-green-200 transition-all">
                     <PlusIcon className="h-3.5 w-3.5 mr-1" />
                     Post New Job
                   </Link>

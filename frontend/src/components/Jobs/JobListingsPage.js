@@ -21,6 +21,9 @@ import { CircularProgress } from '@mui/material';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { coalesceAppUrl, isQuickLink, getJobLogoUrl, getJobCompanyName, getSourceType, computeJobApplyState, normalizeJob } from '../../utils/jobs';
+import { toggleJobVisibility } from '../../services/jobService';
+import { sanitizeJobDescription } from '../../utils/sanitize';
+import { mapJobError } from '../../utils/jobErrors';
 import logger from '../../utils/logger';
 import { useApproval } from '../../hooks/useApproval';
 import { getApplicantsCount } from '../../utils/applicants';
@@ -30,7 +33,6 @@ import { useNotification } from '../common/NotificationCenter';
 import { shareJob } from '../../utils/share';
 import BookmarkButton from './BookmarkButton';
 import { toggleBookmarkRPC } from '../../utils/bookmarks';
-import ImageWithFallback from '../common/ImageWithFallback';
 import ApplyDialog from './ApplyDialog';
 import { getAppliedJobIdsForCurrentUser } from '../../utils/jobApplications';
 
@@ -83,6 +85,14 @@ const filterOptions = {
     { value: '90', label: 'Last 3 Months' },
   ],
 };
+
+const resolveJobLogo = (row) =>
+  row?.logo_url ??
+  row?.logoUrl ??
+  row?.company_logo_url ??
+  row?.companyLogoUrl ??
+  row?.job_logo_url ??
+  null;
 
 /* ---------- Small subcomponents that need the bookmark state passed in ---------- */
 // Format a date in Asia/Kolkata as dd MMM yyyy
@@ -162,7 +172,7 @@ const StatusBadge = ({ job, isAdmin, isEmployer }) => {
   );
 };
 
-const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied = false, onApplied }) => {
+const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied = false, onApplied, showMatchExplanation = false }) => {
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id || job?.created_by || job?.employer_id;
@@ -184,34 +194,32 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
   const pauseJob = async () => {
     if (localIsActive === false) return;
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .update({ is_active: false })
-        .eq('id', job.id);
-      if (error) throw error;
+      const result = await toggleJobVisibility(job.id, false);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to pause listing');
+      }
       setLocalIsActive(false);
       if (job) job.is_active = false;
       toast.success('Listing paused.');
     } catch (e) {
       logger.error('Pause listing failed', e);
-      toast.error('We could not pause this listing. Please try again.');
+      toast.error(mapJobError(e));
     }
   };
 
   const resumeJob = async () => {
     if (localIsActive === true || job?.is_active == null) return;
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .update({ is_active: true })
-        .eq('id', job.id);
-      if (error) throw error;
+      const result = await toggleJobVisibility(job.id, true);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to resume listing');
+      }
       setLocalIsActive(true);
       if (job) job.is_active = true;
       toast.success('Listing resumed.');
     } catch (e) {
       logger.error('Resume listing failed', e);
-      toast.error('We could not resume this listing. Please try again.');
+      toast.error(mapJobError(e));
     }
   };
   
@@ -223,6 +231,9 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
   const companyNameRaw = (getJobCompanyName(job) || '').trim();
   const showCompanyName = !!companyNameRaw && companyNameRaw !== titleTrim;
   const descTrim = (job.description || '').trim();
+  const matchKeywords = Array.isArray(job.matched_on)
+    ? job.matched_on.filter(Boolean).map(k => String(k).trim()).filter(Boolean)
+    : [];
   const showDescription = !!descTrim;
   const coalescedDeadline = jobView?.deadline || jobView?.application_deadline || null;
 
@@ -234,18 +245,22 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
   return (
     <div className="group relative bg-white rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-[2px] transition-all duration-200 border border-gray-200/80 hover:border-ocean-200 h-full flex flex-col">
       <div className="flex items-start justify-between mb-3 px-5 pt-5 pb-3">
-        <div className="flex items-center flex-1">
-          <div className="w-12 h-12 rounded-full mr-4 flex-shrink-0 overflow-hidden bg-white border border-gray-200 shadow-sm">
-            <ImageWithFallback
-              src={getJobLogoUrl(job)}
-              alt={getJobCompanyName(job) || 'Company'}
-              className="w-12 h-12"
-              imgClassName="w-full h-full object-contain"
-              placeholderSrc="/default-avatar.svg"
-              emptyMessage="Employer logo to be uploaded"
-            />
-          </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex items-center flex-1 gap-3">
+            <div className="w-12 h-12 rounded-full border border-gray-200 bg-white shadow-sm flex items-center justify-center overflow-hidden">
+              {getJobLogoUrl(job) ? (
+                <img
+                  src={getJobLogoUrl(job)}
+                  alt={getJobCompanyName(job) || 'Company logo'}
+                  className="w-full h-full object-contain"
+                  loading="lazy"
+                />
+              ) : (
+                <span className="text-[10px] text-gray-400 text-center px-1 leading-tight">
+                  Logo
+                </span>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold text-gray-900 text-[15px] line-clamp-2" title={job.title}>{job.title}</h3>
             </div>
@@ -258,6 +273,14 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] flex-shrink-0 bg-slate-50 text-slate-600 border border-slate-200">
               {quick ? 'Quick link' : 'In-app'}
             </span>
+            {showMatchExplanation && matchKeywords.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-ocean-50 text-ocean-700 border border-ocean-200">
+                🎓{' '}
+                <span className="truncate max-w-[140px]" title={`Matched keywords: ${matchKeywords.join(', ')}`}>
+                  {matchKeywords.slice(0, 3).join(', ')}{matchKeywords.length > 3 ? '…' : ''}
+                </span>
+              </span>
+            )}
           </div>
           </div>
         </div>
@@ -295,7 +318,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
         </div>
       </div>
 
-      <p className="text-gray-700 text-sm mb-2 px-5 line-clamp-4">{showDescription ? descTrim : 'No description provided.'}</p>
+      <p className="text-gray-700 text-sm mb-2 px-5 line-clamp-4">{showDescription ? sanitizeJobDescription(descTrim) : 'No description provided.'}</p>
       {quick && (
         <div className="px-5 mb-4">
           <p className="text-xs text-gray-500">
@@ -498,7 +521,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
   );
 };
 
-const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied = false, onApplied }) => {
+const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied = false, onApplied, showMatchExplanation = false }) => {
   const navigate = useNavigate();
   const { user, userRole } = useAuth();
   const employerId = job?.posted_by || job?.user_id || job?.created_by || job?.employer_id;
@@ -509,34 +532,35 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick, hasAppli
   const applyState = computeJobApplyState(job);
   const quick = applyState.isQuickLink;
   const { canApplyInApp, canApplyExternally, isClosed } = applyState;
+  const matchKeywords = Array.isArray(job.matched_on)
+    ? job.matched_on.filter(Boolean).map(k => String(k).trim()).filter(Boolean)
+    : [];
   const ownerOrAdmin = isOwner || ['admin', 'super_admin'].includes(userRole);
   const pauseJob = async () => {
     if (job?.is_active === false) return;
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .update({ is_active: false })
-        .eq('id', job.id);
-      if (error) throw error;
+      const result = await toggleJobVisibility(job.id, false);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to pause listing');
+      }
       toast.success('Listing paused.');
     } catch (e) {
       logger.error('Pause listing failed', e);
-      toast.error('Failed to pause listing. Please try again.');
+      toast.error(mapJobError(e));
     }
   };
 
   const resumeJob = async () => {
     if (job?.is_active === true || job?.is_active == null) return;
     try {
-      const { error } = await supabase
-        .from('jobs')
-        .update({ is_active: true })
-        .eq('id', job.id);
-      if (error) throw error;
+      const result = await toggleJobVisibility(job.id, true);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to resume listing');
+      }
       toast.success('Listing resumed.');
     } catch (e) {
       logger.error('Resume listing failed', e);
-      toast.error('Failed to resume listing. Please try again.');
+      toast.error(mapJobError(e));
     }
   };
   const [applyOpen, setApplyOpen] = useState(false);
@@ -550,15 +574,19 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick, hasAppli
   if (!job) return null;
   return (
     <div className="glass-card rounded-lg p-4 hover:shadow-lg transition-shadow flex flex-col sm:flex-row items-start gap-4 border border-transparent min-h-[140px]">
-      <div className="w-12 h-12 rounded-full overflow-hidden bg-white border border-gray-200">
-        <ImageWithFallback
-          src={getJobLogoUrl(job)}
-          alt={getJobCompanyName(job) || 'Company'}
-          className="w-12 h-12"
-          imgClassName="w-full h-full object-contain"
-          placeholderSrc="/default-avatar.svg"
-          emptyMessage="Employer logo to be uploaded"
-        />
+      <div className="w-12 h-12 rounded-full border border-gray-200 bg-white shadow-sm flex items-center justify-center overflow-hidden flex-shrink-0">
+        {getJobLogoUrl(job) ? (
+          <img
+            src={getJobLogoUrl(job)}
+            alt={getJobCompanyName(job) || 'Company logo'}
+            className="w-full h-full object-contain"
+            loading="lazy"
+          />
+        ) : (
+          <span className="text-[10px] text-gray-400 text-center px-1 leading-tight">
+            Logo
+          </span>
+        )}
       </div>
       <div className="flex-1">
         <div className="flex items-center justify-between">
@@ -585,24 +613,44 @@ const JobListItem = ({ job, handleBookmark, isBookmarked, onSkillClick, hasAppli
         {quick && (
           <p className="text-xs text-gray-500 mb-3">External listing. You will be redirected to the employer's site to apply.</p>
         )}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
-          {!!job.location && (<div className="flex items-center"><MapPinIcon className="w-4 h-4 mr-1" /><span>{job.location}</span></div>)}
-          {!!job.job_type && (<div className="flex items-center"><BriefcaseIcon className="w-4 h-4 mr-1" /><span className="capitalize">{job.job_type}</span></div>)}
-          {!!job.experience_level && (<div className="flex items-center"><ClockIcon className="w-4 h-4 mr-1" /><span className="capitalize">{job.experience_level}</span></div>)}
-          {(job?.salary_display_inr || job?.salary_range || (job?.salary_min != null && job?.salary_max != null)) && (
-            <div className="flex items-center"><CurrencyDollarIcon className="w-4 h-4 mr-1" />
-              <span>
-                {job?.salary_display_inr || job?.salary_range || (
-                  job?.salary_min != null && job?.salary_max != null
-                    ? `₹${Number(job.salary_min).toLocaleString('en-IN')} – ₹${Number(job.salary_max).toLocaleString('en-IN')}`
-                    : job?.salary_min != null
-                      ? `₹${Number(job.salary_min).toLocaleString('en-IN')}+`
-                      : `Up to ₹${Number(job?.salary_max).toLocaleString('en-IN')}`
-                )}
-              </span>
-            </div>
+        <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+          {!!job.location && (
+            <span className="inline-flex items-center gap-1">
+              <MapPinIcon className="w-4 h-4" />
+              {job.location}
+            </span>
           )}
-          {coalescedDeadline && (<div className="flex items-center"><CalendarIcon className="w-4 h-4 mr-1" /><span>Deadline: {formatKolkata(coalescedDeadline)}</span></div>)}
+          {!!job.job_type && (
+            <span className="inline-flex items-center gap-1">
+              <BriefcaseIcon className="w-4 h-4" />
+              {job.job_type}
+            </span>
+          )}
+          {showMatchExplanation && matchKeywords.length > 0 && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-ocean-50 text-ocean-700 border border-ocean-200" title={`Matched keywords: ${matchKeywords.join(', ')}`}>
+              🎓 {matchKeywords.slice(0, 2).join(', ')}{matchKeywords.length > 2 ? '…' : ''}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600 mt-2">
+          {(job?.salary_display_inr || job?.salary_range || (job?.salary_min != null && job?.salary_max != null)) && (
+            <span className="inline-flex items-center gap-1">
+              <CurrencyDollarIcon className="w-4 h-4" />
+              {job?.salary_display_inr ||
+                job?.salary_range ||
+                (job?.salary_min != null && job?.salary_max != null
+                  ? `₹${Number(job.salary_min).toLocaleString('en-IN')} – ₹${Number(job.salary_max).toLocaleString('en-IN')}`
+                  : job?.salary_min != null
+                    ? `₹${Number(job.salary_min).toLocaleString('en-IN')}+`
+                    : `Up to ₹${Number(job?.salary_max).toLocaleString('en-IN')}`)}
+            </span>
+          )}
+          {coalescedDeadline && (
+            <span className="inline-flex items-center gap-1">
+              <CalendarIcon className="w-4 h-4" />
+              Deadline: {formatKolkata(coalescedDeadline)}
+            </span>
+          )}
         </div>
         {(() => {
           const raw = job.skills;
@@ -1016,9 +1064,19 @@ const JobListingsPage = () => {
       // Use education-matching RPC if matchMyEducation is enabled
       if (matchMyEducation && ['alumni', 'student'].includes(userRole)) {
         ({ data, error } = await supabase.rpc('search_jobs_with_education', {
-          p_filters: { match_my_education: true }
+          p_search_query: searchQuery || null,
+          p_sort_by: sortCol || 'created_at',
+          p_sort_order: (sortDir || 'desc').toLowerCase(),
+          p_limit: pageSize,
+          p_offset: (currentPage - 1) * pageSize,
+          p_job_type: jobTypeParam,
+          p_experience_level: expParam,
+          p_salary_min: salaryMin,
+          p_salary_max: salaryMax,
+          p_posted_since_days: postedSince,
+          p_match_my_education: true,
         }));
-        // The RPC returns a flat array, wrap it for consistency
+        // The RPC returns either array or {items,total_count}; normalize
         if (!error && Array.isArray(data)) {
           data = { items: data, total_count: data.length };
         }
@@ -1069,15 +1127,17 @@ const JobListingsPage = () => {
     if (!isEmployer) {
       const rawItems = Array.isArray(data) ? data : (data?.items ?? []);
       rows = rawItems.map(j => {
-        const companyName = j?.company_name || j?.companies?.name || j?.company?.name || getJobCompanyName(j);
-        const companyLogo = j?.companies?.logo_url || j?.company?.logo_url || getJobLogoUrl(j);
-        const company = { name: companyName, logo_url: companyLogo };
+        // Force job-level only: do not inherit company fallbacks
+        const explicitCompanyName = j?.company_name ? String(j.company_name).trim() : '';
+        const explicitLogo = resolveJobLogo(j);
         const appUrl = coalesceAppUrl(j);
         const computedSource = getSourceType({ ...j, application_url: appUrl });
         const normalized = {
           ...j,
-          company_name: companyName || null,
-          companies: { name: company.name || null, logo_url: company.logo_url || null },
+          company_name: explicitCompanyName || null,
+          companies: { name: null, logo_url: null }, // prevent any company fallback
+          logo_url: explicitLogo || null,
+          company_logo_url: explicitLogo || null,
           application_url: appUrl,
           source_type: j?.source_type ?? computedSource,
           description: (
@@ -1093,15 +1153,16 @@ const JobListingsPage = () => {
       totalCount = (Array.isArray(data) ? (data?.[0]?.total_count ?? rawItems.length) : (data?.total_count ?? 0));
     } else {
       rows = (data || []).map(j => {
-        const companyName = j?.company_name || j?.companies?.name || j?.company?.name || getJobCompanyName(j);
-        const companyLogo = j?.companies?.logo_url || j?.company?.logo_url || getJobLogoUrl(j);
-        const company = { name: companyName, logo_url: companyLogo };
+        const explicitCompanyName = j?.company_name ? String(j.company_name).trim() : '';
+        const explicitLogo = resolveJobLogo(j);
         const appUrl = coalesceAppUrl(j);
         const computedSource = getSourceType({ ...j, application_url: appUrl });
         return {
           ...j,
-          company_name: companyName || null,
-          companies: { name: company.name || null, logo_url: company.logo_url || null },
+          company_name: explicitCompanyName || null,
+          companies: { name: null, logo_url: null }, // prevent any company fallback
+          company_logo_url: explicitLogo || null,
+          logo_url: explicitLogo || null,
           application_url: appUrl,
           source_type: j?.source_type ?? computedSource,
           description: j?.description ?? j?.job_description ?? j?.summary ?? j?.content_summary ?? null,
@@ -1411,6 +1472,11 @@ const JobListingsPage = () => {
             <h1 className="text-3xl font-bold text-gray-900">Find Your Next Opportunity</h1>
           </div>
           <p className="text-gray-600 mt-1">Showing {jobs.length} of {totalJobs} jobs</p>
+          {matchMyEducation && ['alumni','student'].includes(userRole) && (
+            <p className="text-xs text-ocean-700 font-medium mt-1 flex items-center gap-1">
+              🎓 Showing jobs matched to your education (description & responsibilities)
+            </p>
+          )}
         </div>
         <div className="flex items-center space-x-2 md:space-x-4 mt-4 md:mt-0 flex-wrap">
           {['alumni','student'].includes(userRole) && (
@@ -1624,7 +1690,11 @@ const JobListingsPage = () => {
             <MagnifyingGlassIcon className="w-8 h-8 text-ocean-600" />
           </div>
           <h3 className="text-lg font-semibold text-gray-900 mb-2">No Jobs Found</h3>
-          <p className="text-gray-600 mb-6">Try adjusting your search or filters.</p>
+          <p className="text-gray-600 mb-6">
+            {matchMyEducation
+              ? 'No jobs match your education right now. Try turning off “Match my education” or clearing filters.'
+              : 'Try adjusting your search or filters.'}
+          </p>
           <div className="flex justify-center space-x-4">
             <button
               onClick={() => {

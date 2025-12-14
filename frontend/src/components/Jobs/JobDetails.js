@@ -85,7 +85,7 @@ const JobDetails = () => {
         try {
           const { data: contactRow } = await supabase
             .from('jobs')
-            .select('contact_name, contact_email, contact_phone, logo_url, company:companies(logo_url)')
+            .select('contact_name, contact_email, contact_phone, logo_url')
             .eq('id', id)
             .maybeSingle();
           if (contactRow) {
@@ -96,7 +96,6 @@ const JobDetails = () => {
             };
             logoExtras = {
               logo_url: contactRow.logo_url || null,
-              company_logo_url: contactRow?.company?.logo_url || null,
             };
           }
         } catch (_) { /* ignore */ }
@@ -127,7 +126,13 @@ const JobDetails = () => {
               values: row.companyInfo?.values ? convertToArray(row.companyInfo.values) : []
             } : null,
             similarJobs: Array.isArray(row.similarJobs) ? row.similarJobs : [],
-            logoUrl: row.company_logo_url ?? row.logo_url ?? logoExtras.company_logo_url ?? logoExtras.logo_url ?? null,
+            logoUrl: (
+              logoExtras.logo_url ||
+              row.logo_url ||
+              row.logoUrl ||
+              null
+            ) ?? null,
+            company_logo_url: row.logo_url || row.logoUrl || null,
           };
 
           if (isMountedRef.current) {

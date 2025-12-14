@@ -266,7 +266,7 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
           {/* Qualifications */}
           {requirements.length > 0 && (
             <div className="bg-white rounded-2xl shadow-sm border p-6 job-content job-requirements">
-              <h2 className="text-lg font-semibold mb-4">Qualifications</h2>
+              <h2 className="text-lg font-semibold mb-4">Responsibilities</h2>
               <ul className="list-disc list-inside space-y-2 text-left">
                 {requirements.map((requirement, index) => (
                   <li key={index} className="text-gray-700 text-base leading-relaxed">

@@ -169,12 +169,22 @@ const JobAlerts = () => {
       return;
     }
 
+    let keywordsArr = Array.isArray(formData.keywords)
+      ? formData.keywords
+      : (formData.keywords || '')
+          .split(',')
+          .map(k => k.trim())
+          .filter(Boolean);
+
+    // Enforce max 50 keywords client-side to align with DB constraint
+    if (keywordsArr.length > 50) {
+      keywordsArr = keywordsArr.slice(0, 50);
+      showError('You can specify at most 50 keywords per alert. Extra keywords have been ignored.');
+    }
+
     const alertData = {
-      user_id: user.id,
       alert_name: alertName,
-      keywords: Array.isArray(formData.keywords)
-        ? formData.keywords
-        : (formData.keywords || '').split(',').map(k => k.trim()).filter(Boolean),
+      keywords: keywordsArr,
       location: formData.location || '',
       // Only include non-null values
       ...(job_type ? { job_type } : {}),
@@ -186,22 +196,35 @@ const JobAlerts = () => {
     };
 
     try {
-      let result;
+      let error;
       if (editingAlert) {
-        // For updates, use the same data object
-        result = await supabase
-          .from('job_alerts')
-          .update(alertData)
-          .eq('id', editingAlert.id)
-          .select('*'); // Use select() to get the updated row back and check for errors
+        const { error: rpcError } = await supabase.rpc('update_job_alert', {
+          p_id: editingAlert.id,
+          p_alert_name: alertData.alert_name,
+          p_keywords: alertData.keywords,
+          p_location: alertData.location || null,
+          p_job_type: job_type,
+          p_experience_level: experience_level,
+          p_min_salary: min_salary_num,
+          p_max_salary: max_salary_num,
+          p_frequency: frequency,
+          p_is_active: alertData.is_active,
+        });
+        error = rpcError;
       } else {
-        result = await supabase
-          .from('job_alerts')
-          .insert([alertData]) // Pass as an array
-          .select('*'); // Use select() to get the inserted row back and check for errors
+        const { error: rpcError } = await supabase.rpc('create_job_alert', {
+          p_alert_name: alertData.alert_name,
+          p_keywords: alertData.keywords,
+          p_location: alertData.location || null,
+          p_job_type: job_type,
+          p_experience_level: experience_level,
+          p_min_salary: min_salary_num,
+          p_max_salary: max_salary_num,
+          p_frequency: frequency,
+          p_is_active: alertData.is_active,
+        });
+        error = rpcError;
       }
-
-      const { error } = result;
 
       if (error) {
         logger.error('SUPABASE ERROR:', error);
@@ -247,10 +270,7 @@ const JobAlerts = () => {
     if (!window.confirm('Are you sure you want to delete this alert?')) return;
 
     try {
-      const { error } = await supabase
-        .from('job_alerts')
-        .delete()
-        .eq('id', alertId);
+      const { error } = await supabase.rpc('delete_job_alert', { p_id: alertId });
 
       if (error) throw error;
 
@@ -272,11 +292,11 @@ const JobAlerts = () => {
 
     try {
       logger.log('Toggling alert with ID:', alert.id, 'Current active state:', alert.is_active);
-      
-      const { error } = await supabase
-        .from('job_alerts')
-        .update({ is_active: !alert.is_active })
-        .eq('id', alert.id);
+
+      const { error } = await supabase.rpc('update_job_alert', {
+        p_id: alert.id,
+        p_is_active: !alert.is_active,
+      });
 
       if (error) throw error;
 
@@ -357,11 +377,8 @@ const JobAlerts = () => {
           <div className="text-sm text-gray-600">Active Alerts</div>
         </div>
         <div className="glass-card rounded-lg p-6 text-center">
-          <div className="text-2xl font-bold text-green-600">
-            {/* TODO: Implement logic to count matching jobs. This data is not available from the API yet. */}
-            {0}
-          </div>
-          <div className="text-sm text-gray-600">Jobs Found This Week</div>
+          <div className="text-2xl font-bold text-green-600">–</div>
+          <div className="text-sm text-gray-600">Jobs Found This Week (coming soon)</div>
         </div>
         <div className="glass-card rounded-lg p-6 text-center">
           <div className="text-2xl font-bold text-purple-600">

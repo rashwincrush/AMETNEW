@@ -69,7 +69,6 @@ import PostJobSelection from './components/Jobs/PostJobSelection';
 import PostJobWithLink from './components/Jobs/PostJobWithLink';
 import JobAlerts from './components/Jobs/JobAlerts';
 import Messages from './components/Messages/Messages';
-import JobPostingForm from './components/Jobs/JobPostingForm';
 import ResumeUploadForm from './components/Jobs/ResumeUploadForm';
 // REMOVED: JobApplication - legacy direct-insert component, use ApplyDialog via JobDetailsInApp instead
 import ApplicationTracking from './components/Jobs/ApplicationTracking';
@@ -253,7 +252,8 @@ function AppContent() {
             <Route path="/jobs/post" element={<ApprovedGuard require="approved-employer" skeleton={<div/>}><ProtectedRoute requiredPermission="post:jobs"><PostJob /></ProtectedRoute></ApprovedGuard>} />
             <Route path="/jobs/post/select" element={<ApprovedGuard require="approved-employer" skeleton={<div/>}><ProtectedRoute requiredPermission="post:jobs"><PostJobSelection /></ProtectedRoute></ApprovedGuard>} />
             <Route path="/jobs/post/link" element={<ApprovedGuard require="approved-employer" skeleton={<div/>}><ProtectedRoute requiredPermission="post:jobs"><PostJobWithLink /></ProtectedRoute></ApprovedGuard>} />
-            <Route path="/jobs/create" element={<ApprovedGuard require="approved-employer" skeleton={<div/>}><ProtectedRoute requiredPermission="post:jobs"><JobPostingForm /></ProtectedRoute></ApprovedGuard>} />
+            {/* Legacy create route now redirects to canonical PostJob */}
+            <Route path="/jobs/create" element={<Navigate to="/jobs/post" replace />} />
             <Route path="/jobs/applications" element={<ProtectedRoute requiredPermission="apply:jobs"><ApplicationTracking /></ProtectedRoute>} />
             <Route path="/jobs/applications/:id" element={<ProtectedRoute requiredPermission="apply:jobs"><ApplicationTracking /></ProtectedRoute>} />
             <Route path="/jobs/:jobId/apply" element={<JobApplyRedirect />} />
