@@ -35,10 +35,11 @@ export default function AdminUsersPage() {
   const { user: currentUser, role, getUserRole } = useAuth();
   const canHardDelete = role === 'super_admin';
   const canPurge = role === 'super_admin';
+  const canSoftDelete = role === 'admin' || role === 'super_admin';
 
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [filters, setFilters] = useState({ role: 'all', status: 'all', menteeStatus: 'all', mentorStatus: 'all' });
+  const [filters, setFilters] = useState({ role: 'all', status: 'all', mentorStatus: 'all' });
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -85,6 +86,8 @@ export default function AdminUsersPage() {
   const rows = data?.rows || [];
   const totalCount = data?.totalCount;
 
+  const deriveMentorStatus = (user) => (user.mentor_profile_status || user.mentor_status || 'pending');
+
   // Client-side filters for role, status (including deleted), and mentorship statuses.
   // This makes the grid behavior deterministic even if server-side filters change.
   const filteredRows = rows.filter((u) => {
@@ -113,17 +116,9 @@ export default function AdminUsersPage() {
       }
     }
 
-    // Filter by mentee status (client-side only)
-    if (filters.menteeStatus && filters.menteeStatus !== 'all') {
-      const userMenteeStatus = (u.mentee_status || 'pending').toLowerCase();
-      if (userMenteeStatus !== filters.menteeStatus.toLowerCase()) {
-        return false;
-      }
-    }
-
     // Filter by mentor status (client-side only)
     if (filters.mentorStatus && filters.mentorStatus !== 'all') {
-      const userMentorStatus = (u.mentor_status || 'pending').toLowerCase();
+      const userMentorStatus = deriveMentorStatus(u).toLowerCase();
       if (userMentorStatus !== filters.mentorStatus.toLowerCase()) {
         return false;
       }
@@ -279,6 +274,11 @@ export default function AdminUsersPage() {
       return;
     }
 
+    if (!canSoftDelete) {
+      toast.error('Only admins can soft delete users.');
+      return;
+    }
+
     setConfirmDialog({
       type: 'soft-delete',
       user,
@@ -375,6 +375,10 @@ export default function AdminUsersPage() {
     }
 
     if (action === 'delete') {
+      if (!canSoftDelete) {
+        toast.error('Only admins can soft delete users.');
+        return;
+      }
       setConfirmDialog({
         type: 'bulk-soft-delete',
         ids: selectedIds,
@@ -562,6 +566,7 @@ export default function AdminUsersPage() {
             onPageChange={setPage}
             onMenteeAction={handleMenteeAction}
             onMentorAction={handleMentorAction}
+            deriveMentorStatus={deriveMentorStatus}
           />
         </div>
       </div>
@@ -635,6 +640,17 @@ export default function AdminUsersPage() {
         user={selectedUser}
         open={!!selectedUser}
         onClose={() => setSelectedUser(null)}
+        onApproveUser={handleApprove}
+        onRejectUser={handleReject}
+        onToggleActiveUser={handleToggleActive}
+        onSoftDeleteUser={handleSoftDelete}
+        onPurgeUser={handlePurge}
+        onDeleteAuthUser={handleDeleteAuth}
+        canPurge={canPurge}
+        canHardDelete={canHardDelete}
+        currentUserId={currentUser?.id}
+        onMentorAction={handleMentorAction}
+        isBusy={loading}
       />
 
       <EditUserModal

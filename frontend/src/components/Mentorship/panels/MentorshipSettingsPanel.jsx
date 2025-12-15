@@ -14,6 +14,7 @@ export default function MentorshipSettingsPanel({ mode }) {
   const isMenteeMode = mode === 'mentee';
   const isMentorMode = mode === 'mentor';
   const { user, profile, fetchUserProfile } = useAuth();
+  const isStudent = (profile?.role || '').toLowerCase() === 'student';
   const [isAvailable, setIsAvailable] = useState(false);
   const [loadingAvailability, setLoadingAvailability] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -82,14 +83,37 @@ export default function MentorshipSettingsPanel({ mode }) {
     }
   };
   
+  const renderStudentRestrictionCard = () => (
+    <div className="bg-white rounded-lg border border-red-100 p-6 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="mt-1 text-red-500 text-xl">⚠️</div>
+        <div>
+          <h2 className="text-lg font-semibold text-red-700">Trainer access is limited to alumni & employers</h2>
+          <p className="text-sm text-slate-600 mt-2">
+            Student accounts can participate as trainees only. Once you graduate or your role is upgraded by the admin
+            team, you’ll be able to submit a trainer profile for approval.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
   // If mentor mode, show the registration form
   if (isMentorMode) {
+    if (isStudent) {
+      return (
+        <div className="space-y-6">
+          {renderStudentRestrictionCard()}
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-6">
         <div className="bg-white rounded-lg border border-slate-200 p-6">
-          <h2 className="text-xl font-bold text-slate-900">Mentor availability</h2>
+          <h2 className="text-xl font-bold text-slate-900">Trainer availability</h2>
           <p className="text-sm text-slate-600 mt-1">
-            Control whether you are visible in the mentor directory and can receive new mentorship requests.
+            Control whether you are visible in the trainer directory and can receive new mentorship requests.
           </p>
 
           <div className="mt-4 flex items-center gap-3">
@@ -104,15 +128,15 @@ export default function MentorshipSettingsPanel({ mode }) {
                   onChange={(e) => handleToggleAvailability(e.target.checked)}
                   disabled={isSaving || toggleAvailabilityMutation.isLoading}
                 />
-                <span className="text-sm font-medium">Accepting mentees</span>
+                <span className="text-sm font-medium">Accepting trainees</span>
               </label>
             )}
           </div>
           {!loadingAvailability && (
             <p className="text-xs text-slate-500 mt-1">
               {isAvailable
-                ? "You’re visible in the mentor directory and can receive new requests."
-                : "You’re hidden from the mentor directory and cannot receive new requests."}
+                ? "You’re visible in the trainer directory and can receive new requests."
+                : "You’re hidden from the trainer directory and cannot receive new requests."}
             </p>
           )}
         </div>
@@ -157,21 +181,25 @@ export default function MentorshipSettingsPanel({ mode }) {
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Become a Trainer */}
-        <div className="bg-white rounded-lg border border-slate-200 p-6 hover:shadow-md transition-shadow">
-          <div className="text-4xl mb-4">👨‍🏫</div>
-          <h3 className="text-lg font-semibold text-slate-900 mb-2">
-            Become a Trainer
-          </h3>
-          <p className="text-slate-600 mb-4">
-            Share your experience and guide students or younger alumni
-          </p>
-          <a
-            href="/mentorship?tab=settings&mode=mentor"
-            className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
-          >
-            Set up trainer profile
-          </a>
-        </div>
+        {!isStudent ? (
+          <div className="bg-white rounded-lg border border-slate-200 p-6 hover:shadow-md transition-shadow">
+            <div className="text-4xl mb-4">👨‍🏫</div>
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">
+              Become a Trainer
+            </h3>
+            <p className="text-slate-600 mb-4">
+              Share your experience and guide students or younger alumni
+            </p>
+            <a
+              href="/mentorship?tab=settings&mode=mentor"
+              className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+            >
+              Set up trainer profile
+            </a>
+          </div>
+        ) : (
+          renderStudentRestrictionCard()
+        )}
         
         {/* Trainee Goals */}
         <div className="bg-white rounded-lg border border-slate-200 p-6 hover:shadow-md transition-shadow">

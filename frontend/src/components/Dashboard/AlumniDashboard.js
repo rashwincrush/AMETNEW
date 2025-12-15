@@ -83,6 +83,7 @@ const AlumniDashboard = () => {
   const role = userRole || (profile?.role || (typeof getUserRole === 'function' ? getUserRole() : 'alumni'));
   const isEmployer = role === 'employer';
   const isStudent = role === 'student';
+  const isAdmin = role === 'admin' || role === 'super_admin';
   const effectiveApprovalStatus = authApprovalStatus || approvalFlags?.approvalStatus || approvalStatus;
   const isTrulyPending = effectiveApprovalStatus === 'pending';
   const isMountedRef = useRef(true);
@@ -490,6 +491,16 @@ const AlumniDashboard = () => {
           <ChatBubbleLeftRightIcon className="w-8 h-8 text-orange-500 mx-auto mb-2" />
           <p className="text-sm font-medium text-gray-900">Join Groups</p>
         </Link>
+        {isAdmin && (
+          <Link
+            to="/admin/mentor-approvals"
+            className="glass-card rounded-lg p-4 text-center card-hover border border-ocean-200 bg-ocean-50/60"
+          >
+            <AcademicCapIcon className="w-8 h-8 text-ocean-600 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-gray-900">Mentorship Admin</p>
+            <p className="mt-1 text-xs text-gray-600">Review & approve mentors</p>
+          </Link>
+        )}
       </div>
     </main>
   );

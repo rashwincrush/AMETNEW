@@ -246,6 +246,7 @@ export default function UserTable({
   onPageChange,
   onMenteeAction,
   onMentorAction,
+  deriveMentorStatus,
 }) {
   const hasTotalCount = typeof totalCount === 'number';
   const totalPages = hasTotalCount
@@ -308,9 +309,6 @@ export default function UserTable({
               </th>
               <th scope="col" className="px-4 py-3.5 text-left text-sm font-semibold text-gray-900">
                 Status
-              </th>
-              <th scope="col" className="px-4 py-3.5 text-left text-sm font-semibold text-gray-900">
-                Mentee Status
               </th>
               <th scope="col" className="px-4 py-3.5 text-left text-sm font-semibold text-gray-900">
                 Mentor Status
@@ -398,10 +396,7 @@ export default function UserTable({
                     </span>
                   </td>
                   <td className="py-4 px-4">
-                    <StatusBadge value={user.mentee_status} />
-                  </td>
-                  <td className="py-4 px-4">
-                    <StatusBadge value={user.mentor_status} />
+                    <StatusBadge value={deriveMentorStatus ? deriveMentorStatus(user) : user.mentor_status} />
                   </td>
                   <td className="py-4 px-4">
                     <div className="flex items-center text-sm text-gray-600">

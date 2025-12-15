@@ -5,6 +5,7 @@ import { supabase } from '../../utils/supabase';
 import { getMyMentorProfile, upsertMentor } from '../../services/mentors';
 import logger from '../../utils/logger';
 import { useNotification } from '../common/NotificationCenter';
+import { useMentorshipRoleContext } from '../../hooks/useMentorshipRoleContext';
 import {
   XMarkIcon,
   InformationCircleIcon,
@@ -20,6 +21,7 @@ import {
 const MentorRegistrationForm = () => {
   const navigate = useNavigate();
   const notification = useNotification();
+  const { isStudent } = useMentorshipRoleContext();
   const [user, setUser] = useState(null);
   const [isNewMentor, setIsNewMentor] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -237,6 +239,41 @@ const MentorRegistrationForm = () => {
       </span>
     );
   };
+
+  const renderStudentRestrictionCard = () => (
+    <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto bg-white rounded-2xl border border-red-100 p-8 shadow-sm">
+        <div className="flex items-start gap-4">
+          <div className="text-2xl text-red-500 mt-1" aria-hidden="true">
+            ⚠️
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Students can’t register as trainers</h1>
+            <p className="text-slate-600 mt-3 leading-relaxed">
+              Trainer access is limited to alumni and employer accounts. Your profile can still request mentorship and
+              participate as a trainee. Once you graduate or the admin team upgrades your role, you’ll be able to submit
+              a trainer profile for approval.
+            </p>
+            <p className="text-sm text-slate-500 mt-4">
+              Need your role updated? Contact the admin team or email support so we can verify your status.
+            </p>
+            <div className="mt-6">
+              <Link
+                to="/mentorship"
+                className="inline-flex items-center justify-center rounded-md bg-slate-900 text-white px-4 py-2 text-sm font-semibold hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-slate-900"
+              >
+                Back to mentorship hub
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (isStudent) {
+    return renderStudentRestrictionCard();
+  }
 
   if (loading) {
     return (

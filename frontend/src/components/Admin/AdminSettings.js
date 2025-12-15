@@ -276,10 +276,11 @@ const SystemAdministration = () => {
 
 
 const AdminSettings = () => {
-  const { getUserRole, hasPermission } = useAuth();
+  const { getUserRole, hasPermission, isAdminFn } = useAuth();
   const userRole = getUserRole();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const isSuperAdmin = userRole === 'super_admin';
+  const isAdminLike = isAdminFn();
 
   // Define the consolidated tabs
   const tabs = [
@@ -289,6 +290,7 @@ const AdminSettings = () => {
       component: <AdminUsersPage />,
       permission: 'approve_users',
       superAdminOnly: false,
+      allowedRoles: ['admin', 'super_admin'],
     },
     {
       name: 'Content',
@@ -381,30 +383,46 @@ const AdminSettings = () => {
         {/* Main Content with Tab Panels */}
         <div className="glass-card rounded-lg p-2 sm:p-6">
           <Tab.Panels className="mt-4">
-            {availableTabs.map((tab, idx) => (
-              <Tab.Panel
-                key={idx}
-                className="rounded-lg bg-white p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
-                role="tabpanel"
-              >
-                {!isSuperAdmin ? (
-                  <PermissionGate
-                    permissions={tab.permission}
-                    fallback={
-                      <div className="bg-yellow-50 p-8 rounded-lg text-center">
-                        <ShieldCheckIcon className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
-                        <h3 className="text-lg font-bold text-yellow-800">Permission Required</h3>
-                        <p className="text-yellow-700">You need additional permissions to access this section.</p>
-                      </div>
-                    }
-                  >
+            {availableTabs.map((tab, idx) => {
+              const isRoleAllowed =
+                !tab.allowedRoles || tab.allowedRoles.includes(userRole);
+              const shouldUsePermissionGate =
+                !isSuperAdmin &&
+                (!tab.allowedRoles || !tab.allowedRoles.includes(userRole));
+
+              const fallbackCard = (
+                <div className="bg-yellow-50 p-8 rounded-lg text-center">
+                  <ShieldCheckIcon className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+                  <h3 className="text-lg font-bold text-yellow-800">Permission Required</h3>
+                  <p className="text-yellow-700">
+                    You need additional permissions to access this section.
+                  </p>
+                </div>
+              );
+
+              let panelContent = null;
+              if (!isRoleAllowed) {
+                panelContent = fallbackCard;
+              } else if (shouldUsePermissionGate) {
+                panelContent = (
+                  <PermissionGate permissions={tab.permission} fallback={fallbackCard}>
                     {tab.component}
                   </PermissionGate>
-                ) : (
-                  tab.component
-                )}
-              </Tab.Panel>
-            ))}
+                );
+              } else {
+                panelContent = tab.component;
+              }
+
+              return (
+                <Tab.Panel
+                  key={idx}
+                  className="rounded-lg bg-white p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
+                  role="tabpanel"
+                >
+                  {panelContent}
+                </Tab.Panel>
+              );
+            })}
           </Tab.Panels>
         </div>
       </Tab.Group>

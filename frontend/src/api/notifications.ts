@@ -51,12 +51,14 @@ export interface NotificationMetadata {
   audience?: 'user' | 'admin';
   severity?: 'critical' | 'warning' | 'info';
   entity_id?: string;
-  entity_type?: 'job' | 'event' | 'mentorship' | 'connection' | 'application' | 'group';
+  entity_type?: 'job' | 'event' | 'mentorship' | 'connection' | 'application' | 'group' | 'profile';
   action_required?: boolean;
   relationship_id?: string;
   status?: string;
   original_type?: string;
   group_id?: string; // For group-related notifications
+  tab?: string;
+  mentor_user_id?: string;
   [key: string]: any; // Allow additional fields
 }
 
@@ -157,19 +159,30 @@ export function deriveNotificationLink(notification: Notification): string | nul
     return '/groups';
   }
 
-  // Entity-based routing
+  // Entity-based routing (type-safe where possible)
   if (metadata.entity_type && metadata.entity_id) {
+    const id = String(metadata.entity_id);
     switch (metadata.entity_type) {
       case 'job':
-        return `/jobs/${metadata.entity_id}`;
+        return `/jobs/${id}`;
       case 'event':
-        return `/events/${metadata.entity_id}`;
+        return `/events/${id}`;
       case 'application':
-        return `/applications/${metadata.entity_id}`;
+        return `/applications/${id}`;
       case 'connection':
         return `/network`;
       case 'group':
-        return `/groups/${metadata.entity_id}`;
+        return `/groups/${id}`;
+      case 'profile': {
+        // Only allow UUID-looking IDs to prevent routing tricks
+        const uuidPattern = /^[0-9a-fA-F-]{36}$/;
+        if (uuidPattern.test(id)) {
+          // Admin-only route for reviewing mentor profiles
+          const tab = metadata.tab || 'mentorship';
+          return `/admin/users/${id}?tab=${encodeURIComponent(tab)}`;
+        }
+        return null;
+      }
       default:
         return null;
     }

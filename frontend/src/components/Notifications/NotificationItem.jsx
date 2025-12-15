@@ -28,71 +28,91 @@ export default function NotificationItem({ n, onToggleRead, onNavigate }) {
   const unread = !n.is_read;
   const title = n.title || 'New activity';
   const message = n.message || '';
+  const relativeTime = formatDistanceToNow(new Date(n.created_at), { addSuffix: true });
 
   // Use secure link getter (sanitizes and derives safe links)
   const safeLink = getNotificationLink(n);
+  const hasActionableLink = safeLink && safeLink !== '#';
+  const ctaText =
+    n?.metadata?.cta_label &&
+    n?.metadata?.cta_label.trim().length > 0
+      ? n.metadata.cta_label
+      : null;
 
-  const open = () => {
-    // When opening an unread notification from the list, mark it as read first
-    if (onToggleRead && !n.is_read) {
+  const handleOpen = () => {
+    if (onToggleRead && unread) {
       onToggleRead(n.id, true);
     }
-
-    if (safeLink && safeLink !== '#') {
+    if (hasActionableLink) {
       navigate(safeLink);
       if (onNavigate) onNavigate();
     }
   };
 
+  const handleKeyDown = (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleOpen();
+    }
+  };
+
   return (
     <div
+      onClick={handleOpen}
+      onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      onClick={open}
-      onKeyDown={(e) => e.key === 'Enter' && open()}
-      className={`group flex items-start gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors ${unread ? 'bg-ocean-50' : 'hover:bg-gray-50'}`}
-      aria-label={title}
+      className={`w-full text-left rounded-xl border transition shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 cursor-pointer select-none ${
+        unread ? 'bg-ocean-50/70 border-ocean-100 hover:border-ocean-200' : 'bg-white border-gray-100 hover:border-gray-200'
+      }`}
+      aria-label={`${labelForType(n.type)} notification: ${title}`}
     >
-      <div className="mt-1">
-        <Icon className="w-5 h-5 text-gray-600" />
-      </div>
-      <div className="flex-1 min-w-0 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="mb-0.5">
-            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-slate-50 text-slate-500">
+      <div className="flex items-start gap-3 px-3 py-2.5">
+        <div
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-500"
+          aria-hidden="true"
+        >
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 bg-slate-100">
               {labelForType(n.type)}
             </span>
+            <span className="text-xs text-gray-500" title={new Date(n.created_at).toLocaleString()}>
+              {relativeTime}
+            </span>
           </div>
-          <p className={`text-sm truncate ${unread ? 'font-semibold text-gray-900' : 'text-gray-800'}`}>{title}</p>
+          <p
+            className={`mt-0.5 text-sm leading-snug break-words line-clamp-2 ${
+              unread ? 'font-semibold text-gray-900' : 'text-gray-800'
+            }`}
+          >
+            {title}
+          </p>
           {message && (
-            <p className="mt-0.5 text-xs text-gray-600 line-clamp-1">{message}</p>
+            <p className="mt-0.5 text-xs text-gray-600 leading-relaxed break-words line-clamp-2">{message}</p>
+          )}
+          {hasActionableLink && ctaText && (
+            <span className="sr-only">{ctaText}</span>
           )}
         </div>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <span
-            className="text-xs text-gray-500"
-            title={new Date(n.created_at).toLocaleString()}
-          >
-            {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
-          </span>
-          <div className="flex items-center gap-1">
-            {unread && <span className="w-1.5 h-1.5 rounded-full bg-ocean-500" aria-hidden />}
-            {onToggleRead && (
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-full p-1 text-gray-400 hover:text-ocean-600 hover:bg-ocean-50 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleRead(n.id, !n.is_read);
-                }}
-                aria-label={n.is_read ? 'Mark as unread' : 'Mark as read'}
-                title={n.is_read ? 'Mark as unread' : 'Mark as read'}
-              >
-                <CheckCircleIcon className="w-4 h-4" />
-              </button>
-            )}
+        {onToggleRead && (
+          <div className="flex flex-col items-center gap-1">
+            {unread && <span className="h-1.5 w-1.5 rounded-full bg-ocean-500" aria-hidden="true" />}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleRead(n.id, !n.is_read);
+              }}
+              className="inline-flex items-center justify-center rounded-full p-1 text-gray-400 hover:text-ocean-600 hover:bg-ocean-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
+              aria-label={n.is_read ? 'Mark notification as unread' : 'Mark notification as read'}
+            >
+              <CheckCircleIcon className="h-4 w-4" />
+            </button>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

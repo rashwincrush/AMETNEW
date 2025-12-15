@@ -29,6 +29,7 @@ export function useMentorshipBannerModel() {
       menteeRequestsSentCount,
       mentorCapacity,
       mentorCurrentMentees,
+      isStudent,
     } = roleContext;
     
     // Mentee banners
@@ -85,25 +86,13 @@ export function useMentorshipBannerModel() {
       }
     }
     
-    // Mentor banners
-    if (!hasMentorProfile && isMenteeApproved) {
-      // Soft CTA for mentee-approved users to become mentors
-      const copy = MENTORSHIP_COPY.banners.mentor.noMentorProfile;
-      banners.push({
-        variant: 'info',
-        role: 'mentor',
-        title: copy.title,
-        body: copy.body,
-        primaryCta: {
-          label: copy.ctaLabel,
-          to: copy.ctaHref,
-        },
-      });
-    } else if (hasMentorProfile) {
-      if (mentorStatus === 'pending') {
-        const copy = MENTORSHIP_COPY.banners.mentor.pendingApproval;
+    // Mentor banners (skip entirely for students)
+    if (!isStudent) {
+      if (!hasMentorProfile && isMenteeApproved) {
+        // Soft CTA for mentee-approved users to become mentors
+        const copy = MENTORSHIP_COPY.banners.mentor.noMentorProfile;
         banners.push({
-          variant: 'warning',
+          variant: 'info',
           role: 'mentor',
           title: copy.title,
           body: copy.body,
@@ -112,26 +101,9 @@ export function useMentorshipBannerModel() {
             to: copy.ctaHref,
           },
         });
-      } else if (mentorStatus === 'rejected') {
-        const copy = MENTORSHIP_COPY.banners.mentor.rejectedApplication;
-        banners.push({
-          variant: 'danger',
-          role: 'mentor',
-          title: copy.title,
-          body: copy.body,
-          primaryCta: {
-            label: copy.ctaLabel,
-            to: copy.ctaHref,
-          },
-        });
-      } else if (mentorStatus === 'approved') {
-        const atCapacity = 
-          mentorCapacity && 
-          mentorCurrentMentees && 
-          mentorCurrentMentees >= mentorCapacity;
-        
-        if (atCapacity) {
-          const copy = MENTORSHIP_COPY.banners.mentor.approvedAtCapacity;
+      } else if (hasMentorProfile) {
+        if (mentorStatus === 'pending') {
+          const copy = MENTORSHIP_COPY.banners.mentor.pendingApproval;
           banners.push({
             variant: 'warning',
             role: 'mentor',
@@ -142,10 +114,10 @@ export function useMentorshipBannerModel() {
               to: copy.ctaHref,
             },
           });
-        } else {
-          const copy = MENTORSHIP_COPY.banners.mentor.approvedAvailable;
+        } else if (mentorStatus === 'rejected') {
+          const copy = MENTORSHIP_COPY.banners.mentor.rejectedApplication;
           banners.push({
-            variant: 'success',
+            variant: 'danger',
             role: 'mentor',
             title: copy.title,
             body: copy.body,
@@ -154,6 +126,37 @@ export function useMentorshipBannerModel() {
               to: copy.ctaHref,
             },
           });
+        } else if (mentorStatus === 'approved') {
+          const atCapacity = 
+            mentorCapacity && 
+            mentorCurrentMentees && 
+            mentorCurrentMentees >= mentorCapacity;
+          
+          if (atCapacity) {
+            const copy = MENTORSHIP_COPY.banners.mentor.approvedAtCapacity;
+            banners.push({
+              variant: 'warning',
+              role: 'mentor',
+              title: copy.title,
+              body: copy.body,
+              primaryCta: {
+                label: copy.ctaLabel,
+                to: copy.ctaHref,
+              },
+            });
+          } else {
+            const copy = MENTORSHIP_COPY.banners.mentor.approvedAvailable;
+            banners.push({
+              variant: 'success',
+              role: 'mentor',
+              title: copy.title,
+              body: copy.body,
+              primaryCta: {
+                label: copy.ctaLabel,
+                to: copy.ctaHref,
+              },
+            });
+          }
         }
       }
     }

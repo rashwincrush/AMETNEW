@@ -14,6 +14,18 @@ const handlePostgrestError = (error) => {
   if (error.code === 'PGRST116') {
     return 'The requested profile could not be found.';
   }
+  const message = error.message || '';
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes('students_cannot_be_mentors')) {
+    return 'Only alumni and employer accounts can register as trainers.';
+  }
+  if (normalized.includes('profile_missing')) {
+    return 'We could not find your profile. Please refresh and try again.';
+  }
+  if (normalized.includes('not_authenticated')) {
+    return 'Your session has expired. Please sign in again.';
+  }
   // 23514: Check constraint violation (e.g., invalid status)
   if (error.code === '23514') {
     return 'One or more fields have an invalid value (e.g., status). Please review and try again.';
@@ -103,51 +115,22 @@ export const upsertMentor = async (payload) => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { data: null, error: 'User not authenticated.' };
 
-  // Ensure only valid columns are sent and status is correctly defaulted.
-  const mentorData = {
-    user_id: user.id,
-    status: payload.status || 'pending', // Default to 'pending' if not provided
-    expertise: payload.expertise,
-    mentoring_statement: payload.mentoring_statement,
-    mentoring_preferences: payload.mentoring_preferences,
-    mentoring_capacity_hours_per_month: payload.mentoring_capacity_hours_per_month || 0,
-    mentoring_experience_years: payload.mentoring_experience_years || 0,
-    max_mentees: payload.max_mentees || 0,
-    mentoring_experience_description: payload.mentoring_experience_description,
+  const rpcPayload = {
+    p_mentoring_capacity_hours_per_month: payload.mentoring_capacity_hours_per_month ?? null,
+    p_expertise: payload.expertise ?? [],
+    p_mentoring_preferences: payload.mentoring_preferences ?? null,
+    p_mentoring_experience_years: payload.mentoring_experience_years ?? null,
+    p_mentoring_statement: payload.mentoring_statement ?? null,
+    p_max_mentees: payload.max_mentees ?? null,
+    p_mentoring_experience_description: payload.mentoring_experience_description ?? null,
   };
 
   try {
-    // RLS-friendly flow: check if a mentor row exists for this user. If yes, UPDATE; else INSERT.
-    const { data: existing, error: selErr } = await supabase
-      .from('mentors')
-      .select('id, user_id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (selErr) throw selErr;
-
-    if (existing) {
-      // UPDATE path (allowed by mentors_update policy when user owns the row)
-      const { data, error } = await supabase
-        .from('mentors')
-        .update(mentorData)
-        .eq('user_id', user.id)
-        .select()
-        .single();
-      if (error) throw error;
-      return { data, error: null };
-    } else {
-      // INSERT path (allowed by mentors_insert policy only if no existing row)
-      const { data, error } = await supabase
-        .from('mentors')
-        .insert([mentorData])
-        .select()
-        .single();
-      if (error) throw error;
-      return { data, error: null };
-    }
+    const { data, error } = await supabase.rpc('save_mentor_profile', rpcPayload);
+    if (error) throw error;
+    return { data, error: null };
   } catch (error) {
-    logger.error('Error saving mentor profile (insert/update):', error);
+    logger.error('Error saving mentor profile via RPC:', error);
     return { data: null, error: handlePostgrestError(error) };
   }
 };

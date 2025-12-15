@@ -33,6 +33,26 @@ export async function fetchAdminUserGrid({ search, role, status, page, pageSize 
 
   const profileRows = Array.isArray(profilesResult.data) ? profilesResult.data : [];
 
+  // Fetch mentor profile statuses for the current slice
+  const mentorByUserId = new Map();
+  const profileIds = profileRows.map((row) => row.id).filter(Boolean);
+  if (profileIds.length) {
+    const { data: mentorRows, error: mentorError } = await supabase
+      .from('mentors')
+      .select('user_id, status')
+      .in('user_id', profileIds);
+
+    if (mentorError) {
+      logger.error('Failed to load mentor profile statuses:', mentorError);
+    } else if (Array.isArray(mentorRows)) {
+      mentorRows.forEach((mentor) => {
+        if (mentor?.user_id) {
+          mentorByUserId.set(mentor.user_id, mentor.status || null);
+        }
+      });
+    }
+  }
+
   // Secondary: fetch last_sign_in_at data to power the "Last Login" column.
   // We intentionally ignore paging here and fetch a reasonably large slice
   // for the current search term to avoid mismatches in pagination/sort
@@ -68,6 +88,7 @@ export async function fetchAdminUserGrid({ search, role, status, page, pageSize 
     return {
       ...row,
       last_sign_in_at: mergedLastLogin,
+      mentor_profile_status: mentorByUserId.get(row.id) || null,
     };
   });
 

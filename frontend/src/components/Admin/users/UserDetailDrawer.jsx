@@ -1,25 +1,57 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import Avatar from '../../common/Avatar';
 import { getAccountStatus, ACCOUNT_STATUS_META } from '../../../utils/accountStatus';
 
-export default function UserDetailDrawer({ user, open, onClose }) {
-  const navigate = useNavigate();
-
+export default function UserDetailDrawer({
+  user,
+  open,
+  onClose,
+  onApproveUser,
+  onRejectUser,
+  onToggleActiveUser,
+  onSoftDeleteUser,
+  onPurgeUser,
+  onDeleteAuthUser,
+  canPurge,
+  canHardDelete,
+  currentUserId,
+  onMentorAction,
+  isBusy,
+}) {
+  const [pendingAction, setPendingAction] = useState(null);
   if (!user) return null;
 
   const status = getAccountStatus(user);
   const statusMeta = ACCOUNT_STATUS_META[status.code] || ACCOUNT_STATUS_META.unknown;
+  const isSelf = currentUserId && user.id === currentUserId;
+  const isDeleted = !!user.is_deleted;
+  const isActive = user.is_active !== false;
+  const mentorStatus = (user.mentor_profile_status || user.mentor_status || 'pending').toLowerCase();
+  const hasPendingMentorRequest =
+    Boolean(user.mentor_profile_status && user.mentor_profile_status.toLowerCase() === 'pending');
 
-  const handleViewProfile = () => {
-    if (!user?.id) return;
-    if (onClose) {
-      onClose();
-    }
-    navigate(`/profile/${user.id}`);
+  const buttonBase =
+    'inline-flex items-center justify-center rounded-md text-sm font-medium px-3 py-2 min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 w-full sm:w-auto transition-colors';
+  const variants = {
+    success: 'border border-emerald-500 text-emerald-700 hover:bg-emerald-50 focus-visible:ring-emerald-500',
+    warning: 'border border-amber-500 text-amber-700 hover:bg-amber-50 focus-visible:ring-amber-500',
+    danger: 'border border-red-600 text-red-700 hover:bg-red-50 focus-visible:ring-red-500',
+    neutral: 'border border-slate-300 text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-400',
   };
+
+  const executeAction = async (key, actionFn) => {
+    if (!actionFn || pendingAction) return;
+    setPendingAction(key);
+    try {
+      await actionFn();
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const isDisabled = (key) => pendingAction === key || pendingAction !== null;
 
   return (
     <Transition.Root show={open} as={React.Fragment}>
@@ -83,7 +115,7 @@ export default function UserDetailDrawer({ user, open, onClose }) {
                         </div>
                       </div>
 
-                      <div className="space-y-2 text-sm text-gray-700">
+                      <div className="space-y-3 text-sm text-gray-700">
                         <div>
                           <span className="font-medium">Status:</span>{' '}
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusMeta.badgeClass}`}>
@@ -114,15 +146,113 @@ export default function UserDetailDrawer({ user, open, onClose }) {
                             {user.approval_status}
                           </div>
                         )}
-                        <div className="pt-3">
-                          <button
-                            type="button"
-                            onClick={handleViewProfile}
-                            className="inline-flex items-center px-3 py-2 rounded-md bg-ocean-600 text-white text-sm font-medium hover:bg-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+                        <section
+                          className="pt-4 border-t border-gray-100 space-y-3"
+                          role="group"
+                          aria-labelledby="admin-actions-heading"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <h3
+                              id="admin-actions-heading"
+                              className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                            >
+                              Admin actions
+                            </h3>
+                            <p className="text-[11px] text-gray-500">
+                              These apply immediately. Confirm before proceeding.
+                            </p>
+                          </div>
+                          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                            <button
+                              type="button"
+                              disabled={!onApproveUser || isBusy || status.code === 'approved' || pendingAction !== null}
+                              onClick={() => executeAction('approve-user', () => onApproveUser?.(user))}
+                              className={`${buttonBase} ${variants.success} disabled:opacity-50 disabled:cursor-not-allowed`}
+                            >
+                              {pendingAction === 'approve-user' ? 'Approving…' : 'Approve user'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!onRejectUser || isBusy || status.code === 'rejected' || pendingAction !== null}
+                              onClick={() => executeAction('reject-user', () => onRejectUser?.(user))}
+                              className={`${buttonBase} ${variants.warning} disabled:opacity-50 disabled:cursor-not-allowed`}
+                            >
+                              {pendingAction === 'reject-user' ? 'Rejecting…' : 'Reject user'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!onToggleActiveUser || isBusy || isDeleted || pendingAction !== null}
+                              onClick={() => executeAction('toggle-active', () => onToggleActiveUser?.(user))}
+                              className={`${buttonBase} ${variants.warning} disabled:opacity-50 disabled:cursor-not-allowed`}
+                            >
+                              {pendingAction === 'toggle-active'
+                                ? isActive
+                                  ? 'Blocking…'
+                                  : 'Unblocking…'
+                                : isActive
+                                ? 'Block user'
+                                : 'Unblock user'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!onSoftDeleteUser || isBusy || isSelf || pendingAction !== null}
+                              onClick={() => executeAction('soft-delete', () => onSoftDeleteUser?.(user))}
+                              className={`${buttonBase} ${variants.danger} disabled:opacity-50 disabled:cursor-not-allowed`}
+                            >
+                              {pendingAction === 'soft-delete' ? 'Deleting…' : 'Soft delete user'}
+                            </button>
+                            {canPurge && isDeleted && (
+                              <button
+                                type="button"
+                                disabled={!onPurgeUser || isBusy || isSelf || pendingAction !== null}
+                                onClick={() => executeAction('purge-data', () => onPurgeUser?.(user))}
+                                className={`${buttonBase} ${variants.danger} disabled:opacity-50 disabled:cursor-not-allowed`}
+                              >
+                                {pendingAction === 'purge-data' ? 'Purging…' : 'Purge data'}
+                              </button>
+                            )}
+                            {canHardDelete && isDeleted && (
+                              <button
+                                type="button"
+                                disabled={!onDeleteAuthUser || isBusy || isSelf || pendingAction !== null}
+                                onClick={() => executeAction('delete-auth', () => onDeleteAuthUser?.(user))}
+                                className={`${buttonBase} ${variants.danger} disabled:opacity-50 disabled:cursor-not-allowed`}
+                              >
+                                {pendingAction === 'delete-auth' ? 'Deleting login…' : 'Delete Auth user'}
+                              </button>
+                            )}
+                          </div>
+                        </section>
+                        {hasPendingMentorRequest && (
+                          <section
+                            className="pt-4 border-t border-gray-100 space-y-3"
+                            role="group"
+                            aria-labelledby="mentorship-actions-heading"
                           >
-                            View full profile
-                          </button>
-                        </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <h3
+                                id="mentorship-actions-heading"
+                                className="text-xs font-semibold uppercase tracking-wide text-gray-500"
+                              >
+                                Mentorship
+                              </h3>
+                              <p className="text-[11px] text-gray-500">Pending trainer application.</p>
+                            </div>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                              <button
+                                type="button"
+                                disabled={!onMentorAction || isBusy || pendingAction !== null}
+                                onClick={() => executeAction('mentor-approve', () => onMentorAction?.(user.id, 'approved'))}
+                                className={`${buttonBase} ${variants.success} disabled:opacity-50 disabled:cursor-not-allowed`}
+                              >
+                                {pendingAction === 'mentor-approve' ? 'Approving…' : 'Approve as mentor'}
+                              </button>
+                            </div>
+                          </section>
+                        )}
+                        <p className="sr-only" aria-live="polite">
+                          {pendingAction ? 'Processing action, please wait.' : ''}
+                        </p>
                       </div>
                     </div>
                   </div>

@@ -16,14 +16,6 @@ const STATUS_OPTIONS = [
   { value: 'deleted', label: 'Deleted' },
 ];
 
-const MENTEE_STATUS_OPTIONS = [
-  { value: 'all', label: 'All' },
-  { value: 'pending', label: 'Pending' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'rejected', label: 'Rejected' },
-  { value: 'suspended', label: 'Suspended' },
-];
-
 const MENTOR_STATUS_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: 'pending', label: 'Pending' },
@@ -44,10 +36,6 @@ export default function UserFiltersBar({
 
   const handleStatusChange = (e) => {
     onFiltersChange({ ...filters, status: e.target.value });
-  };
-
-  const handleMenteeStatusChange = (e) => {
-    onFiltersChange({ ...filters, menteeStatus: e.target.value });
   };
 
   const handleMentorStatusChange = (e) => {
@@ -119,24 +107,6 @@ export default function UserFiltersBar({
           {STATUS_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label htmlFor="admin-users-mentee-status" className="sr-only">
-          Mentee Status
-        </label>
-        <select
-          id="admin-users-mentee-status"
-          className="block w-full rounded-lg border-gray-300 focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm"
-          value={filters.menteeStatus || 'all'}
-          onChange={handleMenteeStatusChange}
-        >
-          {MENTEE_STATUS_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              Mentee: {opt.label}
             </option>
           ))}
         </select>

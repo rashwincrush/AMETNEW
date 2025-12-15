@@ -3,6 +3,8 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { getAccountStatus } from '../../utils/accountStatus';
 import { Box, Paper, Typography, Avatar, Button, Chip, CircularProgress, Alert, Divider } from '@mui/material';
+import { adminUpdateMentorStatus } from '../../services/adminMentorship';
+import { toast } from 'react-hot-toast';
 
 const AdminMentorApprovals = () => {
   const { userRole } = useAuth();
@@ -35,16 +37,20 @@ const AdminMentorApprovals = () => {
     fetchPending();
   }, [fetchPending]);
 
+  const [mutatingId, setMutatingId] = useState(null);
+
   const handleDecision = async (userId, decision) => {
+    setMutatingId(`${userId}:${decision}`);
     try {
-      const { error } = await supabase
-        .from('mentors')
-        .update({ status: decision })
-        .eq('user_id', userId);
-      if (error) throw error;
+      await adminUpdateMentorStatus(userId, decision);
+      toast.success(`Mentor status set to ${decision}.`);
       fetchPending();
     } catch (e) {
-      setError('Failed to update mentor status: ' + e.message);
+      const friendlyMessage = e?.message || 'Unknown error while updating mentor status';
+      setError(`Failed to update mentor status: ${friendlyMessage}`);
+      toast.error(`Unable to update mentor status: ${friendlyMessage}`);
+    } finally {
+      setMutatingId(null);
     }
   };
 
@@ -78,8 +84,22 @@ const AdminMentorApprovals = () => {
           </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button variant="contained" color="success" disabled={!canApprove} onClick={() => handleDecision(row.applicant?.id, 'approved')}>Approve</Button>
-          <Button variant="outlined" color="error" disabled={!canApprove} onClick={() => handleDecision(row.applicant?.id, 'rejected')}>Reject</Button>
+          <Button
+            variant="contained"
+            color="success"
+            disabled={!canApprove || mutatingId !== null}
+            onClick={() => handleDecision(row.applicant?.id, 'approved')}
+          >
+            {mutatingId === `${row.applicant?.id}:approved` ? 'Saving...' : 'Approve'}
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            disabled={!canApprove || mutatingId !== null}
+            onClick={() => handleDecision(row.applicant?.id, 'rejected')}
+          >
+            {mutatingId === `${row.applicant?.id}:rejected` ? 'Saving...' : 'Reject'}
+          </Button>
         </Box>
       </Paper>
     );
