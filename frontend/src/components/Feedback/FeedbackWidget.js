@@ -3,6 +3,7 @@ import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { XMarkIcon, PaperAirplaneIcon, ChatBubbleLeftIcon, CameraIcon } from '@heroicons/react/24/solid';
+import logger from '../../utils/logger';
 
 const FEEDBACK_TYPES = [
   { id: 'bug', name: 'Bug Report', color: 'bg-red-500' },
@@ -40,19 +41,18 @@ const FeedbackWidget = () => {
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
-      const filePath = `feedback_screenshots/${fileName}`;
+      const filePath = `${user.id}/${fileName}`;
       
       const { error: uploadError } = await supabase.storage
-        .from('feedback')
+        .from('feedback_screenshots')
         .upload(filePath, file);
         
       if (uploadError) {
         logger.error('Error uploading screenshot:', uploadError);
         return null;
       }
-      
-      const { data } = supabase.storage.from('feedback').getPublicUrl(filePath);
-      return data.publicUrl;
+
+      return filePath;
     } catch (error) {
       logger.error('Error handling screenshot upload:', error);
       return null;

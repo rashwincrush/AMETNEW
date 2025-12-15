@@ -67,6 +67,38 @@ const FeedbackReport = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [screenshotHref, setScreenshotHref] = useState(null);
+
+  const isHttpUrl = (s) => typeof s === 'string' && /^https?:\/\//i.test(s);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      const s = selectedFeedback?.screenshot_url;
+      if (!s) {
+        setScreenshotHref(null);
+        return;
+      }
+      if (isHttpUrl(s)) {
+        setScreenshotHref(s);
+        return;
+      }
+      try {
+        const { data, error } = await supabase.storage
+          .from('feedback_screenshots')
+          .createSignedUrl(s, 60 * 10);
+        if (cancelled) return;
+        if (error) throw error;
+        setScreenshotHref(data?.signedUrl || null);
+      } catch (e) {
+        if (!cancelled) setScreenshotHref(null);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFeedback]);
 
   // Authorization via AuthContext only (ban direct role reads)
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -452,9 +484,9 @@ const FeedbackReport = () => {
                 <>
                   <Typography variant="subtitle1" gutterBottom>Screenshot:</Typography>
                   <Box sx={{ textAlign: 'center', mb: 2 }}>
-                    <a href={selectedFeedback.screenshot_url} target="_blank" rel="noopener noreferrer">
+                    <a href={screenshotHref || undefined} target="_blank" rel="noopener noreferrer">
                       <img 
-                        src={selectedFeedback.screenshot_url} 
+                        src={screenshotHref || undefined} 
                         alt="Feedback screenshot" 
                         style={{ 
                           maxWidth: '100%', 
@@ -468,7 +500,7 @@ const FeedbackReport = () => {
                     <Button 
                       variant="outlined" 
                       component="a"
-                      href={selectedFeedback.screenshot_url}
+                      href={screenshotHref || undefined}
                       target="_blank"
                       rel="noopener noreferrer"
                     >

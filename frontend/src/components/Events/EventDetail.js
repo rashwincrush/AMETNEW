@@ -602,6 +602,8 @@ const EventDetail = () => {
   if (!event) return <div className="text-center p-4">Event not found.</div>;
 
   const canViewFeedback = eventEnded || event.status === 'completed';
+  const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
+  const shareTitle = event.title || '';
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -635,6 +637,10 @@ const EventDetail = () => {
               <span className={`px-3 py-1 text-sm font-semibold text-white rounded-full ${eventStatus.color} flex-shrink-0 mt-2 sm:mt-0`}>
                 {eventStatus.text}
               </span>
+            </div>
+
+            <div className="mt-4">
+              <SocialShareButtons url={shareUrl} title={shareTitle} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
@@ -844,10 +850,6 @@ const EventDetail = () => {
                   </div>
                 )}
               </div>
-            </div>
-
-            <div className="mt-8 pt-6 border-t">
-              <SocialShareButtons url={window.location.href} title={event.name} />
             </div>
 
             <div className="mt-8 pt-6 border-t">
