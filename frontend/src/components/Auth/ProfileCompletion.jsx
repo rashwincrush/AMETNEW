@@ -5,7 +5,7 @@ import { useDegreePrograms } from '../../hooks/useDegreePrograms';
 import AvatarService from '../../services/avatar';
 
 export default function ProfileCompletion() {
-  const { user, profile, getUserRole } = useAuth();
+  const { user, profile, getUserRole, fetchUserProfile } = useAuth();
   const role = getUserRole();
   const { options: degreeOptions } = useDegreePrograms();
 
@@ -99,6 +99,14 @@ export default function ProfileCompletion() {
         .update(payload)
         .eq('id', user?.id);
       if (upErr) throw upErr;
+
+      if (user?.id && typeof fetchUserProfile === 'function') {
+        try {
+          await fetchUserProfile(user.id, true);
+        } catch (_) {
+          void 0;
+        }
+      }
       setSuccess('Profile updated successfully.');
     } catch (e2) {
       setError(e2.message || 'Failed to save profile');

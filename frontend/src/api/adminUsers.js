@@ -121,6 +121,16 @@ export async function adminUsersUpdateProfileApproval({ profileId, decision, not
   return data;
 }
 
+export async function adminUsersRestoreUser({ userId, reason }) {
+  const { data, error } = await supabase.rpc('admin_restore_user', {
+    target: userId,
+    p_reason: reason ?? null,
+  });
+
+  if (error) throw error;
+  return data;
+}
+
 export async function adminUsersToggleActive({ userId, isActive, reason }) {
   const { data, error } = await supabase.rpc('admin_toggle_active', {
     p_user_id: userId,

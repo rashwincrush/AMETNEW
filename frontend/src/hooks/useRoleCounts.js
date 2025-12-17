@@ -75,9 +75,9 @@ export default function useRoleCounts() {
     // If RPC returned breakdown objects (admin path), use their totals; otherwise use plain numbers.
     if (counts.alumni && typeof counts.alumni === 'object') {
       return {
-        alumni: counts.alumni.total || 0,
-        students: counts.student?.total || 0,
-        employers: counts.employer?.total || 0,
+        alumni: Number(counts.alumni.total || 0),
+        students: Number(counts.student?.total || 0),
+        employers: Number(counts.employer?.total || 0),
         alumniBreakdown: counts.alumni,
         studentBreakdown: counts.student,
         employerBreakdown: counts.employer,

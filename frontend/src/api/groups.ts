@@ -1,4 +1,4 @@
-import { supabase } from '../utils/supabase';
+import { supabase, ensureValidSession } from '../utils/supabase';
 
 /** Create (pending) via SECURITY DEFINER RPC */
 type CreateGroupInput = {
@@ -16,12 +16,12 @@ export async function createGroup({
   alumniOnly = false,
 }: CreateGroupInput) {
   await guardEmployers();
+  await ensureValidSession();
   const { data, error } = await supabase.rpc('create_group_and_add_admin', {
     group_name: name.trim(),
     group_description: (description || '').trim(),
     group_is_private: !!isPrivate,
     group_tags: Array.isArray(tags) ? tags : [],
-    group_alumni_only: !!alumniOnly,
   });
   if (error) throw error;
   return data as string; // group_id

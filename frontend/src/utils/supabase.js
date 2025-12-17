@@ -36,6 +36,23 @@ export const supabase = (() => {
 // Minimal dev note (no secrets); redacted/no-op in prod
 logger.info('Supabase client initialized');
 
+export async function ensureValidSession(minTtlSeconds = 30) {
+  const now = Math.floor(Date.now() / 1000);
+  const { data: s1 } = await supabase.auth.getSession();
+  const sess1 = s1?.session;
+
+  if (!sess1?.access_token) {
+    await supabase.auth.refreshSession().catch(() => undefined);
+  } else if (typeof sess1.expires_at === 'number' && sess1.expires_at - now < minTtlSeconds) {
+    await supabase.auth.refreshSession().catch(() => undefined);
+  }
+
+  const { data: s2, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  if (!s2?.session?.access_token) throw new Error('Not authenticated');
+  return s2.session;
+}
+
 // --- REALTIME CONTEXT AND PROVIDER ---
 
 // Realtime context for system status
@@ -970,6 +987,7 @@ export const fetchGroupMemberCount = async (groupId) => {
 // Create a new group (backend triggers will set creator/admin membership)
 export const createGroup = async (groupData) => {
   await guardEmployers();
+  await ensureValidSession();
   // Use the secure RPC function to create group and add admin in one step
   const { data, error } = await supabase.rpc('create_group_and_add_admin', {
     group_name: groupData.name,

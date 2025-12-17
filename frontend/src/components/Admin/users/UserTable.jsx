@@ -83,6 +83,7 @@ function RowActionsMenu({
   onApprove,
   onReject,
   onSoftDelete,
+  onRestoreUser,
   onMenteeAction,
   onMentorAction,
   currentUserId,
@@ -180,6 +181,19 @@ function RowActionsMenu({
                   Soft delete user
                 </button>
               )}
+              {user.is_deleted && user.id !== currentUserId && onRestoreUser && (
+                <button
+                  title="Restore: re-enable a soft-deleted user."
+                  onClick={() => {
+                    onRestoreUser(user);
+                    setIsOpen(false);
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm flex items-center gap-2 hover:bg-gray-50 text-gray-700"
+                >
+                  <UsersIcon className="w-4 h-4 text-ocean-600" />
+                  Restore user
+                </button>
+              )}
               {user.is_deleted && user.id !== currentUserId && (canPurge || canHardDelete) && (
                 <>
                   <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b border-t border-gray-100 mt-1">
@@ -238,6 +252,7 @@ export default function UserTable({
   onReject,
   onToggleActive,
   onSoftDelete,
+  onRestoreUser,
   onPurge,
   onDeleteAuth,
   canPurge,
@@ -420,6 +435,7 @@ export default function UserTable({
                         onReject={onReject}
                         onToggleActive={onToggleActive}
                         onSoftDelete={onSoftDelete}
+                        onRestoreUser={onRestoreUser}
                         onMenteeAction={onMenteeAction}
                         onMentorAction={onMentorAction}
                         currentUserId={currentUserId}

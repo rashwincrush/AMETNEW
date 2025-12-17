@@ -1,7 +1,8 @@
-import { supabase } from '../utils/supabase';
+import { supabase, ensureValidSession } from '../utils/supabase';
 
 // Create (pending) via SECURITY DEFINER RPC
 export async function createGroup({ name, description = '', isPrivate = false, tags = [] }) {
+  await ensureValidSession();
   const { data, error } = await supabase.rpc('create_group_and_add_admin', {
     group_name: name.trim(),
     group_description: (description || '').trim(),

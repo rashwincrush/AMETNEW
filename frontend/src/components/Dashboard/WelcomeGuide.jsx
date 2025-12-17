@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   UserCircleIcon, 
-  UsersIcon, 
-  CalendarIcon, 
+  UsersIcon,
+  CalendarIcon,
   ChatBubbleLeftRightIcon,
   AcademicCapIcon,
   XMarkIcon,
@@ -19,57 +19,52 @@ import { useAuth } from '../../contexts/AuthContext';
 // with clear next steps to reduce cognitive load
 
 const STORAGE_KEY = 'amet_welcome_dismissed';
-const COMPLETED_STEPS_KEY = 'amet_onboarding_steps';
+
+const hasValue = (v) => v !== undefined && v !== null && String(v).trim() !== '';
 
 /**
  * Check if user has completed their profile
  */
-function isProfileComplete(profile) {
+function isProfileComplete(profile, role) {
   if (!profile) return false;
-  
-  const requiredFields = ['first_name', 'last_name'];
-  const hasRequired = requiredFields.every(field => profile[field]);
-  
-  // Check for at least some optional fields filled
-  const optionalFields = ['company_name', 'current_job_title', 'bio', 'avatar_url'];
-  const optionalFilled = optionalFields.filter(field => profile[field]).length;
-  
-  return hasRequired && optionalFilled >= 2;
+
+  const r = role || 'alumni';
+  const isEmployer = r === 'employer';
+  const isStudent = r === 'student';
+
+  return (
+    hasValue(profile.first_name) &&
+    hasValue(profile.last_name) &&
+    hasValue(profile.location) &&
+    (hasValue(profile.about) || hasValue(profile.bio)) &&
+    (isEmployer || hasValue(profile.degree_code)) &&
+    (isStudent
+      ? hasValue(profile.expected_graduation_year)
+      : (hasValue(profile.company_name) && hasValue(profile.current_job_title))) &&
+    hasValue(profile.avatar_url)
+  );
 }
 
 /**
  * WelcomeGuide - First-time user onboarding component
  */
 export function WelcomeGuide({ className = '' }) {
-  const { user, profile, userRole } = useAuth();
+  const { profile, userRole } = useAuth();
   const [dismissed, setDismissed] = useState(false);
-  const [completedSteps, setCompletedSteps] = useState([]);
   const [isExpanded, setIsExpanded] = useState(true);
 
   // Load dismissed state and completed steps from localStorage
   useEffect(() => {
     try {
       const dismissedValue = localStorage.getItem(STORAGE_KEY);
-      const stepsValue = localStorage.getItem(COMPLETED_STEPS_KEY);
       
       if (dismissedValue === 'true') {
         setDismissed(true);
-      }
-      
-      if (stepsValue) {
-        setCompletedSteps(JSON.parse(stepsValue));
       }
     } catch (e) {
       // Ignore localStorage errors
     }
   }, []);
-
-  // Auto-mark profile step as complete if profile is filled
-  useEffect(() => {
-    if (isProfileComplete(profile) && !completedSteps.includes('profile')) {
-      markStepComplete('profile');
-    }
-  }, [profile, completedSteps]);
 
   const handleDismiss = () => {
     setDismissed(true);
@@ -80,88 +75,106 @@ export function WelcomeGuide({ className = '' }) {
     }
   };
 
-  const markStepComplete = (stepId) => {
-    if (completedSteps.includes(stepId)) return;
-    
-    const newSteps = [...completedSteps, stepId];
-    setCompletedSteps(newSteps);
-    
-    try {
-      localStorage.setItem(COMPLETED_STEPS_KEY, JSON.stringify(newSteps));
-    } catch (e) {
-      // Ignore localStorage errors
-    }
-  };
-
   // Don't show if dismissed or all steps complete
   if (dismissed) return null;
 
   // Define onboarding steps based on role
   const getSteps = () => {
+    const role = userRole || 'alumni';
+    const isEmployer = role === 'employer';
+    const isStudent = role === 'student';
+
     const baseSteps = [
       {
-        id: 'profile',
-        title: 'Complete your profile',
-        description: 'Add your photo, bio, and work details to help others find you.',
+        id: 'name',
+        title: 'Add your name',
+        description: 'Help others recognize you in the directory and messages.',
         icon: UserCircleIcon,
         link: '/profile',
         linkText: 'Edit Profile',
         priority: 1,
+        isComplete: hasValue(profile?.first_name) && hasValue(profile?.last_name),
       },
       {
-        id: 'directory',
-        title: 'Find your batchmates',
-        description: 'Search the alumni directory to reconnect with classmates.',
-        icon: UsersIcon,
-        link: '/directory',
-        linkText: 'Browse Directory',
+        id: 'location',
+        title: 'Add your location',
+        description: 'Let alumni know where you are based.',
+        icon: UserCircleIcon,
+        link: '/profile',
+        linkText: 'Edit Profile',
         priority: 2,
+        isComplete: hasValue(profile?.location),
       },
       {
-        id: 'events',
-        title: 'Discover events',
-        description: 'See upcoming reunions, workshops, and networking events.',
-        icon: CalendarIcon,
-        link: '/events',
-        linkText: 'View Events',
+        id: 'about',
+        title: 'Add a short bio',
+        description: 'Share your background and interests.',
+        icon: UserCircleIcon,
+        link: '/profile',
+        linkText: 'Edit Profile',
         priority: 3,
+        isComplete: hasValue(profile?.about) || hasValue(profile?.bio),
       },
     ];
 
-    // Add role-specific steps
-    if (userRole === 'alumni' || userRole === 'user') {
+    if (!isEmployer) {
       baseSteps.push({
-        id: 'mentorship',
-        title: 'Explore mentorship',
-        description: 'Find a mentor or offer guidance to fellow alumni.',
+        id: 'education',
+        title: 'Add your education',
+        description: 'Set your degree so matches and filters work correctly.',
         icon: AcademicCapIcon,
-        link: '/mentorship',
-        linkText: 'Explore Mentorship',
+        link: '/profile',
+        linkText: 'Edit Profile',
         priority: 4,
+        isComplete: hasValue(profile?.degree_code),
       });
     }
 
-    if (userRole === 'employer') {
+    if (isStudent) {
       baseSteps.push({
-        id: 'jobs',
-        title: 'Post a job',
-        description: 'Share opportunities with our talented alumni network.',
-        icon: ChatBubbleLeftRightIcon,
-        link: '/jobs/post',
-        linkText: 'Post Job',
-        priority: 4,
+        id: 'expected_grad',
+        title: 'Add your expected graduation year',
+        description: 'Helps others understand your timeline.',
+        icon: AcademicCapIcon,
+        link: '/profile',
+        linkText: 'Edit Profile',
+        priority: 5,
+        isComplete: hasValue(profile?.expected_graduation_year),
+      });
+    } else {
+      baseSteps.push({
+        id: 'work',
+        title: 'Add your work details',
+        description: 'Company and current role help people find you.',
+        icon: UserCircleIcon,
+        link: '/profile',
+        linkText: 'Edit Profile',
+        priority: 5,
+        isComplete: hasValue(profile?.company_name) && hasValue(profile?.current_job_title),
       });
     }
+
+    baseSteps.push({
+      id: 'photo',
+      title: 'Add a profile photo',
+      description: 'A clear photo makes your profile more trustworthy.',
+      icon: UserCircleIcon,
+      link: '/profile',
+      linkText: 'Edit Profile',
+      priority: 6,
+      isComplete: hasValue(profile?.avatar_url),
+    });
 
     return baseSteps.sort((a, b) => a.priority - b.priority);
   };
 
   const steps = getSteps();
-  const incompleteSteps = steps.filter(s => !completedSteps.includes(s.id));
-  const progress = Math.round((completedSteps.length / steps.length) * 100);
+  const completedCount = steps.filter((s) => s.isComplete).length;
+  const progress = steps.length ? Math.round((completedCount / steps.length) * 100) : 0;
+  const allComplete = isProfileComplete(profile, userRole);
 
   // Auto-dismiss when all steps complete
-  if (incompleteSteps.length === 0 && !dismissed) {
+  if (allComplete && !dismissed) {
     // Show completion message briefly, then dismiss
     return (
       <div className={`card bg-emerald-50 border-emerald-200 ${className}`}>
@@ -197,9 +210,9 @@ export function WelcomeGuide({ className = '' }) {
               <span className="text-lg">👋</span>
             </div>
             <div>
-              <h2 className="font-semibold text-lg">Welcome to the Alumni Network!</h2>
+              <h2 className="font-semibold text-lg">Complete your profile</h2>
               <p className="text-ocean-100 text-sm">
-                Complete these steps to get started • {progress}% done
+                {progress}% complete
               </p>
             </div>
           </div>
@@ -242,8 +255,8 @@ export function WelcomeGuide({ className = '' }) {
       {isExpanded && (
         <div className="card-body p-0">
           <ul className="divide-y divide-gray-100" role="list">
-            {steps.map((step, index) => {
-              const isComplete = completedSteps.includes(step.id);
+            {steps.map((step) => {
+              const isComplete = step.isComplete;
               const Icon = step.icon;
               
               return (
@@ -282,7 +295,6 @@ export function WelcomeGuide({ className = '' }) {
                   {!isComplete && (
                     <Link
                       to={step.link}
-                      onClick={() => markStepComplete(step.id)}
                       className="btn-primary btn-sm shrink-0"
                     >
                       {step.linkText}

@@ -12,6 +12,7 @@ export default function UserDetailDrawer({
   onRejectUser,
   onToggleActiveUser,
   onSoftDeleteUser,
+  onRestoreUser,
   onPurgeUser,
   onDeleteAuthUser,
   canPurge,
@@ -201,6 +202,16 @@ export default function UserDetailDrawer({
                             >
                               {pendingAction === 'soft-delete' ? 'Deleting…' : 'Soft delete user'}
                             </button>
+                            {isDeleted && (
+                              <button
+                                type="button"
+                                disabled={!onRestoreUser || isBusy || isSelf || pendingAction !== null}
+                                onClick={() => executeAction('restore-user', () => onRestoreUser?.(user))}
+                                className={`${buttonBase} ${variants.success} disabled:opacity-50 disabled:cursor-not-allowed`}
+                              >
+                                {pendingAction === 'restore-user' ? 'Restoring…' : 'Restore user'}
+                              </button>
+                            )}
                             {canPurge && isDeleted && (
                               <button
                                 type="button"

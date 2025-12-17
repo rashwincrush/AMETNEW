@@ -16,7 +16,7 @@ import {
   ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import { toast } from 'react-hot-toast';
-import { supabase } from '../../utils/supabase';
+import { supabase, ensureValidSession } from '../../utils/supabase';
 import { saveEventImage } from '../../shared/utils/saveEventImage';
 import { useAuth } from '../../contexts/AuthContext';
 import AccessDenied from '../Auth/AccessDenied';
@@ -263,6 +263,9 @@ const CreateEvent = () => {
         toast.error("You must be logged in to create an event.");
         return;
       }
+
+      await ensureValidSession();
+
       logger.log('Form validation starting...');
       const isFormValid = validateForm();
       if (!isFormValid) {

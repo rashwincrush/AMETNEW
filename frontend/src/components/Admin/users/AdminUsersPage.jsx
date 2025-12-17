@@ -22,6 +22,7 @@ import {
   adminUsersSoftDelete,
   adminUsersPurgeData,
   adminUsersDeleteAuthUser,
+  adminUsersRestoreUser,
 } from '../../../api/adminUsers';
 import {
   adminUpdateMenteeStatus,
@@ -309,6 +310,32 @@ export default function AdminUsersPage() {
     });
   };
 
+  const handleRestoreUser = async (user) => {
+    if (!user?.id) return;
+    if (!user.is_deleted) return;
+    if (!window.confirm(`Restore ${user.email || user.full_name || 'this user'}?`)) return;
+
+    setIsMutating(true);
+    try {
+      await adminUsersRestoreUser({
+        userId: user.id,
+        reason: 'Restored from Admin Users page',
+      });
+      await refetch();
+      toast.success('User restored');
+    } catch (err) {
+      logger.error('Error restoring user:', err);
+      toast.error(
+        `Failed to restore user: ${getFriendlyErrorMessage(
+          err,
+          'Unable to restore user.'
+        )}`
+      );
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
   const handleMenteeAction = async (userId, status) => {
     setIsMutating(true);
     try {
@@ -558,6 +585,7 @@ export default function AdminUsersPage() {
             onReject={handleReject}
             onToggleActive={handleToggleActive}
             onSoftDelete={handleSoftDelete}
+            onRestoreUser={handleRestoreUser}
             onPurge={handlePurge}
             onDeleteAuth={handleDeleteAuth}
             canPurge={canPurge}
@@ -644,6 +672,7 @@ export default function AdminUsersPage() {
         onRejectUser={handleReject}
         onToggleActiveUser={handleToggleActive}
         onSoftDeleteUser={handleSoftDelete}
+        onRestoreUser={handleRestoreUser}
         onPurgeUser={handlePurge}
         onDeleteAuthUser={handleDeleteAuth}
         canPurge={canPurge}

@@ -88,6 +88,13 @@ export default function DirectoryPage() {
   // Role-based counts for Alumni / Students / Employers
   const { displayCounts: roleCounts } = useRoleCounts();
 
+  const maxRoleCount = useMemo(() => {
+    const alumniCount = Number(roleCounts?.alumni || 0);
+    const studentCount = Number(roleCounts?.students || 0);
+    const employerCount = isAdmin ? Number(roleCounts?.employers || 0) : 0;
+    return alumniCount + studentCount + employerCount;
+  }, [roleCounts?.alumni, roleCounts?.students, roleCounts?.employers, isAdmin]);
+
   // Directory data via secure RPC (get_directory_profiles_secure)
   const {
     data: secureRows,
@@ -104,20 +111,29 @@ export default function DirectoryPage() {
   // Use hook loading directly
   const loading = dirLoading;
 
+  const getNormalizedProfileRole = useCallback((raw = {}) => {
+    return String(raw.role || raw.user_role || raw.app_role || '')
+      .toLowerCase()
+      .trim();
+  }, []);
+
   // Helper predicates that categorize profiles by role; backend RPC enforces visibility/approval rules
   const isAlumniProfile = useCallback((raw = {}) => {
-    if (raw.is_employer || raw.role === 'employer') return false;
-    if (raw.role === 'student') return false;
+    const normalizedRole = getNormalizedProfileRole(raw);
+    if (raw.is_employer || normalizedRole === 'employer') return false;
+    if (normalizedRole === 'student' || normalizedRole === 'students') return false;
     return true;
-  }, []);
+  }, [getNormalizedProfileRole]);
 
   const isStudentProfile = useCallback((raw = {}) => {
-    return raw.role === 'student';
-  }, []);
+    const normalizedRole = getNormalizedProfileRole(raw);
+    return normalizedRole === 'student' || normalizedRole === 'students';
+  }, [getNormalizedProfileRole]);
 
   const isEmployerProfile = useCallback((raw = {}) => {
-    return !!(raw.is_employer || raw.role === 'employer');
-  }, []);
+    const normalizedRole = getNormalizedProfileRole(raw);
+    return !!(raw.is_employer || normalizedRole === 'employer');
+  }, [getNormalizedProfileRole]);
 
   // Normalization helper: lowercase, strip dots & ampersands, collapse whitespace
   const normalizeValue = useCallback((val) => {
@@ -257,7 +273,7 @@ export default function DirectoryPage() {
     if (!me) return;
     loadRels();
     loadCounts();
-  }, [me]);
+  }, [me, loadCounts, loadRels]);
 
   // Profiles are loaded by hook. Just ensure rels are loaded for tab filters.
   useEffect(() => {
@@ -278,7 +294,22 @@ export default function DirectoryPage() {
   // Reset pagination when tab changes; also reload profiles
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeFilter]);
+
+    // Directory data is paginated server-side across *all* roles. Since role switching is
+    // done client-side, the current page may not include student rows even if they exist.
+    // When switching to Students, increase the page size (bounded) to include them.
+    if (activeFilter === 'students') {
+      const SAFE_CAP = 500;
+      const desired = Math.min(Math.max(itemsPerPage, maxRoleCount || itemsPerPage), SAFE_CAP);
+      if (desired !== itemsPerPage) {
+        setItemsPerPage(desired);
+      }
+    } else {
+      if (itemsPerPage !== 24) {
+        setItemsPerPage(24);
+      }
+    }
+  }, [activeFilter, itemsPerPage, maxRoleCount]);
 
   const handleFilterChange = useCallback((nextFilter) => {
     setActiveFilter(nextFilter);
@@ -314,7 +345,7 @@ export default function DirectoryPage() {
     if (filter === 'sent') return list.filter(p => p.rel.status === 'pending' && p.rel.pending_side === 'sent');
     if (filter === 'connected') return list.filter(p => p.rel.status === 'accepted');
     return list;
-  }, []);
+  }, [isAlumniProfile, isEmployerProfile, isStudentProfile]);
 
   const filtered = useMemo(() => {
     const baseList = activeFilter === 'alumni' ? rest : withRel;
@@ -386,7 +417,7 @@ export default function DirectoryPage() {
     }
 
     return list;
-  }, [withRel, rest, activeFilter, applyFilter, debouncedSearch, filters.graduation_year, filters.department, filters.degree_program, filters.current_job_title, filters.company, filters.location, educationSearchById]);
+  }, [withRel, rest, activeFilter, applyFilter, debouncedSearch, filters.graduation_year, filters.department, filters.degree_program, filters.current_job_title, filters.company, filters.location, educationSearchById, normalizeValue]);
 
   // The secure RPC already applies pagination and sorting via page/pageSize/sortBy;
   // we only apply client-side filters (batch/department/degree/title/location).
