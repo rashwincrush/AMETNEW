@@ -18,6 +18,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { supabase, ensureValidSession } from '../../utils/supabase';
 import { saveEventImage } from '../../shared/utils/saveEventImage';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 import { useAuth } from '../../contexts/AuthContext';
 import AccessDenied from '../Auth/AccessDenied';
 
@@ -344,7 +345,7 @@ const CreateEvent = () => {
 
       if (insertError) {
         logger.error('Supabase insert error:', insertError);
-        throw new Error(`Database insert failed: ${insertError.message}`);
+        throw insertError;
       }
 
       if (!row) {
@@ -357,7 +358,7 @@ const CreateEvent = () => {
     } catch (error) {
       logger.error('Top level error caught in handleSubmit:', error);
       logger.error('Error creating event:', error);
-      toast.error(`Error creating event: ${error.message}`);
+      toast.error(getFriendlyErrorMessage(error, 'Unable to create event. Please try again.'));
     } finally {
       if (isMountedRef.current) {
         setIsSubmitting(false);

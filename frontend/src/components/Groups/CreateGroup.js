@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { canCreateGroup } from '../../utils/acl';
 import { createGroup, updateGroupAvatarRpc, setAdminOnlyPosts } from '../../api/groups';
 import logger from '../../utils/logger';
+import { getFriendlyErrorMessage } from '../../utils/errors';
 
 const CreateGroup = () => {
   const [name, setName] = useState('');
@@ -103,13 +104,23 @@ const CreateGroup = () => {
       navigate(`/groups/${id}/manage`);
     } catch (err) {
       logger.error("Error creating group:", err);
-      const msg = String(err?.message || '');
-      if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
+      const code = String(err?.code || '');
+      const msg = String(`${err?.message || ''} ${err?.details || ''} ${err?.hint || ''}`);
+      if (code === '42901' || /rate_limit/i.test(msg)) {
+        if (/group_create/i.test(msg)) {
+          const limit = userRole === 'admin' || userRole === 'super_admin' ? 50 : 5;
+          toast.error(`You have reached the daily group creation limit (${limit} per day). Please try again tomorrow.`, { id: toastId });
+        } else {
+          toast.error(getFriendlyErrorMessage(err, 'Too many requests. Please try again later.'), { id: toastId });
+        }
+      } else if (code === '23505' && /uq_groups_name_norm_active|name_norm/i.test(msg)) {
+        toast.error('A group with this name already exists. Please choose a different name.', { id: toastId });
+      } else if (/JSON object requested, multiple \(or no\) rows returned/i.test(msg)) {
         toast.error('Group created but is not visible yet. It may be pending review.', { id: toastId });
       } else if (/permission denied|42501/i.test(msg)) {
         toast.error("You don't have permission to create a group.", { id: toastId });
       } else {
-        toast.error('Unable to create group. Please try again.', { id: toastId });
+        toast.error(getFriendlyErrorMessage(err, 'Unable to create group. Please try again.'), { id: toastId });
       }
     } finally {
       setLoading(false);
