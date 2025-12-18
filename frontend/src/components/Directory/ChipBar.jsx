@@ -22,11 +22,11 @@ export default function ChipBar({ counts, active, onChange, showEmployers = fals
   }, [openMenu]);
 
   const roleItems = [
-    { id: 'alumni', label: 'Alumni', count: counts?.alumni },
-    { id: 'students', label: 'Students', count: counts?.students },
+    { id: 'alumni', label: 'Alumni', count: counts?.alumni, breakdown: counts?.alumniBreakdown },
+    { id: 'students', label: 'Students', count: counts?.students, breakdown: counts?.studentBreakdown },
   ];
   if (showEmployers) {
-    roleItems.push({ id: 'employers', label: 'Employers', count: counts?.employers });
+    roleItems.push({ id: 'employers', label: 'Employers', count: counts?.employers, breakdown: counts?.employerBreakdown });
   }
 
   const connectionItems = showConnections
@@ -89,6 +89,8 @@ export default function ChipBar({ counts, active, onChange, showEmployers = fals
           <ul className="py-1 text-sm text-slate-700">
             {items.map(item => {
               const itemActive = item.id === activeLeafId;
+              const bd = item.breakdown && typeof item.breakdown === 'object' ? item.breakdown : null;
+              const hasBd = !!(bd && ('approved' in bd || 'pending' in bd || 'rejected' in bd || 'total' in bd));
               return (
                 <li key={item.id}>
                   <button
@@ -98,7 +100,14 @@ export default function ChipBar({ counts, active, onChange, showEmployers = fals
                     }`}
                     onClick={() => handleSelect(item.id)}
                   >
-                    <span>{item.label}</span>
+                    <span className="flex flex-col">
+                      <span>{item.label}</span>
+                      {hasBd && (
+                        <span className={`mt-0.5 text-[11px] ${itemActive ? 'text-ocean-700/90' : 'text-slate-500'}`}>
+                          Approved: {Number(bd.approved || 0)} · Pending: {Number(bd.pending || 0)} · Rejected: {Number(bd.rejected || 0)}
+                        </span>
+                      )}
+                    </span>
                     {typeof item.count === 'number' && (
                       <span className={`ml-2 text-xs font-bold px-2 py-0.5 rounded-full ${itemActive ? 'bg-ocean-200 text-ocean-800' : 'bg-slate-200 text-slate-700'}`}>
                         {item.count}
@@ -119,7 +128,7 @@ export default function ChipBar({ counts, active, onChange, showEmployers = fals
       {/* Roles group: Alumni / Students / Employers */}
       <GroupChip
         groupId="roles"
-        label="Roles"
+        label="Members"
         items={roleItems}
         isActive={isRolesActive}
         activeLeafId={active}

@@ -61,18 +61,16 @@ export default function useDirectorySecure({ search = '', page = 1, pageSize = 2
         }
         rows = data;
       } catch (primaryErr) {
-        // Fallback: call legacy 3-arg RPC if sort-aware version is not available.
-        // This keeps the directory functional even if the DB migration is not yet applied.
-        // eslint-disable-next-line no-console
+        // Fallback: try the legacy 3-arg RPC signature.
+        // This keeps the directory functional even if newer DB migrations are not yet applied.
         logger.error('get_directory_profiles_secure with sort params failed, falling back to legacy signature', primaryErr);
+
         const { data, error } = await supabase.rpc('get_directory_profiles_secure', {
           p_search,
           p_limit,
           p_offset,
         });
-        if (error) {
-          throw error;
-        }
+        if (error) throw error;
         rows = data;
       }
 

@@ -201,30 +201,6 @@ export default function DirectoryPage() {
     };
   }, [secureRows]);
 
-  // Counts passed to ChipBar; hide certain counts for non-admin roles per requirements.
-  // Alumni / Students / Employers counts now come from role-aware backend RPCs via useRoleCounts.
-  const countsForChips = useMemo(() => {
-    const baseCounts = {
-      ...counts,
-      alumni: roleCounts.alumni,
-      students: roleCounts.students,
-      employers: roleCounts.employers,
-    };
-
-    if (!isAdmin) {
-      if (role === 'alumni') {
-        // Alumni should not see the number of employers, but can see student counts
-        baseCounts.employers = undefined;
-      } else if (role === 'student') {
-        // Students should not see the number of employers
-        baseCounts.employers = undefined;
-      }
-      // Requests/connection counts remain but their chips are hidden via showConnections=false
-    }
-
-    return baseCounts;
-  }, [counts, roleCounts.alumni, roleCounts.students, roleCounts.employers, isAdmin, role]);
-
   const loadRels = useCallback(async () => {
     // Relationship states for all others
     const { data, error } = await supabase
@@ -298,7 +274,7 @@ export default function DirectoryPage() {
     // Directory data is paginated server-side across *all* roles. Since role switching is
     // done client-side, the current page may not include student rows even if they exist.
     // When switching to Students, increase the page size (bounded) to include them.
-    if (activeFilter === 'students') {
+    if (activeFilter === 'students' || (activeFilter === 'employers' && isAdmin)) {
       const SAFE_CAP = 500;
       const desired = Math.min(Math.max(itemsPerPage, maxRoleCount || itemsPerPage), SAFE_CAP);
       if (desired !== itemsPerPage) {
@@ -309,7 +285,7 @@ export default function DirectoryPage() {
         setItemsPerPage(24);
       }
     }
-  }, [activeFilter, itemsPerPage, maxRoleCount]);
+  }, [activeFilter, itemsPerPage, maxRoleCount, isAdmin]);
 
   const handleFilterChange = useCallback((nextFilter) => {
     setActiveFilter(nextFilter);
@@ -350,6 +326,14 @@ export default function DirectoryPage() {
   const filtered = useMemo(() => {
     const baseList = activeFilter === 'alumni' ? rest : withRel;
     let list = applyFilter(baseList, activeFilter);
+
+    if (!isAdmin) {
+      list = list.filter((p) => {
+        const raw = p._raw || p;
+        const r = String(raw.role || '').toLowerCase();
+        return raw.approval_status === 'approved' && (r === 'alumni' || r === 'student');
+      });
+    }
 
     // Apply free-text search client-side as a safety net across name, company, and location
     const qSearch = normalizeValue(debouncedSearch || '');
@@ -427,6 +411,31 @@ export default function DirectoryPage() {
     ? Math.max(1, Math.ceil(totalCount / itemsPerPage))
     : null;
 
+  const countsForChips = useMemo(() => {
+    const baseCounts = {
+      ...counts,
+      alumni: roleCounts.alumni,
+      students: roleCounts.students,
+      employers: roleCounts.employers,
+      alumniBreakdown: roleCounts.alumniBreakdown,
+      studentBreakdown: roleCounts.studentBreakdown,
+      employerBreakdown: roleCounts.employerBreakdown,
+    };
+
+    if (!isAdmin) {
+      if (role === 'alumni') {
+        // Alumni should not see the number of employers, but can see student counts
+        baseCounts.employers = undefined;
+      } else if (role === 'student') {
+        // Students should not see the number of employers
+        baseCounts.employers = undefined;
+      }
+      // Requests/connection counts remain but their chips are hidden via showConnections=false
+    }
+
+    return baseCounts;
+  }, [counts, roleCounts.alumni, roleCounts.students, roleCounts.employers, roleCounts.alumniBreakdown, roleCounts.studentBreakdown, roleCounts.employerBreakdown, isAdmin, role]);
+
   if (role === 'employer') {
     return (
       <div className="mx-auto max-w-[1600px] px-4 py-6">
@@ -454,7 +463,7 @@ export default function DirectoryPage() {
               AMET Network directory
             </h1>
             <p className="text-lg text-indigo-100 max-w-2xl">
-              Find members across batches, roles, and locations in the AMET community.
+              Find members across batches, designations, and locations in the AMET community.
             </p>
           </div>
           {/* ChipBar with modern styling */}
@@ -487,7 +496,7 @@ export default function DirectoryPage() {
                     // Start from the first page whenever the keyword search changes
                     setCurrentPage(1);
                   }}
-                  placeholder="Search by name, role, company, or location"
+                  placeholder="Search by name, designation, company, or location"
                   aria-label="Search directory"
                   className="w-full min-h-[52px] rounded-xl border-2 border-white/40 bg-white/95 backdrop-blur-sm py-3 pl-12 pr-4 text-sm font-medium text-slate-900 placeholder:text-slate-500 shadow-lg transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-ocean-600 focus-visible:border-white focus-visible:bg-white hover:bg-white"
                 />

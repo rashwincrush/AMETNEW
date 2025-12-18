@@ -243,7 +243,7 @@ const JobCard = ({ job, handleBookmark, isBookmarked, onSkillClick, hasApplied =
 
   if (!job) return null;
   return (
-    <div className="group relative bg-white rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-[2px] transition-all duration-200 border border-gray-200/80 hover:border-ocean-200 h-full flex flex-col">
+    <div className="group relative bg-white rounded-2xl shadow-sm hover:shadow-md transition-[box-shadow,border-color] duration-200 border border-gray-200/80 hover:border-ocean-200 h-full flex flex-col">
       <div className="flex items-start justify-between mb-3 px-5 pt-5 pb-3">
           <div className="flex items-center flex-1 gap-3">
             <div className="w-12 h-12 rounded-full border border-gray-200 bg-white shadow-sm flex items-center justify-center overflow-hidden">
