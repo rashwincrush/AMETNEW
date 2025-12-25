@@ -73,14 +73,14 @@ const Navigation = () => {
 
   return (
     <>
-      <aside className="hidden md:flex md:w-64 md:flex-col md:bg-white md:shadow-lg md:border-r">
+      <aside className="hidden md:flex md:w-64 md:flex-col md:bg-white md:shadow-lg">
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-ocean-600 focus:text-white focus:rounded-lg focus:shadow-lg focus:ring-2 focus:ring-ocean-500 focus:ring-offset-2"
         >
           Skip to main content
         </a>
-        <div className="p-6 border-b border-ocean-200">
+        <div className="p-6">
           <div className="flex items-center space-x-3">
             <Logo className="h-10 w-auto" />
             <div>

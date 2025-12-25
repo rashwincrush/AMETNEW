@@ -14,7 +14,7 @@ export default function MentorshipStatusBannerStrip() {
   }
   
   return (
-    <div className="bg-slate-50 border-b border-slate-200">
+    <div className="bg-white">
       <div className="max-w-5xl mx-auto px-4 py-4 space-y-3">
         {banners.map((banner, index) => (
           <MentorshipBanner key={index} {...banner} />

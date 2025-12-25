@@ -47,6 +47,21 @@ const ContactUs = () => {
 
     setSubmitting(true);
     try {
+      // Create WhatsApp message with form content
+      const roleText = formValues.role ? ` (${formValues.role})` : '';
+      const message = `*New Contact Form Submission*
+
+Name: ${formValues.name}${roleText}
+Email: ${formValues.email}
+Subject: ${formValues.subject}
+
+Message:
+${formValues.message}`;
+      
+      // Open WhatsApp with pre-filled message
+      const whatsappUrl = `https://wa.me/916382111569?text=${encodeURIComponent(message)}`;
+      window.open(whatsappUrl, '_blank');
+      
       setSubmitted(true);
     } finally {
       setSubmitting(false);
@@ -66,7 +81,7 @@ const ContactUs = () => {
 
           {submitted && (
             <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-              Thank you for reaching out. Your message has been received.
+              WhatsApp has been opened with your message. Please send it to reach us!
             </div>
           )}
 

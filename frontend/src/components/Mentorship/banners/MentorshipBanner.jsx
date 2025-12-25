@@ -17,10 +17,10 @@ export default function MentorshipBanner({
   const navigate = useNavigate();
   
   const variantStyles = {
-    info: 'border-sky-200 bg-sky-50 text-sky-900',
-    success: 'border-emerald-200 bg-emerald-50 text-emerald-900',
-    warning: 'border-amber-200 bg-amber-50 text-amber-900',
-    danger: 'border-rose-200 bg-rose-50 text-rose-900',
+    info: 'border-slate-200 bg-white text-slate-900',
+    success: 'border-slate-200 bg-white text-slate-900',
+    warning: 'border-slate-200 bg-white text-slate-900',
+    danger: 'border-slate-200 bg-white text-slate-900',
   };
   
   const handleCtaClick = (cta) => {
@@ -52,7 +52,7 @@ export default function MentorshipBanner({
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-semibold">{title}</h3>
             {body && (
-              <p className="mt-1 text-sm opacity-90">{body}</p>
+              <p className="mt-1 text-sm text-slate-700">{body}</p>
             )}
           </div>
         </div>

@@ -40,7 +40,7 @@ const HelpCenter = () => {
 
           <div className="mt-8">
             <p className="text-gray-700">
-              Still need help? <Link to="/contact" className="text-ocean-600 hover:underline">Contact us</Link> and we’ll get back to you.
+              Still need help? <Link to="/contact" className="text-ocean-600 hover:underline">Contact us</Link> and we'll get back to you.
             </p>
           </div>
         </div>

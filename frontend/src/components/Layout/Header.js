@@ -55,7 +55,7 @@ const Header = ({ user }) => {
       : '';
 
   return (
-    <header role="banner" className="bg-white shadow-sm border-b border-ocean-200 px-4 sm:px-6 py-3 sm:py-4">
+    <header role="banner" className="bg-white px-4 sm:px-6 py-3 sm:py-4">
       <div className="flex items-center justify-between space-x-4 sm:space-x-6">
         {/* Logo and Title */}
         <div className="flex items-center">

@@ -111,6 +111,7 @@ import Security from './pages/Profile/Security';
 import RequireCompleteProfile from './components/Auth/RequireCompleteProfile.jsx';
 import MyMentorship from './components/Mentorship/MyMentorship.js';
 import HelpCenter from './pages/HelpCenter';
+import MentorshipInfo from './pages/MentorshipInfo';
 import BlockedUserBanner from './components/common/BlockedUserBanner';
 import ContactUs from './pages/ContactUs';
 import NotificationSettings from './pages/Settings/NotificationSettings';
@@ -312,6 +313,14 @@ function AppContent() {
               element={
                 <ProtectedRoute requiredPermission="request:mentorship">
                   <MentorshipLayout />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/mentorship/info" 
+              element={
+                <ProtectedRoute requiredPermission="request:mentorship">
+                  <MentorshipInfo />
                 </ProtectedRoute>
               } 
             />
