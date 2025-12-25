@@ -23,6 +23,7 @@ const Register = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [error, setError] = useState('');
+  const [showQr, setShowQr] = useState(false);
 
   const validateForm = () => {
     const newErrors = {};
@@ -142,6 +143,23 @@ const Register = () => {
           <p className="mt-2 text-gray-600">
             Create your account to connect with fellow alumni
           </p>
+          <div className="mt-4 flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowQr(true)}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-100 bg-white px-3 py-2 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+            >
+              <span>Click to view full QR for quick registration</span>
+            </button>
+            <div className="h-16 w-16 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+              <img
+                src="/QR.png"
+                alt="Scan to register"
+                className="h-full w-full object-contain"
+                loading="lazy"
+              />
+            </div>
+          </div>
         </div>
 
         {/* Form */}
@@ -421,6 +439,37 @@ const Register = () => {
           </div>
         </form>
       </div>
+
+      {/* QR Modal */}
+      {showQr && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setShowQr(false)}
+              className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 rounded-full p-1"
+              aria-label="Close QR"
+            >
+              ×
+            </button>
+            <h3 className="text-lg font-semibold text-gray-900 mb-3 text-center">Scan to Register</h3>
+            <div className="flex justify-center">
+              <img
+                src="/QR.png"
+                alt="Scan to register"
+                className="w-64 h-64 object-contain"
+              />
+            </div>
+            <p className="mt-3 text-center text-sm text-gray-600">
+              Point your camera at the code to open the registration page on your device.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

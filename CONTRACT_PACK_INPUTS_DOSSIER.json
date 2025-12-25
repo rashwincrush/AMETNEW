@@ -1,0 +1,236 @@
+{
+  "parties_contacts": {
+    "customer": "UNKNOWN – NEED CONFIRMATION",
+    "vendor": "AMET Alumni platform (working name) – contacts UNKNOWN – NEED CONFIRMATION",
+    "dpo_security_contact": "UNKNOWN – NEED CONFIRMATION",
+    "source": null
+  },
+  "system_overview": {
+    "modules": ["Dashboard", "Directory", "Jobs", "Events", "Mentorship", "Groups", "Messages", "Admin"],
+    "auth": "Supabase email/password; OAuth disabled",
+    "frontend_hosting": "React static build via Vercel; uses Supabase anon key",
+    "backend": "FastAPI + Supabase client; served via Nginx with built frontend",
+    "citations": ["frontend/FRONTEND_BOOK.md#366-577", "supabase/config.toml#106-190", "vercel.json#1-38", "Dockerfile#1-39", "requirements.txt#1-34"]
+  },
+  "hosting_regions": {
+    "supabase_project": "gvbtfolcizkzihforqte (region UNKNOWN – NEED CONFIRMATION)",
+    "s3_optional": "S3_HOST/S3_REGION envs present (disabled/unspecified)",
+    "frontend_cdn": "Vercel static build/CDN (region depends on deploy; UNKNOWN)",
+    "dev_local": "Supabase local (ports 54321/54322/54323) with inbucket",
+    "citations": ["vercel.json#1-38", "supabase/config.toml#314-324", "supabase/config.toml#7-88"]
+  },
+  "data_inventory": [
+    {
+      "category": "Identity & Auth",
+      "fields": "email, password hash (Supabase), session tokens",
+      "purpose": "Login, account access",
+      "access_controls": "Supabase Auth; password min length 6; refresh rotation; auth rate limits",
+      "retention": "UNKNOWN – NEED CONFIRMATION",
+      "citations": ["supabase/config.toml#106-148", "supabase/config.toml#133-148"]
+    },
+    {
+      "category": "Profile",
+      "fields": "id, email, full_name, first_name, last_name, phone, graduation_year, expected_graduation_year, degree_code, department_id, company_name, current_job_title, location, avatar_url, industry, company_size, company_website, role",
+      "purpose": "Account profile, directory display",
+      "access_controls": "RLS: users edit own; admins can read all",
+      "retention": "UNKNOWN – NEED CONFIRMATION",
+      "citations": ["frontend/FRONTEND_BOOK.md#214-224", "archive/docs/SECURITY.md#29-37"]
+    },
+    {
+      "category": "Directory/Connections",
+      "fields": "Connection state (sent/received/connected), directory attributes",
+      "purpose": "Networking",
+      "access_controls": "RLS per user/role; employers redirected from directory",
+      "retention": "UNKNOWN – NEED CONFIRMATION",
+      "citations": ["frontend/FRONTEND_BOOK.md#410-417", "archive/docs/role-module-action-matrix.md#35-43"]
+    },
+    {
+      "category": "Jobs",
+      "fields": "Job posts, applications, statuses (submitted→hired), resumes (private)",
+      "purpose": "Job board and applications",
+      "access_controls": "Posters/admin manage; applicants see own; resumes private (owner/admin/employer on their job)",
+      "retention": "UNKNOWN – NEED CONFIRMATION",
+      "citations": ["frontend/FRONTEND_BOOK.md#420-449", "archive/docs/SECURITY.md#24-37"]
+    },
+    {
+      "category": "Events",
+      "fields": "Event details, registrations, feedback",
+      "purpose": "Event discovery/RSVP",
+      "access_controls": "Public read after approval; create/edit admin-only",
+      "retention": "UNKNOWN – NEED CONFIRMATION",
+      "citations": ["frontend/FRONTEND_BOOK.md#452-474", "archive/docs/SECURITY.md#31-33"]
+    },
+    {
+      "category": "Mentorship",
+      "fields": "Mentor profiles, requests, capacity, statuses",
+      "purpose": "Mentor/mentee matching",
+      "access_controls": "Role/approval-gated; admin approvals",
+      "retention": "UNKNOWN – NEED CONFIRMATION",
+      "citations": ["frontend/FRONTEND_BOOK.md#476-509"]
+    },
+    {
+      "category": "Groups",
+      "fields": "Group details, memberships, posts/comments",
+      "purpose": "Community groups",
+      "access_controls": "Role/approval checks; employer blocked; RLS for membership visibility",
+      "retention": "UNKNOWN – NEED CONFIRMATION",
+      "citations": ["frontend/FRONTEND_BOOK.md#512-529", "archive/docs/role-module-action-matrix.md#100-116"]
+    },
+    {
+      "category": "Messaging",
+      "fields": "Conversations, messages",
+      "purpose": "Direct messaging between connections",
+      "access_controls": "Participants-only; admin via dedicated RPCs",
+      "retention": "UNKNOWN – NEED CONFIRMATION",
+      "citations": ["archive/docs/SECURITY.md#35-37"]
+    },
+    {
+      "category": "Notifications",
+      "fields": "In-app notifications",
+      "purpose": "User alerts",
+      "access_controls": "Per-recipient visibility",
+      "retention": "UNKNOWN – NEED CONFIRMATION",
+      "citations": ["archive/docs/SECURITY.md#35-38"]
+    },
+    {
+      "category": "Media/Files",
+      "fields": "Avatars, event images, resumes",
+      "purpose": "UX and hiring",
+      "access_controls": "Buckets private by default; 50MiB limit; MIME restrictions",
+      "retention": "UNKNOWN – NEED CONFIRMATION",
+      "citations": ["supabase/config.toml#91-104", "archive/docs/SECURITY.md#18-27"]
+    },
+    {
+      "category": "Logs/Analytics",
+      "fields": "Minimal activity logs (IDs/descriptors), optional analytics backend",
+      "purpose": "Monitoring/debug",
+      "access_controls": "Redaction; no PII; auth rate limits",
+      "retention": "UNKNOWN – NEED CONFIRMATION",
+      "citations": ["archive/docs/SECURITY.md#5-11", "archive/docs/SECURITY.md#49-52", "supabase/config.toml#308-313"]
+    },
+    {
+      "category": "Payment/Billing",
+      "fields": "None observed",
+      "purpose": "—",
+      "access_controls": "—",
+      "retention": "Not collected",
+      "citations": []
+    },
+    {
+      "category": "Special/Sensitive Data",
+      "fields": "None observed (no health/biometric/gov-ID)",
+      "purpose": "—",
+      "access_controls": "—",
+      "retention": "Not collected",
+      "citations": []
+    }
+  ],
+  "subprocessors": [
+    {
+      "name": "Supabase",
+      "purpose": "Auth, Postgres DB, Storage buckets, Edge functions",
+      "data_types": "Identity, profiles, jobs/events/groups data, messages, files",
+      "region": "UNKNOWN – NEED CONFIRMATION",
+      "evidence": "vercel.json#1-38; supabase/config.toml#7-325"
+    },
+    {
+      "name": "Vercel",
+      "purpose": "Static hosting/CDN for frontend",
+      "data_types": "Public app assets; browser connects to Supabase",
+      "region": "UNKNOWN (depends on deploy)",
+      "evidence": "vercel.json#1-33"
+    },
+    {
+      "name": "AWS S3 (optional)",
+      "purpose": "Potential storage backend via env",
+      "data_types": "Files if enabled",
+      "region": "UNKNOWN (S3_REGION env)",
+      "evidence": "supabase/config.toml#314-324"
+    },
+    {
+      "name": "Inbucket (dev only)",
+      "purpose": "Dev email capture",
+      "data_types": "Test emails",
+      "region": "Localhost dev",
+      "evidence": "supabase/config.toml#79-88"
+    },
+    {
+      "name": "Twilio SMS (disabled)",
+      "purpose": "Placeholder SMS OTP",
+      "data_types": "N/A (disabled)",
+      "region": "N/A",
+      "evidence": "supabase/config.toml#188-224"
+    },
+    {
+      "name": "Redis (dependency)",
+      "purpose": "Potential cache/queue (usage not shown)",
+      "data_types": "Session/cache data if used",
+      "region": "UNKNOWN",
+      "evidence": "requirements.txt#1-34"
+    },
+    {
+      "name": "Google Cloud Pub/Sub (dependency)",
+      "purpose": "Potential messaging (usage not shown)",
+      "data_types": "UNKNOWN",
+      "region": "UNKNOWN",
+      "evidence": "requirements.txt#1-34"
+    },
+    {
+      "name": "AWS (boto3 dependency)",
+      "purpose": "Potential storage/queue (usage not shown)",
+      "data_types": "UNKNOWN",
+      "region": "UNKNOWN",
+      "evidence": "requirements.txt#1-34"
+    }
+  ],
+  "security_controls": {
+    "auth": "Supabase email/password; refresh rotation; rate limits; SMS signup disabled; OAuth disabled",
+    "rbac": "Roles alumni, student, employer, admin, super_admin with permission matrices and guards",
+    "rls": "Enabled on user-facing tables; per-table policies for profiles/events/jobs/applications/groups/messages/notifications; admin RPCs gated",
+    "storage": "Buckets private by default; event images/resumes with MIME and 50MiB limits",
+    "logging": "Redacting logger; no console in prod; no payload/PII in logs",
+    "rate_limiting": "Auth email/SMS/token refresh/sign-in throttles",
+    "backups": "Snapshots under supabase/backups guidance",
+    "edge_functions": "Admin delete user requires admin/super_admin + service role key",
+    "mfa": "Disabled by default",
+    "captcha": "Disabled by default",
+    "citations": ["supabase/config.toml#106-190", "frontend/FRONTEND_BOOK.md#241-299", "archive/docs/role-module-action-matrix.md#1-120", "archive/docs/SECURITY.md#29-38", "supabase/config.toml#91-104", "archive/docs/SECURITY.md#5-11", "archive/docs/SECURITY.md#49-52", "supabase/config.toml#133-148", "archive/docs/SECURITY.md#45-48", "supabase/functions/README.md#1-44", "supabase/config.toml#227-244", "supabase/config.toml#150-155"]
+  },
+  "retention_deletion": {
+    "backups": "Snapshots under supabase/backups (details not specified)",
+    "user_deletion": "Admin delete user edge function exists; broader retention not documented",
+    "retention_policies": "UNKNOWN – NEED CONFIRMATION",
+    "citations": ["archive/docs/SECURITY.md#45-48", "supabase/functions/README.md#1-44"]
+  },
+  "incident_breach": {
+    "process": "UNKNOWN – NEED CONFIRMATION",
+    "alerting_oncall": "UNKNOWN – NEED CONFIRMATION",
+    "logging": "Present (redacted); no breach steps documented",
+    "citations": ["archive/docs/SECURITY.md#5-11", "archive/docs/SECURITY.md#49-52"]
+  },
+  "support_sla": {
+    "channels": "UNKNOWN – NEED CONFIRMATION",
+    "hours": "UNKNOWN – NEED CONFIRMATION",
+    "severity_response": "UNKNOWN – NEED CONFIRMATION",
+    "maintenance_windows": "UNKNOWN – NEED CONFIRMATION",
+    "citations": []
+  },
+  "sow_inputs": {
+    "deliverables": ["Dashboard", "Directory", "Jobs", "Events", "Mentorship", "Groups", "Messages", "Admin"],
+    "acceptance_criteria": "Route/role QA matrix defines expected behaviors (200 vs redirect/access denied) per route/role",
+    "environments": "Dev/local Supabase; Vercel frontend; Supabase managed backend",
+    "rollout_training": "UNKNOWN – NEED CONFIRMATION",
+    "citations": ["frontend/FRONTEND_BOOK.md#366-577", "frontend/FRONTEND_BOOK.md#908-955", "supabase/config.toml#7-325", "vercel.json#1-33"]
+  },
+  "eu_uk_transfers_tra": {
+    "hosting_regions_needed": "Supabase region, Vercel deploy region, any S3 region need confirmation",
+    "international_transfers": "Likely due to managed Supabase + Vercel; SCC/IDTA addendum needed",
+    "missing_inputs": "Hosting region, subprocessor regions, data categories per flow, backup/retention locations",
+    "citations": ["vercel.json#1-38", "supabase/config.toml#314-324"]
+  },
+  "notes_next_steps": [
+    "Populate legal entities, addresses, DPO/security contacts, support contacts",
+    "Confirm hosting regions (Supabase, Vercel, any S3) and production email/SMS providers",
+    "Confirm retention schedules and incident-response obligations"
+  ]
+}

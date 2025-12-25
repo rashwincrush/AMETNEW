@@ -1,9 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../common/NotificationCenter';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import logger from '../../utils/logger';
+import { 
+  createJobAlert,
+  updateJobAlert,
+  deleteJobAlert,
+  fetchJobAlerts,
+} from '../../services/jobService';
 import { 
   BellIcon,
   PlusIcon,
@@ -45,6 +50,10 @@ const JobAlerts = () => {
   const { showSuccess, showError } = useNotification();
   const [loading, setLoading] = useState(true);
   const [alerts, setAlerts] = useState([]);
+  const [fetchError, setFetchError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [togglingId, setTogglingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
 
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -98,40 +107,22 @@ const JobAlerts = () => {
     if (!user) return;
     try {
       setLoading(true);
+      setFetchError(null);
       logger.log('Fetching job alerts for user ID:', user.id);
-      logger.log('Using Supabase URL:', process.env.REACT_APP_SUPABASE_URL);
-      
-      const { data, error } = await supabase
-        .from('job_alerts')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
 
-      if (error) {
-        logger.error('Supabase error details:', error);
-        throw error;
+      const result = await fetchJobAlerts(user.id);
+      if (!result.success) {
+        setFetchError(result.error || 'Unable to load alerts.');
+        showError(result.error || 'Unable to load your job alerts.');
+        setAlerts([]);
+        return;
       }
-      
-      logger.log('Fetched alerts:', data ? data.length : 0);
-      setAlerts(data || []);
+
+      setAlerts(result.data || []);
     } catch (error) {
       logger.error('Error fetching job alerts:', error);
-      
-      // Provide more detailed diagnostic information
-      if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        logger.error('Network error details:', { 
-          origin: window.location.origin,
-          supabaseUrl: process.env.REACT_APP_SUPABASE_URL,
-          hasCredentials: !!supabase.auth.session,
-        });
-        showError('A network error occurred. This may be due to CORS configuration or connectivity issues.');
-      } else if (error.code === 'PGRST301') {
-        showError('Authentication error. Please try logging out and back in.');
-      } else if (error.code?.startsWith('PGRST')) {
-        showError(`Database error: ${error.message}. Please contact support.`);
-      } else {
-        showError(`Could not fetch your job alerts: ${error.message || 'Unknown error'}`);
-      }
+      setFetchError(error?.message || 'Could not fetch job alerts.');
+      showError(`Could not fetch your job alerts: ${error.message || 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -196,56 +187,25 @@ const JobAlerts = () => {
     };
 
     try {
-      let error;
-      if (editingAlert) {
-        const { error: rpcError } = await supabase.rpc('update_job_alert', {
-          p_id: editingAlert.id,
-          p_alert_name: alertData.alert_name,
-          p_keywords: alertData.keywords,
-          p_location: alertData.location || null,
-          p_job_type: job_type,
-          p_experience_level: experience_level,
-          p_min_salary: min_salary_num,
-          p_max_salary: max_salary_num,
-          p_frequency: frequency,
-          p_is_active: alertData.is_active,
-        });
-        error = rpcError;
-      } else {
-        const { error: rpcError } = await supabase.rpc('create_job_alert', {
-          p_alert_name: alertData.alert_name,
-          p_keywords: alertData.keywords,
-          p_location: alertData.location || null,
-          p_job_type: job_type,
-          p_experience_level: experience_level,
-          p_min_salary: min_salary_num,
-          p_max_salary: max_salary_num,
-          p_frequency: frequency,
-          p_is_active: alertData.is_active,
-        });
-        error = rpcError;
-      }
+      setSubmitting(true);
+      const result = editingAlert
+        ? await updateJobAlert(editingAlert.id, alertData)
+        : await createJobAlert(alertData);
 
-      if (error) {
-        logger.error('SUPABASE ERROR:', error);
-        // --- Specific Error Handling for Duplicate Name ---
-        if (error.code === '23505') { // '23505' is the PostgreSQL code for unique_violation
-          showError('An alert with this name already exists. Please choose a different name.');
-        } else {
-          showError(`Error: ${error.message}`);
-        }
-        return; // Stop execution on error
+      if (!result.success) {
+        showError(result.error || 'Unable to save alert.');
+        return;
       }
 
       showSuccess(editingAlert ? 'Job alert updated successfully!' : 'Job alert created successfully!');
-      fetchAlerts();
+      await fetchAlerts();
       setShowCreateForm(false);
       setEditingAlert(null);
-
     } catch (error) {
-      // This catch block is for unexpected client-side errors
       logger.error('Error submitting job alert:', error);
       showError('An unexpected error occurred. Please try again.');
+    } finally {
+      setSubmitting(false);
     }
 
   };
@@ -270,15 +230,17 @@ const JobAlerts = () => {
     if (!window.confirm('Are you sure you want to delete this alert?')) return;
 
     try {
-      const { error } = await supabase.rpc('delete_job_alert', { p_id: alertId });
-
-      if (error) throw error;
+      setDeletingId(alertId);
+      const result = await deleteJobAlert(alertId);
+      if (!result.success) throw new Error(result.error);
 
       showSuccess('Job alert deleted successfully!');
-      fetchAlerts(); // Refresh the list
+      await fetchAlerts();
     } catch (error) {
       showError(`Error deleting alert: ${error.message}`);
       logger.error('Error deleting job alert:', error);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -291,20 +253,17 @@ const JobAlerts = () => {
     }
 
     try {
-      logger.log('Toggling alert with ID:', alert.id, 'Current active state:', alert.is_active);
-
-      const { error } = await supabase.rpc('update_job_alert', {
-        p_id: alert.id,
-        p_is_active: !alert.is_active,
-      });
-
-      if (error) throw error;
+      setTogglingId(alert.id);
+      const result = await updateJobAlert(alert.id, { is_active: !alert.is_active });
+      if (!result.success) throw new Error(result.error);
 
       showSuccess(`Alert "${alert.alert_name}" has been ${!alert.is_active ? 'activated' : 'deactivated'}.`);
-      fetchAlerts(); // Refresh the list
+      await fetchAlerts();
     } catch (error) {
       showError(`Error updating alert status: ${error.message}`);
       logger.error('Error toggling alert:', error);
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -338,6 +297,7 @@ const JobAlerts = () => {
             <p className="text-gray-600">
               Get notified when new jobs matching your criteria are posted
             </p>
+            <p className="text-sm text-gray-500">{alerts.length}/10 alerts used</p>
           </div>
           </div>
           <button
@@ -360,7 +320,8 @@ const JobAlerts = () => {
               setFormData(initialFormState);
               setShowCreateForm(true);
             }}
-            className="btn-ocean px-4 py-2 rounded-lg flex items-center"
+            className="btn-ocean px-4 py-2 rounded-lg flex items-center disabled:opacity-60 disabled:cursor-not-allowed"
+            disabled={alerts.length >= 10}
           >
             <PlusIcon className="w-4 h-4 mr-2" />
             Create Alert
@@ -388,6 +349,14 @@ const JobAlerts = () => {
         </div>
       </div>
 
+      {/* Limit banner */}
+      {alerts.length >= 10 && (
+        <div className="glass-card border border-amber-200 bg-amber-50 text-amber-800 rounded-lg p-4">
+          <div className="font-semibold">Alert limit reached</div>
+          <div className="text-sm">You can keep up to 10 job alerts. Delete or pause one to create another.</div>
+        </div>
+      )}
+
       {/* Conditional Rendering: Show Form or List */}
       {showCreateForm ? (
         <div className="glass-card rounded-lg p-6">
@@ -403,6 +372,17 @@ const JobAlerts = () => {
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Job Alerts</h2>
           {loading ? (
             <div className="text-center py-12">Loading...</div>
+          ) : fetchError ? (
+            <div className="text-center py-12">
+              <div className="text-red-600 font-semibold mb-2">Could not load your alerts.</div>
+              <div className="text-sm text-gray-600 mb-4">{fetchError}</div>
+              <button
+                onClick={fetchAlerts}
+                className="btn-ocean px-4 py-2 rounded-lg"
+              >
+                Retry
+              </button>
+            </div>
           ) : alerts.length === 0 ? (
             <div className="text-center py-12">
               <BellIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -492,8 +472,9 @@ const JobAlerts = () => {
                           checked={alert.is_active}
                           onChange={() => toggleAlert(alert)}
                           className="sr-only peer"
+                          disabled={togglingId === alert.id}
                         />
-                        <div className={`w-11 h-6 rounded-full ${alert.is_active ? 'bg-ocean-500' : 'bg-gray-200'} peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-offset-2 peer-focus:ring-ocean-300`}>
+                        <div className={`w-11 h-6 rounded-full ${alert.is_active ? 'bg-ocean-500' : 'bg-gray-200'} peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-offset-2 peer-focus:ring-ocean-300 ${togglingId === alert.id ? 'opacity-60 cursor-not-allowed' : ''}`}>
                           <div className={`absolute left-[2px] top-[2px] bg-white rounded-full h-5 w-5 transition-transform duration-200 ${alert.is_active ? 'translate-x-5' : 'translate-x-0'}`}></div>
                         </div>
                       </label>
@@ -507,7 +488,8 @@ const JobAlerts = () => {
                       
                       <button
                         onClick={() => handleDelete(alert.id)}
-                        className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-100"
+                        disabled={deletingId === alert.id}
+                        className="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <TrashIcon className="w-4 h-4" />
                       </button>
@@ -685,14 +667,16 @@ const JobAlerts = () => {
                     setEditingAlert(null);
                   }}
                   className="btn-ocean-outline px-6 py-2 rounded-lg"
+                  disabled={submitting}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="btn-ocean px-6 py-2 rounded-lg"
+                  className="btn-ocean px-6 py-2 rounded-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                  disabled={submitting}
                 >
-                  {editingAlert ? 'Update Alert' : 'Create Alert'}
+                  {submitting ? 'Saving...' : editingAlert ? 'Update Alert' : 'Create Alert'}
                 </button>
               </div>
             </form>

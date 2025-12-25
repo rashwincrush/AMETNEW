@@ -9,6 +9,35 @@ import { sanitizeUrl, sanitizeText } from '../utils/sanitize';
 import logger from '../utils/logger';
 
 /**
+ * Fetches job alerts for a user with error mapping
+ * @param {string} userId - Authenticated user ID
+ * @returns {Promise<{ success: boolean, data?: object[], error?: string }>}
+ */
+export async function fetchJobAlerts(userId) {
+  try {
+    if (!userId) {
+      return { success: false, error: 'User ID is required' };
+    }
+
+    const { data, error } = await supabase
+      .from('job_alerts')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      logger.error('fetchJobAlerts error:', error);
+      return { success: false, error: mapJobError(error) };
+    }
+
+    return { success: true, data: data || [] };
+  } catch (err) {
+    logger.error('fetchJobAlerts exception:', err);
+    return { success: false, error: mapJobError(err) };
+  }
+}
+
+/**
  * Creates a new job using validated RPC
  * @param {object} jobData - Job data to create
  * @returns {Promise<{ success: boolean, job_id?: string, error?: string }>}
@@ -440,6 +469,7 @@ export default {
   fetchJobs,
   fetchJobById,
   fetchJobForEdit,
+  fetchJobAlerts,
   createJobAlert,
   updateJobAlert,
   deleteJobAlert,

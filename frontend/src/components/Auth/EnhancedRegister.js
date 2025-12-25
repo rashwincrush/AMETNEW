@@ -77,6 +77,17 @@ const EnhancedRegister = () => {
   const [phoneCountryCode, setPhoneCountryCode] = useState('+91');
   const [phoneLocal, setPhoneLocal] = useState('');
   const STORAGE_KEY = 'onboarding_registration_v1';
+  const [showQr, setShowQr] = useState(false);
+
+  // Close QR modal on Escape
+  useEffect(() => {
+    if (!showQr) return;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') setShowQr(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showQr]);
 
   const SAFE_PROFILE_FIELDS = [
     'id',
@@ -1356,6 +1367,31 @@ const EnhancedRegister = () => {
           </p>
         </div>
 
+        {/* QR quick access */}
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="h-14 w-14 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+              <img
+                src="/QR.png"
+                alt="Scan to register"
+                className="h-full w-full object-contain"
+                loading="lazy"
+              />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-slate-900">Register via QR</p>
+              <p className="text-xs text-slate-600">Scan on mobile to open this registration page.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowQr(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-100 bg-white px-4 py-2 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+          >
+            View full QR
+          </button>
+        </div>
+
         {renderStepIndicator()}
 
         {currentStep === 2 && (
@@ -1465,24 +1501,49 @@ const EnhancedRegister = () => {
 
       {showSuccessModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
-          <div className="relative mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="mt-3 text-center">
-              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
-                <CheckIcon className="h-6 w-6 text-green-600" aria-hidden="true" />
-              </div>
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mt-2">Registration Successful!</h3>
-              <div className="mt-2 px-7 py-3">
-                <p className="text-sm text-gray-500">Please check your email to verify your account. You can now log in.</p>
-              </div>
-              <div className="items-center px-4 py-3">
-                <button
-                  onClick={() => navigate('/home', { replace: true })}
-                  className="px-4 py-2 bg-gradient-to-b from-ocean-500 to-ocean-600 text-white text-base font-medium rounded-md w-full shadow-sm min-h-[44px] hover:from-ocean-600 hover:to-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
-                >
-                  OK
-                </button>
-              </div>
+          <div className="mx-4 w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <Logo className="h-10 w-auto" />
+              <h3 className="text-lg font-semibold text-gray-900">Registration Successful</h3>
             </div>
+            <p className="text-sm text-gray-700 mb-4">Your account has been created. You can now sign in.</p>
+            <button
+              type="button"
+              onClick={() => navigate('/login', { replace: true })}
+              className="w-full inline-flex items-center justify-center rounded-lg bg-gradient-to-b from-ocean-500 to-ocean-600 px-4 py-2.5 text-sm font-semibold text-white shadow hover:from-ocean-600 hover:to-ocean-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
+            >
+              Go to Login
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showQr && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 px-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setShowQr(false)}
+              className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 rounded-full p-1"
+              aria-label="Close QR"
+            >
+              ×
+            </button>
+            <h3 className="text-lg font-semibold text-gray-900 mb-3 text-center">Scan to Register</h3>
+            <div className="flex justify-center">
+              <img
+                src="/QR.png"
+                alt="Scan to register"
+                className="w-72 h-72 object-contain"
+              />
+            </div>
+            <p className="mt-3 text-center text-sm text-gray-600">
+              Point your camera at the code to open this registration page on your device.
+            </p>
           </div>
         </div>
       )}
