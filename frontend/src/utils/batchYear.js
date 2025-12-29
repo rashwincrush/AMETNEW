@@ -73,8 +73,8 @@ export function getEffectiveBatchYear(profile) {
  * @param {string} fallback - Fallback text if year is null (default: 'Batch not specified')
  * @returns {string} Formatted batch label
  */
-export function formatBatchLabel(year, fallback = 'Batch not specified') {
-  return year ? `Batch ${year}` : fallback;
+export function formatBatchLabel(year, fallback = 'Year of completion not specified') {
+  return year ? `Year of completion ${year}` : fallback;
 }
 
 /**

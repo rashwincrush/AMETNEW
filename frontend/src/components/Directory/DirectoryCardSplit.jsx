@@ -227,16 +227,16 @@ function DirectoryCardSplit({ meId, profile, avatarUrl, currentTab = 'all', onCh
       
       <div className="relative p-4 sm:p-5 flex flex-col h-full">
         {/* Header: Avatar + Name + Identity line */}
-        <div className="flex items-start gap-3 mb-3">
-          {/* Smaller avatar: 60px */}
+        <div className="flex items-start gap-4 mb-3.5">
+          {/* Avatar: 100px with thicker ring */}
           <div className="relative flex-shrink-0">
             <Avatar
               src={avatarUrl || profile.avatar_url || null}
               alt={`${displayName} profile photo`}
-              size={60}
+              size={100}
               version={profile?.updated_at}
               loading="eager"
-              className="ring-2 ring-slate-200 group-hover:ring-ocean-300 transition-all duration-200"
+              className="ring-2 ring-slate-200 group-hover:ring-ocean-300 transition-all duration-200 shadow-sm"
             />
           </div>
           

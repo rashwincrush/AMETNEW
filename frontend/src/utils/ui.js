@@ -160,6 +160,9 @@ export function getAvatarSizeClasses(size) {
     32: { container: 'w-8 h-8', text: 'text-sm' },
     40: { container: 'w-10 h-10', text: 'text-base' },
     80: { container: 'w-20 h-20', text: 'text-2xl' },
+    100: { container: 'w-[100px] h-[100px]', text: 'text-3xl' },
+    120: { container: 'w-[120px] h-[120px]', text: 'text-4xl' },
+    140: { container: 'w-[140px] h-[140px]', text: 'text-5xl' },
     64: { container: 'w-16 h-16', text: 'text-2xl' },
     96: { container: 'w-24 h-24', text: 'text-4xl' },
   };

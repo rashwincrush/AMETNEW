@@ -7,7 +7,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase'; // Updated Supabase client import
 import toast from 'react-hot-toast'; // For error notifications
 import logger from '../../utils/logger';
-import ActivitiesWidget from './ActivitiesWidget';
 import MyGroupsWidget from './MyGroupsWidget';
 import { WelcomeGuide, QuickActions } from './WelcomeGuide';
 import { 
@@ -385,9 +384,6 @@ const AlumniDashboard = () => {
               <div className="lg:col-span-2 space-y-6">
                 {/* My Groups - Widget */}
                 <MyGroupsWidget />
-
-                {/* Recent Activities (new widget) */}
-                <ActivitiesWidget />
               </div>
 
               {/* Right Column: Upcoming Events and Job Recommendations */}
