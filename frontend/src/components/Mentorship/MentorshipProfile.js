@@ -4,6 +4,7 @@ import { supabase } from '../../utils/supabase';
 import { Box, Typography, Paper, Avatar, Chip, Button, CircularProgress, Alert } from '@mui/material';
 import { useAuth } from '../../contexts/AuthContext';
 import { createMentorshipRequest, mapMentorshipError } from '../../services/mentorship';
+import logger from '../../utils/logger';
 
 const MentorshipProfile = () => {
   const { id } = useParams();
@@ -89,7 +90,7 @@ const MentorshipProfile = () => {
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 'bold' }}>{profile.full_name || 'Alumni'}</Typography>
           <Typography variant="body1" color="textSecondary">
-            {(profile.current_job_title || 'Maritime Professional')}
+            {(profile.current_job_title || 'Professional')}
             {profile.company_name ? ` • ${profile.company_name}` : ''}
           </Typography>
           <Typography variant="body2" color="textSecondary">

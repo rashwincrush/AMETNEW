@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import logger from './logger';
 
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-const supabaseKey = process.env.REACT_APP_SUPABASE_KEY;
+const supabaseKey = process.env.REACT_APP_SUPABASE_ANON_KEY || process.env.REACT_APP_SUPABASE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
   logger.error('Missing Supabase environment variables');
@@ -12,8 +12,14 @@ if (!supabaseUrl || !supabaseKey) {
 
 // Create the client with realtime configuration as a singleton to guard against HMR/rehydration
 export const supabase = (() => {
+  // Force clear cache during development to handle API key changes
+  if (process.env.NODE_ENV === 'development') {
+    delete window.__sb__;
+  }
+  
   // guard against HMR/rehydration multipliers
   if (window.__sb__) return window.__sb__;
+  
   const client = createClient(supabaseUrl, supabaseKey, {
     auth: {
       autoRefreshToken: true,

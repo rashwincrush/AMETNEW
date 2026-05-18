@@ -109,8 +109,11 @@ export default function JobDetailsInApp({ job, companyName, companyLogo, isOwner
               </Link>
             )}
             {isEmployerOwner || (['admin', 'super_admin'].includes(userRole)) ? (
-              <Link to={`/jobs/${job.id}/applications`} className="px-3 py-2 rounded-lg bg-ocean-600 text-white hover:bg-ocean-700 text-sm">
+              <Link to={`/jobs/${job.id}/manage`} className="px-3 py-2 rounded-lg bg-ocean-600 text-white hover:bg-ocean-700 text-sm inline-flex items-center gap-2">
                 Manage applications
+                {(() => { const c = getApplicantsCount(job); return c !== null && c > 0 ? (
+                  <span className="px-1.5 py-0.5 text-xs bg-white text-ocean-700 rounded-full">{c}</span>
+                ) : null; })()}
               </Link>
             ) : (
               <>

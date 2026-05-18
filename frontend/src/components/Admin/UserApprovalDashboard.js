@@ -6,6 +6,7 @@ import {
   CheckIcon, 
   XMarkIcon
 } from '@heroicons/react/24/outline';
+import logger from '../../utils/logger';
 
 const UserApprovalDashboard = () => {
   const { getUserRole } = useAuth();

@@ -1,4 +1,4 @@
-# AMET Alumni Frontend – Architecture & UX Flows
+# Forgecircle Alumni Frontend – Architecture & UX Flows
 
 ## 1. High‑Level Overview
 
@@ -386,7 +386,7 @@ Mentorship is a full module with its own layout.
     - Patterns from Directory, Jobs, Events, Mentorship modules.
   - Replace branding:
     - Logos (`public/default-avatar.svg`, `Logo` component).
-    - Text like “AMET Alumni” and the tagline.
+    - Text like “Forgecircle Alumni” and the tagline.
 
 - **To swap backends later**
   - Keep component structure and flows.

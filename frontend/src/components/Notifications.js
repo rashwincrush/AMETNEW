@@ -3,6 +3,7 @@ import { supabase } from '../utils/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import { BellIcon, CalendarIcon, ChatBubbleLeftRightIcon, BriefcaseIcon } from '@heroicons/react/24/outline';
+import logger from '../utils/logger';
 
 const Notifications = () => {
   const { user } = useAuth();

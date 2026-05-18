@@ -51,5 +51,4 @@ Constraints / style:
 - Work **only from the actual code in this repo**, not generic assumptions.
 - Be explicit about **data sources and backend dependencies** (RPC names, table/view names, any search indexes).
 - Make role gating and permissions **very concrete**, especially around profile visibility and contact actions.
-- Output should be a single Markdown document I can drop into `archive/docs/alumni-directory-contract.md` without further editing.
 ```

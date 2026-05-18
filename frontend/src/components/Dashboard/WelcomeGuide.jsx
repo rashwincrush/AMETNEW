@@ -18,7 +18,7 @@ import { useAuth } from '../../contexts/AuthContext';
 // Shows first-time users a guided onboarding experience
 // with clear next steps to reduce cognitive load
 
-const STORAGE_KEY = 'amet_welcome_dismissed';
+const STORAGE_KEY = 'alumni_welcome_dismissed';
 
 const hasValue = (v) => v !== undefined && v !== null && String(v).trim() !== '';
 

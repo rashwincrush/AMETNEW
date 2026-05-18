@@ -41,13 +41,14 @@ import {
   ChevronDown,
   ArrowUp,
   ArrowDown,
-  GraduationCap
+  GraduationCap,
+  Check
 } from 'lucide-react';
 import ShareButtons from '../common/ShareButtons';
 import ImageWithFallback from '../common/ImageWithFallback';
 import { format } from 'date-fns';
 import CommentsThread from './CommentsThread';
-import { joinGroupRpc, withdrawJoinRequest, leaveGroupRpc, deleteGroupRpc, updateGroupAvatarRpc } from '../../api/groups';
+import { joinGroupRpc, withdrawJoinRequest, leaveGroupRpc, deleteGroupRpc, updateGroupAvatarRpc, listPendingMembers, approveGroupMember, rejectGroupMember } from '../../api/groups';
 import { ROLE_LABELS } from '../../utils/roles';
 import { canPostToGroup, canJoinGroup, getGroupStatus, isEmployer, canViewGroupContent } from '../../utils/acl';
 import { getFriendlyErrorMessage } from '../../utils/errors';
@@ -79,6 +80,8 @@ const GroupDetail = () => {
   const [isMember, setIsMember] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [members, setMembers] = useState([]);
+  const [pendingMembers, setPendingMembers] = useState([]);
+  const [pendingMembersLoading, setPendingMembersLoading] = useState(false);
   const [memberCount, setMemberCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -194,9 +197,16 @@ const GroupDetail = () => {
         // Membership presence (result[1])
         memberCheck = !!results[1];
         
-        // My membership role (result[2])
-        const mem = results[2];
-        if (mem?.role === 'admin') adminCheck = true;
+        // Fetch members if group loaded successfully
+        if (groupData?.id) {
+          fetchMembers(id);
+          // Fetch pending members for admin
+          if (isSiteAdmin || profile?.is_admin) {
+            fetchPendingMembers(id);
+          }
+        }
+        
+        if (results[2]?.role === 'admin') adminCheck = true;
         
         // Pending check (result[3])
         const pendingResult = results[3];
@@ -264,6 +274,18 @@ const GroupDetail = () => {
       }
     }
   }, [id, user?.id, profile?.is_admin]);
+
+  // Fetch members list (used after approvals and on initial load)
+  const fetchMembers = useCallback(async (groupId) => {
+    try {
+      const { data, error } = await fetchGroupMembers(groupId, 200, 0);
+      if (!error && isMountedRef.current) {
+        setMembers(data || []);
+      }
+    } catch (e) {
+      logger.error('Failed to fetch members:', e);
+    }
+  }, []);
 
   const handleAcceptInvitation = useCallback(async () => {
     try {
@@ -337,19 +359,11 @@ const GroupDetail = () => {
 
   // Load members when Members tab is active (admins only)
   useEffect(() => {
-    const loadMembers = async () => {
-      if (activeTab !== 'members') return;
-      // Allow any member (or admin) to see the members list
-      if (!isMember && !isAdmin) return;
-      try {
-        const { data, error } = await fetchGroupMembers(id, 200, 0);
-        if (!error && isMountedRef.current) setMembers(data || []);
-      } catch(e) {
-        logger.error('Failed to load members', e);
-      }
-    };
-    loadMembers();
-  }, [activeTab, id, isAdmin, isMember]);
+    if (activeTab !== 'members') return;
+    // Allow any member (or admin) to see the members list
+    if (!isMember && !isAdmin) return;
+    fetchMembers(id);
+  }, [activeTab, id, isAdmin, isMember, fetchMembers]);
 
   const handleMembership = async () => {
     try {
@@ -481,6 +495,47 @@ const GroupDetail = () => {
     } catch (err) {
       logger.error("Error removing member:", err);
       setError("Failed to remove member.");
+    }
+  };
+
+  // Fetch pending members (admin only)
+  const fetchPendingMembers = async (groupId) => {
+    try {
+      setPendingMembersLoading(true);
+      const data = await listPendingMembers(groupId);
+      setPendingMembers(data || []);
+    } catch (err) {
+      logger.error("Error fetching pending members:", err);
+    } finally {
+      setPendingMembersLoading(false);
+    }
+  };
+
+  // Handle approving a pending member (admin only)
+  const handleApproveMember = async (userId) => {
+    try {
+      await approveGroupMember(id, userId);
+      toast.success('Member approved');
+      // Remove from pending list
+      setPendingMembers(prev => prev.filter(m => m.user_id !== userId));
+      // Refresh members list
+      fetchMembers(id);
+    } catch (err) {
+      logger.error("Error approving member:", err);
+      toast.error('Failed to approve member');
+    }
+  };
+
+  // Handle rejecting a pending member (admin only)
+  const handleRejectMember = async (userId) => {
+    try {
+      await rejectGroupMember(id, userId);
+      toast.success('Join request rejected');
+      // Remove from pending list
+      setPendingMembers(prev => prev.filter(m => m.user_id !== userId));
+    } catch (err) {
+      logger.error("Error rejecting member:", err);
+      toast.error('Failed to reject member');
     }
   };
   
@@ -1511,7 +1566,7 @@ const GroupDetail = () => {
                               }}
                             />
                             <div>
-                              <p className="font-bold">{post.author?.full_name || 'Amet User'}</p>
+                              <p className="font-bold">{post.author?.full_name || 'Alumni User'}</p>
                               <p className="text-gray-500 text-sm">{format(new Date(post.created_at), 'PPpp')}</p>
                             </div>
                           </div>
@@ -1581,6 +1636,58 @@ const GroupDetail = () => {
 
           {activeTab === 'members' && (
             <div id="tabpanel-members" role="tabpanel" aria-labelledby="tab-members">
+              {/* Pending Members Section (Admin Only) */}
+              {isAdmin && pendingMembers.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></span>
+                    Pending Join Requests ({pendingMembers.length})
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {pendingMembers.map(pending => (
+                      <article key={pending.user_id} className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg shadow-sm">
+                        <div className="flex items-center gap-3 mb-3">
+                          <img
+                            src={pending.user?.avatar_url || '/default-avatar.svg'}
+                            alt=""
+                            className="w-12 h-12 rounded-full border-2 border-yellow-300"
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.src = '/default-avatar.svg';
+                            }}
+                          />
+                          <div>
+                            <p className="font-semibold text-gray-900">{pending.user?.full_name || 'Unknown'}</p>
+                            <p className="text-xs text-gray-600">{ROLE_LABELS[pending.user?.role] || 'Alumni'}</p>
+                            <p className="text-xs text-gray-500">
+                              Requested {new Date(pending.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleApproveMember(pending.user_id)}
+                            className="flex-1 px-3 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors flex items-center justify-center gap-1"
+                            aria-label={`Approve ${pending.user?.full_name}`}
+                          >
+                            <Check size={14} />
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleRejectMember(pending.user_id)}
+                            className="flex-1 px-3 py-2 text-sm font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded-lg transition-colors flex items-center justify-center gap-1"
+                            aria-label={`Reject ${pending.user?.full_name}`}
+                          >
+                            <X size={14} />
+                            Reject
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {members.length === 0 ? (
                 <div className="text-center py-12 bg-white rounded-lg shadow-sm border border-gray-200">
                   <Users className="w-12 h-12 text-gray-400 mx-auto mb-3" />

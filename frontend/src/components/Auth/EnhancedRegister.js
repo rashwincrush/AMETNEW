@@ -178,16 +178,16 @@ const EnhancedRegister = () => {
   // Use canonical code/label pairs from hooks instead of free-text list
 
   const skillOptions = [
-    'Marine Engineering', 'Naval Architecture', 'Port Operations', 'Shipping Management',
-    'Offshore Engineering', 'Maritime Law', 'Logistics & Supply Chain', 'Project Management',
+    'Engineering', 'Architecture', 'Operations', 'Management',
+    'Offshore Engineering', 'Law', 'Logistics & Supply Chain', 'Project Management',
     'Leadership & Management', 'Business Development', 'Technical Sales & Marketing', 'Research & Development',
-    'Vessel Operations', 'Chartering & Broking', 'Marine Surveying', 'HSEQ',
+    'Operations', 'Broking', 'Surveying', 'HSEQ',
   ];
 
   const interestOptions = [
     'Career Advancement', 'Technical Skill Development', 'Leadership & Management Skills', 'Business & Entrepreneurship',
     'Networking Opportunities', 'Industry Trends & Insights', 'Further Education & Certifications', 'Innovation & Technology',
-    'Sustainability in Maritime', 'Maritime Policy & Regulation', 'Personal Development', 'International Maritime Markets',
+    'Sustainability', 'Policy & Regulation', 'Personal Development', 'International Markets',
   ];
 
   // Degree/Department catalogs are provided by useAcademicsCatalog via the reusable selects
@@ -765,9 +765,11 @@ const EnhancedRegister = () => {
       try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
 
       if (!hydratedUser?.id) {
-        // Email confirmation required: show check-email message, go to login
-        setShowSuccessModal(true);
-        setTimeout(() => navigate('/login', { replace: true }), 800);
+        // Email confirmation required: redirect to verify email page
+        navigate('/verify-email', { 
+          replace: true, 
+          state: { email: formData.email.trim().toLowerCase() } 
+        });
         return;
       }
 
@@ -984,17 +986,17 @@ const EnhancedRegister = () => {
 
   const renderStep1 = () => (
     <div className="space-y-6">
-      <div className="space-y-3">
+      {/* Social login temporarily disabled - providers not configured */}
+      {/* <div className="space-y-3">
         <button type="button" onClick={() => handleSocialLogin(signInWithGoogle)} aria-label="Continue with Google" className="w-full flex justify-center items-center py-3 px-4 border border-gray-300 rounded-lg shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ocean-500 transition-colors">
           <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google" className="w-5 h-5 mr-3" />
           Continue with Google
         </button>
-        {/* LinkedIn button can be added similarly if configured */}
       </div>
       <div className="relative">
         <div className="absolute inset-0 flex items-center" aria-hidden="true"><div className="w-full border-t border-gray-300" /></div>
         <div className="relative flex justify-center"><span className="px-3 bg-white text-sm text-gray-500">Or register with email</span></div>
-      </div>
+      </div> */}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
         <div>
@@ -1235,7 +1237,7 @@ const EnhancedRegister = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
             <div>
               <label htmlFor="companyName" className={commonLabelClass}>Company Name *</label>
-              <input id="companyName" name="companyName" type="text" required value={formData.companyName} onChange={handleChange} placeholder="Maritime Solutions Inc." className={commonInputClass(errors.companyName)} />
+              <input id="companyName" name="companyName" type="text" required value={formData.companyName} onChange={handleChange} placeholder="Solutions Inc." className={commonInputClass(errors.companyName)} />
               {errors.companyName && <p className={commonErrorClass}>{errors.companyName}</p>}
             </div>
             <div>
@@ -1245,7 +1247,7 @@ const EnhancedRegister = () => {
             </div>
             <div>
               <label htmlFor="industry" className={commonLabelClass}>Industry *</label>
-              <input id="industry" name="industry" type="text" required value={formData.industry} onChange={handleChange} placeholder="e.g., Shipping, Logistics, Offshore" className={commonInputClass(errors.industry)} />
+              <input id="industry" name="industry" type="text" required value={formData.industry} onChange={handleChange} placeholder="e.g., Industry" className={commonInputClass(errors.industry)} />
               {errors.industry && <p className={commonErrorClass}>{errors.industry}</p>}
             </div>
             <div>
@@ -1262,7 +1264,7 @@ const EnhancedRegister = () => {
           </div>
           <div>
             <label htmlFor="companyWebsite" className={commonLabelClass}>Company Website</label>
-            <input id="companyWebsite" name="companyWebsite" type="url" value={formData.companyWebsite} onChange={handleChange} placeholder="https://www.maritimesolutions.com" className={commonInputClass(false)} />
+            <input id="companyWebsite" name="companyWebsite" type="url" value={formData.companyWebsite} onChange={handleChange} placeholder="https://www.solutions.com" className={commonInputClass(false)} />
           </div>
         </>
       )}
@@ -1311,7 +1313,7 @@ const EnhancedRegister = () => {
           type="text"
           value={formData.currentLocation}
           onChange={handleChange}
-          placeholder="e.g., Chennai, India"
+          placeholder="e.g., Industry"
           className={commonInputClass(errors.currentLocation)}
         />
         {errors.currentLocation && <p className={commonErrorClass}>{errors.currentLocation}</p>}
@@ -1356,11 +1358,11 @@ const EnhancedRegister = () => {
       </div>
       <div className="max-w-2xl w-full space-y-8">
         <div className="text-center">
-          <a href="/" target="_self" rel="noopener noreferrer" className="flex items-center justify-center space-x-3 mb-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2" aria-label="Open AMET home page">
+          <a href="/" target="_self" rel="noopener noreferrer" className="flex items-center justify-center space-x-3 mb-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2" aria-label="Open Alumni home page">
             <Logo className="h-12 w-auto" />
-            <span className="text-2xl font-bold text-gray-900">AMET Alumni</span>
+            <span className="text-2xl font-bold text-gray-900">Alumni Network</span>
           </a>
-          <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900">Join the AMET Network</h2>
+          <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900">Join the Alumni Network</h2>
           <p className="mt-2 text-md text-gray-600">
             {currentStep === 1 && "Create your account to get started."}
             {currentStep === 2 && "Tell us more about yourself."}

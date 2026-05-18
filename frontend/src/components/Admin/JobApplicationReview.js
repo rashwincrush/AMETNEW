@@ -9,6 +9,7 @@ import {
   ClockIcon,
 } from '@heroicons/react/24/outline';
 import { normalizeStatus, STATUS_BADGE_CLASS, STATUS_LABEL } from '../../utils/applicationStatus';
+import logger from '../../utils/logger';
 
 const JobApplicationReview = () => {
   const { user } = useAuth();

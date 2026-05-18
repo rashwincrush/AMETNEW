@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
 import { toast } from 'react-hot-toast';
 import logger from '../../utils/logger';
-import { normalizeStatus, STATUS_BADGE_CLASS, STATUS_LABEL } from '../../utils/applicationStatus';
+import { normalizeStatus, STATUS_BADGE_CLASS, STATUS_LABEL, STATUS_ICON } from '../../utils/applicationStatus';
+import { generateApplicationStatusAdvice, generateRejectionInsights } from '../../services/groqService';
 
 // Normalize resume value (path or legacy public URL) into a storage path
 const getResumePathFromValue = (value) => {
@@ -24,12 +25,43 @@ const getResumePathFromValue = (value) => {
   return null;
 };
 
+// STATE INVENTORY
+// Local state:
+//   - applications: Array of user's job applications with joined job details
+//   - isLoading: Boolean for initial data fetch
+//   - filter: String status filter value ('all' or specific status)
+//   - offerLetters: Object mapping appId -> offer letter data (for 'offered' status)
+//   - respondingOfferId: String appId currently being responded to (for loading state)
+// Context consumed:
+//   - useAuth: { user, userRole } - Current user and role
+//   - useNavigate: navigate function for routing
+// Side effects:
+//   - useEffect [user, userRole]: Route guard and fetch applications on mount
+//     - Guards: Only 'student' or 'alumni' roles allowed
+//     - Fetches from job_applications table with jobs join
+//     - Calls fetchOfferLetters() for any 'offered' applications
+// Optimistic updates:
+//   - respondToOffer: Updates application status immediately to 'hired' or 'withdrawn'
+//     based on response, updates offerLetters status immediately
+
 const ApplicationTracking = () => {
   const { user, userRole } = useAuth();
   const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('all');
+  
+  // Offer letter state
+  const [offerLetters, setOfferLetters] = useState({}); // appId -> offer data
+  const [respondingOfferId, setRespondingOfferId] = useState(null);
+
+  // AI advice state
+  const [aiAdvice, setAiAdvice] = useState({}); // appId -> { advice, loading }
+  const [userProfile, setUserProfile] = useState(null);
+
+  // Application insights state (for rejected applications)
+  const [applicationInsights, setApplicationInsights] = useState({}); // appId -> { gap_analysis, next_steps, similar_roles, loading }
+  const [generatingInsights, setGeneratingInsights] = useState(new Set());
 
   useEffect(() => {
     // Route guard: only applicants (student/alumni)
@@ -55,6 +87,7 @@ const ApplicationTracking = () => {
             created_at,
             status,
             resume_url,
+            rejection_reason,
             jobs:job_id (
               id,
               title,
@@ -78,14 +111,19 @@ const ApplicationTracking = () => {
         // Derive source_type client-side (same semantics as v_jobs_public)
         const appsWithSourceType = rows.map(app => ({
           ...app,
-          jobs: app.jobs ? {
-            ...app.jobs,
-            source_type: (app.jobs.apply_url || app.jobs.application_url || app.jobs.external_url)
-              ? 'quick_link'
-              : 'in_app'
-          } : null
+          source_type: app.jobs?.application_url || app.jobs?.external_url ? 'quick_link' : 'in_app'
         }));
 
+        setApplications(appsWithSourceType);
+        
+        // Fetch offer letters for applications with 'offered' status
+        const offeredApps = appsWithSourceType.filter(app => normalizeStatus(app.status) === 'offered');
+        if (offeredApps.length > 0) {
+          await fetchOfferLetters(offeredApps);
+        }
+        
+        // Fetch insights for rejected applications
+        await fetchApplicationInsights(appsWithSourceType);
         // Filter for in_app jobs only (matching original intent)
         const inAppApplications = appsWithSourceType.filter(app => 
           app.jobs && app.jobs.source_type === 'in_app'
@@ -118,7 +156,178 @@ const ApplicationTracking = () => {
     };
 
     fetchApplications();
+    fetchUserProfile();
   }, [user]);
+
+  // Fetch user profile for AI advice generation
+  const fetchUserProfile = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('degree, field_of_study, branch, skills, years_of_experience, experience, work_experience, previous_roles, full_name')
+        .eq('id', user.id)
+        .single();
+      
+      if (error) {
+        logger.error('Error fetching user profile:', error);
+        return;
+      }
+      
+      setUserProfile(data);
+    } catch (error) {
+      logger.error('Error in fetchUserProfile:', error);
+    }
+  };
+
+  // Generate AI advice for an application
+  const generateAdviceForApplication = useCallback(async (application) => {
+    if (!userProfile || !application.jobs) return;
+    
+    const appId = application.id;
+    
+    // Set loading state
+    setAiAdvice(prev => ({
+      ...prev,
+      [appId]: { ...prev[appId], loading: true }
+    }));
+    
+    try {
+      const result = await generateApplicationStatusAdvice(
+        application.jobs,
+        userProfile,
+        application.status
+      );
+      
+      if (result.success) {
+        setAiAdvice(prev => ({
+          ...prev,
+          [appId]: { advice: result.advice, loading: false, error: null }
+        }));
+      } else {
+        setAiAdvice(prev => ({
+          ...prev,
+          [appId]: { advice: null, loading: false, error: result.error }
+        }));
+      }
+    } catch (error) {
+      logger.error('Error generating AI advice:', error);
+      setAiAdvice(prev => ({
+        ...prev,
+        [appId]: { advice: null, loading: false, error: 'Failed to generate advice' }
+      }));
+    }
+  }, [userProfile]);
+
+  // Fetch existing insights for rejected applications
+  const fetchApplicationInsights = useCallback(async (applicationsList) => {
+    if (!user) return;
+    
+    const rejectedApps = applicationsList.filter(app => 
+      normalizeStatus(app.status) === 'rejected'
+    );
+    
+    if (rejectedApps.length === 0) return;
+    
+    try {
+      const { data, error } = await supabase
+        .rpc('get_application_insights', { p_user_id: user.id });
+      
+      if (error) {
+        logger.error('Error fetching application insights:', error);
+        return;
+      }
+      
+      // Convert to map by application_id
+      const insightsMap = {};
+      (data || []).forEach(insight => {
+        insightsMap[insight.application_id] = {
+          gap_analysis: insight.gap_analysis,
+          next_steps: insight.next_steps || [],
+          similar_roles: insight.similar_roles || [],
+          loading: false,
+        };
+      });
+      
+      setApplicationInsights(insightsMap);
+      
+      // Auto-generate insights for rejected apps that don't have them
+      rejectedApps.forEach(app => {
+        if (!insightsMap[app.id] && !generatingInsights.has(app.id)) {
+          generateRejectionInsight(app);
+        }
+      });
+    } catch (error) {
+      logger.error('Error in fetchApplicationInsights:', error);
+    }
+  }, [user, generatingInsights]);
+
+  // Generate rejection insight for an application
+  const generateRejectionInsight = useCallback(async (application) => {
+    if (!userProfile || !application.jobs || generatingInsights.has(application.id)) return;
+    
+    const appId = application.id;
+    
+    setGeneratingInsights(prev => new Set(prev).add(appId));
+    
+    // Set loading state
+    setApplicationInsights(prev => ({
+      ...prev,
+      [appId]: { ...prev[appId], loading: true }
+    }));
+    
+    try {
+      const result = await generateRejectionInsights(
+        application.jobs,
+        userProfile,
+        application
+      );
+      
+      if (result.success && result.insights) {
+        // Save to database via RPC
+        const { error: saveError } = await supabase
+          .from('application_insights')
+          .insert({
+            application_id: appId,
+            user_id: user.id,
+            gap_analysis: result.insights.gap_analysis,
+            next_steps: result.insights.next_steps,
+            similar_roles: result.insights.similar_roles,
+          });
+        
+        if (saveError) {
+          logger.error('Error saving insight:', saveError);
+        }
+        
+        setApplicationInsights(prev => ({
+          ...prev,
+          [appId]: {
+            gap_analysis: result.insights.gap_analysis,
+            next_steps: result.insights.next_steps,
+            similar_roles: result.insights.similar_roles,
+            loading: false,
+          }
+        }));
+      } else {
+        setApplicationInsights(prev => ({
+          ...prev,
+          [appId]: { ...prev[appId], loading: false, error: result.error }
+        }));
+      }
+    } catch (error) {
+      logger.error('Error generating rejection insight:', error);
+      setApplicationInsights(prev => ({
+        ...prev,
+        [appId]: { ...prev[appId], loading: false, error: 'Failed to generate insights' }
+      }));
+    } finally {
+      setGeneratingInsights(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(appId);
+        return newSet;
+      });
+    }
+  }, [userProfile, user, generatingInsights]);
 
   // Status filters (canonical values)
   const filterOptions = [
@@ -142,6 +351,11 @@ const ApplicationTracking = () => {
     return STATUS_BADGE_CLASS[canonical];
   };
 
+  const getStatusIcon = (status) => {
+    const canonical = normalizeStatus(status);
+    return STATUS_ICON[canonical];
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
@@ -150,6 +364,29 @@ const ApplicationTracking = () => {
       month: 'short', 
       day: 'numeric' 
     });
+  };
+
+  // Timeline stages configuration
+  const TIMELINE_STAGES = [
+    { key: 'submitted', label: 'Applied', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
+    { key: 'under_review', label: 'Under Review', icon: 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z' },
+    { key: 'interviewing', label: 'Interview', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+    { key: 'offered', label: 'Offer', icon: 'M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.318 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.318 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.318 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.318 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z' },
+    { key: 'hired', label: 'Hired', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
+  ];
+
+  // Alternative end stages
+  const REJECTED_STAGE = { key: 'rejected', label: 'Not Selected', icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z' };
+
+  // Get timeline stage index for current status
+  const getCurrentStageIndex = (status) => {
+    const normalized = normalizeStatus(status);
+    if (normalized === 'rejected') return -1; // Special case
+    if (normalized === 'withdrawn') return -1; // Special case
+    if (normalized === 'hired') return TIMELINE_STAGES.length - 1;
+    
+    const index = TIMELINE_STAGES.findIndex(stage => stage.key === normalized);
+    return index >= 0 ? index : 0; // Default to first stage if unknown
   };
 
   const calculateDaysAgo = (dateString) => {
@@ -161,6 +398,336 @@ const ApplicationTracking = () => {
     if (diffDays === 0) return 'Today';
     if (diffDays === 1) return 'Yesterday';
     return `${diffDays} days ago`;
+  };
+  
+  // Fetch offer letters for offered applications
+  const fetchOfferLetters = async (offeredApps) => {
+    try {
+      const offers = {};
+      for (const app of offeredApps) {
+        // eslint-disable-next-line no-console
+        console.log('[RPC CALL]', 'get_offer_letter_for_applicant', { p_application_id: app.id });
+        const { data, error } = await supabase.rpc('get_offer_letter_for_applicant', {
+          p_application_id: app.id,
+        });
+        // eslint-disable-next-line no-console
+        console.log('[RPC RESULT]', 'get_offer_letter_for_applicant', { data, error });
+        
+        if (!error && data?.success) {
+          offers[app.id] = data.offer;
+        }
+      }
+      setOfferLetters(offers);
+    } catch (err) {
+      logger.error('Error fetching offer letters:', err);
+    }
+  };
+  
+  // Generate signed URL and view offer letter
+  const viewOfferLetter = async (appId) => {
+    const offer = offerLetters[appId];
+    if (!offer?.file_path) {
+      toast.error('Offer letter not available');
+      return;
+    }
+    
+    try {
+      // eslint-disable-next-line no-console
+      console.log('[STORAGE CALL]', 'offer-letters.createSignedUrl', { filePath: offer.file_path, expiry: 3600 });
+      const { data, error } = await supabase.storage
+        .from('offer-letters')
+        .createSignedUrl(offer.file_path, 3600); // 1 hour expiry
+      // eslint-disable-next-line no-console
+      console.log('[STORAGE RESULT]', 'offer-letters.createSignedUrl', { data, error });
+      
+      if (error) throw error;
+      
+      if (data?.signedUrl) {
+        window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+      }
+    } catch (err) {
+      logger.error('Error generating signed URL for offer letter:', err);
+      toast.error('Could not open offer letter. Please try again.');
+    }
+  };
+  
+  // Accept or decline offer
+  const respondToOffer = async (appId, response) => {
+    try {
+      setRespondingOfferId(appId);
+      
+      // eslint-disable-next-line no-console
+      console.log('[RPC CALL]', 'respond_to_offer', { p_application_id: appId, p_response: response });
+      const { data, error } = await supabase.rpc('respond_to_offer', {
+        p_application_id: appId,
+        p_response: response,
+      });
+      // eslint-disable-next-line no-console
+      console.log('[RPC RESULT]', 'respond_to_offer', { data, error });
+      
+      if (error) throw error;
+      
+      if (!data?.success) {
+        throw new Error(data?.error || 'Failed to respond to offer');
+      }
+      
+      // Update local state
+      setApplications(apps =>
+        apps.map(app => app.id === appId ? { ...app, status: data.new_status } : app)
+      );
+      
+      // Update offer letter status
+      setOfferLetters(prev => ({
+        ...prev,
+        [appId]: { ...prev[appId], status: response }
+      }));
+      
+      toast.success(data.message);
+      
+    } catch (err) {
+      logger.error('Error responding to offer:', err);
+      toast.error(err.message || 'Failed to respond to offer');
+    } finally {
+      setRespondingOfferId(null);
+    }
+  };
+
+  // Timeline Component
+  const ApplicationTimeline = ({ status }) => {
+    const normalized = normalizeStatus(status);
+    const currentIndex = getCurrentStageIndex(status);
+    const isRejected = normalized === 'rejected' || normalized === 'withdrawn';
+    
+    return (
+      <div className="mt-4 mb-4">
+        <div className="flex items-start justify-between relative">
+          {/* Connecting line background */}
+          <div className="absolute top-4 left-0 right-0 h-0.5 bg-gray-200 -z-10" />
+          
+          {TIMELINE_STAGES.map((stage, index) => {
+            let stageState = 'upcoming';
+            
+            if (isRejected) {
+              // If rejected, show stages up to where they got
+              if (index <= currentIndex && currentIndex >= 0) {
+                stageState = 'completed';
+              }
+            } else {
+              if (index < currentIndex) {
+                stageState = 'completed';
+              } else if (index === currentIndex) {
+                stageState = 'current';
+              }
+            }
+            
+            const isLast = index === TIMELINE_STAGES.length - 1;
+            
+            return (
+              <div key={stage.key} className="flex flex-col items-center flex-1">
+                {/* Stage circle */}
+                <div 
+                  className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
+                    stageState === 'current' 
+                      ? 'bg-blue-600 border-blue-600 text-white ring-4 ring-blue-100' 
+                      : stageState === 'completed'
+                        ? 'bg-green-500 border-green-500 text-white'
+                        : 'bg-white border-gray-300 text-gray-400'
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={stage.icon} />
+                  </svg>
+                </div>
+                
+                {/* Stage label */}
+                <span 
+                  className={`mt-2 text-xs font-medium text-center ${
+                    stageState === 'current'
+                      ? 'text-blue-700 font-semibold'
+                      : stageState === 'completed'
+                        ? 'text-green-700'
+                        : 'text-gray-400'
+                  }`}
+                >
+                  {stage.label}
+                </span>
+                
+                {/* Connector line (except for last item) */}
+                {!isLast && (
+                  <div 
+                    className={`absolute h-0.5 top-4 transition-all duration-300 ${
+                      stageState === 'completed' ? 'bg-green-500' : 'bg-gray-200'
+                    }`}
+                    style={{
+                      left: `${((index + 0.5) / TIMELINE_STAGES.length) * 100}%`,
+                      width: `${(1 / TIMELINE_STAGES.length) * 100}%`,
+                    }}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        
+        {/* Rejected branch if applicable */}
+        {isRejected && currentIndex >= 0 && (
+          <div className="mt-4 flex items-center justify-center">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-red-500 text-white border-2 border-red-500">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={REJECTED_STAGE.icon} />
+                </svg>
+              </div>
+              <span className="text-sm font-medium text-red-700">
+                {REJECTED_STAGE.label}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // AI Advice Card Component
+  const AIAdviceCard = ({ application }) => {
+    const appId = application.id;
+    const adviceData = aiAdvice[appId];
+    
+    // Auto-generate advice when component mounts if not already generated
+    useEffect(() => {
+      if (userProfile && !adviceData && application.jobs) {
+        generateAdviceForApplication(application);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [application.id, userProfile, generateAdviceForApplication]);
+    
+    if (adviceData?.loading) {
+      return (
+        <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            Getting personalized advice...
+          </div>
+        </div>
+      );
+    }
+    
+    if (adviceData?.advice) {
+      return (
+        <div className="mt-3 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
+              <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-gray-700 mb-1">AI Career Coach</p>
+              <p className="text-sm text-gray-600 italic">&ldquo;{adviceData.advice}&rdquo;</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    
+    return null;
+  };
+
+  // What to Improve Card Component (for rejected applications)
+  const WhatToImproveCard = ({ application }) => {
+    const appId = application.id;
+    const insight = applicationInsights[appId];
+    const isRejected = normalizeStatus(application.status) === 'rejected';
+    
+    if (!isRejected) return null;
+    
+    if (insight?.loading || generatingInsights.has(appId)) {
+      return (
+        <div className="mt-3 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-lg">
+          <div className="flex items-center gap-3">
+            <div className="flex-shrink-0 w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+              <svg className="w-5 h-5 text-amber-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-amber-900">Career Coach is analyzing...</p>
+              <p className="text-xs text-amber-700">Generating personalized insights for you</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    
+    if (!insight?.gap_analysis) {
+      return (
+        <div className="mt-3 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+          <p className="text-sm text-gray-500">Insights not available yet. Check back soon.</p>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="mt-3 p-5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-lg">
+        <div className="flex items-start gap-4">
+          <div className="flex-shrink-0 w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+            <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m16.024 7.07l-.707.707M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m16.024 7.07l-.707.707" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <h4 className="text-base font-semibold text-amber-900 mb-2">
+              Career Coaching: What to Improve
+            </h4>
+            
+            {/* Gap Analysis */}
+            <div className="mb-4">
+              <p className="text-sm font-medium text-amber-800 mb-1">Gap Analysis</p>
+              <p className="text-sm text-gray-700 italic">&ldquo;{insight.gap_analysis}&rdquo;</p>
+            </div>
+            
+            {/* Next Steps */}
+            {insight.next_steps && insight.next_steps.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm font-medium text-amber-800 mb-2">Next Steps</p>
+                <ul className="space-y-2">
+                  {insight.next_steps.map((step, index) => (
+                    <li key={index} className="flex items-start gap-2">
+                      <span className="flex-shrink-0 w-5 h-5 bg-amber-200 rounded-full flex items-center justify-center text-xs font-semibold text-amber-800">
+                        {index + 1}
+                      </span>
+                      <span className="text-sm text-gray-700">{step}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {/* Similar Roles */}
+            {insight.similar_roles && insight.similar_roles.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-amber-800 mb-2">Roles Better Suited for You</p>
+                <div className="flex flex-wrap gap-2">
+                  {insight.similar_roles.map((role, index) => (
+                    <span 
+                      key={index} 
+                      className="px-3 py-1.5 bg-white border border-amber-300 rounded-full text-sm text-amber-900 hover:bg-amber-100 transition-colors cursor-pointer"
+                      onClick={() => navigate(`/jobs?search=${encodeURIComponent(role)}`)}
+                    >
+                      {role}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-xs text-amber-600 mt-2">Click a role to search for jobs</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (isLoading) {
@@ -246,8 +813,12 @@ const ApplicationTracking = () => {
                         {(() => {
                           const canonical = normalizeStatus(application.status);
                           return (
-                            <span className={`ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeClass(canonical)}`}>
+                            <span className={`ml-2 px-2 inline-flex items-center gap-1 text-xs leading-5 font-semibold rounded-full ${getStatusBadgeClass(canonical)}`}>
+                              <svg className="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                <path fillRule="evenodd" d={getStatusIcon(canonical)} clipRule="evenodd" />
+                              </svg>
                               {STATUS_LABEL[canonical]}
+                              <span className="sr-only">Status: {STATUS_LABEL[canonical]}</span>
                             </span>
                           );
                         })()}
@@ -258,6 +829,113 @@ const ApplicationTracking = () => {
                         </p>
                       </div>
                     </div>
+                    {/* Application Status Timeline */}
+                    <ApplicationTimeline status={application.status} />
+                    
+                    {/* AI Advice Card */}
+                    <AIAdviceCard application={application} />
+
+                    {/* Offer Letter Banner for Offered Status */}
+                    {normalizeStatus(application.status) === 'offered' && offerLetters[application.id] && (
+                      <div className="mt-3 mb-3 p-4 bg-gradient-to-r from-purple-50 to-purple-100 border border-purple-200 rounded-lg">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex-shrink-0 w-10 h-10 bg-purple-600 rounded-full flex items-center justify-center">
+                              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-purple-900">
+                                Offer Received!
+                              </p>
+                              <p className="text-sm text-purple-700">
+                                Your offer letter is ready.
+                                {offerLetters[application.id]?.file_name && (
+                                  <span className="block text-xs text-purple-600 mt-0.5">
+                                    {offerLetters[application.id].file_name}
+                                  </span>
+                                )}
+                                {offerLetters[application.id]?.notes && (
+                                  <span className="block text-xs text-purple-600 mt-1 italic">
+                                    &ldquo;{offerLetters[application.id].notes}&rdquo;
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => viewOfferLetter(application.id)}
+                              className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-purple-700 bg-white border border-purple-300 rounded-md hover:bg-purple-50 transition-colors"
+                            >
+                              <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              </svg>
+                              View Offer Letter
+                            </button>
+                            <button
+                              onClick={() => respondToOffer(application.id, 'accepted')}
+                              disabled={respondingOfferId === application.id}
+                              className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {respondingOfferId === application.id ? (
+                                <span className="animate-pulse">Processing...</span>
+                              ) : (
+                                <>
+                                  <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Accept Offer
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => respondToOffer(application.id, 'declined')}
+                              disabled={respondingOfferId === application.id}
+                              className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Decline
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* GAP 1 FIX: Rejection Reason Display */}
+                    {normalizeStatus(application.status) === 'rejected' && (
+                      <div className="mt-3 mb-3 p-4 bg-red-50 border border-red-200 rounded-lg">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-shrink-0 w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                            <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-red-900">
+                              Application Not Selected
+                            </p>
+                            <p className="text-sm text-red-800 mt-1">
+                              Feedback from employer:
+                            </p>
+                            {application.rejection_reason ? (
+                              <p className="text-sm text-red-700 mt-1 italic">
+                                &ldquo;{application.rejection_reason}&rdquo;
+                              </p>
+                            ) : (
+                              <p className="text-sm text-red-600/70 mt-1">
+                                No specific feedback was provided.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* AI Career Coaching: What to Improve Card */}
+                    <WhatToImproveCard application={application} />
+
                     <div className="mt-2 sm:flex sm:justify-between">
                       <div className="sm:flex">
                         <p className="flex items-center text-sm text-gray-500">

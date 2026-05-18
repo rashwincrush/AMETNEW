@@ -1,6 +1,6 @@
-# AMET Alumni — Security Hardening Summary
+# Forgecircle Alumni — Security Hardening Summary
 
-This document summarizes the security posture applied to the AMET Alumni web app.
+This document summarizes the security posture applied to the Forgecircle Alumni web app.
 
 ## Logging & Console Hygiene
 - Centralized redacting logger in `frontend/src/utils/logger.js`.

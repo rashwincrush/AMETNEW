@@ -197,7 +197,7 @@ const CSVExport = () => {
       const timestamp = new Date().toISOString().replace(/[:.-]/g, '_').replace('T', '_').split('Z')[0];
       
       // Create download link with improved filename
-      const fileName = `AMET_${tableConfig.label.replace(/\s+/g, '_')}_${timestamp}.csv`;
+      const fileName = `Alumni_${tableConfig.label.replace(/\s+/g, '_')}_${timestamp}.csv`;
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       
       // Check if we need BOM for Excel compatibility

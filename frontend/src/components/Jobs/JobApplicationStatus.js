@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import LoadingSpinner from '../common/LoadingSpinner';
 import { Link } from 'react-router-dom';
 import logger from '../../utils/logger';
-import { normalizeStatus, STATUS_BADGE_CLASS, STATUS_LABEL } from '../../utils/applicationStatus';
+import { normalizeStatus, STATUS_BADGE_CLASS, STATUS_LABEL, STATUS_ICON } from '../../utils/applicationStatus';
 
 // Normalize resume value (path or legacy public URL) into a storage path
 const getResumePathFromValue = (value) => {
@@ -43,6 +43,7 @@ const JobApplicationStatus = () => {
             created_at,
             status,
             resume_url,
+            rejection_reason,
             jobs:job_id!inner (id, title, company_name, source_type)
           `)
           .eq('applicant_id', user.id)
@@ -98,8 +99,8 @@ const JobApplicationStatus = () => {
           <ul className="divide-y divide-gray-200">
             {applications.map((app) => (
               <li key={app.id} className="p-4 hover:bg-gray-50">
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
                     <Link to={`/jobs/${app.jobs?.id || app.job_id}`} className="block">
                       <p className="text-lg font-semibold text-blue-600">{app.jobs?.title || 'Job'}</p>
                     </Link>
@@ -110,15 +111,42 @@ const JobApplicationStatus = () => {
                         View Resume
                       </a>
                     )}
+                    
+                    {/* GAP 1 FIX: Display rejection reason if status is rejected */}
+                    {normalizeStatus(app.status) === 'rejected' && (
+                      <div className="mt-3 p-3 bg-red-50 border border-red-100 rounded-lg">
+                        <p className="text-sm font-medium text-red-800 mb-1">
+                          <svg className="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Feedback from employer:
+                        </p>
+                        {app.rejection_reason ? (
+                          <p className="text-sm text-red-700 italic">
+                            "{app.rejection_reason}"
+                          </p>
+                        ) : (
+                          <p className="text-sm text-red-600/70">
+                            No feedback provided
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  {(() => {
-                    const canonical = normalizeStatus(app.status);
-                    return (
-                      <span className={`px-3 py-1 text-sm font-medium rounded-full ${STATUS_BADGE_CLASS[canonical]}`}>
-                        {STATUS_LABEL[canonical]}
-                      </span>
-                    );
-                  })()}
+                  <div className="flex-shrink-0 ml-4">
+                    {(() => {
+                      const canonical = normalizeStatus(app.status);
+                      return (
+                        <span className={`px-3 py-1 inline-flex items-center gap-1 text-sm font-medium rounded-full ${STATUS_BADGE_CLASS[canonical]}`}>
+                          <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                            <path fillRule="evenodd" d={STATUS_ICON[canonical]} clipRule="evenodd" />
+                          </svg>
+                          {STATUS_LABEL[canonical]}
+                          <span className="sr-only">Status: {STATUS_LABEL[canonical]}</span>
+                        </span>
+                      );
+                    })()}
+                  </div>
                 </div>
               </li>
             ))}

@@ -237,7 +237,19 @@ function JobCard({ job }) {
             View Details
           </Link>
 
-          {isQuick ? (
+          {isOwner ? (
+            <Link
+              to={`/jobs/${job.id}/manage`}
+              className="flex-1 min-w-[120px] px-4 py-2.5 rounded-lg bg-ocean-600 text-white text-sm font-medium hover:bg-ocean-700 transition-colors text-center inline-flex items-center justify-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500"
+            >
+              <span>Manage Applications</span>
+              {applicantsCount !== null && applicantsCount > 0 && (
+                <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-white text-ocean-700 rounded-full">
+                  {applicantsCount}
+                </span>
+              )}
+            </Link>
+          ) : isQuick ? (
             <a
               href={externalUrl || '#'}
               target={externalUrl ? '_blank' : undefined}
@@ -257,7 +269,7 @@ function JobCard({ job }) {
               className="flex-1 min-w-[120px] px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               onClick={() => navigate(`/jobs/${job.id}`)}
             >
-              {isOwner ? 'View Applications' : 'Apply Now'}
+              Apply Now
             </button>
           )}
 

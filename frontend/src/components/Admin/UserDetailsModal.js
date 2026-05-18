@@ -1,16 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
-import { XMarkIcon, EnvelopeIcon, MapPinIcon, BriefcaseIcon, AcademicCapIcon, ShieldCheckIcon, ClockIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, EnvelopeIcon, MapPinIcon, BriefcaseIcon, AcademicCapIcon, ShieldCheckIcon, ClockIcon, EyeIcon } from '@heroicons/react/24/outline';
 import { Link } from 'react-router-dom';
+import { supabase } from '../../utils/supabase';
 import Avatar from '../common/Avatar';
 import { getAccountStatus } from '../../utils/accountStatus';
 import { adminGetProfileApprovalAudit } from '../../api/admin';
 import { useProfileById } from '../../hooks/useProfileById';
 import { getDisplayName } from '../../utils/displayName';
 import { useAvatar } from '../../hooks/useAvatar';
+import { useAuth } from '../../contexts/AuthContext';
 import logger from '../../utils/logger';
+import { toast } from 'react-hot-toast';
 
 const UserDetailsModal = ({ user, isOpen, onClose }) => {
+  const { userRole } = useAuth();
   const [audit, setAudit] = useState([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [auditError, setAuditError] = useState(null);
@@ -181,10 +185,21 @@ const UserDetailsModal = ({ user, isOpen, onClose }) => {
                   </div>
                 </div>
 
-                <div className="mt-6 flex justify-between items-center">
-                  <Link to={`/profile/${user.id}`} className="inline-flex justify-center rounded-md border border-transparent bg-green-100 px-4 py-2 text-sm font-medium text-green-900 hover:bg-green-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2">
-                    View Full Profile
-                  </Link>
+                <div className="mt-6 flex flex-wrap gap-3 justify-between items-center">
+                  <div className="flex gap-2">
+                    <Link to={`/profile/${user.id}`} className="inline-flex justify-center rounded-md border border-transparent bg-green-100 px-4 py-2 text-sm font-medium text-green-900 hover:bg-green-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2">
+                      View Full Profile
+                    </Link>
+                    
+                    {/* GAP 5 FIX: Impersonate Button (Admin Only) */}
+                    {(userRole === 'admin' || userRole === 'super_admin') && (
+                      <ImpersonateButton 
+                        targetUserId={user.id} 
+                        targetUserName={user.full_name || user.email}
+                        onClose={onClose}
+                      />
+                    )}
+                  </div>
                   <button
                     type="button"
                     className="inline-flex justify-center rounded-md border border-transparent bg-gray-100 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2"
@@ -214,6 +229,68 @@ const AuditAdminName = ({ adminId }) => {
   }
 
   return <span className="text-gray-700">{getDisplayName(profile)}</span>;
+};
+
+// GAP 5 FIX: ImpersonateButton component
+const ImpersonateButton = ({ targetUserId, targetUserName, onClose }) => {
+  const [loading, setLoading] = useState(false);
+
+  const handleImpersonate = async () => {
+    if (!window.confirm(`Start impersonating ${targetUserName}? You will see the app exactly as they see it.\n\nThis action will be logged for security purposes.`)) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('start_impersonation', {
+        p_target_user_id: targetUserId,
+        p_ip_address: null, // Server will capture if needed
+        p_user_agent: navigator.userAgent
+      });
+
+      if (error) throw error;
+
+      if (data?.success && data?.session_token) {
+        // Store impersonation data
+        localStorage.setItem('impersonation_data', JSON.stringify({
+          sessionToken: data.session_token,
+          sessionId: data.session_id,
+          targetUserId: targetUserId,
+          targetName: targetUserName,
+          expiresAt: data.expires_at,
+          adminSession: {
+            access_token: (await supabase.auth.getSession()).data.session?.access_token,
+            refresh_token: (await supabase.auth.getSession()).data.session?.refresh_token
+          }
+        }));
+
+        toast.success(`Now impersonating ${targetUserName}. A banner will appear at the top of the page.`);
+        onClose();
+        
+        // Reload to trigger impersonation mode
+        window.location.href = '/dashboard';
+      } else {
+        toast.error(data?.error || 'Failed to start impersonation');
+      }
+    } catch (err) {
+      logger.error('Impersonation failed:', err);
+      toast.error('Failed to impersonate: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleImpersonate}
+      disabled={loading}
+      className="inline-flex items-center justify-center rounded-md border border-transparent bg-yellow-100 px-4 py-2 text-sm font-medium text-yellow-900 hover:bg-yellow-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500 focus-visible:ring-offset-2 disabled:opacity-50"
+      title="View the app as this user sees it"
+    >
+      <EyeIcon className="h-4 w-4 mr-1.5" />
+      {loading ? 'Starting...' : 'Impersonate'}
+    </button>
+  );
 };
 
 export default UserDetailsModal;

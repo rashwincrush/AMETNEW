@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document summarizes the changes made during the Dec 12, 2025 debugging and implementation session for the **Admin → User Management** module and related profile/admin helpers in the AMS-AMET Supabase project.
+This document summarizes the changes made during the Dec 12, 2025 debugging and implementation session for the **Admin → User Management** module and related profile/admin helpers in the AMS-Forgecircle Supabase project.
 
 Focus areas:
 
@@ -64,7 +64,7 @@ We iterated on the definition of `admin_list_profiles_for_approval` to align it 
 
 Final (current) shape:
 
-- Located in the primary AMS-AMET project via migrations applied through `supabase-mcp-server`.
+- Located in the primary AMS-Forgecircle project via migrations applied through `supabase-mcp-server`.
 - Signature (kept intentionally simple for PostgREST):
 
   ```sql

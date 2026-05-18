@@ -460,10 +460,10 @@ export default function DirectoryPage() {
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
           <div className="flex-1">
             <h1 className="text-4xl sm:text-5xl font-bold text-white mb-3 tracking-tight">
-              AMET Network directory
+              Alumni Network directory
             </h1>
             <p className="text-lg text-indigo-100 max-w-2xl">
-              Find members across batches, designations, and locations in the AMET community.
+              Find members across batches, designations, and locations in the community.
             </p>
           </div>
           {/* ChipBar with modern styling */}
@@ -536,7 +536,7 @@ export default function DirectoryPage() {
         <div className="mx-auto max-w-3xl px-2 sm:px-0">
           <div className="rounded-xl border border-sky-100 bg-sky-50/80 px-4 py-3 text-sm text-sky-900 shadow-sm">
             <p className="font-medium">
-              This directory shows approved member profiles that are visible in the AMET Network.
+              This directory shows approved member profiles that are visible in the Alumni Network.
             </p>
             <p className="mt-1 text-sky-800/90">
               As a current student, your profile will appear here after you become an alumnus and your details are approved for the directory.

@@ -3,6 +3,7 @@ import { supabase } from '../../utils/supabase';
 import toast from 'react-hot-toast';
 import { CheckCircleIcon, XCircleIcon, ClockIcon } from '@heroicons/react/24/solid';
 import { getJobLogoUrl, getJobCompanyName } from '../../utils/jobs';
+import logger from '../../utils/logger';
 
 const JobVerification = () => {
   const [pendingJobs, setPendingJobs] = useState([]);

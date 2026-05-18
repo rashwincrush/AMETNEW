@@ -2,6 +2,14 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRightIcon, LinkIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
 
+// STATE INVENTORY
+// Local state: None (pure presentational component)
+// Refs: None
+// Context consumed: None
+// Side effects: None
+// Optimistic updates: None
+// Note: Simple routing component that links to /jobs/post/link or /jobs/post
+
 const PostJobSelection = () => {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">

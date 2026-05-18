@@ -249,7 +249,7 @@ const Analytics = () => {
 
   const topContent = [
     {
-      title: 'AMET Alumni Meetup 2024',
+      title: 'Alumni Meetup 2024',
       type: 'Event',
       views: 1234,
       engagement: '89%',

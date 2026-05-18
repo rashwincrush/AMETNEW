@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
 import { Container, Typography, Grid, Card, CardContent, CardActions, Button, Chip, Box, CircularProgress } from '@mui/material';
+import logger from '../../utils/logger';
 
 const MentorDirectory = () => {
   const [mentors, setMentors] = useState([]);

@@ -136,7 +136,7 @@ const FeedbackWidget = () => {
         <div className="bg-white rounded-lg shadow-lg w-80 overflow-hidden transition-all duration-300 ease-in-out">
           <div className="bg-indigo-600 px-4 py-3 text-white flex justify-between items-center">
             <div>
-              <h3 className="font-semibold">Help us improve AMET Alumni</h3>
+              <h3 className="font-semibold">Help us improve Alumni</h3>
               <p className="mt-0.5 text-xs text-indigo-100">
                 Tell us what felt confusing, broken, or missing on this page.
               </p>

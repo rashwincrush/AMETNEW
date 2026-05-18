@@ -49,7 +49,7 @@ function DirectoryGrid({ items = [], meId, currentTab = 'all', onChanged, compac
           <h3 className="text-lg font-bold text-slate-900 mb-2">No members found</h3>
           {/* Description */}
           <p className="text-sm text-slate-600 mb-4">
-            Try adjusting your filters or search criteria to find more people in the AMET community.
+            Try adjusting your filters or search criteria to find more people in the community.
           </p>
         </div>
       </div>

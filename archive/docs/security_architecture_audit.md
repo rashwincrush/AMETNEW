@@ -1,4 +1,4 @@
-# AMET Alumni Platform – Architecture & Security Audit
+# Forgecircle Alumni Platform – Architecture & Security Audit
 
 > **Scope & Methodology**  
 > This report is based on the current codebase in this repo as of 2025-12-07: Supabase project (`supabase/` + `schema_51Dec.sql`), Edge Functions, React frontend (`frontend/`), archived FastAPI backend (`archive/backend/`), Docker/entrypoint, and Vercel config.  
@@ -11,7 +11,7 @@
 ### 1.1 Multi-tenant model & high-level architecture
 
 - **Tenancy model**
-  - Effectively **single-tenant per institution** (AMET), with **multi-role** users, not classic multi-tenant SaaS with `tenant_id`.
+  - Effectively **single-tenant per institution** (Forgecircle), with **multi-role** users, not classic multi-tenant SaaS with `tenant_id`.
   - Roles: `alumni`, `student`, `employer`, `admin`, `super_admin` (plus internal flags & approval status).
   - Isolation is enforced primarily via **RLS on user/role/ownership**, not via `tenant_id`.
 

@@ -5,9 +5,12 @@ import Bell from '../Notifications/Bell';
 import { useCurrentUserIdentity } from '../../hooks/useCurrentUser';
 import { 
   Bars3Icon,
-  XMarkIcon
+  XMarkIcon,
+  EyeIcon
 } from '@heroicons/react/24/outline';
 import { useMobileNav } from './MobileNavContext';
+import { supabase } from '../../utils/supabase';
+import { toast } from 'react-hot-toast';
 
 const Header = ({ user }) => {
   const { user: authUserFromContext, profile: profileFromContext, signOut, role: userRole } = useAuth();
@@ -55,6 +58,10 @@ const Header = ({ user }) => {
       : '';
 
   return (
+    <>
+      {/* GAP 5 FIX: Impersonation Banner */}
+      <ImpersonationBanner />
+      
     <header role="banner" className="bg-white px-4 sm:px-6 py-3 sm:py-4">
       <div className="flex items-center justify-between space-x-4 sm:space-x-6">
         {/* Logo and Title */}
@@ -198,6 +205,87 @@ const Header = ({ user }) => {
         </div>
       </div>
     </header>
+    </>
+  );
+};
+
+// GAP 5 FIX: ImpersonationBanner component
+const ImpersonationBanner = () => {
+  const [impersonationData, setImpersonationData] = useState(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Check for impersonation data in localStorage
+    const stored = localStorage.getItem('impersonation_data');
+    if (stored) {
+      try {
+        const data = JSON.parse(stored);
+        // Check if expired
+        if (new Date(data.expiresAt) > new Date()) {
+          setImpersonationData(data);
+        } else {
+          // Clear expired data
+          localStorage.removeItem('impersonation_data');
+        }
+      } catch (e) {
+        localStorage.removeItem('impersonation_data');
+      }
+    }
+  }, []);
+
+  const handleEndImpersonation = async () => {
+    if (!impersonationData?.sessionToken) return;
+
+    try {
+      // Call end_impersonation RPC
+      const { error } = await supabase.rpc('end_impersonation', {
+        p_session_token: impersonationData.sessionToken
+      });
+
+      if (error) throw error;
+
+      // Clear impersonation data
+      localStorage.removeItem('impersonation_data');
+      
+      toast.success('Impersonation session ended');
+      
+      // Reload to restore admin session
+      window.location.href = '/admin/users';
+    } catch (err) {
+      toast.error('Failed to end impersonation: ' + err.message);
+    }
+  };
+
+  if (!impersonationData) return null;
+
+  const timeRemaining = new Date(impersonationData.expiresAt) - new Date();
+  const minutesRemaining = Math.floor(timeRemaining / 60000);
+
+  return (
+    <div className="bg-yellow-500 text-yellow-900 px-4 py-2 text-sm">
+      <div className="max-w-7xl mx-auto flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <EyeIcon className="h-5 w-5" />
+          <span className="font-semibold">
+            Impersonating: {impersonationData.targetName || 'User'}
+          </span>
+          <span className="text-yellow-800/70 hidden sm:inline">
+            (Session expires in {minutesRemaining}m)
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs bg-yellow-600/30 px-2 py-0.5 rounded">
+            View-only mode
+          </span>
+          <button
+            onClick={handleEndImpersonation}
+            className="bg-yellow-700 hover:bg-yellow-800 text-white px-3 py-1 rounded text-xs font-medium transition-colors"
+          >
+            End Session
+          </button>
+        </div>
+      </div>
+    </div>
   );
 };
 

@@ -1,0 +1,12 @@
+{
+  "name": "alumni-user-scripts",
+  "version": "1.0.0",
+  "description": "Utility scripts for AMET Alumni platform",
+  "type": "module",
+  "scripts": {
+    "create-users": "node create-users.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0"
+  }
+}

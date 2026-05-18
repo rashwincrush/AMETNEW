@@ -46,24 +46,26 @@ export async function ensureDmThreadWith(otherUserId, metadata = {}) {
   return p;
 }
 
-export async function sendDmMessage(threadId, body, repair) {
+export async function sendDmMessage(threadId, body, metadata = null) {
   if (!threadId) throw new Error('threadId required');
-  const { data, error } = await supabase.rpc('send_dm_message', {
+  
+  // Build RPC parameters
+  const params = {
     p_thread_id: threadId,
     p_body: body,
-  });
-  if (!error) return typeof data === 'string' ? data : data?.id;
-
-  // Retry once if Not a participant and repair callback is provided
-  if (error?.message && /Not a participant/i.test(error.message) && typeof repair === 'function') {
-    const fixedThreadId = await repair();
-    const { data: data2, error: err2 } = await supabase.rpc('send_dm_message', {
-      p_thread_id: fixedThreadId || threadId,
-      p_body: body,
-    });
-    if (err2) throw err2;
-    return typeof data2 === 'string' ? data2 : data2?.id;
+  };
+  
+  // Add metadata for file attachments if provided
+  if (metadata) {
+    params.p_message_type = metadata.message_type || 'text';
+    if (metadata.attachment_url) params.p_attachment_url = metadata.attachment_url;
+    if (metadata.file_name) params.p_file_name = metadata.file_name;
+    if (metadata.file_size) params.p_file_size = metadata.file_size;
+    if (metadata.mime_type) params.p_mime_type = metadata.mime_type;
   }
+  
+  const { data, error } = await supabase.rpc('send_dm_message', params);
+  if (!error) return typeof data === 'string' ? data : data?.id;
 
   throw error;
 }
@@ -111,7 +113,19 @@ export async function fetchThreadMessages(threadId, options = {}) {
   const { since } = options || {};
   let query = supabase
     .from('dm_messages')
-    .select('id, thread_id, sender_id, body, created_at, client_id')
+    .select(`
+      id, 
+      thread_id, 
+      sender_id, 
+      body, 
+      created_at, 
+      client_id,
+      message_type,
+      attachment_url,
+      file_name,
+      file_size,
+      mime_type
+    `)
     .eq('thread_id', threadId);
 
   if (since) {

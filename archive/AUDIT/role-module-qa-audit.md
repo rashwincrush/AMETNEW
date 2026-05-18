@@ -1,4 +1,4 @@
-# AMET Alumni – Role × Module QA Logic Audit
+# Forgecircle Alumni – Role × Module QA Logic Audit
 
 _Last updated: generated from repo state at analysis time._
 

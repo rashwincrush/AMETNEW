@@ -385,9 +385,22 @@ const NotificationsPage = () => {
                       onClick={() => !notification.is_read && markAsRead(notification.id)}
                     >
                   <div className={`p-4 hover:bg-gray-50 ${!notification.is_read ? 'bg-ocean-50' : ''}`}>
-                    <div className="flex justify-between">
-                      <h3 className="font-medium text-gray-900">{notification.title}</h3>
-                      <span className="text-sm text-gray-500">{formatDate(notification.created_at)}</span>
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <h3 className="font-medium text-gray-900">{notification.title}</h3>
+                        {/* AI Score Badge for Job Alerts */}
+                        {notification.type === 'job_alert' && notification.data?.ai_score && (
+                          <div className="mt-1 flex items-center gap-2">
+                            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-green-100 text-green-700">
+                              {notification.data.ai_score}% match
+                            </span>
+                            {notification.data?.ai_reason && (
+                              <span className="text-[10px] text-gray-500 line-clamp-1">{notification.data.ai_reason}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-sm text-gray-500 ml-4">{formatDate(notification.created_at)}</span>
                     </div>
                     <p className="mt-1 text-gray-600">{notification.message}</p>
                   </div>

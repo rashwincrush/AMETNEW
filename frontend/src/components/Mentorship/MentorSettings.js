@@ -271,7 +271,7 @@ const MentorSettings = () => {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-ocean-500 focus:border-ocean-500"
-                placeholder="e.g., Maritime Career Mentorship (Fall 2025)"
+                placeholder="e.g., Career Mentorship (Fall 2025)"
                 required
               />
             </div>

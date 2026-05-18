@@ -8,7 +8,7 @@ Here’s a **clean, copy-pasteable list** you can store so any frontend/backend/
 
 ---
 
-## 🔐 GLOBAL SECURITY CONTRACT
+## 🔐 GLOBAL SECURITY CONTRACTForgecircle
 
 * Security is **non-optional** for all outputs: SQL, Supabase/Postgres, MySQL/PHP, APIs, and frontend.
 * Always think in terms of:

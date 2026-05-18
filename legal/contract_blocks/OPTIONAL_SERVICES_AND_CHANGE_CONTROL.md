@@ -1,7 +1,7 @@
 # Optional Services and Change Control
 
 ## Included in Core SOW (Current Paid Scope)
-- Delivery of the AMET Alumni web application features as presently implemented (directory, jobs, events, mentorship, groups, messaging, admin console) per documented scope.
+- Delivery of the Forgecircle Alumni web application features as presently implemented (directory, jobs, events, mentorship, groups, messaging, admin console) per documented scope.
 - Supabase-backed auth, database, storage, and direct SPA integration.
 - Static frontend hosting (e.g., Vercel) and existing environments already provisioned.
 

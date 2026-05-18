@@ -13,7 +13,7 @@ import { toast } from 'react-hot-toast';
 import { MENTORSHIP_COPY } from '../../../constants/mentorshipCopy';
 
 /**
- * Panel for browsing and requesting trainers.
+ * Panel for browsing and requesting mentors.
  * Integrated with useOpenMentorshipChat for accepted relationships.
  */
 export default function FindMentorsPanel() {
@@ -126,33 +126,72 @@ export default function FindMentorsPanel() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-bold text-slate-900">Find Trainers</h2>
+        <h2 className="text-xl font-bold text-slate-900">Find Mentors</h2>
         <p className="text-sm text-slate-600 mt-1">
-          Browse alumni trainers and send mentorship requests
+          Browse alumni mentors and send mentorship requests
         </p>
       </div>
 
-      {/* Request Limit Banner */}
-      {hasReachedRequestLimit && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
-          <span className="text-amber-600 text-xl" aria-hidden="true">⚠️</span>
-          <div>
-            <h3 className="text-sm font-semibold text-amber-800">
-              Request limit reached
-            </h3>
-            <p className="text-sm text-amber-700 mt-1">
-              You have {pendingRequestCount} of {MAX_PENDING_REQUESTS} pending requests. 
-              Wait for responses or cancel existing requests before sending new ones.
-            </p>
-            <button
-              onClick={() => navigate('/mentorship?tab=requests&sub=sent')}
-              className="mt-2 text-sm font-medium text-amber-800 hover:text-amber-900 underline"
-            >
-              View my requests →
-            </button>
+      {/* Request Counter - Progressive indicator */}
+      <div className="bg-white rounded-lg border border-slate-200 p-4">
+        <div className="space-y-2">
+          {/* Progress Bar */}
+          <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${
+                pendingRequestCount <= 3
+                  ? 'bg-slate-400'
+                  : pendingRequestCount === 4
+                    ? 'bg-amber-400'
+                    : 'bg-red-500'
+              }`}
+              style={{ width: `${(pendingRequestCount / MAX_PENDING_REQUESTS) * 100}%` }}
+              aria-hidden="true"
+            />
           </div>
+
+          {/* Counter Text */}
+          <div className="flex items-center justify-between text-sm">
+            <span
+              className={`${
+                pendingRequestCount <= 3
+                  ? 'text-slate-500'
+                  : pendingRequestCount === 4
+                    ? 'text-amber-600 font-medium'
+                    : 'text-red-600 font-semibold'
+              }`}
+              aria-live="polite"
+              aria-label={`${pendingRequestCount} of ${MAX_PENDING_REQUESTS} mentor requests used`}
+            >
+              {pendingRequestCount <= 3 && (
+                <>{pendingRequestCount} of {MAX_PENDING_REQUESTS} mentor requests used</>
+              )}
+              {pendingRequestCount === 4 && (
+                <>4 of 5 requests used — 1 remaining</>
+              )}
+              {pendingRequestCount >= 5 && (
+                <>You've reached your 5 request limit</>
+              )}
+            </span>
+
+            {pendingRequestCount >= 5 && (
+              <button
+                onClick={() => navigate('/mentorship?tab=requests&sub=sent')}
+                className="text-sm font-medium text-red-600 hover:text-red-700 underline"
+              >
+                View pending requests →
+              </button>
+            )}
+          </div>
+
+          {/* Helper text for 5/5 state */}
+          {pendingRequestCount >= 5 && (
+            <p className="text-xs text-red-500">
+              Cancel a pending request to send a new one.
+            </p>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Filter Bar */}
       <div className="flex flex-col sm:flex-row gap-4">
@@ -179,8 +218,8 @@ export default function FindMentorsPanel() {
         <div className="flex items-center justify-center py-16" role="status" aria-live="polite">
           <div className="flex flex-col items-center gap-3">
             <div className="spinner spinner-lg" aria-hidden="true" />
-            <p className="text-sm text-slate-500 font-medium">Finding trainers...</p>
-            <span className="sr-only">Loading trainers...</span>
+            <p className="text-sm text-slate-500 font-medium">Finding mentors...</p>
+            <span className="sr-only">Loading mentors...</span>
           </div>
         </div>
       )}
@@ -189,7 +228,7 @@ export default function FindMentorsPanel() {
       {error && !isLoading && (
         <div className="bg-white rounded-lg border border-slate-200 p-6">
           <p className="text-rose-600 mb-3">
-            We couldn’t load trainers. Please try again.
+            We couldn’t load mentors. Please try again.
           </p>
           <button
             type="button"
@@ -264,7 +303,7 @@ export default function FindMentorsPanel() {
                           ? `${mentor.mentoring_capacity_hours_per_month} hrs/mo`
                           : null,
                         mentor.max_mentees != null
-                          ? `Max ${mentor.max_mentees} trainees`
+                          ? `Max ${mentor.max_mentees} mentees`
                           : null,
                       ]
                         .filter(Boolean)
@@ -318,7 +357,7 @@ export default function FindMentorsPanel() {
                         hasReachedRequestLimit
                           ? `You have ${pendingRequestCount} pending requests (max ${MAX_PENDING_REQUESTS})`
                           : capacityState === 'at_capacity'
-                            ? 'This trainer is at capacity'
+                            ? 'This mentor is at capacity'
                             : 'Request mentorship'
                       }
                       className="flex-1 inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"

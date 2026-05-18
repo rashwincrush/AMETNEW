@@ -14,7 +14,7 @@ const HelpCenter = () => {
         <div className="bg-white shadow-xl rounded-2xl p-6 md:p-10">
           <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">Help Center</h1>
           <p className="text-gray-700 mb-6">
-            Find answers to common questions and learn how to use the AMET Alumni Portal.
+            Find answers to common questions and learn how to use the Alumni Portal.
           </p>
 
           <div className="space-y-4">

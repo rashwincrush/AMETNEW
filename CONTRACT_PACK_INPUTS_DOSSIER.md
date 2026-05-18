@@ -2,7 +2,7 @@
 
 ## Parties & Contacts
 - Customer: UNKNOWN – NEED CONFIRMATION
-- Vendor: AMET Alumni platform (working name) – contacts UNKNOWN – NEED CONFIRMATION
+- Vendor: Forgecircle Alumni platform (working name) – contacts UNKNOWN – NEED CONFIRMATION
 - DPO/Security contact: UNKNOWN – NEED CONFIRMATION
 
 ## System Overview

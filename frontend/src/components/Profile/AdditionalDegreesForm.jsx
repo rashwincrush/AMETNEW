@@ -162,7 +162,7 @@ export default function AdditionalDegreesForm() {
                 onChange={(e) =>
                   setNewDegree((prev) => ({ ...prev, institution_name: e.target.value }))
                 }
-                placeholder="e.g., AMET University"
+                placeholder="e.g., University"
                 className="form-input w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-ocean-500 focus:border-transparent"
               />
             </div>

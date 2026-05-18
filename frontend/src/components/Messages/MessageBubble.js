@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircleIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, PaperClipIcon } from '@heroicons/react/24/outline';
 
 const MessageBubble = ({ message, isOwn, timestamp, readStatus }) => {
   // Helper function to determine if a URL is an image
@@ -16,8 +16,20 @@ const MessageBubble = ({ message, isOwn, timestamp, readStatus }) => {
     return urlParts[urlParts.length - 1];
   };
 
+  // Helper function to format file size
+  const formatFileSize = (bytes) => {
+    if (!bytes || bytes === 0) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  // Max file size: 10MB
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
   const isFileMessage = message.message_type === 'file';
-  const fileUrl = message.attachment_url || message.file_url; // Support both field names
+  const fileUrl = message.attachment_url || message.file_url;
+  const fileSize = message.file_size || message.attachment_size;
+  const isOversized = fileSize && fileSize > MAX_FILE_SIZE;
 
   return (
     <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-3`}>
@@ -33,6 +45,11 @@ const MessageBubble = ({ message, isOwn, timestamp, readStatus }) => {
         {/* File message */}
         {isFileMessage && fileUrl && (
           <div className="mb-2">
+            {isOversized && (
+              <div className={`text-xs mb-1 px-2 py-1 rounded ${isOwn ? 'bg-red-600 text-white' : 'bg-red-100 text-red-700'}`}>
+                ⚠️ File exceeds 10MB limit
+              </div>
+            )}
             {isImageUrl(fileUrl) ? (
               // Image file
               <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="block">
@@ -46,8 +63,10 @@ const MessageBubble = ({ message, isOwn, timestamp, readStatus }) => {
                     e.target.src = 'https://via.placeholder.com/200x150?text=Image+not+available';
                   }}
                 />
-                <div className="text-xs truncate">
+                <div className="text-xs truncate flex items-center gap-1">
+                  <PaperClipIcon className="w-3 h-3" />
                   {getFileName(fileUrl)}
+                  {fileSize > 0 && <span className="opacity-75">({formatFileSize(fileSize)})</span>}
                 </div>
               </a>
             ) : (
@@ -61,10 +80,15 @@ const MessageBubble = ({ message, isOwn, timestamp, readStatus }) => {
                   ${isOwn ? 'border-ocean-300 bg-ocean-600' : 'border-gray-300 bg-gray-200'}
                 `}
               >
-                <svg className={`h-5 w-5 ${isOwn ? 'text-ocean-200' : 'text-gray-600'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <span className="ml-2 text-sm truncate max-w-[200px]">{getFileName(fileUrl)}</span>
+                <PaperClipIcon className={`h-5 w-5 ${isOwn ? 'text-ocean-200' : 'text-gray-600'}`} />
+                <div className="ml-2 min-w-0">
+                  <div className="text-sm truncate max-w-[200px]">{getFileName(fileUrl)}</div>
+                  {fileSize > 0 && (
+                    <div className={`text-xs ${isOwn ? 'text-ocean-200' : 'text-gray-500'}`}>
+                      {formatFileSize(fileSize)}
+                    </div>
+                  )}
+                </div>
               </a>
             )}
           </div>

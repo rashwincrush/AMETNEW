@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import logger from '../../utils/logger';
 
 /**
  * QATogglesBanner - A development-only component that displays QA toggles and debug information

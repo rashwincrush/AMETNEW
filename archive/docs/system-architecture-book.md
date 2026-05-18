@@ -1,6 +1,6 @@
-# AMS‑AMET System Architecture Book
+# AMS‑Forgecircle System Architecture Book
 
-> **Scope**: This document captures the full architecture of the AMS‑AMET system as of this analysis – frontend, backend (Supabase), permissions, roles, and major flows – in one place.
+> **Scope**: This document captures the full architecture of the AMS‑Forgecircle system as of this analysis – frontend, backend (Supabase), permissions, roles, and major flows – in one place.
 >
 > It is derived from the current codebase and our deep dive in this session. It is **descriptive, not prescriptive**: it documents how things actually work now.
 
@@ -488,4 +488,4 @@ RLS is the **ultimate authority**; frontend permissions and RPCs are designed to
 - **This Architecture Book**:  
   `archive/docs/system-architecture-book.md`
 
-These two documents together give you a 100–200% depth view of **who can do what, where, and how** in the AMS‑AMET system.
+These two documents together give you a 100–200% depth view of **who can do what, where, and how** in the AMS‑Forgecircle system.

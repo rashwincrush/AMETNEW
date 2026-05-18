@@ -41,6 +41,8 @@ import LoadingSpinner from './components/common/LoadingSpinner';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 import AccessDenied from './components/Auth/AccessDenied';
 import RejectionPage from './components/Auth/RejectionPage';
+import PendingApprovalPage from './components/Auth/PendingApprovalPage';
+import VerifyEmailPage from './components/Auth/VerifyEmailPage';
 
 // Dashboard Components
 import AlumniDashboard from './components/Dashboard/AlumniDashboard';
@@ -378,6 +380,8 @@ function AppContent() {
             <Route path="/admin/groups" element={<ProtectedRoute requiredPermission="access:all"><AdminGroupsPage /></ProtectedRoute>} />
             <Route path="/admin/feedback" element={<ProtectedRoute requiredPermission="view:feedback_reports"><FeedbackReport /></ProtectedRoute>} />
             <Route path="/rejection" element={<RejectionPage />} />
+            <Route path="/pending-approval" element={<PendingApprovalPage />} />
+            <Route path="/profile-completion" element={<ProfileCompletion />} />
             <Route path="/access-denied" element={<AccessDenied />} />
             <Route path="*" element={<Navigate to="/dashboard" />} />
           </Routes>
@@ -391,6 +395,7 @@ function AppContent() {
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/register" element={<EnhancedRegister />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/terms-of-service" element={<TermsOfService />} />
       <Route path="/privacy-policy" element={<PrivacyPolicy />} />
       <Route path="/help" element={<HelpCenter />} />

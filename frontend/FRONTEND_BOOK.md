@@ -1,7 +1,7 @@
-# 📚 AMET Alumni Platform – The Complete Frontend Book
+# 📚 Forgecircle Alumni Platform – The Complete Frontend Book
 
 > **Version**: 1.0 | **Last Updated**: December 2024  
-> **Purpose**: The definitive reference for every aspect of the AMET Alumni frontend system
+> **Purpose**: The definitive reference for every aspect of the Forgecircle Alumni frontend system
 
 ---
 
@@ -57,7 +57,7 @@
 
 ## 1. Introduction & Philosophy
 
-### 1.1 What is AMET Alumni Platform?
+### 1.1 What is Forgecircle Alumni Platform?
 
 A comprehensive **alumni engagement system** connecting:
 - **Alumni** – Graduates staying connected with alma mater
@@ -79,7 +79,7 @@ A comprehensive **alumni engagement system** connecting:
 
 ```
 ┌─────────────────────────────────────────────────┐
-│              AMET Alumni Platform                │
+│              Forgecircle Alumni Platform                │
 ├─────────────────────────────────────────────────┤
 │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌───────┐ │
 │  │ Alumni  │ │ Student │ │Employer │ │ Admin │ │
@@ -1046,7 +1046,7 @@ if (data.length === 0) {
 
 # 📝 Summary
 
-This Frontend Book provides comprehensive documentation of the AMET Alumni Platform frontend, covering:
+This Frontend Book provides comprehensive documentation of the Forgecircle Alumni Platform frontend, covering:
 
 1. **Foundation** – Philosophy, architecture, tech stack, structure
 2. **Core Systems** – Auth, roles, routing, state management
@@ -1073,13 +1073,13 @@ I’ll treat this as your **Alumni Platform Product & Role Bible** – something
 
 ---
 
-# AMET Alumni Platform – Product, Roles & Frontend Bible
+# Forgecircle Alumni Platform – Product, Roles & Frontend Bible
 
 ## PART 0 – INTRO & EXECUTIVE SUMMARIES
 
 ### 0.1 Product Overview
 
-The AMET Alumni Platform is a **multi-module SaaS** for:
+The Forgecircle Alumni Platform is a **multi-module SaaS** for:
 
 * Alumni & student engagement
 * Events & reunions
@@ -1806,4 +1806,4 @@ If you want, next step I can:
 * Create a smaller **“Admin Contract only”** version derived from this book for your admin team.
 
 
-*This document is the single source of truth for the AMET Alumni frontend system.*
+*This document is the single source of truth for the Forgecircle Alumni frontend system.*

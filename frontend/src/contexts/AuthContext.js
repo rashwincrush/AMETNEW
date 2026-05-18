@@ -59,8 +59,8 @@ export const useAuth = () => {
 };
 
 // Store auth session in window to persist across React renders
-if (!window.AMET_AUTH) {
-  window.AMET_AUTH = {
+if (!window.ALUMNI_AUTH) {
+  window.ALUMNI_AUTH = {
     initialized: false,
     profileFetched: null,
     currentUserId: null,
@@ -195,9 +195,9 @@ export const AuthProvider = ({ children }) => {
   const [approvalFlags, setApprovalFlags] = useState(null);
   const [updatingProfile, setUpdatingProfile] = useState(false);
   
-  // Use refs that survive hot reloads but also window.AMET_AUTH for strict mode
-  const initializedRef = useRef(window.AMET_AUTH.initialized);
-  const profileFetchedRef = useRef(window.AMET_AUTH.profileFetched);
+  // Use refs that survive hot reloads but also window.ALUMNI_AUTH for strict mode
+  const initializedRef = useRef(window.ALUMNI_AUTH.initialized);
+  const profileFetchedRef = useRef(window.ALUMNI_AUTH.profileFetched);
 
   const fetchUserProfile = useCallback(async (userId, force = false) => {
     // If no userId, exit early
@@ -209,15 +209,15 @@ export const AuthProvider = ({ children }) => {
     }
 
     // Check if another auth operation is in progress to prevent race conditions
-    if (window.AMET_AUTH.authInProgress) {
+    if (window.ALUMNI_AUTH.authInProgress) {
       logger.log(`Auth operation already in progress, deferring fetch for userId: ${userId}`);
       // We'll set a flag to indicate this was attempted
-      window.AMET_AUTH.pendingFetch = userId;
+      window.ALUMNI_AUTH.pendingFetch = userId;
       return;
     }
     
     // CRITICAL: Detect when user ID changes during session
-    const previousUserId = window.AMET_AUTH.currentUserId;
+    const previousUserId = window.ALUMNI_AUTH.currentUserId;
     if (previousUserId && previousUserId !== userId) {
       logger.log(`⚠️ User ID changed from ${previousUserId} to ${userId}, resetting auth state`);
       // Clear all state before proceeding with new user
@@ -233,12 +233,12 @@ export const AuthProvider = ({ children }) => {
     logger.log(`Fetching profile for userId: ${userId}`);
     
     // Set operation in progress flag to prevent race conditions
-    window.AMET_AUTH.authInProgress = true;
+    window.ALUMNI_AUTH.authInProgress = true;
     
     // Store in both ref and window for Strict Mode and HMR survival
     profileFetchedRef.current = userId;
-    window.AMET_AUTH.profileFetched = userId;
-    window.AMET_AUTH.currentUserId = userId;
+    window.ALUMNI_AUTH.profileFetched = userId;
+    window.ALUMNI_AUTH.currentUserId = userId;
 
     try {
       // Simple atomic profile fetch - keep this small and focused
@@ -366,13 +366,13 @@ export const AuthProvider = ({ children }) => {
       }
     } finally {
       // Clear auth operation flag to allow subsequent operations
-      window.AMET_AUTH.authInProgress = false;
+      window.ALUMNI_AUTH.authInProgress = false;
       
       // Check for any pending fetch operations that were deferred
-      if (window.AMET_AUTH.pendingFetch && window.AMET_AUTH.pendingFetch !== userId) {
-        const pendingUserId = window.AMET_AUTH.pendingFetch;
+      if (window.ALUMNI_AUTH.pendingFetch && window.ALUMNI_AUTH.pendingFetch !== userId) {
+        const pendingUserId = window.ALUMNI_AUTH.pendingFetch;
         logger.log(`Processing deferred profile fetch for userId: ${pendingUserId}`);
-        window.AMET_AUTH.pendingFetch = null;
+        window.ALUMNI_AUTH.pendingFetch = null;
         // Schedule the deferred fetch after a small delay to avoid state conflicts
         setTimeout(() => fetchUserProfile(pendingUserId), 50);
       }
@@ -439,10 +439,10 @@ export const AuthProvider = ({ children }) => {
     
     // Clear stored auth data
     profileFetchedRef.current = null;
-    window.AMET_AUTH.profileFetched = null;
-    window.AMET_AUTH.currentUserId = null;
-    window.AMET_AUTH.authInProgress = false; // Clear any stuck flags
-    window.AMET_AUTH.lastSessionId = null;   // Clear session tracking
+    window.ALUMNI_AUTH.profileFetched = null;
+    window.ALUMNI_AUTH.currentUserId = null;
+    window.ALUMNI_AUTH.authInProgress = false; // Clear any stuck flags
+    window.ALUMNI_AUTH.lastSessionId = null;   // Clear session tracking
     
     // Sign out from Supabase
     await supabase.auth.signOut();
@@ -460,7 +460,7 @@ export const AuthProvider = ({ children }) => {
       // Remember this session was explicitly logged out to prevent auto-login
       const fingerprint = fingerprintToken(currentSessionId);
       if (fingerprint) {
-        const loggedOutSessions = JSON.parse(localStorage.getItem('amet_logged_out_sessions') || '[]');
+        const loggedOutSessions = JSON.parse(localStorage.getItem('alumni_logged_out_sessions') || '[]');
         loggedOutSessions.push({
           id: fingerprint,
           timestamp: Date.now()
@@ -469,7 +469,7 @@ export const AuthProvider = ({ children }) => {
         while (loggedOutSessions.length > 5) {
           loggedOutSessions.shift();
         }
-        localStorage.setItem('amet_logged_out_sessions', JSON.stringify(loggedOutSessions));
+        localStorage.setItem('alumni_logged_out_sessions', JSON.stringify(loggedOutSessions));
       }
     }
 
@@ -579,7 +579,7 @@ export const AuthProvider = ({ children }) => {
   // Initialize auth once and set up listener
   useEffect(() => {
     // Only run once - check both ref and window global
-    if (initializedRef.current || window.AMET_AUTH.initialized) {
+    if (initializedRef.current || window.ALUMNI_AUTH.initialized) {
       // Hydrate from current session to avoid being stuck in loading
       (async () => {
         try {
@@ -600,7 +600,7 @@ export const AuthProvider = ({ children }) => {
     
     // Mark as initialized in both places
     initializedRef.current = true;
-    window.AMET_AUTH.initialized = true;
+    window.ALUMNI_AUTH.initialized = true;
     
     logger.log('Initializing AuthContext...');
 
@@ -615,8 +615,8 @@ export const AuthProvider = ({ children }) => {
     // This is the final fallback if everything else fails
     timeoutRef.current.emergency = setTimeout(() => {
       logger.log('EMERGENCY loading timeout triggered - forcing app to exit loading state');
-      window.AMET_AUTH.authInProgress = false; // Force clear any stuck flags
-      window.AMET_AUTH.pendingFetch = null;
+      window.ALUMNI_AUTH.authInProgress = false; // Force clear any stuck flags
+      window.ALUMNI_AUTH.pendingFetch = null;
       setLoading(false);
     }, 3000);
 
@@ -624,7 +624,7 @@ export const AuthProvider = ({ children }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       // Log auth events and track them to help debug double invocations
       logger.log(`Auth state changed: ${event}`, newSession?.user?.id || 'no user');
-      window.AMET_AUTH.lastAuthEvent = event;
+      window.ALUMNI_AUTH.lastAuthEvent = event;
       
       // Debug OAuth profile data if available
       if (event === 'SIGNED_IN' && newSession?.user?.app_metadata?.provider) {
@@ -653,7 +653,7 @@ export const AuthProvider = ({ children }) => {
       
       // Check for explicitly logged-out sessions to prevent auto-login conflicts
       if (event === 'SIGNED_IN' && newSession?.access_token) {
-        const loggedOutSessions = JSON.parse(localStorage.getItem('amet_logged_out_sessions') || '[]');
+        const loggedOutSessions = JSON.parse(localStorage.getItem('alumni_logged_out_sessions') || '[]');
         const fingerprint = fingerprintToken(newSession.access_token);
         const wasExplicitlyLoggedOut = fingerprint && loggedOutSessions.some(s => s.id === fingerprint);
         
@@ -663,7 +663,7 @@ export const AuthProvider = ({ children }) => {
         }
         
         // Store current session for tracking
-        window.AMET_AUTH.lastSessionId = newSession.access_token;
+        window.ALUMNI_AUTH.lastSessionId = newSession.access_token;
       }
       
       // We only care about these events
@@ -676,7 +676,7 @@ export const AuthProvider = ({ children }) => {
 
         // Handle profile fetch if we have a user
         if (newSession?.user?.id) {
-          const currentUserId = window.AMET_AUTH.currentUserId;
+          const currentUserId = window.ALUMNI_AUTH.currentUserId;
 
           // Detect user ID change and force a reset
           if (currentUserId && currentUserId !== newSession.user.id) {
@@ -685,7 +685,7 @@ export const AuthProvider = ({ children }) => {
             setProfile(null);
             // Reset the profile fetched ref to force a new fetch
             profileFetchedRef.current = null;
-            window.AMET_AUTH.profileFetched = null;
+            window.ALUMNI_AUTH.profileFetched = null;
           }
 
           // Only fetch if this is a new user ID or first fetch

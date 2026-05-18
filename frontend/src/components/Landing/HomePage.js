@@ -59,7 +59,7 @@ const HomePage = () => {
     {
       id: 2,
       title: 'Naval Architect',
-      company: 'Maritime Solutions',
+      company: 'Solutions Inc.',
       location: 'Chennai, India',
       type: 'Full-time',
       posted: '4 days ago'
@@ -85,7 +85,7 @@ const HomePage = () => {
               <Link to="/" className="flex items-center space-x-3">
                 <Logo className="h-10 w-auto" />
                 <div>
-                  <span className="text-xl font-bold text-gray-900">AMET Alumni</span>
+                  <span className="text-xl font-bold text-gray-900">Alumni Network</span>
                 </div>
               </Link>
             </div>
@@ -248,8 +248,8 @@ const HomePage = () => {
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
               <div className="p-6">
                 <p className="text-sm text-ocean-600 font-semibold">Nov 12, 2025</p>
-                <h3 className="mt-2 text-xl font-bold text-gray-900">Maritime Tech Webinar</h3>
-                <p className="mt-3 text-gray-600">Exploring the future of maritime technology.</p>
+                <h3 className="mt-2 text-xl font-bold text-gray-900">Tech Webinar</h3>
+                <p className="mt-3 text-gray-600">Exploring the future of technology.</p>
                 <Link to="/events" className="mt-4 inline-block text-ocean-600 font-semibold hover:text-ocean-800 min-h-[44px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Learn More &rarr;</Link>
               </div>
             </div>
@@ -274,12 +274,12 @@ const HomePage = () => {
           <div className="mt-8">
             <img className="mx-auto h-24 w-24 rounded-full" src="/default-avatar.svg" alt="Alumni Spotlight Placeholder" />
             <blockquote className="mt-6 text-xl text-gray-900 font-medium">
-              <p>"The AMET network has been instrumental in my career growth. The connections I've made are invaluable."
+              <p>"The alumni network has been instrumental in my career growth. The connections I've made are invaluable."
               </p>
             </blockquote>
             <footer className="mt-4">
               <div className="font-bold text-gray-900">Capt. Jane Doe</div>
-              <div className="text-gray-600">Year of Completion : 2010, CEO at Maritime Innovations</div>
+              <div className="text-gray-600">Year of Completion : 2010, CEO at Innovations Inc.</div>
             </footer>
           </div>
         </div>
@@ -316,11 +316,11 @@ const HomePage = () => {
               <div className="flex items-center space-x-3 mb-4">
                 <Logo className="h-10 w-auto" />
                 <div>
-                  <span className="text-xl font-bold text-gray-900">AMET Alumni</span>
+                  <span className="text-xl font-bold text-gray-900">Alumni Network</span>
                 </div>
               </div>
               <p className="text-gray-600 max-w-md">
-                Connecting AMET graduates worldwide through professional networking, 
+                Connecting graduates worldwide through professional networking, 
                 career opportunities, and lifelong learning.
               </p>
             </div>
@@ -328,7 +328,7 @@ const HomePage = () => {
             <div>
               <h4 className="text-gray-900 font-semibold mb-4">Quick Links</h4>
               <ul className="space-y-2 text-gray-600">
-                <li><Link to="/about" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">About AMET</Link></li>
+                <li><Link to="/about" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">About Us</Link></li>
                 <li><Link to="/events" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Events</Link></li>
                 <li><Link to="/jobs" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Career Center</Link></li>
                 <li><Link to="/directory" className="hover:text-ocean-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2 rounded">Alumni Directory</Link></li>
@@ -347,7 +347,7 @@ const HomePage = () => {
           </div>
           
           <div className="border-t border-gray-200 mt-8 pt-8 text-center text-gray-500">
-            <p>&copy; {new Date().getFullYear()} AMET Alumni. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} Alumni Network. All rights reserved.</p>
           </div>
         </div>
       </footer>

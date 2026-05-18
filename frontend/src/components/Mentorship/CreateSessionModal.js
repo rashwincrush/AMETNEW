@@ -75,13 +75,15 @@ export default function CreateSessionModal({ open, onClose, requestId }) {
     setLoading(true);
     try {
       const meeting_url = (meetingUrl && meetingUrl.trim()) || defaultLink || null;
+      const startMs = new Date(start).getTime();
+      const endMs = new Date(end).getTime();
+      const duration_minutes = Math.max(1, Math.round((endMs - startMs) / 60000));
       const payload = {
         mentorship_request_id: requestId,
-        start_time: new Date(start).toISOString(),
-        end_time: new Date(end).toISOString(),
+        scheduled_time: new Date(start).toISOString(),
+        duration_minutes,
         meeting_url,
         notes: notes?.trim() || null,
-        status: 'scheduled'
       };
       const { error } = await supabase
         .from('mentorship_sessions')

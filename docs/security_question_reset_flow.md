@@ -1,7 +1,7 @@
 # Security Question Password Reset Flow — Implementation Notes
 
 ## What changed (Backend / DB)
-- Migration applied to **AMS-AMET** (ref: `gvbtfolcizkzihforqte`).
+- Migration applied to **AMS-Forgecircle** (ref: `gvbtfolcizkzihforqte`).
 - New tables:
   - `security_question_attempts` — rate limiting (lookup/verify counts, lockout after repeated failures).
   - `password_reset_tokens` — short-lived tokens for security-question resets.

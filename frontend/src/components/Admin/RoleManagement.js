@@ -17,6 +17,7 @@ import {
   ExclamationCircleIcon
 } from '@heroicons/react/24/outline';
 import { supabase } from '../../utils/supabase';
+import logger from '../../utils/logger';
 
 ReactModal.setAppElement('#root');
 
