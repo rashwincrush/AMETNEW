@@ -184,7 +184,7 @@ create or replace function public.admin_count_profiles_for_approval(
   - Applies optional `p_status`, `p_role`, `p_search`.
 - Returns a single bigint count, used for pagination.
 
-This function was validated via MCP:
+This function was validated:
 
 ```sql
 select admin_count_profiles_for_approval(null, null, null) as c;

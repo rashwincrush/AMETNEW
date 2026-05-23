@@ -272,7 +272,7 @@ All components include:
 - `frontend/src/api/admin.js`
 - `frontend/src/components/Admin/UserManagement.js`
 
-### 8.3. Database Migrations (via MCP)
+### 8.3. Database Migrations
 
 - `temporarily_relax_admin_list_profiles_for_approval_guard`
 - `dedupe_admin_list_profiles_for_approval_signature`
