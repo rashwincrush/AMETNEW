@@ -9,7 +9,7 @@ This document captures every change introduced on December 14, 2025 to fulfill t
 
 | Item | Details |
 | --- | --- |
-| **Migration** | `supabase/migrations/20251214_match_education_text_filter.sql` (applied via `@supabase-mcp-server`). |
+| **Migration** | `supabase/migrations/20251214_match_education_text_filter.sql` (applied). |
 | **Indexes** | Added `pg_trgm` (if missing) and two GIN trigram indexes:<br>• `idx_jobs_description_trgm` on `jobs.description`<br>• `idx_jobs_requirements_trgm` on `jobs.requirements`. |
 | **RPC Rewrite** | `public.search_jobs_with_education(...)` now:<br>1. Aggregates *all* degree/institution strings from `profiles.degree_code` + `profile_degrees`.<br>2. Tokenizes to sanitized keywords (≥3 alphanumeric chars, capped at 64).<br>3. Matches exclusively against `jobs.description` + `jobs.requirements` via trigram search.<br>4. Returns each job with `matched_on` metadata (JSON array of the keywords that hit).<br>5. Preserves existing filters/pagination and hides contact fields unless `approval_status = 'approved'`.<br>6. Remains `SECURITY DEFINER` and respects approval/RLS boundaries. |
 | **Performance/Security** | Trigram indexes keep match latency low even for 40k alumni × 500+ jobs. Keywords are sanitized to avoid injection/DoS. Contact data stays hidden until the job is approved. |

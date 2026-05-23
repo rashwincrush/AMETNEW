@@ -177,7 +177,7 @@
 
 ## Database Migrations Created
 
-### Applied via MCP (Live):
+### Applied:
 1. **20260503_fix_all_lifecycle_gaps.sql** - Main migration with all triggers
    - Profile approval notifications
    - Event reminders functions

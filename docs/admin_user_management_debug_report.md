@@ -64,7 +64,7 @@ We iterated on the definition of `admin_list_profiles_for_approval` to align it 
 
 Final (current) shape:
 
-- Located in the primary AMS-Forgecircle project via migrations applied through `supabase-mcp-server`.
+- Located in the primary AMS-Forgecircle project via migrations applied.
 - Signature (kept intentionally simple for PostgREST):
 
   ```sql
