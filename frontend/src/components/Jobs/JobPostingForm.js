@@ -2,12 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Box, TextField, Button, Typography, Paper, Grid, CircularProgress, MenuItem, Alert, ToggleButtonGroup, ToggleButton } from '@mui/material';
+import { Box, TextField, Button, Typography, Paper, Grid, CircularProgress, MenuItem, Alert, ToggleButtonGroup, ToggleButton, Card, CardContent, Chip } from '@mui/material';
 import logger from '../../utils/logger';
 import { toast } from 'react-hot-toast';
 import LinkIcon from '@mui/icons-material/Link';
 import DescriptionIcon from '@mui/icons-material/Description';
+import PeopleIcon from '@mui/icons-material/People';
+import LightbulbIcon from '@mui/icons-material/Lightbulb';
 import { toFriendlyToast } from '../../utils/errors';
+import { generateJobImprovementSuggestions } from '../../services/groqService';
 
 const JobPostingForm = () => {
   const { user, profile, userRole } = useAuth();
@@ -32,6 +35,13 @@ const JobPostingForm = () => {
     application_url: '',
     deadline: '',
   });
+
+  // Alert matching state
+  const [alertMatchCount, setAlertMatchCount] = useState(null);
+  const [improvementSuggestions, setImprovementSuggestions] = useState([]);
+  const [showMatchCard, setShowMatchCard] = useState(false);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [createdJobId, setCreatedJobId] = useState(null);
 
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
@@ -138,7 +148,7 @@ const JobPostingForm = () => {
         }
       }
 
-      const { error: jobError } = await supabase.from('jobs').insert([{
+      const { data: insertedJob, error: jobError } = await supabase.from('jobs').insert([{
         ...formData,
         deadline,
         user_id: user.id,
@@ -146,12 +156,53 @@ const JobPostingForm = () => {
         is_approved: false, // Jobs are not auto-approved
         is_verified: false, // Jobs are not auto-verified
         is_active: true, // Job is active upon creation
-      }], { returning: 'minimal' });
+      }]).select('id').single();
 
       if (jobError) throw jobError;
 
+      const jobId = insertedJob?.id;
+      setCreatedJobId(jobId);
+
+      // Count matching job alerts
+      try {
+        const { data: matchCount, error: countError } = await supabase
+          .rpc('count_matching_job_alerts', {
+            p_job_id: jobId,
+            p_keywords: formData.title ? [formData.title] : [],
+            p_location: formData.location || null,
+            p_experience_level: null, // Not collected in this form
+            p_job_type: formData.job_type || null
+          });
+
+        if (countError) {
+          logger.error('Error counting matching alerts:', countError);
+        } else {
+          const count = parseInt(matchCount) || 0;
+          setAlertMatchCount(count);
+          setShowMatchCard(true);
+
+          // If count is low, get AI suggestions
+          if (count < 10) {
+            setLoadingSuggestions(true);
+            const result = await generateJobImprovementSuggestions(formData, count);
+            if (result.success && result.suggestions) {
+              setImprovementSuggestions(result.suggestions);
+              // Store suggestions in sessionStorage for edit page
+              try {
+                sessionStorage.setItem(`job_suggestions_${jobId}`, JSON.stringify(result.suggestions));
+              } catch (_) { /* non-blocking */ }
+            }
+            setLoadingSuggestions(false);
+          }
+        }
+      } catch (matchErr) {
+        logger.error('Error in alert matching:', matchErr);
+        // Non-blocking - still show success
+        setAlertMatchCount(0);
+        setShowMatchCard(true);
+      }
+
       toast.success('Job submitted for approval!');
-      navigate('/jobs');
     } catch (err) {
       setError('Failed to post job. Please check your input and try again.');
       toFriendlyToast(toast, err, 'Failed to post job. Please try again.');
@@ -266,6 +317,93 @@ const JobPostingForm = () => {
               </Grid>
             </Grid>
           </form>
+        )}
+
+        {/* Alert Match Count Card */}
+        {showMatchCard && (
+          <Card sx={{ mt: 3, bgcolor: 'primary.light', color: 'primary.contrastText' }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                <PeopleIcon sx={{ fontSize: 40 }} />
+                <Box>
+                  <Typography variant="h5" component="div">
+                    Your job matches {alertMatchCount} candidate {alertMatchCount === 1 ? 'alert' : 'alerts'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                    They'll be notified automatically when your job is approved
+                  </Typography>
+                </Box>
+              </Box>
+
+              {/* Low match suggestions */}
+              {alertMatchCount < 10 && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <LightbulbIcon fontSize="small" />
+                    {loadingSuggestions ? 'Analyzing ways to reach more candidates...' : 'Tips to reach more candidates:'}
+                  </Typography>
+                  
+                  {loadingSuggestions ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <CircularProgress size={16} />
+                      <Typography variant="body2">Getting AI suggestions...</Typography>
+                    </Box>
+                  ) : improvementSuggestions.length > 0 ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      {improvementSuggestions.map((suggestion, index) => (
+                        <Chip
+                          key={index}
+                          label={suggestion}
+                          size="small"
+                          sx={{ 
+                            bgcolor: 'rgba(255,255,255,0.2)', 
+                            color: 'inherit',
+                            height: 'auto',
+                            '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5 }
+                          }}
+                        />
+                      ))}
+                    </Box>
+                  ) : null}
+
+                  {createdJobId && (
+                    <Box sx={{ mt: 2 }}>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => navigate(`/jobs/${createdJobId}/edit`)}
+                        sx={{ 
+                          color: 'inherit', 
+                          borderColor: 'rgba(255,255,255,0.5)',
+                          '&:hover': { borderColor: 'inherit', bgcolor: 'rgba(255,255,255,0.1)' }
+                        }}
+                      >
+                        Edit Job to Apply Tips
+                      </Button>
+                    </Box>
+                  )}
+                </Box>
+              )}
+
+              {/* High match - just show go to jobs button */}
+              {alertMatchCount >= 10 && (
+                <Box sx={{ mt: 2 }}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => navigate('/jobs')}
+                    sx={{ 
+                      color: 'inherit', 
+                      borderColor: 'rgba(255,255,255,0.5)',
+                      '&:hover': { borderColor: 'inherit', bgcolor: 'rgba(255,255,255,0.1)' }
+                    }}
+                  >
+                    View All Jobs
+                  </Button>
+                </Box>
+              )}
+            </CardContent>
+          </Card>
         )}
       </Paper>
     </Box>

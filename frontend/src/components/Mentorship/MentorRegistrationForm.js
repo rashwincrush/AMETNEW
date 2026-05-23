@@ -248,11 +248,11 @@ const MentorRegistrationForm = () => {
             ⚠️
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Students can’t register as trainers</h1>
+            <h1 className="text-2xl font-bold text-slate-900">Students can’t register as mentors</h1>
             <p className="text-slate-600 mt-3 leading-relaxed">
-              Trainer access is limited to alumni and employer accounts. Your profile can still request mentorship and
-              participate as a trainee. Once you graduate or the admin team upgrades your role, you’ll be able to submit
-              a trainer profile for approval.
+              Mentor access is limited to alumni and employer accounts. Your profile can still request mentorship and
+              participate as a mentee. Once you graduate or the admin team upgrades your role, you’ll be able to submit
+              a mentor profile for approval.
             </p>
             <p className="text-sm text-slate-500 mt-4">
               Need your role updated? Contact the admin team or email support so we can verify your status.

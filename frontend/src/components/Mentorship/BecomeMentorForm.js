@@ -24,7 +24,7 @@ const BecomeMentorForm = () => {
     'Marine Engineering',
     'Naval Architecture',
     'Port Management',
-    'Maritime Law',
+    'Law',
     'Ship Operations',
     'Logistics',
     'Research & Development',

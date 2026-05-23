@@ -4,6 +4,8 @@ import { formatDistanceToNow } from 'date-fns';
 import clsx from 'clsx';
 import { MENTORSHIP_COPY } from '../../../constants/mentorshipCopy';
 import MentorshipStatusChip from '../MentorshipStatusChip';
+import ScheduleVideoSessionModal from '../ScheduleVideoSessionModal';
+import { VideoCameraIcon } from '@heroicons/react/24/outline';
 
 /**
  * Card component for mentorship requests (both sent and received).
@@ -32,12 +34,16 @@ export default function MentorshipRequestCard({
   onReject,
   onCancel,
   highlighted = false,
+  mentorName,
+  menteeName,
+  videoMeetingLink = null,
 }) {
   const { openChat, loadingId } = useOpenMentorshipChat();
   const statusCopy = MENTORSHIP_COPY.chips.statuses.request;
   const buttonCopy = MENTORSHIP_COPY.buttons;
   const dialogCopy = MENTORSHIP_COPY.dialogs.rejectRequest;
   const [showRejectConfirm, setShowRejectConfirm] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
   
   const isSent = direction === 'sent';
   const isPending = status === 'pending';
@@ -166,17 +172,36 @@ export default function MentorshipRequestCard({
           </>
         )}
         
-        {/* Accepted: Open Chat */}
+        {/* Accepted: Open Chat + Schedule Video Session */}
         {isAccepted && relationshipId && (
-          <button
-            onClick={handleOpenChat}
-            disabled={loadingId === relationshipId}
-            className="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors min-h-[36px]"
-          >
-            {loadingId === relationshipId ? buttonCopy.chat.opening : buttonCopy.chat.openChat}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleOpenChat}
+              disabled={loadingId === relationshipId}
+              className="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors min-h-[36px]"
+            >
+              {loadingId === relationshipId ? buttonCopy.chat.opening : buttonCopy.chat.openChat}
+            </button>
+            <button
+              onClick={() => setShowScheduleModal(true)}
+              className="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 transition-colors min-h-[36px]"
+            >
+              <VideoCameraIcon className="w-4 h-4 mr-1" />
+              Schedule Video
+            </button>
+          </div>
         )}
       </div>
+
+      {/* Schedule Video Session Modal */}
+      <ScheduleVideoSessionModal
+        isOpen={showScheduleModal}
+        onClose={() => setShowScheduleModal(false)}
+        mentorshipRequestId={requestId}
+        mentorName={mentorName || otherUser?.full_name || 'Mentor'}
+        menteeName={menteeName || 'Mentee'}
+        videoMeetingLink={videoMeetingLink}
+      />
     </div>
   );
 }

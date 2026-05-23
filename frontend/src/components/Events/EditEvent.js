@@ -617,7 +617,7 @@ const EditEvent = () => {
                   value={formData.venue || ''}
                   onChange={handleInputChange}
                   className={`form-input w-full px-3 py-2 rounded-lg ${errors.venue ? 'border-red-500' : ''}`}
-                  placeholder="e.g., AMET Campus Auditorium"
+                  placeholder="e.g., Campus Auditorium"
                 />
                 {errors.venue && <p className="text-red-500 text-sm mt-1">{errors.venue}</p>}
               </div>

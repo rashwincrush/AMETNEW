@@ -1,10 +1,10 @@
-# AMET Mobile (Capacitor)
+# Forgecircle Mobile (Capacitor)
 
 This folder contains the Capacitor wrapper for the existing React + Supabase web app in `frontend/`.
 
 - Web build directory used by Capacitor: `../frontend/build`
-- App ID: `com.amet.alumni`
-- App Name: `AMET Alumni Network`
+- App ID: `com.forgecircle.alumni`
+- App Name: `Forgecircle Alumni Network`
 
 ## Prerequisites
 - Node 18+
@@ -99,7 +99,7 @@ Resources used:
 ## 6) Build release
 iOS:
 - Open Xcode: `npx cap open ios`
-- Set Bundle Identifier to `com.amet.alumni`
+- Set Bundle Identifier to `com.forgecircle.alumni`
 - Set signing team
 - Product → Archive → Distribute via App Store Connect (TestFlight/Test)
 

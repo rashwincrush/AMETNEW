@@ -20,7 +20,7 @@ const PrivacyPolicy = () => {
 
           <section className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">2. Policy Reference Number</h2>
-            <p className="text-gray-700 leading-relaxed">AMET/AP/2025/05</p>
+            <p className="text-gray-700 leading-relaxed">ALUMNI/2025/05</p>
           </section>
 
           <section className="mb-8">
@@ -32,14 +32,14 @@ const PrivacyPolicy = () => {
           <section className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">4. Prelude / Introduction</h2>
             <p className="text-gray-700 leading-relaxed">
-              Alumni are valued stakeholders and lifelong ambassadors of AMET University. This policy aims to nurture and strengthen the relationship between the University and its alumni by creating a structured framework for continuous engagement, collaboration, and contribution. Alumni are an integral part of the University's growth and play a vital role in mentoring, placements, research, social outreach, and institutional development.
+              Alumni are valued stakeholders and lifelong ambassadors of the University. This policy aims to nurture and strengthen the relationship between the University and its alumni by creating a structured framework for continuous engagement, collaboration, and contribution. Alumni are an integral part of the University's growth and play a vital role in mentoring, placements, research, social outreach, and institutional development.
             </p>
           </section>
 
           <section className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">5. Scope and Applicability</h2>
             <ul className="list-disc list-inside text-gray-700 space-y-2">
-              <li>Applicable to all graduates of AMET University across undergraduate, postgraduate, diploma, and doctoral programs.</li>
+              <li>Applicable to all graduates of the University across undergraduate, postgraduate, diploma, and doctoral programs.</li>
               <li>Extends to alumni chapters (regional, national, and international).</li>
             </ul>
           </section>
@@ -67,11 +67,11 @@ const PrivacyPolicy = () => {
           <section className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">8. Guiding Principles</h2>
             <ul className="list-disc list-inside text-gray-700 space-y-2">
-              <li><strong>Lifelong Bond:</strong> Alumni remain connected to AMET beyond graduation.</li>
+              <li><strong>Lifelong Bond:</strong> Alumni remain connected to the institution beyond graduation.</li>
               <li><strong>Mutual Growth:</strong> Alumni benefit from networking while the University benefits from their expertise and support.</li>
               <li><strong>Transparency:</strong> Contributions and collaborations are acknowledged and utilized responsibly.</li>
               <li><strong>Inclusivity:</strong> Equal opportunity for all alumni to participate in institutional initiatives.</li>
-              <li><strong>Global Outlook:</strong> Promote international alumni networking, especially within the maritime and allied sectors.</li>
+              <li><strong>Global Outlook:</strong> Promote international alumni networking, especially within the professional and allied sectors.</li>
             </ul>
           </section>
 

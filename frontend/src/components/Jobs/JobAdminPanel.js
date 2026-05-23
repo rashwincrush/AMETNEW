@@ -4,6 +4,7 @@ import { Box, Typography, Paper, Button, Chip, Grid, CircularProgress, TextField
 import { Edit as EditIcon, Delete as DeleteIcon, CheckCircle as ApproveIcon, ShieldCheck as VerifyIcon } from '@mui/icons-material';
 import { toast } from 'react-hot-toast';
 import { toFriendlyToast } from '../../utils/errors';
+import logger from '../../utils/logger';
 
 const JobAdminPanel = () => {
   const [jobs, setJobs] = useState([]);

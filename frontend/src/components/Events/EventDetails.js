@@ -26,6 +26,7 @@ import { requestConnectionForEvent } from '../../utils/connections';
 import { getFriendlyErrorMessage } from '../../utils/errors';
 import ImageWithFallback from '../common/ImageWithFallback';
 import Avatar from '../common/Avatar';
+import logger from '../../utils/logger';
 
 const EventDetails = () => {
   const { id } = useParams();
@@ -108,8 +109,8 @@ const EventDetails = () => {
       id: 1,
       name: 'Rajesh Kumar',
       batch: '2018',
-      degree: 'B.Tech Naval Architecture',
-      currentRole: 'Senior Marine Engineer',
+      degree: 'B.Tech Architecture',
+      currentRole: 'Senior Engineer',
       company: 'Ocean Shipping Ltd.',
       avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=50&h=50&fit=crop&crop=face'
     },
@@ -117,16 +118,16 @@ const EventDetails = () => {
       id: 2,
       name: 'Priya Sharma',
       batch: '2020',
-      degree: 'B.Tech Marine Engineering',
-      currentRole: 'Naval Architect',
-      company: 'Maritime Solutions',
+      degree: 'B.Tech Engineering',
+      currentRole: 'Architect',
+      company: 'Solutions Inc.',
       avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b77c?w=50&h=50&fit=crop&crop=face'
     },
     {
       id: 3,
       name: 'Mohammed Ali',
       batch: '2015',
-      degree: 'MBA Maritime Management',
+      degree: 'MBA Management',
       currentRole: 'Port Operations Manager',
       company: 'Indian Ports Authority',
       avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=50&h=50&fit=crop&crop=face'

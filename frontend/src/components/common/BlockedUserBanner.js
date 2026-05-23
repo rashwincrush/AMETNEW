@@ -33,7 +33,7 @@ const BlockedUserBanner = () => {
           </div>
           <div className="flex-shrink-0 mt-2 sm:mt-0 sm:ml-4">
             <a
-              href="mailto:support@ametalumni.in?subject=Account%20Appeal"
+              href="mailto:support@alumni.in?subject=Account%20Appeal"
               className="inline-flex items-center px-4 py-2 border border-white rounded-md text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-red-600 focus:ring-white transition-colors"
             >
               Contact Support

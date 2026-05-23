@@ -85,6 +85,28 @@ export default function EventFeedbackPage() {
     );
   }
   
+  // Calculate feedback deadline (7 days after event)
+  const eventDate = new Date(event.date);
+  const feedbackDeadline = new Date(eventDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const now = new Date();
+  const daysRemaining = Math.ceil((feedbackDeadline - now) / (24 * 60 * 60 * 1000));
+  
+  if (daysRemaining <= 0) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+          <h2 className="text-lg font-semibold text-red-800 mb-2">Feedback Window Closed</h2>
+          <p className="text-red-600 mb-4">
+            The feedback period for this event has ended. Feedback can only be submitted within 7 days after an event.
+          </p>
+          <Link to={`/events/${id}`} className="text-ocean-600 hover:underline">
+            View Event Details
+          </Link>
+        </div>
+      </div>
+    );
+  }
+  
   return (
     <div className="max-w-2xl mx-auto p-6">
       {/* Back navigation */}
@@ -100,6 +122,14 @@ export default function EventFeedbackPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">{event.title}</h1>
         <p className="text-gray-600">Share your feedback to help us improve future events</p>
+        <div className="mt-3 inline-flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>
+            Feedback closes in {daysRemaining} day{daysRemaining !== 1 ? 's' : ''}
+          </span>
+        </div>
       </div>
       
       {/* Feedback form */}

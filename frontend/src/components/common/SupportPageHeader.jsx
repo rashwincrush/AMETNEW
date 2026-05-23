@@ -51,10 +51,10 @@ const SupportPageHeader = ({ hideBackWhenFromRegistration = false }) => {
           href="/"
           target="_self"
           className="inline-flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500 focus-visible:ring-offset-2"
-          aria-label="AMET Alumni Home"
+          aria-label="Alumni Home"
         >
           <Logo className="h-8 w-auto" />
-          <span className="text-lg font-semibold text-gray-900">AMET Alumni</span>
+          <span className="text-lg font-semibold text-gray-900">Alumni Network</span>
         </a>
       </div>
       <div />

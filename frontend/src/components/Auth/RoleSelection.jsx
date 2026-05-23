@@ -96,7 +96,7 @@ const RoleSelection = () => {
           <div className="mx-auto w-16 h-16 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg mb-6">
             <span className="text-white font-bold text-xl">A</span>
           </div>
-          <h2 className="text-3xl font-bold text-gray-900">Welcome to AMET Alumni Network!</h2>
+          <h2 className="text-3xl font-bold text-gray-900">Welcome to Alumni Network!</h2>
           <p className="mt-2 text-gray-600">
             Choose your role to personalize your experience and unlock the right features for you.
           </p>

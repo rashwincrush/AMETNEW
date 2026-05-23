@@ -192,6 +192,10 @@ const SessionsCalendar = () => {
     return end < new Date();
   };
 
+  // Calculate session completion stats
+  const totalSessions = sessions.length;
+  const completedSessions = sessions.filter(s => s.status === 'completed').length;
+
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
       {/* Availability banners (non-blocking) */}
@@ -205,6 +209,27 @@ const SessionsCalendar = () => {
           No upcoming slots. Add availability in <strong>My Mentorship</strong> to let mentees book time.
         </div>
       )}
+
+      {/* GAP 6 FIX: Sessions Counter */}
+      {totalSessions > 0 && (
+        <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-slate-700">
+              Sessions completed
+            </span>
+            <span className="text-sm font-semibold text-slate-900">
+              {completedSessions} of {totalSessions}
+            </span>
+          </div>
+          <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
+            <div
+              className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${totalSessions > 0 ? (completedSessions / totalSessions) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Mentorship Sessions</h2>
         <div className="flex space-x-2">

@@ -63,7 +63,7 @@ const Onboarding = () => {
   return (
     <div className="min-h-screen bg-ocean-50 flex items-center justify-center p-4">
       <div className="max-w-lg w-full bg-white rounded-xl shadow p-8 text-center">
-        <h1 className="text-2xl font-bold text-gray-900 mb-3">Welcome to AMET Alumni</h1>
+        <h1 className="text-2xl font-bold text-gray-900 mb-3">Welcome to Alumni</h1>
         {hasProfile ? (
           <>
             <p className="text-gray-700 mb-6">You're all set. Head to your dashboard to get started.</p>

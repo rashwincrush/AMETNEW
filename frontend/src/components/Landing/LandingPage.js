@@ -33,7 +33,7 @@ const LandingPage = () => {
       id: 3,
       title: 'Industry Expert Panel',
       date: 'June 18, 2025',
-      location: 'AMET Auditorium',
+      location: 'Main Auditorium',
       attendees: 65,
       type: 'panel'
     }
@@ -43,7 +43,7 @@ const LandingPage = () => {
     {
       icon: UsersIcon,
       title: 'Alumni Directory',
-      description: 'Connect with fellow AMET graduates worldwide'
+      description: 'Connect with fellow graduates worldwide'
     },
     {
       icon: CalendarIcon,
@@ -81,7 +81,7 @@ const LandingPage = () => {
               <span className="text-ocean-600 font-bold text-xl">A</span>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white">AMET</h1>
+              <h1 className="text-xl font-bold text-white">Alumni</h1>
               <p className="text-sm text-ocean-100">Alumni Network</p>
             </div>
           </div>
@@ -112,7 +112,7 @@ const LandingPage = () => {
               <div className="space-y-6">
                 <h1 className="text-5xl lg:text-6xl font-bold text-white leading-tight">
                   Connect With Your{' '}
-                  <span className="text-yellow-300">AMET Alumni Network</span>
+                  <span className="text-yellow-300">Alumni Network</span>
                 </h1>
                 
                 <p className="text-xl text-ocean-100 leading-relaxed max-w-2xl">
@@ -204,10 +204,10 @@ const LandingPage = () => {
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">
-              Why Join AMET Alumni?
+              Why Join the Alumni Network?
             </h2>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              Unlock the power of our maritime education community and advance your career 
+              Unlock the power of our education community and advance your career 
               through meaningful connections.
             </p>
           </div>
@@ -238,8 +238,8 @@ const LandingPage = () => {
                 Exclusive Member Benefits
               </h2>
               <p className="text-xl text-gray-600 mb-8">
-                Join thousands of AMET alumni who are advancing their careers and 
-                staying connected with our maritime community.
+                Join thousands of alumni who are advancing their careers and 
+                staying connected with our professional community.
               </p>
               
               <div className="space-y-4">
@@ -283,8 +283,8 @@ const LandingPage = () => {
             Ready to Reconnect with Your Alumni Network?
           </h2>
           <p className="text-xl text-ocean-100 mb-8">
-            Join the AMET Alumni network today and unlock exclusive opportunities, 
-            connect with fellow graduates, and advance your maritime career.
+            Join the Alumni network today and unlock exclusive opportunities, 
+            connect with fellow graduates, and advance your career.
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -314,12 +314,12 @@ const LandingPage = () => {
                   <span className="text-white font-bold text-lg">A</span>
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-white">AMET Alumni</h3>
-                  <p className="text-gray-400 text-sm">Maritime Education Network</p>
+                  <h3 className="text-xl font-bold text-white">Alumni Network</h3>
+                  <p className="text-gray-400 text-sm">Professional Education Network</p>
                 </div>
               </div>
               <p className="text-gray-400 max-w-md">
-                Connecting AMET graduates worldwide through professional networking, 
+                Connecting graduates worldwide through professional networking, 
                 career opportunities, and lifelong learning.
               </p>
             </div>
@@ -327,7 +327,7 @@ const LandingPage = () => {
             <div>
               <h4 className="text-white font-semibold mb-4">Quick Links</h4>
               <ul className="space-y-2 text-gray-400">
-                <li><Link to="/about" className="hover:text-white transition-colors">About AMET</Link></li>
+                <li><Link to="/about" className="hover:text-white transition-colors">About Us</Link></li>
                 <li><Link to="/events" className="hover:text-white transition-colors">Events</Link></li>
                 <li><Link to="/jobs" className="hover:text-white transition-colors">Career Center</Link></li>
                 <li><Link to="/directory" className="hover:text-white transition-colors">Alumni Directory</Link></li>
@@ -346,7 +346,7 @@ const LandingPage = () => {
           </div>
           
           <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
-            <p>&copy; {new Date().getFullYear()} AMET Alumni. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} Alumni Network. All rights reserved.</p>
           </div>
         </div>
       </div>

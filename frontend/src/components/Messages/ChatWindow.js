@@ -8,7 +8,8 @@ import {
   ChatBubbleLeftRightIcon,
   ExclamationTriangleIcon,
   UserPlusIcon,
-  ArrowLeftIcon
+  ArrowLeftIcon,
+  PaperClipIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import MessageBubble from './MessageBubble';
@@ -21,14 +22,23 @@ import { ensureDmThreadWith, sendDmMessage, mapDmErrorToMessage, fetchThreadMess
 import { useProfileById } from '../../hooks/useProfileById';
 import { useAuth } from '../../contexts/AuthContext';
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const ALLOWED_FILE_TYPES = [
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+  'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+];
+
 const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, onBack }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [otherProfile, setOtherProfile] = useState(null);
   const [activeThread, setActiveThread] = useState(thread || null);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
   const { profile: otherUserProfile } = useProfileById(activeThread?.other_user_id);
@@ -294,6 +304,76 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
     };
     loadEdge();
   }, [currentUser?.id, activeThread?.other_user_id, checkConnection]);
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(`File too large. Maximum size is 10MB. Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB.`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    // Validate file type
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      toast.error('File type not allowed. Allowed types: Images (JPEG, PNG, GIF), PDF, Word, Excel, Text');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    if (!activeThread?.thread_id) {
+      toast.error('Cannot upload file - no active conversation');
+      return;
+    }
+
+    if (!canSend) {
+      toast.error('Cannot send files - connection required or account not approved');
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      // Upload to storage
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${currentUser.id}/${activeThread.thread_id}/${Date.now()}.${fileExt}`;
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('message-attachments')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('message-attachments')
+        .getPublicUrl(fileName);
+
+      // Send message with attachment
+      await sendDmMessage(activeThread.thread_id, `Sent: ${file.name}`, {
+        message_type: 'file',
+        attachment_url: publicUrl,
+        file_name: file.name,
+        file_size: file.size,
+        mime_type: file.type
+      });
+
+      toast.success('File sent');
+      if (typeof onMessageSent === 'function') {
+        onMessageSent();
+      }
+    } catch (err) {
+      logger.error('Error uploading file:', err);
+      toast.error('Failed to upload file: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleSendMessage = async (e) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
@@ -746,6 +826,34 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
           className="flex items-end space-x-2"
           aria-label="Send a message"
         >
+          {/* File upload button */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            className="hidden"
+            accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+            disabled={!canSend || isUploading}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!canSend || isUploading}
+            aria-label="Attach file"
+            title="Attach file (max 10MB) - Images (JPG, PNG, GIF), PDF, Word, Excel, Text files allowed"
+            className="p-3 rounded-lg text-gray-500 hover:text-ocean-600 hover:bg-ocean-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors relative group"
+          >
+            {isUploading ? (
+              <div className="spinner spinner-sm" aria-hidden="true" />
+            ) : (
+              <PaperClipIcon className="w-5 h-5" aria-hidden="true" />
+            )}
+            {/* Tooltip */}
+            <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+              Max 10MB • Images, PDF, Office docs
+            </span>
+          </button>
+
           <div className="flex-1">
             <label htmlFor="message-input" className="sr-only">
               Type your message
@@ -800,12 +908,18 @@ const ChatWindow = ({ thread, currentUser, onMessageSent, onConnectionAccepted, 
         {/* Status announcement for screen readers */}
         <div className="sr-only" aria-live="polite" aria-atomic="true">
           {isSending && 'Sending message...'}
+          {isUploading && 'Uploading file...'}
         </div>
         {!isFullyApproved && (
           <p className="mt-1 text-xs text-yellow-700" role="note">
             {approvalStatus === 'pending'
               ? 'Your account is pending approval. You can read messages but cannot send new ones yet.'
               : 'You are not allowed to send new messages yet. Please contact an administrator.'}
+          </p>
+        )}
+        {isFullyApproved && canSendDerived && (
+          <p className="mt-1 text-xs text-gray-500" role="note">
+            File attachments: max 10MB (Images, PDF, Word, Excel, Text)
           </p>
         )}
       </div>

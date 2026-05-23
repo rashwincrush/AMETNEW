@@ -84,7 +84,7 @@ const Navigation = () => {
           <div className="flex items-center space-x-3">
             <Logo className="h-10 w-auto" />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">AMET Alumni</h1>
+              <h1 className="text-xl font-bold text-gray-900">Alumni Network</h1>
             </div>
           </div>
         </div>
@@ -166,7 +166,7 @@ const Navigation = () => {
           <div className="p-4 border-b">
             <div className="flex items-center space-x-3">
               <Logo className="h-8 w-auto" />
-              <h2 className="text-lg font-semibold">AMET Alumni</h2>
+              <h2 className="text-lg font-semibold">Alumni Network</h2>
             </div>
           </div>
           <nav aria-label="Main navigation" className="flex-1 overflow-y-auto p-3 space-y-1">

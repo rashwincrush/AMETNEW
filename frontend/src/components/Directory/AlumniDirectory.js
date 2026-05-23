@@ -288,7 +288,7 @@ const AlumniDirectory = () => {
       <div className="max-w-7xl mx-auto">
         <header className="mb-8">
           <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Alumni Directory</h1>
-          <p className="mt-2 text-lg text-gray-600">Explore and connect with the AMET University alumni network.</p>
+          <p className="mt-2 text-lg text-gray-600">Explore and connect with the alumni network.</p>
         </header>
 
         <div className="flex flex-col md:flex-row gap-4 mb-6">

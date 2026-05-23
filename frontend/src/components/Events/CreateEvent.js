@@ -203,10 +203,16 @@ const CreateEvent = () => {
       if (formData.type === 'virtual' && !formData.virtualLink.trim()) {
         newErrors.virtualLink = 'Virtual meeting link is required';
       }
-      // Ensure maxAttendees is treated as a number for comparison
-      const maxAttendeesNum = parseInt(formData.maxAttendees, 10);
-      if (isNaN(maxAttendeesNum) || maxAttendeesNum < 1) {
-        newErrors.maxAttendees = 'Maximum attendees must be a number and at least 1';
+      // Validate maxAttendees - required field
+      if (!formData.maxAttendees || formData.maxAttendees.toString().trim() === '') {
+        newErrors.maxAttendees = 'Maximum attendees is required';
+      } else {
+        const maxAttendeesNum = parseInt(formData.maxAttendees, 10);
+        if (isNaN(maxAttendeesNum)) {
+          newErrors.maxAttendees = 'Maximum attendees must be a valid number';
+        } else if (maxAttendeesNum < 1) {
+          newErrors.maxAttendees = 'Maximum attendees must be at least 1';
+        }
       }
       // Ensure price is treated as a number for comparison
       const priceNum = parseFloat(formData.price);
@@ -270,8 +276,46 @@ const CreateEvent = () => {
       logger.log('Form validation starting...');
       const isFormValid = validateForm();
       if (!isFormValid) {
-        logger.log('handleSubmit: Form validation failed. Errors:', JSON.stringify(errors)); // Log current errors state
-        toast.error('Please fix the errors before submitting.');
+        // Get current validation errors directly from the validation result
+        const newErrors = {};
+        if (!formData.title.trim()) newErrors.title = 'Event title is required';
+        if (!formData.description.trim()) newErrors.description = 'Description is required';
+        if (!formData.date) newErrors.date = 'Date is required';
+        if (!formData.startTime) newErrors.startTime = 'Start time is required';
+        if (!formData.endTime) newErrors.endTime = 'End time is required';
+        if (formData.type === 'in-person') {
+          if (!formData.venue.trim()) newErrors.venue = 'Venue name is required';
+          if (!formData.address.trim()) newErrors.address = 'Address is required';
+        }
+        if (formData.type === 'virtual' && !formData.virtualLink.trim()) {
+          newErrors.virtualLink = 'Virtual meeting link is required';
+        }
+        if (!formData.maxAttendees || formData.maxAttendees.toString().trim() === '') {
+          newErrors.maxAttendees = 'Maximum attendees is required';
+        } else {
+          const maxAttendeesNum = parseInt(formData.maxAttendees, 10);
+          if (isNaN(maxAttendeesNum)) {
+            newErrors.maxAttendees = 'Maximum attendees must be a valid number';
+          } else if (maxAttendeesNum < 1) {
+            newErrors.maxAttendees = 'Maximum attendees must be at least 1';
+          }
+        }
+        if (!formData.organizerName.trim()) newErrors.organizerName = 'Organizer name is required';
+        if (!formData.organizerEmail.trim()) newErrors.organizerEmail = 'Organizer email is required';
+
+        // Build specific error message
+        const errorList = Object.values(newErrors);
+        let errorMessage;
+        if (errorList.length === 1) {
+          errorMessage = errorList[0];
+        } else if (errorList.length <= 3) {
+          errorMessage = `Please fix the following: ${errorList.join(', ')}`;
+        } else {
+          errorMessage = `Please fix ${errorList.length} errors marked in the form`;
+        }
+        
+        logger.log('handleSubmit: Form validation failed. Errors:', JSON.stringify(newErrors));
+        toast.error(errorMessage);
         return;
       }
       logger.log('Form validation passed');
@@ -334,15 +378,6 @@ const CreateEvent = () => {
         .single();
       logger.log('Response from insert:', { data: row, error: insertError });
 
-      if (row?.id && formData.image) {
-        await saveEventImage({
-          supabase,
-          eventId: row.id,
-          file: formData.image,
-          oldPath: row.featured_image_path,
-        });
-      }
-
       if (insertError) {
         logger.error('Supabase insert error:', insertError);
         throw insertError;
@@ -351,6 +386,26 @@ const CreateEvent = () => {
       if (!row) {
         logger.error('Event created but no data returned. Check RLS policies.');
         throw new Error('Event was not created successfully. You may not have permission to view it.');
+      }
+
+      // Upload event image if provided (non-blocking - event is already created)
+      if (row?.id && formData.image) {
+        try {
+          await saveEventImage({
+            supabase,
+            eventId: row.id,
+            file: formData.image,
+            oldPath: row.featured_image_path,
+          });
+          logger.log('Event image uploaded successfully');
+        } catch (imageError) {
+          // Log the error but don't fail the event creation
+          logger.warn('Event image upload failed (storage RLS issue):', imageError);
+          // Show success toast but mention the image issue - event is already created
+          toast.success('Event created! (Cover image could not be uploaded - you can add it later by editing the event.)');
+          navigate('/events');
+          return; // Exit early - we've already shown the toast and navigated
+        }
       }
       
       toast.success('Event created successfully!');
@@ -371,7 +426,7 @@ const CreateEvent = () => {
       {/* Header */}
       <div className="glass-card rounded-lg p-6">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Create New Event</h1>
-        <p className="text-gray-600">Organize and manage events for the AMET alumni community</p>
+        <p className="text-gray-600">Organize and manage events for the alumni community</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -566,7 +621,7 @@ const CreateEvent = () => {
                 value={formData.venue}
                 onChange={handleInputChange}
                 className={`form-input w-full px-3 py-2 rounded-lg ${errors.venue ? 'border-red-500' : ''}`}
-                placeholder="e.g., AMET Campus Auditorium"
+                placeholder="e.g., Campus Auditorium"
               />
               {errors.venue && <p className="text-red-500 text-sm mt-1">{errors.venue}</p>}
             </div>

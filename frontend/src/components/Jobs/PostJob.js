@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../utils/supabase';
@@ -37,6 +37,39 @@ import {
 
 const steps = ['Core Info', 'Job Content', 'Details & Contact'];
 
+// STATE INVENTORY
+// Local state:
+//   - activeStep: Number (0-2) for current step in 3-step wizard
+//   - isSubmitting: Boolean preventing double-submit during API calls
+//   - errors: Object mapping field names -> error messages
+//   - publishIntent: Boolean tracking if user attempted to publish (for validation)
+//   - logoFile: File object for job logo upload
+//   - logoPreview: String URL for logo preview (blob URL)
+//   - showSelectionScreen: Boolean showing 'Quick Link' vs 'Form' selection
+//   - postingType: String 'link' or 'form' for chosen posting method
+//   - draftBanner: Object { timestamp, formattedDate } or null for draft resume banner
+//   - isDirty: Boolean tracking if form has unsaved changes
+//   - formData: Object with all job form fields (title, company_name, location, etc.)
+// Refs:
+//   - lastSavedRef: Date object of last draft save time
+//   - fieldRefs: Object mapping field names -> DOM refs (for focus-on-error)
+//   - draftSaveIntervalRef: Interval ID for auto-save timer (30 seconds)
+// Context consumed:
+//   - useAuth: { user, profile, userRole, isAdmin } - Current user details
+//   - useApproval: { loading: apprLoading, isApprovedEmployer } - Employer approval status
+//   - useNavigate: navigate function for routing
+// Side effects:
+//   - useEffect [profile]: No-op (was for employer defaults, now removed)
+//   - useEffect [formData]: Recalculates validation errors when form changes (if publishIntent)
+//   - useEffect [user?.id, loadDraft]: Check for existing draft on mount, show resume banner
+//   - useEffect [postingType, isDirty, saveDraft]: Auto-save draft every 30 seconds when dirty
+//   - useEffect [activeStep, postingType, isDirty, saveDraft]: Save draft on step transition
+//   - useEffect [blocker]: Handle navigation confirmation when leaving with unsaved changes
+// Optimistic updates:
+//   - None (all updates wait for API confirmation)
+//   - Draft saving happens in background without blocking UI
+//   - Navigation blocking prevents data loss when dirty
+
 const PostJob = () => {
   const { user, profile, userRole, isAdmin } = useAuth();
   const { loading: apprLoading, isApprovedEmployer } = useApproval();
@@ -51,6 +84,15 @@ const PostJob = () => {
   const [logoPreview, setLogoPreview] = useState('');
   const [showSelectionScreen, setShowSelectionScreen] = useState(true);
   const [postingType, setPostingType] = useState(null); // 'link' or 'form'
+  
+  // Draft state
+  const [draftBanner, setDraftBanner] = useState(null); // { timestamp, formattedDate } or null
+  const [isDirty, setIsDirty] = useState(false);
+  const lastSavedRef = useRef(null);
+  
+  // Refs for focus-on-error behavior
+  const fieldRefs = useRef({});
+  const draftSaveIntervalRef = useRef(null);
 
   useEffect(() => {
     // No employer-derived defaults; all company fields are user-entered.
@@ -85,8 +127,174 @@ const PostJob = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    setIsDirty(true);
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  };
+
+  // Get draft key for current user
+  const getDraftKey = useCallback(() => {
+    if (!user?.id) return null;
+    return `postjob_draft_${user.id}`;
+  }, [user?.id]);
+
+  // Save draft to localStorage
+  const saveDraft = useCallback((showToast = false) => {
+    const draftKey = getDraftKey();
+    if (!draftKey || !postingType) return;
+    
+    const draft = {
+      formData,
+      postingType,
+      activeStep,
+      logoPreview,
+      timestamp: new Date().toISOString(),
+      version: '1.0'
+    };
+    
+    try {
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+      lastSavedRef.current = new Date();
+      
+      if (showToast) {
+        toast.success('Draft saved', {
+          duration: 2000,
+          position: 'bottom-center',
+          style: { fontSize: '14px', padding: '8px 16px' }
+        });
+      }
+    } catch (err) {
+      logger.error('Error saving draft:', err);
+    }
+  }, [formData, postingType, activeStep, logoPreview, getDraftKey]);
+
+  // Load draft from localStorage
+  const loadDraft = useCallback(() => {
+    const draftKey = getDraftKey();
+    if (!draftKey) return null;
+    
+    try {
+      const saved = localStorage.getItem(draftKey);
+      if (!saved) return null;
+      
+      const draft = JSON.parse(saved);
+      return draft;
+    } catch (err) {
+      logger.error('Error loading draft:', err);
+      return null;
+    }
+  }, [getDraftKey]);
+
+  // Clear draft from localStorage
+  const clearDraft = useCallback(() => {
+    const draftKey = getDraftKey();
+    if (!draftKey) return;
+    
+    try {
+      localStorage.removeItem(draftKey);
+      setDraftBanner(null);
+      setIsDirty(false);
+    } catch (err) {
+      logger.error('Error clearing draft:', err);
+    }
+  }, [getDraftKey]);
+
+  // Resume draft - populate form with saved values
+  const resumeDraft = useCallback((draft) => {
+    if (!draft) return;
+    
+    setFormData(draft.formData || formData);
+    setPostingType(draft.postingType || null);
+    setActiveStep(draft.activeStep || 0);
+    setLogoPreview(draft.logoPreview || '');
+    setShowSelectionScreen(false);
+    setDraftBanner(null);
+    setIsDirty(true);
+    
+    toast.success('Draft resumed');
+  }, [formData]);
+
+  // Check for draft on mount
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    const draft = loadDraft();
+    if (draft?.timestamp) {
+      const date = new Date(draft.timestamp);
+      const formattedDate = date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      
+      setDraftBanner({
+        timestamp: draft.timestamp,
+        formattedDate
+      });
+    }
+  }, [user?.id, loadDraft]);
+
+  // Auto-save draft every 30 seconds when dirty
+  useEffect(() => {
+    if (!postingType || !isDirty) {
+      if (draftSaveIntervalRef.current) {
+        clearInterval(draftSaveIntervalRef.current);
+        draftSaveIntervalRef.current = null;
+      }
+      return;
+    }
+    
+    // Save immediately when becoming dirty (silent, no toast)
+    saveDraft(false);
+    
+    // Set up interval for auto-save with toast notification
+    draftSaveIntervalRef.current = setInterval(() => {
+      saveDraft(true);
+    }, 30000); // 30 seconds
+    
+    return () => {
+      if (draftSaveIntervalRef.current) {
+        clearInterval(draftSaveIntervalRef.current);
+      }
+    };
+  }, [postingType, isDirty, saveDraft]);
+
+  // Save draft on step transition
+  useEffect(() => {
+    if (postingType && isDirty) {
+      saveDraft(false);
+    }
+  }, [activeStep, postingType, isDirty, saveDraft]);
+
+  // Navigation blocker for unsaved changes using beforeunload
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = ''; // Chrome requires returnValue to be set
+        return ''; // Other browsers
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isDirty]);
+
+  // Helper to focus first field with error
+  const focusFirstError = (errorObj) => {
+    const firstErrorField = Object.keys(errorObj)[0];
+    if (firstErrorField && fieldRefs.current[firstErrorField]) {
+      const field = fieldRefs.current[firstErrorField];
+      // For MUI TextField, focus the input element inside
+      const input = field.querySelector('input, textarea, select') || field;
+      if (input && input.focus) {
+        input.focus();
+      }
     }
   };
 
@@ -108,6 +316,7 @@ const PostJob = () => {
 
     setLogoFile(file);
     setLogoPreview(URL.createObjectURL(file));
+    setIsDirty(true);
   };
 
   const validateStep = () => {
@@ -128,11 +337,20 @@ const PostJob = () => {
     }
     // No validation for step 1 (Job Content) or step 2 (Details & Contact) as fields are optional.
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    const isValid = Object.keys(newErrors).length === 0;
+    if (!isValid) {
+      // Focus first error field after state update
+      setTimeout(() => focusFirstError(newErrors), 0);
+    }
+    return isValid;
   };
 
   const handleNext = () => {
     if (validateStep()) {
+      // Save draft before step transition
+      if (postingType) {
+        saveDraft(false);
+      }
       setActiveStep((prevActiveStep) => prevActiveStep + 1);
     }
   };
@@ -157,7 +375,11 @@ const PostJob = () => {
       newErrors.deadline = 'Application deadline is required.';
     }
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    const isValid = Object.keys(newErrors).length === 0;
+    if (!isValid) {
+      setTimeout(() => focusFirstError(newErrors), 0);
+    }
+    return isValid;
   };
 
   const handleQuickLinkSubmit = async (e) => {
@@ -183,6 +405,7 @@ const PostJob = () => {
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) {
       toast.error('Please fix the errors highlighted above.');
+      setTimeout(() => focusFirstError(newErrors), 0);
       return;
     }
 
@@ -203,20 +426,28 @@ const PostJob = () => {
           const cleanFileName = logoFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
           const fileName = `${session.user.id}/${Date.now()}_${cleanFileName}`;
 
+          // eslint-disable-next-line no-console
+          console.log('[STORAGE CALL]', 'logos.upload (quick link)', { fileName, fileSize: logoFile.size });
           const { error: uploadError } = await supabase.storage
-            .from('company-logos')
+            .from('logos')
             .upload(fileName, logoFile, {
               cacheControl: '3600',
               upsert: false
             });
+          // eslint-disable-next-line no-console
+          console.log('[STORAGE RESULT]', 'logos.upload (quick link)', { error: uploadError });
 
           if (uploadError) {
             throw new Error(`Failed to upload logo: ${uploadError.message}`);
           }
 
+          // eslint-disable-next-line no-console
+          console.log('[STORAGE CALL]', 'logos.getPublicUrl (quick link)', { fileName });
           const { data: urlData } = supabase.storage
-            .from('company-logos')
+            .from('logos')
             .getPublicUrl(fileName);
+          // eslint-disable-next-line no-console
+          console.log('[STORAGE RESULT]', 'logos.getPublicUrl (quick link)', { data: urlData });
           logoUrl = urlData.publicUrl;
         } catch (err) {
           logger.error('Logo upload failed (quick link):', err);
@@ -251,6 +482,7 @@ const PostJob = () => {
       if (jobError) throw jobError;
 
       toast.success('Quick link job posted successfully.');
+      clearDraft(); // Clear draft on successful submission
       navigate('/jobs');
 
     } catch (err) {
@@ -323,20 +555,28 @@ const PostJob = () => {
           const cleanFileName = logoFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
           const fileName = `${session.user.id}/${Date.now()}_${cleanFileName}`;
 
+          // eslint-disable-next-line no-console
+          console.log('[STORAGE CALL]', 'logos.upload (full form)', { fileName, fileSize: logoFile.size });
           const { error: uploadError } = await supabase.storage
-            .from('company-logos')
+            .from('logos')
             .upload(fileName, logoFile, {
               cacheControl: '3600',
               upsert: false
             });
+          // eslint-disable-next-line no-console
+          console.log('[STORAGE RESULT]', 'logos.upload (full form)', { error: uploadError });
 
           if (uploadError) {
             throw new Error(`Failed to upload logo: ${uploadError.message}`);
           }
 
+          // eslint-disable-next-line no-console
+          console.log('[STORAGE CALL]', 'logos.getPublicUrl (full form)', { fileName });
           const { data: urlData } = supabase.storage
-            .from('company-logos')
+            .from('logos')
             .getPublicUrl(fileName);
+          // eslint-disable-next-line no-console
+          console.log('[STORAGE RESULT]', 'logos.getPublicUrl (full form)', { data: urlData });
           jobLogoUrl = urlData.publicUrl;
         } catch (err) {
           logger.error('Logo upload failed (full form):', err);
@@ -369,6 +609,8 @@ const PostJob = () => {
       
       logger.log("Job created successfully");
       toast.success('Your job has been posted successfully.');
+      clearDraft(); // Clear draft on successful submission
+      setIsDirty(false);
 
       const newJobId = Array.isArray(newJob) ? newJob[0]?.id : newJob?.id;
       if (newJobId) {
@@ -396,30 +638,99 @@ const PostJob = () => {
         return (
           <Grid container spacing={3}>
             <Grid item xs={12}>
-              <TextField required fullWidth name="title" label="Job Title" value={formData.title} onChange={handleChange} error={!!errors.title} helperText={errors.title} placeholder="e.g., Mechanical Engineer – Shipyard" />
+              <div ref={(el) => fieldRefs.current.title = el}>
+                <TextField 
+                  required 
+                  fullWidth 
+                  name="title" 
+                  label="Job Title" 
+                  value={formData.title} 
+                  onChange={handleChange} 
+                  error={!!errors.title} 
+                  helperText={errors.title}
+                  placeholder="e.g., Mechanical Engineer – Shipyard" 
+                  inputProps={{ 'aria-describedby': errors.title ? 'title-error' : undefined }}
+                  InputProps={{ 'aria-required': true }}
+                  FormHelperTextProps={{ id: 'title-error', 'aria-live': 'polite' }}
+                />
+              </div>
             </Grid>
             <Grid item xs={12}>
-              <TextField required fullWidth name="company_name" label="Company Name" value={formData.company_name} onChange={handleChange} error={!!errors.company_name} helperText={errors.company_name} />
+              <div ref={(el) => fieldRefs.current.company_name = el}>
+                <TextField 
+                  required 
+                  fullWidth 
+                  name="company_name" 
+                  label="Company Name" 
+                  value={formData.company_name} 
+                  onChange={handleChange} 
+                  error={!!errors.company_name} 
+                  helperText={errors.company_name}
+                  inputProps={{ 'aria-describedby': errors.company_name ? 'company_name-error' : undefined }}
+                  InputProps={{ 'aria-required': true }}
+                  FormHelperTextProps={{ id: 'company_name-error', 'aria-live': 'polite' }}
+                />
+              </div>
             </Grid>
             <Grid item xs={12}>
-              <TextField required fullWidth name="location" label="Location" value={formData.location} onChange={handleChange} error={!!errors.location} helperText={errors.location} placeholder="e.g., Mumbai, Maharashtra, India" />
+              <div ref={(el) => fieldRefs.current.location = el}>
+                <TextField 
+                  required 
+                  fullWidth 
+                  name="location" 
+                  label="Location" 
+                  value={formData.location} 
+                  onChange={handleChange} 
+                  error={!!errors.location} 
+                  helperText={errors.location}
+                  placeholder="e.g., Mumbai, Maharashtra, India"
+                  inputProps={{ 'aria-describedby': errors.location ? 'location-error' : undefined }}
+                  InputProps={{ 'aria-required': true }}
+                  FormHelperTextProps={{ id: 'location-error', 'aria-live': 'polite' }}
+                />
+              </div>
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField select fullWidth required name="job_type" label="Job Type" value={formData.job_type} onChange={handleChange}>
-                <MenuItem value="Full-time">Full-time</MenuItem>
-                <MenuItem value="Part-time">Part-time</MenuItem>
-                <MenuItem value="Contract">Contract</MenuItem>
-                <MenuItem value="Internship">Internship</MenuItem>
-                <MenuItem value="Temporary">Temporary</MenuItem>
-              </TextField>
+              <div ref={(el) => fieldRefs.current.job_type = el}>
+                <TextField 
+                  select 
+                  fullWidth 
+                  required 
+                  name="job_type" 
+                  label="Job Type" 
+                  value={formData.job_type} 
+                  onChange={handleChange}
+                  inputProps={{ 'aria-describedby': errors.job_type ? 'job_type-error' : undefined, 'aria-required': true }}
+                  FormHelperTextProps={{ id: 'job_type-error', 'aria-live': 'polite' }}
+                  error={!!errors.job_type}
+                  helperText={errors.job_type}
+                >
+                  <MenuItem value="Full-time">Full-time</MenuItem>
+                  <MenuItem value="Part-time">Part-time</MenuItem>
+                  <MenuItem value="Contract">Contract</MenuItem>
+                  <MenuItem value="Internship">Internship</MenuItem>
+                  <MenuItem value="Temporary">Temporary</MenuItem>
+                </TextField>
+              </div>
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField select fullWidth required name="experience_level" label="Experience Level" value={formData.experience_level} onChange={handleChange}>
-                <MenuItem value="Entry">Entry</MenuItem>
-                <MenuItem value="Mid">Mid-level</MenuItem>
-                <MenuItem value="Senior">Senior</MenuItem>
-                <MenuItem value="Director+">Director+</MenuItem>
-              </TextField>
+              <div ref={(el) => fieldRefs.current.experience_level = el}>
+                <TextField 
+                  select 
+                  fullWidth 
+                  required 
+                  name="experience_level" 
+                  label="Experience Level" 
+                  value={formData.experience_level} 
+                  onChange={handleChange}
+                  inputProps={{ 'aria-required': true }}
+                >
+                  <MenuItem value="Entry">Entry</MenuItem>
+                  <MenuItem value="Mid">Mid-level</MenuItem>
+                  <MenuItem value="Senior">Senior</MenuItem>
+                  <MenuItem value="Director+">Director+</MenuItem>
+                </TextField>
+              </div>
             </Grid>
           </Grid>
         );
@@ -427,23 +738,43 @@ const PostJob = () => {
         return (
           <Grid container spacing={3}>
             <Grid item xs={12}>
-              <TextField
-                fullWidth
-                multiline
-                rows={3}
-                name="description"
-                label="Job Description"
-                value={formData.description}
-                onChange={handleChange}
-                error={!!errors.description}
-                helperText={errors.description || 'Add your required qualification inside the description.'}
+              <div ref={(el) => fieldRefs.current.description = el}>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={3}
+                  name="description"
+                  label="Job Description"
+                  value={formData.description}
+                  onChange={handleChange}
+                  error={!!errors.description}
+                  helperText={errors.description || 'Add your required qualification inside the description.'}
+                  inputProps={{ 'aria-describedby': errors.description ? 'description-error' : undefined }}
+                  FormHelperTextProps={{ id: 'description-error', 'aria-live': 'polite' }}
+                />
+              </div>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField 
+                fullWidth 
+                multiline 
+                rows={5} 
+                name="requirements" 
+                label="Responsibilities" 
+                value={formData.requirements} 
+                onChange={handleChange} 
+                placeholder="" 
               />
             </Grid>
             <Grid item xs={12}>
-              <TextField fullWidth multiline rows={5} name="requirements" label="Responsibilities" value={formData.requirements} onChange={handleChange} placeholder="" />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField fullWidth name="nice_to_have_skills" label="Nice-to-have Skills (comma-separated)" value={formData.nice_to_have_skills} onChange={handleChange} placeholder="e.g., AutoCAD, Project Management" />
+              <TextField 
+                fullWidth 
+                name="nice_to_have_skills" 
+                label="Nice-to-have Skills (comma-separated)" 
+                value={formData.nice_to_have_skills} 
+                onChange={handleChange} 
+                placeholder="e.g., AutoCAD, Project Management" 
+              />
             </Grid>
           </Grid>
         );
@@ -451,19 +782,73 @@ const PostJob = () => {
         return (
           <Grid container spacing={3}>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="department" label="Department" value={formData.department} onChange={handleChange} placeholder="e.g., Marine Engineering" />
+              <TextField 
+                fullWidth 
+                name="department" 
+                label="Department" 
+                value={formData.department} 
+                onChange={handleChange} 
+                placeholder="e.g., Engineering" 
+              />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="industry" label="Industry" value={formData.industry} onChange={handleChange} placeholder="e.g., Maritime" />
+              <TextField 
+                fullWidth 
+                name="industry" 
+                label="Industry" 
+                value={formData.industry} 
+                onChange={handleChange} 
+                placeholder="e.g., Industry" 
+              />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="salary_min" label="Salary Minimum" type="number" value={formData.salary_min} onChange={handleChange} />
+              <div ref={(el) => fieldRefs.current.salary_min = el}>
+                <TextField 
+                  fullWidth 
+                  name="salary_min" 
+                  label="Salary Minimum" 
+                  type="number" 
+                  value={formData.salary_min} 
+                  onChange={handleChange}
+                  error={!!errors.salary_min}
+                  helperText={errors.salary_min}
+                  inputProps={{ 'aria-describedby': errors.salary_min ? 'salary_min-error' : undefined }}
+                  FormHelperTextProps={{ id: 'salary_min-error', 'aria-live': 'polite' }}
+                />
+              </div>
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="salary_max" label="Salary Maximum" type="number" value={formData.salary_max} onChange={handleChange} />
+              <div ref={(el) => fieldRefs.current.salary_max = el}>
+                <TextField 
+                  fullWidth 
+                  name="salary_max" 
+                  label="Salary Maximum" 
+                  type="number" 
+                  value={formData.salary_max} 
+                  onChange={handleChange}
+                  error={!!errors.salary_max}
+                  helperText={errors.salary_max}
+                  inputProps={{ 'aria-describedby': errors.salary_max ? 'salary_max-error' : undefined }}
+                  FormHelperTextProps={{ id: 'salary_max-error', 'aria-live': 'polite' }}
+                />
+              </div>
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth type="date" name="deadline" label="Application Deadline" value={formData.deadline} onChange={handleChange} InputLabelProps={{ shrink: true }} />
+              <div ref={(el) => fieldRefs.current.deadline = el}>
+                <TextField 
+                  fullWidth 
+                  type="date" 
+                  name="deadline" 
+                  label="Application Deadline" 
+                  value={formData.deadline} 
+                  onChange={handleChange} 
+                  InputLabelProps={{ shrink: true }}
+                  error={!!errors.deadline}
+                  helperText={errors.deadline}
+                  inputProps={{ 'aria-describedby': errors.deadline ? 'deadline-error' : undefined, 'aria-required': true }}
+                  FormHelperTextProps={{ id: 'deadline-error', 'aria-live': 'polite' }}
+                />
+              </div>
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField 
@@ -523,13 +908,41 @@ const PostJob = () => {
               <Divider sx={{ my: 2 }}><Typography variant="overline">Contact Information</Typography></Divider>
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="contact_name" label="Hiring Manager Name" value={formData.contact_name} onChange={handleChange} placeholder="e.g., John Smith" />
+              <TextField 
+                fullWidth 
+                name="contact_name" 
+                label="Hiring Manager Name" 
+                value={formData.contact_name} 
+                onChange={handleChange} 
+                placeholder="e.g., John Smith" 
+              />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="contact_email" type="email" label="Hiring Contact Email" value={formData.contact_email} onChange={handleChange} error={!!errors.contact_email} helperText={errors.contact_email} />
+              <div ref={(el) => fieldRefs.current.contact_email = el}>
+                <TextField 
+                  fullWidth 
+                  name="contact_email" 
+                  type="email" 
+                  label="Hiring Contact Email" 
+                  value={formData.contact_email} 
+                  onChange={handleChange} 
+                  error={!!errors.contact_email} 
+                  helperText={errors.contact_email}
+                  inputProps={{ 'aria-describedby': errors.contact_email ? 'contact_email-error' : undefined, 'aria-required': true }}
+                  FormHelperTextProps={{ id: 'contact_email-error', 'aria-live': 'polite' }}
+                />
+              </div>
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField fullWidth name="contact_phone" type="tel" label="Hiring Contact Phone" value={formData.contact_phone} onChange={handleChange} placeholder="e.g., +91 9876543210" />
+              <TextField 
+                fullWidth 
+                name="contact_phone" 
+                type="tel" 
+                label="Hiring Contact Phone" 
+                value={formData.contact_phone} 
+                onChange={handleChange} 
+                placeholder="e.g., +91 9876543210" 
+              />
             </Grid>
             <Grid item xs={12}>
               <Typography variant="caption" color="text.secondary">
@@ -556,6 +969,7 @@ const PostJob = () => {
   const handleOptionSelect = (type) => {
     setPostingType(type);
     setShowSelectionScreen(false);
+    setIsDirty(true);
     
     // Reset form for link posting type
     if (type === 'link') {
@@ -573,6 +987,7 @@ const PostJob = () => {
     setShowSelectionScreen(true);
     setPostingType(null);
     setActiveStep(0);
+    setIsDirty(false);
   };
 
   if (!apprLoading && !isApprovedEmployer && !isAdmin) {
@@ -598,7 +1013,7 @@ const PostJob = () => {
           </ul>
           <div className="pt-2">
             <p className="text-sm font-medium">Need help? Contact us at:</p>
-            <a href="mailto:admin@amet.edu" className="text-blue-600 hover:underline text-sm">admin@amet.edu</a>
+            <a href="mailto:admin@alumni.edu" className="text-blue-600 hover:underline text-sm">admin@alumni.edu</a>
           </div>
         </div>
       </div>
@@ -642,7 +1057,7 @@ const PostJob = () => {
               {showSelectionScreen ? 'Post a Job' : 'Post a Job Opening'}
             </Typography>
             <Typography variant="h6" color="text.secondary" sx={{ mb: 2 }}>
-              {showSelectionScreen ? 'Select a posting method' : 'Connect with talented maritime professionals'}
+              {showSelectionScreen ? 'Select a posting method' : 'Connect with talented professionals'}
             </Typography>
             {!showSelectionScreen && (
               <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, alignItems: 'center' }}>
@@ -663,6 +1078,64 @@ const PostJob = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Draft Resume Banner */}
+        {draftBanner && showSelectionScreen && (
+          <Card sx={{
+            mb: 3,
+            background: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)',
+            border: '1px solid #90caf9',
+            borderRadius: 2,
+            boxShadow: '0 2px 8px rgba(25, 118, 210, 0.15)'
+          }}>
+            <CardContent sx={{ p: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Box sx={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: '50%',
+                  background: 'linear-gradient(45deg, #1976d2, #42a5f5)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <DescriptionIcon sx={{ fontSize: 24, color: 'white' }} />
+                </Box>
+                <Box>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#1565c0' }}>
+                    You have an unsaved draft
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: '#1976d2' }}>
+                    From {draftBanner.formattedDate}
+                  </Typography>
+                </Box>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <Button
+                  variant="contained"
+                  onClick={() => resumeDraft(loadDraft())}
+                  sx={{
+                    background: 'linear-gradient(45deg, #1976d2, #42a5f5)',
+                    '&:hover': { background: 'linear-gradient(45deg, #1565c0, #1976d2)' }
+                  }}
+                >
+                  Resume Draft
+                </Button>
+                <Button
+                  variant="outlined"
+                  onClick={clearDraft}
+                  sx={{
+                    borderColor: '#1976d2',
+                    color: '#1976d2',
+                    '&:hover': { borderColor: '#1565c0', background: 'rgba(25, 118, 210, 0.04)' }
+                  }}
+                >
+                  Discard
+                </Button>
+              </Box>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Selection Screen or Progress Stepper */}
         {showSelectionScreen ? (
@@ -808,13 +1281,54 @@ const PostJob = () => {
                   
                   <Grid container spacing={3}>
                     <Grid item xs={12}>
-                      <TextField required fullWidth name="title" label="Job Title" value={formData.title} onChange={handleChange} error={!!errors.title} helperText={errors.title} />
+                      <div ref={(el) => fieldRefs.current.title = el}>
+                        <TextField 
+                          required 
+                          fullWidth 
+                          name="title" 
+                          label="Job Title" 
+                          value={formData.title} 
+                          onChange={handleChange} 
+                          error={!!errors.title} 
+                          helperText={errors.title}
+                          inputProps={{ 'aria-describedby': errors.title ? 'title-error' : undefined }}
+                          InputProps={{ 'aria-required': true }}
+                          FormHelperTextProps={{ id: 'title-error', 'aria-live': 'polite' }}
+                        />
+                      </div>
                     </Grid>
                     <Grid item xs={12}>
-                      <TextField fullWidth name="company_name" label="Company Name (Optional)" value={formData.company_name} onChange={handleChange} error={!!errors.company_name} helperText={errors.company_name} />
+                      <div ref={(el) => fieldRefs.current.company_name = el}>
+                        <TextField 
+                          fullWidth 
+                          name="company_name" 
+                          label="Company Name (Optional)" 
+                          value={formData.company_name} 
+                          onChange={handleChange} 
+                          error={!!errors.company_name} 
+                          helperText={errors.company_name}
+                          inputProps={{ 'aria-describedby': errors.company_name ? 'company_name-error' : undefined }}
+                          FormHelperTextProps={{ id: 'company_name-error', 'aria-live': 'polite' }}
+                        />
+                      </div>
                     </Grid>
                     <Grid item xs={12}>
-                      <TextField required fullWidth type="url" name="application_url" label="Application URL" value={formData.application_url} onChange={handleChange} error={!!errors.application_url} helperText={errors.application_url} />
+                      <div ref={(el) => fieldRefs.current.application_url = el}>
+                        <TextField 
+                          required 
+                          fullWidth 
+                          type="url" 
+                          name="application_url" 
+                          label="Application URL" 
+                          value={formData.application_url} 
+                          onChange={handleChange} 
+                          error={!!errors.application_url} 
+                          helperText={errors.application_url}
+                          inputProps={{ 'aria-describedby': errors.application_url ? 'application_url-error' : undefined, 'aria-required': true }}
+                          InputProps={{ 'aria-required': true }}
+                          FormHelperTextProps={{ id: 'application_url-error', 'aria-live': 'polite' }}
+                        />
+                      </div>
                     </Grid>
                     <Grid item xs={12}>
                       <Typography variant="subtitle1" gutterBottom>Company Logo (Optional)</Typography>
@@ -851,21 +1365,34 @@ const PostJob = () => {
                       </Typography>
                     </Grid>
                     <Grid item xs={12} sm={6}>
-                      <TextField
-                        required
-                        fullWidth
-                        type="date"
-                        name="deadline"
-                        label="Deadline"
-                        value={formData.deadline}
-                        onChange={handleChange}
-                        InputLabelProps={{ shrink: true }}
-                        error={!!errors.deadline}
-                        helperText={errors.deadline}
-                      />
+                      <div ref={(el) => fieldRefs.current.deadline = el}>
+                        <TextField
+                          required
+                          fullWidth
+                          type="date"
+                          name="deadline"
+                          label="Deadline"
+                          value={formData.deadline}
+                          onChange={handleChange}
+                          InputLabelProps={{ shrink: true }}
+                          error={!!errors.deadline}
+                          helperText={errors.deadline}
+                          inputProps={{ 'aria-describedby': errors.deadline ? 'deadline-error' : undefined, 'aria-required': true }}
+                          InputProps={{ 'aria-required': true }}
+                          FormHelperTextProps={{ id: 'deadline-error', 'aria-live': 'polite' }}
+                        />
+                      </div>
                     </Grid>
                     <Grid item xs={12}>
-                      <TextField fullWidth multiline rows={3} name="description" label="Summary (Optional)" value={formData.description} onChange={handleChange} />
+                      <TextField 
+                        fullWidth 
+                        multiline 
+                        rows={3} 
+                        name="description" 
+                        label="Summary (Optional)" 
+                        value={formData.description} 
+                        onChange={handleChange} 
+                      />
                     </Grid>
                   </Grid>
                   

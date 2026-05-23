@@ -8,9 +8,10 @@ import toast from 'react-hot-toast';
 import { toFriendlyToast, getFriendlyErrorMessage } from '../../utils/errors';
 import {
   Box, TextField, Button, Typography, Paper, Grid,
-  CircularProgress, MenuItem, Alert, Switch, FormControlLabel, Avatar
+  CircularProgress, MenuItem, Alert, Switch, FormControlLabel, Avatar, Chip
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import LightbulbIcon from '@mui/icons-material/Lightbulb';
 import { log } from '../../utils/log';
 import { validateJobUrls } from '../../utils/validators';
 import { toISODate } from '../../utils/dateClean';
@@ -41,10 +42,32 @@ const EditJob = () => {
   // just for coordinating when to start the fetch
   const [guardReady, setGuardReady] = useState(false);
 
+  // Inline suggestions from job posting (if match count was low)
+  const [inlineSuggestions, setInlineSuggestions] = useState([]);
+
   // Mount log
   useEffect(() => {
     log.group('[EDIT] mount', { routeId: id, path: location.pathname });
   }, [id, location.pathname]);
+
+  // Load inline suggestions from sessionStorage (set during job posting if match count was low)
+  useEffect(() => {
+    if (!id) return;
+    try {
+      const stored = sessionStorage.getItem(`job_suggestions_${id}`);
+      if (stored) {
+        const suggestions = JSON.parse(stored);
+        if (Array.isArray(suggestions) && suggestions.length > 0) {
+          setInlineSuggestions(suggestions);
+          // Clear after loading to avoid showing on future edits
+          sessionStorage.removeItem(`job_suggestions_${id}`);
+        }
+      }
+    } catch (e) {
+      // Non-blocking
+      logger.warn('Failed to load inline suggestions:', e);
+    }
+  }, [id]);
 
   const fetchJob = useCallback(async () => {
     if (!id) {
@@ -407,6 +430,28 @@ const EditJob = () => {
                 <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', mb: 3 }}>
                   Edit Job
                 </Typography>
+
+                {/* Inline Suggestions Banner */}
+                {inlineSuggestions.length > 0 && (
+                  <Box sx={{ mb: 3, p: 2, bgcolor: 'warning.light', borderRadius: 1 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1, color: 'warning.dark' }}>
+                      <LightbulbIcon fontSize="small" />
+                      Tips to reach more candidates:
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {inlineSuggestions.map((suggestion, index) => (
+                        <Chip
+                          key={index}
+                          label={suggestion}
+                          size="small"
+                          color="warning"
+                          variant="outlined"
+                          sx={{ height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5 } }}
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
 
                 <form onSubmit={handleSave}>
                   <Grid container spacing={3}>

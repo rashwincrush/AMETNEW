@@ -1,6 +1,6 @@
-# AMET Alumni Platform – Feature & Flow Deep Dive
+# Forgecircle Alumni Platform – Feature & Flow Deep Dive
 
-This document describes, in depth, the core UX modules of the AMET Alumni Platform:
+This document describes, in depth, the core UX modules of the Forgecircle Alumni Platform:
 
 - Navigation & Header
 - Dashboard
@@ -114,7 +114,7 @@ Role/permission references follow the enums and permission map in `src/contexts/
 
 - Use `MobileNavContext` for `open` / `setOpen` state.
 - A full-screen overlay renders similar menu items as desktop, but:
-  - Includes a top bar with logo, title "AMET Alumni" and close button (`XMarkIcon`).
+  - Includes a top bar with logo, title "Forgecircle Alumni" and close button (`XMarkIcon`).
   - Each nav item closes the menu (`setOpen(false)`) when clicked.
   - Bottom actions mirror desktop: Profile Settings, Admin Settings (admin only), Logout.
 - ESC key closes the panel.

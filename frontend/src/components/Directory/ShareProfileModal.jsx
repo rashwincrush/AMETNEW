@@ -24,7 +24,7 @@ export default function ShareProfileModal({ open, onClose, url }) {
     },
     {
       name: 'Email',
-      href: `mailto:?subject=AMET Alumni Profile&body=${encodedUrl}`,
+      href: `mailto:?subject=Alumni Profile&body=${encodedUrl}`,
       color: 'bg-indigo-600 hover:bg-indigo-700',
     },
   ];

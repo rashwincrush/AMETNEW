@@ -1,4 +1,4 @@
-# AMET Alumni Frontend - Detailed Architecture Guide
+# Forgecircle Alumni Frontend - Detailed Architecture Guide
 
 > **🎯 Purpose**: This guide provides comprehensive explanations of each frontend section with real examples, code snippets, and visual breakdowns to help you understand the complete architecture.
 
@@ -230,7 +230,7 @@ const linkClasses = `
   
   {/* Center: Branding */}
   <div className="flex-1 text-center">
-    <h1 className="text-xl font-semibold text-gray-900">AMET Alumni</h1>
+    <h1 className="text-xl font-semibold text-gray-900">Forgecircle Alumni</h1>
     <p className="text-sm text-gray-500">Connecting Mariners Since 1993</p>
   </div>
   

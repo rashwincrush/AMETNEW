@@ -1,0 +1,918 @@
+[
+  {
+    "name": "PSG College of Technology",
+    "district": "Coimbatore",
+    "website": "https://psgtech.edu",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='psgtech.edu', port=443): Max retries exceeded with url: / (Caused by SSLError(SSLError(1, '[SSL: DH_KEY_TOO_SMALL] dh key too small (_ssl.c:1000)')))",
+    "alumni_links": []
+  },
+  {
+    "name": "Coimbatore Institute of Technology",
+    "district": "Coimbatore",
+    "website": "https://cit.edu",
+    "has_alumni_platform": false,
+    "alumni_details": "No alumni-related content found",
+    "alumni_links": []
+  },
+  {
+    "name": "Government College of Technology, Coimbatore",
+    "district": "Coimbatore",
+    "website": "https://gct.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: graduates",
+    "alumni_links": [
+      {
+        "text": "GCT , the placement powerhouse - \"A glimpse into the proud moment of our graduates stepping into the professional world\"",
+        "url": "https://gct.ac.in/home-gallery"
+      },
+      {
+        "text": "View",
+        "url": "https://www.gctalumni.org.in/"
+      }
+    ]
+  },
+  {
+    "name": "Kumaraguru College of Technology",
+    "district": "Coimbatore",
+    "website": "https://kct.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://kct.ac.in/alumni/"
+      },
+      {
+        "text": "Alumni",
+        "url": "https://kct.ac.in/alumni/"
+      },
+      {
+        "text": "Alumni",
+        "url": "https://kct.ac.in/alumni/"
+      }
+    ]
+  },
+  {
+    "name": "Sri Ramakrishna Engineering College",
+    "district": "Coimbatore",
+    "website": "https://srec.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumnus",
+    "alumni_links": []
+  },
+  {
+    "name": "Karpagam College of Engineering",
+    "district": "Coimbatore",
+    "website": "https://kce.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni",
+    "alumni_links": [
+      {
+        "text": "Student Alumni",
+        "url": "http://115.249.154.33/Alumni/"
+      },
+      {
+        "text": "Alumni Success Stories",
+        "url": "https://kce.ac.in/alumni-success-stories/"
+      }
+    ]
+  },
+  {
+    "name": "Sri Krishna College of Engineering & Technology",
+    "district": "Coimbatore",
+    "website": "https://skcet.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: graduates, alumni",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://skcet.ac.in/student-life/alumni/"
+      },
+      {
+        "text": "Alumni",
+        "url": "https://skcet.ac.in/student-life/alumni/"
+      },
+      {
+        "text": "Alumni",
+        "url": "https://skcet.ac.in/student-life/alumni/"
+      }
+    ]
+  },
+  {
+    "name": "SNS College of Technology",
+    "district": "Coimbatore",
+    "website": "https://snscollege.ac.in",
+    "has_alumni_platform": false,
+    "alumni_details": "No alumni-related content found",
+    "alumni_links": []
+  },
+  {
+    "name": "KPR Institute of Engineering and Technology",
+    "district": "Coimbatore",
+    "website": "https://kpriet.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "javascript:void(0)"
+      },
+      {
+        "text": "Office of Alumni (OAR)",
+        "url": "https://kpriet.ac.in/alumni"
+      },
+      {
+        "text": "Alumni",
+        "url": "javascript:void(0)"
+      },
+      {
+        "text": "Alumni Home Page",
+        "url": "https://kpriet.ac.in/alumni"
+      }
+    ]
+  },
+  {
+    "name": "Dr. Mahalingam College of Engineering and Technology",
+    "district": "Coimbatore",
+    "website": "https://mcet.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='mcet.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108e3ef90>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Rathinam Technical Campus",
+    "district": "Coimbatore",
+    "website": "https://rathinamtechnicalcampus.com",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "http://alumni.rathinamcollege.com/"
+      },
+      {
+        "text": "Alumni",
+        "url": "http://alumni.rathinamcollege.com/"
+      }
+    ]
+  },
+  {
+    "name": "Thiagarajar College of Engineering",
+    "district": "Madurai",
+    "website": "https://tce.edu",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni, alumnus",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://tce.edu/alumni"
+      }
+    ]
+  },
+  {
+    "name": "Kamaraj College of Engineering and Technology",
+    "district": "Madurai",
+    "website": "https://kamarajengg.edu",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='kamarajengg.edu', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108af6de0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Solamalai College of Engineering",
+    "district": "Madurai",
+    "website": "https://solamalai.edu",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='solamalai.edu', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108af6de0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Vaigai College of Engineering",
+    "district": "Madurai",
+    "website": "https://vaigaicollege.edu",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='vaigaicollege.edu', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108af6de0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "KLN College of Information Technology",
+    "district": "Madurai",
+    "website": "https://klnce.edu",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://klnce.edu/alumni/login.html"
+      },
+      {
+        "text": "",
+        "url": "https://klnce.edu/alumni/login.html"
+      },
+      {
+        "text": "Alumni",
+        "url": "https://klnce.edu/alumni/login.html"
+      }
+    ]
+  },
+  {
+    "name": "Kongu Engineering College",
+    "district": "Erode",
+    "website": "https://kongu.edu",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='kongu.edu', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10da27680>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Bannari Amman Institute of Technology",
+    "district": "Erode",
+    "website": "https://bitsathy.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni",
+    "alumni_links": [
+      {
+        "text": "ALUMNI",
+        "url": "https://www.bitsathy.ac.in/alumni/"
+      }
+    ]
+  },
+  {
+    "name": "Erode Sengunthar Engineering College",
+    "district": "Erode",
+    "website": "https://erodesengunthar.ac.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='erodesengunthar.ac.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10db336e0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Velalar College of Engineering and Technology",
+    "district": "Erode",
+    "website": "https://vcet.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni registration, alumni",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://vcet.ac.in"
+      },
+      {
+        "text": "Distinguished Alumni",
+        "url": "https://vcet.ac.in/vcetit/disa.html"
+      },
+      {
+        "text": "Alumni Registration",
+        "url": "https://vcet.ac.in/vcetit/areg.html"
+      }
+    ]
+  },
+  {
+    "name": "Institute of Road and Transport Technology",
+    "district": "Erode",
+    "website": "https://irtt.ac.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='irtt.ac.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10db33e90>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Sri Sivasubramaniya Nadar College of Engineering",
+    "district": "Chennai",
+    "website": "https://ssn.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='ssn.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10db30a40>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Sri Sai Ram Engineering College",
+    "district": "Chennai",
+    "website": "https://sairam.edu.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: graduates, alumnus",
+    "alumni_links": [
+      {
+        "text": "View Event",
+        "url": "https://cce.sairam.edu.in/department-of-ece-in-association-with-mhrd-institute-innovation-council-alumni-association-ipr-club-conducted-a-webinar-on-identifying-intellectual-property-component-at-the-early-stage-of-inno/"
+      }
+    ]
+  },
+  {
+    "name": "Easwari Engineering College",
+    "district": "Chennai",
+    "website": "https://easwariengg.com",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='easwariengg.com', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10db50350>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Jerusalem College of Engineering",
+    "district": "Chennai",
+    "website": "https://jerusalemengg.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumnus, alumni, alumni meet, alumni registration, alumna",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://jerusalemengg.ac.in/alumni/alumni.php"
+      },
+      {
+        "text": "Alumni Corner – From Memories to Milestones\n\nWe are proud to feature our distinguished alumna Ms. Kayalvizhi L, MBA (Batch 2018–2020), currently working as an Accounts Payable Executive at Capgemini.",
+        "url": "https://jerusalemengg.ac.in/images/WhatsApp Image 2026-04-09 at 21.45.45.jpeg"
+      },
+      {
+        "text": "",
+        "url": "https://jerusalemengg.ac.in/alumni-spotlight.php"
+      },
+      {
+        "text": "Alumni Spotlight – Department of Biomedical Engineering",
+        "url": "https://jerusalemengg.ac.in/alumni-spotlight.php"
+      },
+      {
+        "text": "Alumni Talk on “Career Avenues for Biomedical Engineers as Calibration Engineer”",
+        "url": "https://jerusalemengg.ac.in/career-avenues-for-bme.php"
+      }
+    ]
+  },
+  {
+    "name": "Hindustan Institute of Technology and Science",
+    "district": "Chennai",
+    "website": "https://hindustanuniv.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: graduates, alumni, alumni association",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://hindustanuniv.ac.in/alumni-hits"
+      },
+      {
+        "text": "Hindustan Alumni Association (HITSAA)",
+        "url": "https://alumni.hindustanuniv.ac.in/"
+      },
+      {
+        "text": "Alumni",
+        "url": "https://hindustanuniv.ac.in/alumni-hits"
+      },
+      {
+        "text": "Alumni (HITSAA)",
+        "url": "https://hindustanuniv.ac.in/alumni-hits"
+      }
+    ]
+  },
+  {
+    "name": "Ethiraj College for Women",
+    "district": "Chennai",
+    "website": "https://ethirajcollege.edu.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni, alumna",
+    "alumni_links": [
+      {
+        "text": "Facebook",
+        "url": "https://m.facebook.com/Ethiraj-College-Alumnae-Association-411299449686528/"
+      },
+      {
+        "text": "Alumnae",
+        "url": "https://ethirajcollege.edu.in/alumnae/"
+      },
+      {
+        "text": "Alumnae Registration",
+        "url": "https://ethirajcollege.edu.in/alumnae-registration/"
+      },
+      {
+        "text": "Alumni Day",
+        "url": "https://ethirajcollege.edu.in/alumni-day/"
+      },
+      {
+        "text": "Faculty Alumnae",
+        "url": "https://ethirajcollege.edu.in/faculty-alumnae/"
+      }
+    ]
+  },
+  {
+    "name": "A.M. Jain College",
+    "district": "Chennai",
+    "website": "https://amjaincollege.edu",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='amjaincollege.edu', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108d63d10>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Dr.MGR Janaki College of Arts and Science for Women",
+    "district": "Chennai",
+    "website": "https://drmgrjanakicollege.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='drmgrjanakicollege.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108d63d10>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Chennai Institute of Technology",
+    "district": "Chennai",
+    "website": "https://citchennai.edu.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni",
+    "alumni_links": []
+  },
+  {
+    "name": "Indian Institute of Information Technology Design & Manufacturing Kancheepuram",
+    "district": "Chennai",
+    "website": "https://iiitdm.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://iiitdm.ac.in/people/alumni"
+      }
+    ]
+  },
+  {
+    "name": "M.Kumarasamy College of Engineering",
+    "district": "Karur",
+    "website": "https://mkce.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='mkce.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108beebd0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Government College of Engineering, Bargur",
+    "district": "Krishnagiri",
+    "website": "https://gcebargur.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: graduates, alumni",
+    "alumni_links": [
+      {
+        "text": "GCEBAA (Alumni)",
+        "url": "https://gcebargur.ac.in/90/gcebaa-alumni"
+      },
+      {
+        "text": "Graduates Employability",
+        "url": "https://gcebargur.ac.in/91/graduates-employability"
+      },
+      {
+        "text": "GCEBAA (Alumni)",
+        "url": "https://gcebargur.ac.in/90/gcebaa-alumni"
+      },
+      {
+        "text": "Graduates Employability",
+        "url": "https://gcebargur.ac.in/91/graduates-employability"
+      },
+      {
+        "text": "GCEB Alumni",
+        "url": "https://gcebargur.ac.in/90/gcebaa-alumni"
+      }
+    ]
+  },
+  {
+    "name": "Government College of Engineering, Salem",
+    "district": "Salem",
+    "website": "https://gcesalem.edu.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://www.aagcesalem.org.in/"
+      }
+    ]
+  },
+  {
+    "name": "Government College of Technology, Coimbatore",
+    "district": "Coimbatore",
+    "website": "https://gct.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: graduates",
+    "alumni_links": [
+      {
+        "text": "GCT , the placement powerhouse - \"A glimpse into the proud moment of our graduates stepping into the professional world\"",
+        "url": "https://gct.ac.in/home-gallery"
+      },
+      {
+        "text": "View",
+        "url": "https://www.gctalumni.org.in/"
+      }
+    ]
+  },
+  {
+    "name": "Alagappa Chettiar College of Engineering and Technology",
+    "district": "Karaikudi",
+    "website": "https://accet.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='accet.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10dbf3920>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Alagappa College of Technology",
+    "district": "Chennai",
+    "website": "https://annauniv.edu/act",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://www.actechalumni.org/home"
+      },
+      {
+        "text": "Distinguished Alumni",
+        "url": "https://www.actechalumni.org/awards"
+      }
+    ]
+  },
+  {
+    "name": "Arunachala College Of Engineering For Women",
+    "district": "Kanniyakumari",
+    "website": "https://arunachala.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='arunachala.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df80da0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Ayya Nadar Janaki Ammal College",
+    "district": "Sivakasi",
+    "website": "https://ayyajankiammal.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='ayyajankiammal.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df80c20>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "A.V.C College of Engineering",
+    "district": "Mayiladuthurai",
+    "website": "https://avcengg.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='avcengg.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df80d70>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "E.G.S Pillay Engineering College",
+    "district": "Nagapattinam",
+    "website": "https://egspillay.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='egspillay.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df80c20>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "R.M.K. Engineering College",
+    "district": "Chennai",
+    "website": "https://rmkec.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni meet, alumni",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://rmkalumni.org/"
+      },
+      {
+        "text": "37th ALUMNI MEET",
+        "url": "https://www.rmkec.ac.in/2023/37th-alumni-meet/"
+      },
+      {
+        "text": "Read More",
+        "url": "https://www.rmkec.ac.in/2023/37th-alumni-meet/"
+      },
+      {
+        "text": "ITALY & GERMANY ALUMNI MEET",
+        "url": "https://www.rmkec.ac.in/2023/italy-and-germany-alumni-meet/"
+      },
+      {
+        "text": "Read More",
+        "url": "https://www.rmkec.ac.in/2023/italy-and-germany-alumni-meet/"
+      }
+    ]
+  },
+  {
+    "name": "Bhajarang Engineering College",
+    "district": "Thiruvallur",
+    "website": "https://bhajarangengg.com",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='bhajarangengg.com', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df810a0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Thangavelu Engineering College",
+    "district": "Kanchipuram",
+    "website": "https://tengg.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='tengg.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df80b30>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Kings Engineering College",
+    "district": "Kanchipuram",
+    "website": "https://kingsedu.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: graduates, alumni, alumnus, alumni association",
+    "alumni_links": [
+      {
+        "text": "Alumni Association",
+        "url": "https://kingsedu.ac.in/alumni-association/"
+      },
+      {
+        "text": "Register as Alumni",
+        "url": "https://docs.google.com/forms/d/1PaiArauLHsAE8_vswX2n7-QMC0t8j6ABfAKXz9zZLHQ/formrestricted"
+      },
+      {
+        "text": "Alumni Association",
+        "url": "https://kingsedu.ac.in/alumni-association/"
+      },
+      {
+        "text": "Register as Alumni",
+        "url": "https://docs.google.com/forms/d/1PaiArauLHsAE8_vswX2n7-QMC0t8j6ABfAKXz9zZLHQ/formrestricted"
+      },
+      {
+        "text": "Alumni Association",
+        "url": "https://kingsedu.ac.in/alumni-association/"
+      }
+    ]
+  },
+  {
+    "name": "Adhiparasakthi Engineering College",
+    "district": "Kanchipuram",
+    "website": "https://adhiparasakthi.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='adhiparasakthi.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df18230>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Mohamed Sathak AJ College of Engineering",
+    "district": "Chennai",
+    "website": "https://msajce.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='msajce.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df182f0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Selvam College of Technology",
+    "district": "Namakkal",
+    "website": "https://selvamcollege.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='selvamcollege.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df18230>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "J.K.K.Nattraja College of Engineering and Technology",
+    "district": "Namakkal",
+    "website": "https://jkknat.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='jkknat.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df183b0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Sengunthar Engineering College",
+    "district": "Namakkal",
+    "website": "https://sengunthar.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='sengunthar.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df182f0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "CK College of Engineering",
+    "district": "Cuddalore",
+    "website": "https://ckcuddalore.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='ckcuddalore.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df183b0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "MRK Institute of Technology",
+    "district": "Cuddalore",
+    "website": "https://mrkinstitute.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='mrkinstitute.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df18410>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Dr.Navalar Nedunchezhiyan College of Engineering",
+    "district": "Cuddalore",
+    "website": "https://dnnce.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='dnnce.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df18410>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Film and Television Institute of Tamil Nadu",
+    "district": "Chennai",
+    "website": "https://ftitn.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='ftitn.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x10df18290>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "ICAT Design & Media College",
+    "district": "Chennai",
+    "website": "https://icat.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni, alumni association",
+    "alumni_links": [
+      {
+        "text": "Alumni Association",
+        "url": "https://www.icat.ac.in/alumni-design-media.aspx"
+      },
+      {
+        "text": "Alumni Testimonial",
+        "url": "https://www.icat.ac.in/alumni-testimonials-design-college.aspx"
+      },
+      {
+        "text": "Alumni Projectshelf",
+        "url": "https://www.icat.ac.in/alumni-projects-top-movies.aspx"
+      },
+      {
+        "text": "Alumni Association",
+        "url": "https://www.icat.ac.in/alumni-design-media.aspx"
+      },
+      {
+        "text": "Alumni Testimonial",
+        "url": "https://www.icat.ac.in/alumni-testimonials-design-college.aspx"
+      }
+    ]
+  },
+  {
+    "name": "Loyola-ICAM College of Engineering and Technology",
+    "district": "Chennai",
+    "website": "https://licet.ac.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://licet.ac.in/alumni/"
+      },
+      {
+        "text": "Alumni",
+        "url": "https://licet.ac.in/alumni/"
+      },
+      {
+        "text": "Ms. Linnet / Alumni @ Naan Mudhalvan Success Ceremony in the presence of The Honorable Chief Minister of TamilNadu.",
+        "url": "https://youtu.be/9MfUBIaxZAg"
+      },
+      {
+        "text": "Alumni",
+        "url": "https://licet.ac.in/alumni-feedback/"
+      },
+      {
+        "text": "Alumni",
+        "url": "https://licet.ac.in/alumni-feedback/"
+      }
+    ]
+  },
+  {
+    "name": "BSA Crescent Engineering College",
+    "district": "Chennai",
+    "website": "https://bsacrecent.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='bsacrecent.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108af7260>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Sri Sairam Institute of Technology",
+    "district": "Chennai",
+    "website": "https://sairamit.edu.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: graduates, alumni, alumnus",
+    "alumni_links": [
+      {
+        "text": "Alumni",
+        "url": "https://sairamit.edu.in/alumni/"
+      },
+      {
+        "text": "View Event",
+        "url": "https://cce.sairamit.edu.in/department-of-ece-in-association-with-mhrd-institute-innovation-council-alumni-association-ipr-club-conducted-a-webinar-on-identifying-intellectual-property-component-at-the-early-stage-of-inno/"
+      },
+      {
+        "text": "Alumni",
+        "url": "https://sairamit.edu.in/alumni/"
+      }
+    ]
+  },
+  {
+    "name": "Jaya Group of Colleges",
+    "district": "Chennai",
+    "website": "https://jayagroup.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='jayagroup.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108af69c0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Kumaraguru College of Liberal Arts and Science",
+    "district": "Coimbatore",
+    "website": "https://kclas.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='kclas.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108af6480>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Adithya Institute of Technology",
+    "district": "Coimbatore",
+    "website": "https://ait.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='ait.edu.in', port=443): Max retries exceeded with url: / (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x108af6870>, 'Connection to ait.edu.in timed out. (connect timeout=15)'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Velammal College of Engineering and Technology",
+    "district": "Madurai",
+    "website": "https://velammal.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='velammal.edu.in', port=443): Max retries exceeded with url: / (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)')))",
+    "alumni_links": []
+  },
+  {
+    "name": "P.T.R College of Engineering and Technology",
+    "district": "Madurai",
+    "website": "https://ptrcollege.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='ptrcollege.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108c80860>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Fathima Michael College of Engineering and Technology",
+    "district": "Madurai",
+    "website": "https://fatimamichael.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='fatimamichael.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108c80860>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Ultra College of Engineering and Technology",
+    "district": "Madurai",
+    "website": "https://ultracollege.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='ultracollege.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108c80410>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Chettinad College of Engineering and Technology",
+    "district": "Karur",
+    "website": "https://ccetkarur.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='ccetkarur.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108c80b60>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Sembodai Rukumani College of Engineering",
+    "district": "Nagapattinam",
+    "website": "https://srcengg.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='srcengg.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108c80b60>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Sir Isaac Newton College of Engineering and Technology",
+    "district": "Nagapattinam",
+    "website": "https://sincet.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='sincet.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108c80b60>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Arifa Institute of Engineering and Technology",
+    "district": "Nagapattinam",
+    "website": "https://arifainstitute.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='arifainstitute.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108c80170>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Krishnaswamy College of Engineering and Technology",
+    "district": "Cuddalore",
+    "website": "https://kcet.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "No alumni-related content found",
+    "alumni_links": []
+  },
+  {
+    "name": "St.Anne College of Engineering and Technology",
+    "district": "Cuddalore",
+    "website": "https://stannecollege.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='stannecollege.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108c80320>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Annai Teresa College of Education",
+    "district": "Sivagangai",
+    "website": "https://annaitheresa.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='annaitheresa.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108c80320>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "College of Agricultural Technology",
+    "district": "Thoothukudi",
+    "website": "https://cat.edu.in",
+    "has_alumni_platform": true,
+    "alumni_details": "Found keywords: alumni",
+    "alumni_links": []
+  },
+  {
+    "name": "Government Arts College, Karur",
+    "district": "Karur",
+    "website": "https://gackarur.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='gackarur.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108f2afc0>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  },
+  {
+    "name": "Indra Ganesan College of Engineering",
+    "district": "Trichy",
+    "website": "https://igce.edu.in",
+    "has_alumni_platform": false,
+    "alumni_details": "Error accessing website: HTTPSConnectionPool(host='igce.edu.in', port=443): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x108f2b050>: Failed to establish a new connection: [Errno 8] nodename nor servname provided, or not known'))",
+    "alumni_links": []
+  }
+]

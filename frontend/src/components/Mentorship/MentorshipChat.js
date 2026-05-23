@@ -28,6 +28,7 @@ import { supabase, onPostgresChangesOnce, checkConnectionStatus } from '../../ut
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { Box, TextField, Button, Paper, Typography, CircularProgress, Alert, AlertTitle } from '@mui/material';
+import logger from '../../utils/logger';
 
 /**
  * @deprecated Use useOpenMentorshipChat hook instead

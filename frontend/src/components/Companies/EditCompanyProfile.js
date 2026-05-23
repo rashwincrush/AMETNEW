@@ -159,7 +159,7 @@ const EditCompanyProfileContent = ({ user }) => {
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                   <BuildingOfficeIcon className="h-5 w-5 text-gray-400" />
                 </div>
-                <input type="text" name="name" id="name" value={formData.name} onChange={handleInputChange} className="block w-full rounded-md border-gray-300 pl-10 focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm" placeholder="e.g., AMET Shipping" />
+                <input type="text" name="name" id="name" value={formData.name} onChange={handleInputChange} className="block w-full rounded-md border-gray-300 pl-10 focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm" placeholder="Solutions Inc." />
               </div>
             </div>
             <div>
@@ -168,7 +168,7 @@ const EditCompanyProfileContent = ({ user }) => {
                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                   <GlobeAltIcon className="h-5 w-5 text-gray-400" />
                 </div>
-                <input type="url" name="website" id="website" value={formData.website} onChange={handleInputChange} className="block w-full rounded-md border-gray-300 pl-10 focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm" placeholder="https://example.com" />
+                <input type="url" name="website" id="website" value={formData.website} onChange={handleInputChange} className="block w-full rounded-md border-gray-300 pl-10 focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm" placeholder="https://www.solutions.com" />
               </div>
             </div>
           </div>
@@ -182,7 +182,7 @@ const EditCompanyProfileContent = ({ user }) => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <label htmlFor="industry" className="block text-sm font-medium text-gray-700">Industry</label>
-            <input type="text" name="industry" id="industry" value={formData.industry} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm" placeholder="e.g., Maritime" />
+            <input type="text" name="industry" id="industry" value={formData.industry} onChange={handleInputChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-ocean-500 focus:ring-ocean-500 sm:text-sm" placeholder="e.g., Industry" />
           </div>
           <div>
             <label htmlFor="location" className="block text-sm font-medium text-gray-700">Location</label>

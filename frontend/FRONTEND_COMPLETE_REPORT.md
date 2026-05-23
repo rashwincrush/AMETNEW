@@ -1,4 +1,4 @@
-# AMET Alumni Frontend – Complete Architecture & Role-Based Flow Report
+# Forgecircle Alumni Frontend – Complete Architecture & Role-Based Flow Report
 
 ## 1. High‑Level Overview
 
@@ -386,7 +386,7 @@ Mentorship is a full module with its own layout.
     - Patterns from Directory, Jobs, Events, Mentorship modules.
   - Replace branding:
     - Logos (`public/default-avatar.svg`, `Logo` component).
-    - Text like “AMET Alumni” and the tagline.
+    - Text like “Forgecircle Alumni” and the tagline.
 
 - **To swap backends later**
   - Keep component structure and flows.
@@ -1446,7 +1446,7 @@ These services provide **higher‑level business operations** to components and 
 
 ## 13. Conclusion
 
-This comprehensive report provides a complete overview of the AMET Alumni frontend architecture, UX flows, and role-based behaviors across all modules. The frontend is built as a role-gated React SPA with consistent patterns for authentication, permissions, and module-specific functionality. Each module (Directory, Jobs, Events, Mentorship, Groups, Messages, Admin) has been documented with its components, hooks, APIs, and explicit role-based flows for Alumni, Students, Employers, Admins, and Super Admins.
+This comprehensive report provides a complete overview of the Forgecircle Alumni frontend architecture, UX flows, and role-based behaviors across all modules. The frontend is built as a role-gated React SPA with consistent patterns for authentication, permissions, and module-specific functionality. Each module (Directory, Jobs, Events, Mentorship, Groups, Messages, Admin) has been documented with its components, hooks, APIs, and explicit role-based flows for Alumni, Students, Employers, Admins, and Super Admins.
 
 The architecture supports:
 - **Scalable role-based access control** with clear separation between user types
@@ -1455,4 +1455,4 @@ The architecture supports:
 - **Modular design** that facilitates maintenance and future enhancements
 - **Security-conscious implementation** with both frontend and backend enforcement
 
-This documentation serves as a comprehensive reference for developers, product managers, and stakeholders working with the AMET Alumni platform frontend.
+This documentation serves as a comprehensive reference for developers, product managers, and stakeholders working with the Forgecircle Alumni platform frontend.

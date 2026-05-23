@@ -13,6 +13,7 @@ import {
   CalendarIcon,
   ChartBarIcon,
 } from '@heroicons/react/24/outline';
+import logger from '../../utils/logger';
 
 const Dashboard = () => {
   const { user } = useAuth();

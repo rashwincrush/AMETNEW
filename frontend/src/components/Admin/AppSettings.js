@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { toFriendlyToast } from '../../utils/errors';
 import { Cog6ToothIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import logger from '../../utils/logger';
 
 /**
  * AppSettings - Allows super admins to manage system-wide settings
@@ -106,11 +107,11 @@ const AppSettings = () => {
       setSaving(true);
       
       const defaultSettings = [
-        { key: 'site_name', value: 'AMET Alumni Network', description: 'Name of the alumni site', type: 'text' },
-        { key: 'site_description', value: 'Connect with fellow AMET alumni', description: 'Short description of the site', type: 'textarea' },
+        { key: 'site_name', value: 'Alumni Network', description: 'Name of the alumni site', type: 'text' },
+        { key: 'site_description', value: 'Connect with fellow alumni', description: 'Short description of the site', type: 'textarea' },
         { key: 'enable_registration', value: 'true', description: 'Allow new user registration', type: 'boolean' },
         { key: 'require_approval', value: 'true', description: 'Require admin approval for new accounts', type: 'boolean' },
-        { key: 'auto_approve_amet_email', value: 'true', description: 'Auto-approve users with @amet.ac.in email', type: 'boolean' },
+        { key: 'auto_approve_alumni_email', value: 'true', description: 'Auto-approve users with alumni email', type: 'boolean' },
         { key: 'email_verification', value: 'true', description: 'Require email verification', type: 'boolean' },
         { key: 'max_file_size', value: '5', description: 'Maximum file upload size (MB)', type: 'number' },
         { key: 'primary_color', value: '#2563EB', description: 'Primary brand color', type: 'color' },
@@ -192,7 +193,7 @@ const AppSettings = () => {
           <div className="ml-3">
             <h3 className="text-lg font-medium text-blue-900">System Settings</h3>
             <p className="text-sm text-blue-700 mt-1">
-              Configure system-wide settings and preferences for the AMET Alumni Platform
+              Configure system-wide settings and preferences for the Alumni Platform
             </p>
           </div>
         </div>

@@ -11,12 +11,12 @@ const TermsOfService = () => {
         <SupportPageHeader hideBackWhenFromRegistration />
 
         <div className="bg-white shadow-xl rounded-2xl p-6 md:p-10">
-          <h1 className="text-3xl md:text-4xl font-bold mb-6 text-center text-gray-900">AMET Alumni Association — Terms and Conditions</h1>
+          <h1 className="text-3xl md:text-4xl font-bold mb-6 text-center text-gray-900">Alumni Association — Terms and Conditions</h1>
           <div className="prose prose-lg max-w-none text-gray-700">
             <section className="mb-8">
               <h2 className="text-2xl font-semibold mb-4">1. Preamble</h2>
               <p className="leading-relaxed">
-                This Memorandum of Understanding (MoU) / Constitution outlines the objectives, rights, and obligations of the AMET Alumni Association (A3). Conceived in 2008 under the vision of the Founder Chancellor, Dr. J. Ramachandran, the Association represents over 15,000 registered alumni worldwide and functions as a bridge between alumni, students, and the University.
+                This Memorandum of Understanding (MoU) / Constitution outlines the objectives, rights, and obligations of the Alumni Association. Conceived in 2008 under the vision of the Founder Chancellor, Dr. J. Ramachandran, the Association represents over 15,000 registered alumni worldwide and functions as a bridge between alumni, students, and the University.
               </p>
             </section>
 
@@ -24,13 +24,13 @@ const TermsOfService = () => {
               <h2 className="text-2xl font-semibold mb-4">2. Objectives</h2>
               <p className="leading-relaxed mb-4">The Association is constituted with the following objectives:</p>
               <ol className="list-decimal list-inside space-y-2">
-                <li>Strengthen alumni engagement with AMET University and support its academic, cultural, and extracurricular growth.</li>
+                <li>Strengthen alumni engagement with the University and support its academic, cultural, and extracurricular growth.</li>
                 <li>Provide scholarships, awards, career guidance, and mentorship for students.</li>
                 <li>Raise funds, endowments, and welfare initiatives for the benefit of students and alumni.</li>
                 <li>Promote professional collaboration, fellowship, and knowledge-sharing among alumni.</li>
                 <li>Contribute to curriculum development through participation in Board of Studies and academic forums.</li>
                 <li>Maintain a structured alumni database and communication portal for networking and career opportunities.</li>
-                <li>Protect the collective interests of alumni while upholding the values of AMET.</li>
+                <li>Protect the collective interests of alumni while upholding the values of the institution.</li>
               </ol>
             </section>
 
@@ -56,7 +56,7 @@ const TermsOfService = () => {
               <h2 className="text-2xl font-semibold mb-4">5. Termination & Dissolution</h2>
               <ul className="list-disc list-inside space-y-2">
                 <li>The Association may be dissolved in accordance with its bylaws and governing rules.</li>
-                <li>Upon dissolution, after settlement of debts and liabilities, remaining assets shall be transferred to AMET University or a registered trust/society having similar objectives.</li>
+                <li>Upon dissolution, after settlement of debts and liabilities, remaining assets shall be transferred to the University or a registered trust/society having similar objectives.</li>
               </ul>
             </section>
 

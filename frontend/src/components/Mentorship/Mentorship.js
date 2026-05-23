@@ -255,8 +255,8 @@ const Mentorship = () => {
           full_name: mentor.full_name,
           avatar_url: mentor.avatar_url,
         };
-        const title = 'Maritime Professional';
-        const company = 'AMET';
+        const title = 'Professional';
+        const company = 'Alumni';
         const location = mentor.location || 'Unknown';
         // Use view field as single source of truth
         const isAvailable = !!mentor.is_available_for_mentorship;
@@ -349,11 +349,11 @@ const Mentorship = () => {
 
   const expertiseOptions = [
     { value: 'all', label: 'All Expertise Areas' },
-    { value: 'marine-engineering', label: 'Marine Engineering' },
-    { value: 'naval-architecture', label: 'Naval Architecture' },
+    { value: 'engineering', label: 'Engineering' },
+    { value: 'architecture', label: 'Architecture' },
     { value: 'port-management', label: 'Port Management' },
-    { value: 'maritime-law', label: 'Maritime Law' },
-    { value: 'ship-operations', label: 'Ship Operations' },
+    { value: 'law', label: 'Law' },
+    { value: 'operations', label: 'Operations' },
     { value: 'logistics', label: 'Logistics' },
     { value: 'research', label: 'Research & Development' }
   ];
@@ -430,7 +430,7 @@ const Mentorship = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Mentorship Program</h1>
-            <p className="text-gray-600">Connect with experienced professionals and advance your maritime career</p>
+            <p className="text-gray-600">Connect with experienced professionals and advance your career</p>
           </div>
           <div className="flex items-center gap-2">
             <Link 

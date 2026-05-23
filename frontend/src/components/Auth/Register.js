@@ -138,7 +138,7 @@ const Register = () => {
             <span className="text-white font-bold text-xl">A</span>
           </div>
           <h2 className="text-3xl font-bold text-gray-900">
-            Join AMET Alumni
+            Join Alumni
           </h2>
           <p className="mt-2 text-gray-600">
             Create your account to connect with fellow alumni

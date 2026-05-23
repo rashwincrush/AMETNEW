@@ -11,6 +11,40 @@ import { lockdownConsoleInProduction } from "./utils/logger";
 // This prevents exposure of sensitive data (UUIDs, emails, tokens, user data) in DevTools
 lockdownConsoleInProduction();
 
+// ACCESSIBILITY: Run axe-core checks in development to catch regressions
+// Any violation after a Windsurf change = regression, fix before moving to next prompt
+if (process.env.NODE_ENV === 'development') {
+  import('@axe-core/react').then(({ default: axe }) => {
+    axe(React, ReactDOM, 1000, {
+      rules: [
+        // Critical for Phase 1 accessibility fixes
+        { id: 'color-contrast', enabled: true },
+        { id: 'aria-live-region-content', enabled: true },
+        { id: 'aria-required-attr', enabled: true },
+        { id: 'label', enabled: true },
+        { id: 'table-duplicate-name', enabled: true },
+        // Additional important rules
+        { id: 'aria-roles', enabled: true },
+        { id: 'aria-valid-attr-value', enabled: true },
+        { id: 'button-name', enabled: true },
+        { id: 'image-alt', enabled: true },
+        { id: 'link-name', enabled: true },
+        { id: 'list', enabled: true },
+        { id: 'page-has-heading-one', enabled: true },
+      ]
+    });
+    // eslint-disable-next-line no-console
+    console.log('🔍 axe-core accessibility checker active in development');
+    // eslint-disable-next-line no-console
+    console.log('   Any accessibility violations will be logged to console');
+    // eslint-disable-next-line no-console
+    console.log('   Fix violations immediately - they indicate regressions');
+  }).catch(err => {
+    // eslint-disable-next-line no-console
+    console.warn('⚠️  Failed to load axe-core:', err);
+  });
+}
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <React.StrictMode>

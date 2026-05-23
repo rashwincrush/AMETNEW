@@ -42,7 +42,7 @@ export default function MentorshipLayout() {
             )}
           </div>
           <p className="text-sm text-slate-600 max-w-2xl">
-            Connect with trainers, guide trainees, and grow your professional network.
+            Connect with mentors, guide mentees, and grow your professional network.
           </p>
         </div>
       </div>

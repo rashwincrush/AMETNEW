@@ -30,6 +30,11 @@ export default function NotificationItem({ n, onToggleRead, onNavigate }) {
   const message = n.message || '';
   const relativeTime = formatDistanceToNow(new Date(n.created_at), { addSuffix: true });
 
+  // Extract AI score and reason for job alerts from notification data
+  const aiScore = n.data?.ai_score;
+  const aiReason = n.data?.ai_reason;
+  const isJobAlert = n.type === 'job_alert';
+
   // Use secure link getter (sanitizes and derives safe links)
   const safeLink = getNotificationLink(n);
   const hasActionableLink = safeLink && safeLink !== '#';
@@ -92,6 +97,17 @@ export default function NotificationItem({ n, onToggleRead, onNavigate }) {
           </p>
           {message && (
             <p className="mt-0.5 text-xs text-gray-600 leading-relaxed break-words line-clamp-2">{message}</p>
+          )}
+          {/* AI Score Badge and Reason for Job Alerts */}
+          {isJobAlert && aiScore && (
+            <div className="mt-1 flex items-center gap-2">
+              <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-green-100 text-green-700">
+                {aiScore}% match
+              </span>
+              {aiReason && (
+                <span className="text-[10px] text-gray-500 line-clamp-1">{aiReason}</span>
+              )}
+            </div>
           )}
           {hasActionableLink && ctaText && (
             <span className="sr-only">{ctaText}</span>

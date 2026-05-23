@@ -65,7 +65,7 @@ const AdminDashboard = ({ user }) => {
               Admin Dashboard 🚀
             </h1>
             <p className="mt-1 opacity-90">
-              Manage and monitor the AMET Alumni System
+              Manage and monitor the Alumni System
             </p>
           </div>
           <div className="hidden md:block">

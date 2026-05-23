@@ -5,7 +5,7 @@ OWNER-PROVIDED FACTS are flagged; REPO-EVIDENCED FACTS cite paths/lines. Secrets
 ## A) EU SCC (2021) — Annex I Inputs
 ### Parties & Roles
 - Controller: Customer (OWNER-PROVIDED; specify legal entity).
-- Processor: AMET Alumni platform (Supabase-backed app) (REPO-EVIDENCED hosting stack). @CONTRACT_PACK_INPUTS_DOSSIER.md#9-18 · @vercel.json#1-38
+- Processor: Forgecircle Alumni platform (Supabase-backed app) (REPO-EVIDENCED hosting stack). @CONTRACT_PACK_INPUTS_DOSSIER.md#9-18 · @vercel.json#1-38
 
 ### Categories of Data Subjects
 - End users: alumni, students, employers, admins. @CONTRACT_PACK_INPUTS_DOSSIER.md#20-36

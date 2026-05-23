@@ -106,7 +106,7 @@ export default function FindMentorsPage() {
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-gray-900">Find a mentor</h2>
         <p className="mt-1 text-sm text-gray-600">
-          Search mentors from the AMET community who can guide you and send a mentorship request.
+          Search mentors from the alumni community who can guide you and send a mentorship request.
         </p>
       </div>
 
@@ -188,8 +188,8 @@ export default function FindMentorsPage() {
                         <h3 className="text-lg font-semibold text-gray-900 truncate">
                           {mentor.full_name}
                         </h3>
-                        <p className="text-sm text-gray-600">{mentor.title || 'Maritime Professional'}</p>
-                        <p className="text-sm text-gray-500">{mentor.organization || 'AMET'}</p>
+                        <p className="text-sm text-gray-600">{mentor.title || 'Professional'}</p>
+                        <p className="text-sm text-gray-500">{mentor.organization || 'Alumni'}</p>
                       </div>
                       {relationshipState === 'request_accepted' && (
                         <span className="ml-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
