@@ -1,0 +1,23 @@
+{
+  "python.defaultInterpreterPath": "/Users/ashwin/CascadeProjects/AMETNEW/AMETNEWSUPABASE/.locust_env/bin/python",
+  "github.copilot.chat.mcpServers": {
+    "mcp-locust": {
+      "command": "/Users/ashwin/CascadeProjects/AMETNEW/AMETNEWSUPABASE/.locust_env/bin/python",
+      "args": [
+        "-u",
+        "/Users/ashwin/.windsurf/extensions/locust.locust-vscode-extension-0.1.70-universal/mcp/server.py"
+      ],
+      "cwd": "${workspaceFolder}"
+    }
+  },
+  "github.copilot.experimental.mcpServers": {
+    "mcp-locust": {
+      "command": "/Users/ashwin/CascadeProjects/AMETNEW/AMETNEWSUPABASE/.locust_env/bin/python",
+      "args": [
+        "-u",
+        "/Users/ashwin/.windsurf/extensions/locust.locust-vscode-extension-0.1.70-universal/mcp/server.py"
+      ],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}
