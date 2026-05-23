@@ -12,7 +12,7 @@ import { lockdownConsoleInProduction } from "./utils/logger";
 lockdownConsoleInProduction();
 
 // ACCESSIBILITY: Run axe-core checks in development to catch regressions
-// Any violation after a Windsurf change = regression, fix before moving to next prompt
+// Any accessibility violation found = regression, fix before deploying
 if (process.env.NODE_ENV === 'development') {
   import('@axe-core/react').then(({ default: axe }) => {
     axe(React, ReactDOM, 1000, {
